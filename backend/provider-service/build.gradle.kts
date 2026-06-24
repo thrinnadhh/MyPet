@@ -1,0 +1,66 @@
+import com.google.protobuf.gradle.*
+
+plugins {
+    kotlin("jvm")
+    kotlin("plugin.spring")
+    kotlin("plugin.jpa")
+    id("org.springframework.boot")
+    id("com.google.protobuf")
+}
+
+kotlin {
+    jvmToolchain(21)
+}
+
+dependencies {
+    // Import Spring Boot BOM for dependency version management
+    implementation(platform("org.springframework.boot:spring-boot-dependencies:3.2.3"))
+
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
+    implementation("org.springframework.kafka:spring-kafka")
+    
+    implementation("org.jetbrains.kotlin:kotlin-reflect")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib")
+    
+    // PostgreSQL and PostGIS support
+    runtimeOnly("org.postgresql:postgresql")
+    implementation("org.hibernate.orm:hibernate-spatial:6.4.4.Final")
+    
+    // gRPC dependencies
+    implementation("io.grpc:grpc-netty-shaded:1.62.2")
+    implementation("io.grpc:grpc-protobuf:1.62.2")
+    implementation("io.grpc:grpc-stub:1.62.2")
+    implementation("jakarta.annotation:jakarta.annotation-api:2.1.1")
+    implementation("javax.annotation:javax.annotation-api:1.3.2")
+    implementation("net.devh:grpc-server-spring-boot-starter:3.1.0.RELEASE")
+    
+    // Test dependencies
+    testImplementation("com.h2database:h2")
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:3.25.1"
+    }
+    plugins {
+        id("grpc") {
+            artifact = "io.grpc:protoc-gen-grpc-java:1.62.2"
+        }
+    }
+    generateProtoTasks {
+        ofSourceSet("main").forEach {
+            it.plugins {
+                id("grpc") {}
+            }
+        }
+    }
+}
+
+tasks.test {
+    useJUnitPlatform()
+}

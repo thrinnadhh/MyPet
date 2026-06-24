@@ -1,0 +1,32 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: discovery-service
+  datasource:
+    url: jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=providers,catalog,public&stringtype=unspecified
+    username: discovery_service_role
+    password: discovery_service_pass
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    properties:
+      hibernate:
+        default_schema: providers
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+  data:
+    redis:
+      host: localhost
+      port: 6380
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: discovery-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"

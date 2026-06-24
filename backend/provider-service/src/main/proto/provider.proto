@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package com.pawsnearme.providerservice.grpc;
+
+option java_multiple_files = true;
+option java_package = "com.pawsnearme.providerservice.grpc";
+
+service ProviderService {
+  rpc GetProviderDetails (ProviderRequest) returns (ProviderResponse);
+}
+
+message ProviderRequest {
+  string provider_id = 1;
+}
+
+message ProviderResponse {
+  string provider_id = 1;
+  string name = 2;
+  string provider_type = 3;
+  string fulfillment_type = 4;
+  double latitude = 5;
+  double longitude = 6;
+  string status = 7;
+}
