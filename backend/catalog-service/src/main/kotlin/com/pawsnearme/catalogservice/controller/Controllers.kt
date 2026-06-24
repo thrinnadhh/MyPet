@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.util.UUID
 
+
 @RestController
 @RequestMapping("/api/v1/catalog")
 class CatalogController(private val catalogService: CatalogService) {
@@ -74,16 +75,5 @@ class CatalogController(private val catalogService: CatalogService) {
         catalogService.deleteSlot(slotId)
         return ResponseEntity.noContent().build()
     }
-
-    // --- Exception Handlers ---
-
-    @ExceptionHandler(IllegalArgumentException::class)
-    fun handleBadRequest(ex: IllegalArgumentException): ResponseEntity<Map<String, String>> {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapOf("error" to (ex.message ?: "Bad Request")))
-    }
-
-    @ExceptionHandler(NoSuchElementException::class)
-    fun handleNotFound(ex: NoSuchElementException): ResponseEntity<Map<String, String>> {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to (ex.message ?: "Not Found")))
-    }
 }
+

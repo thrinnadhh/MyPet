@@ -1,13 +1,13 @@
 server:
-  port: 8082
+  port: ${SERVER_PORT:8082}
 
 spring:
   application:
     name: catalog-service
   datasource:
-    url: jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=catalog,providers,identity,public&stringtype=unspecified
-    username: catalog_service_role
-    password: catalog_service_pass
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=catalog,providers,identity,public&stringtype=unspecified}
+    username: ${DB_USERNAME:catalog_service_role}
+    password: ${DB_PASSWORD:catalog_service_pass}
     driver-class-name: org.postgresql.Driver
   jpa:
     properties:
@@ -16,4 +16,13 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: none
+    show-sql: ${JPA_SHOW_SQL:false}
+
+---
+# Dev profile: enable SQL logging
+spring:
+  config:
+    activate:
+      on-profile: dev
+  jpa:
     show-sql: true

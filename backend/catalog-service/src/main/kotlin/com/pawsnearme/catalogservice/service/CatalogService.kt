@@ -66,7 +66,10 @@ class CatalogService(
         val offering = offeringRepository.findById(slot.offeringId)
             .orElseThrow { IllegalArgumentException("Offering with ID ${slot.offeringId} not found") }
 
-        if (offering.durationMinutes == null) {
+        // Only APPOINTMENT-type offerings support time slots
+        val offeringProvider = providerRepository.findById(offering.providerId)
+            .orElseThrow { IllegalArgumentException("Provider with ID ${offering.providerId} not found") }
+        if (offeringProvider.fulfillmentType != FulfillmentType.APPOINTMENT) {
             throw IllegalArgumentException("Cannot create slots for a DELIVERY (product) offering")
         }
 
@@ -100,23 +103,24 @@ class CatalogService(
 
     // --- Private Helpers ---
 
-    private fun validateOfferingFields(offering: Offering, fulfillmentType: String) {
-        if (fulfillmentType == "DELIVERY") {
-            if (offering.stockQuantity == null) {
-                throw IllegalArgumentException("DELIVERY fulfillment offerings must specify a stock quantity")
+    private fun validateOfferingFields(offering: Offering, fulfillmentType: FulfillmentType) {
+        when (fulfillmentType) {
+            FulfillmentType.DELIVERY -> {
+                if (offering.stockQuantity == null) {
+                    throw IllegalArgumentException("DELIVERY fulfillment offerings must specify a stock quantity")
+                }
+                if (offering.durationMinutes != null) {
+                    throw IllegalArgumentException("DELIVERY fulfillment offerings cannot specify a duration")
+                }
             }
-            if (offering.durationMinutes != null) {
-                throw IllegalArgumentException("DELIVERY fulfillment offerings cannot specify a duration")
+            FulfillmentType.APPOINTMENT -> {
+                if (offering.durationMinutes == null) {
+                    throw IllegalArgumentException("APPOINTMENT fulfillment offerings must specify a duration in minutes")
+                }
+                if (offering.stockQuantity != null) {
+                    throw IllegalArgumentException("APPOINTMENT fulfillment offerings cannot specify a stock quantity")
+                }
             }
-        } else if (fulfillmentType == "APPOINTMENT") {
-            if (offering.durationMinutes == null) {
-                throw IllegalArgumentException("APPOINTMENT fulfillment offerings must specify a duration in minutes")
-            }
-            if (offering.stockQuantity != null) {
-                throw IllegalArgumentException("APPOINTMENT fulfillment offerings cannot specify a stock quantity")
-            }
-        } else {
-            throw IllegalArgumentException("Unsupported fulfillment type: $fulfillmentType")
         }
     }
 }

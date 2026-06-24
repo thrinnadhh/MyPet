@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   StyleSheet, 
   View, 
@@ -50,6 +50,23 @@ interface Slot {
   slotEnd: string; // ISO String
   status: 'AVAILABLE' | 'HELD' | 'BOOKED' | 'BLOCKED';
 }
+
+/**
+ * DEMO_PROVIDERS: Placeholder provider data used until Supabase Auth supplies
+ * real session-based provider IDs. Replace with auth context in Sprint 3.
+ */
+const DEMO_PROVIDERS = [
+  {
+    id: 'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
+    label: '🏬 Pet Store',
+    fulfillmentType: 'DELIVERY' as const,
+  },
+  {
+    id: 'e2b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
+    label: '✂️ Groomer',
+    fulfillmentType: 'APPOINTMENT' as const,
+  },
+];
 
 const OFFLINE_MOCK_OFFERINGS: Record<string, Offering[]> = {
   // e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e (PET_STORE - DELIVERY)
@@ -134,11 +151,10 @@ export default function InventoryScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  // Business / Provider details
-  const [selectedProviderId, setSelectedProviderId] = useState('e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e');
-  const selectedProviderFulfillment = useMemo(() => {
-    return selectedProviderId === 'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e' ? 'DELIVERY' : 'APPOINTMENT';
-  }, [selectedProviderId]);
+  // Provider / business context — driven by DEMO_PROVIDERS config, not raw UUIDs
+  const [selectedProvider, setSelectedProvider] = useState(DEMO_PROVIDERS[0]);
+  const selectedProviderId = selectedProvider.id;
+  const selectedProviderFulfillment = selectedProvider.fulfillmentType;
 
   // Inventory state
   const [offerings, setOfferings] = useState<Offering[]>([]);
@@ -508,35 +524,27 @@ export default function InventoryScreen() {
         <View style={[styles.header, { borderBottomColor: colors.backgroundSelected }]}>
           <ThemedText type="subtitle" style={{ fontWeight: '800' }}>Catalog & Inventory</ThemedText>
           <View style={styles.tabRow}>
-            <TouchableOpacity
-              style={[
-                styles.tabBtn,
-                selectedProviderId === 'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e' && { 
-                  backgroundColor: colors.backgroundSelected, 
-                  borderWidth: 2, 
-                  borderColor: colors.text 
-                }
-              ]}
-              onPress={() => setSelectedProviderId('e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e')}
-              activeOpacity={0.7}
-            >
-              <ThemedText type="small" style={{ fontWeight: '700' }}>🏬 Pet Store</ThemedText>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[
-                styles.tabBtn,
-                selectedProviderId === 'e2b07384-d113-4e4e-9c8e-3d8e3d8e3d8e' && { 
-                  backgroundColor: colors.backgroundSelected, 
-                  borderWidth: 2, 
-                  borderColor: colors.text 
-                }
-              ]}
-              onPress={() => setSelectedProviderId('e2b07384-d113-4e4e-9c8e-3d8e3d8e3d8e')}
-              activeOpacity={0.7}
-            >
-              <ThemedText type="small" style={{ fontWeight: '700' }}>✂️ Groomer</ThemedText>
-            </TouchableOpacity>
+            {DEMO_PROVIDERS.map((provider) => (
+              <TouchableOpacity
+                key={provider.id}
+                style={[
+                  styles.tabBtn,
+                  { backgroundColor: colors.backgroundElement },
+                  selectedProviderId === provider.id && {
+                    backgroundColor: colors.backgroundSelected,
+                    borderWidth: 2,
+                    borderColor: colors.text,
+                  }
+                ]}
+                onPress={() => setSelectedProvider(provider)}
+                activeOpacity={0.7}
+                accessibilityRole="tab"
+                accessibilityLabel={`Switch to ${provider.label}`}
+                accessibilityState={{ selected: selectedProviderId === provider.id }}
+              >
+                <ThemedText type="small" style={{ fontWeight: '700' }}>{provider.label}</ThemedText>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
 

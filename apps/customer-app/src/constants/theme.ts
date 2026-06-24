@@ -9,22 +9,22 @@ import { Platform } from 'react-native';
 
 export const Colors = {
   light: {
-    text: '#064E3B',
-    background: '#ECFDF5', // Soft Mint
-    backgroundElement: '#ffffff', // Clean White Cards
-    backgroundSelected: '#D1FAE5',
-    textSecondary: '#047857',
-    primary: '#059669',
-    cta: '#F97316', // Action Orange
+    text: '#000000',
+    background: '#ffffff',
+    backgroundElement: '#F0F0F3',
+    backgroundSelected: '#E0E1E6',
+    textSecondary: '#60646C',
+    primary: '#2563eb',
+    cta: '#10b981',
   },
   dark: {
-    text: '#F0FDF4',
-    background: '#022C22', // Deep Emerald Dark Mode
-    backgroundElement: '#064E3B', // Dark Emerald Cards
-    backgroundSelected: '#047857',
-    textSecondary: '#A7F3D0',
-    primary: '#10B981',
-    cta: '#F97316',
+    text: '#ffffff',
+    background: '#000000',
+    backgroundElement: '#212225',
+    backgroundSelected: '#2E3135',
+    textSecondary: '#B0B4BA',
+    primary: '#3b82f6',
+    cta: '#34d399',
   },
 } as const;
 

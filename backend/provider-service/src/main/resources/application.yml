@@ -1,13 +1,13 @@
 server:
-  port: 8081
+  port: ${SERVER_PORT:8081}
 
 spring:
   application:
     name: provider-service
   datasource:
-    url: jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=providers,identity,public&stringtype=unspecified
-    username: postgres
-    password: postgres
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=providers,identity,public&stringtype=unspecified}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
   jpa:
     properties:
@@ -16,14 +16,22 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: none
-    show-sql: true
+    show-sql: ${JPA_SHOW_SQL:false}
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
 grpc:
   server:
-    port: 9091
+    port: ${GRPC_PORT:9091}
 
+---
+# Dev profile: enable SQL logging
+spring:
+  config:
+    activate:
+      on-profile: dev
+  jpa:
+    show-sql: true

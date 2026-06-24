@@ -24,7 +24,7 @@ class CatalogServiceTests {
     @Test
     fun `createOffering - delivery provider - success`() {
         val providerId = UUID.randomUUID()
-        val provider = Provider(providerId, "DELIVERY")
+        val provider = Provider(providerId, FulfillmentType.DELIVERY)
         whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
 
         val offering = Offering(
@@ -45,7 +45,7 @@ class CatalogServiceTests {
     @Test
     fun `createOffering - delivery provider - missing stock - fails`() {
         val providerId = UUID.randomUUID()
-        val provider = Provider(providerId, "DELIVERY")
+        val provider = Provider(providerId, FulfillmentType.DELIVERY)
         whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
 
         val offering = Offering(
@@ -65,7 +65,7 @@ class CatalogServiceTests {
     @Test
     fun `createOffering - delivery provider - has duration - fails`() {
         val providerId = UUID.randomUUID()
-        val provider = Provider(providerId, "DELIVERY")
+        val provider = Provider(providerId, FulfillmentType.DELIVERY)
         whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
 
         val offering = Offering(
@@ -85,7 +85,7 @@ class CatalogServiceTests {
     @Test
     fun `createOffering - appointment provider - success`() {
         val providerId = UUID.randomUUID()
-        val provider = Provider(providerId, "APPOINTMENT")
+        val provider = Provider(providerId, FulfillmentType.APPOINTMENT)
         whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
 
         val offering = Offering(
@@ -106,7 +106,7 @@ class CatalogServiceTests {
     @Test
     fun `createOffering - appointment provider - missing duration - fails`() {
         val providerId = UUID.randomUUID()
-        val provider = Provider(providerId, "APPOINTMENT")
+        val provider = Provider(providerId, FulfillmentType.APPOINTMENT)
         whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
 
         val offering = Offering(
@@ -126,7 +126,7 @@ class CatalogServiceTests {
     @Test
     fun `createOffering - appointment provider - has stock - fails`() {
         val providerId = UUID.randomUUID()
-        val provider = Provider(providerId, "APPOINTMENT")
+        val provider = Provider(providerId, FulfillmentType.APPOINTMENT)
         whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
 
         val offering = Offering(

@@ -14,6 +14,8 @@ export const Colors = {
     backgroundElement: '#F0F0F3',
     backgroundSelected: '#E0E1E6',
     textSecondary: '#60646C',
+    primary: '#2563eb',    // Blue — primary action color
+    cta: '#10b981',        // Emerald — call-to-action / availability highlight
   },
   dark: {
     text: '#ffffff',
@@ -21,8 +23,11 @@ export const Colors = {
     backgroundElement: '#212225',
     backgroundSelected: '#2E3135',
     textSecondary: '#B0B4BA',
+    primary: '#3b82f6',    // Lighter blue for dark mode legibility
+    cta: '#34d399',        // Lighter emerald for dark mode
   },
 } as const;
+
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 

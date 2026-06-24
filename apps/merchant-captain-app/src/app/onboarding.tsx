@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, Alert, Platform } from 'react-native';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -7,6 +8,12 @@ import { Spacing, Colors } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
 
 type ProviderType = 'PET_STORE' | 'VET_HOSPITAL' | 'GROOMING_CENTER';
+
+const API_BASE_URL = Platform.select({
+  android: 'http://10.0.2.2:8080',
+  ios: 'http://localhost:8080',
+  default: 'http://localhost:8080',
+});
 
 export default function OnboardingScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
@@ -48,9 +55,8 @@ export default function OnboardingScreen() {
 
     setSubmitting(true);
     
-    // Simulate API request to backend (Provider Service via API Gateway)
     try {
-      const response = await fetch('http://localhost:8080/api/v1/providers', {
+      const response = await fetch(`${API_BASE_URL}/api/v1/providers`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -75,7 +81,7 @@ export default function OnboardingScreen() {
       
       if (response.ok) {
         // Trigger status transition to PENDING_APPROVAL
-        const submitResponse = await fetch(`http://localhost:8080/api/v1/providers/${data.providerId}/submit`, {
+        const submitResponse = await fetch(`${API_BASE_URL}/api/v1/providers/${data.providerId}/submit`, {
           method: 'POST',
         });
 
