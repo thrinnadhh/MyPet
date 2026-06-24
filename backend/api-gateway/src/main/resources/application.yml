@@ -1,0 +1,21 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: provider-service
+          uri: http://localhost:8081
+          predicates:
+            - Path=/api/v1/providers/**, /api/v1/profiles/**, /api/v1/pets/**, /api/v1/addresses/**
+        - id: catalog-service
+          uri: http://localhost:8082
+          predicates:
+            - Path=/api/v1/catalog/**
+        - id: discovery-service
+          uri: http://localhost:8083
+          predicates:
+            - Path=/api/v1/discovery/**

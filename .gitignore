@@ -1,0 +1,43 @@
+# ─── Build Artifacts ─────────────────────────────────────
+**/build/
+**/.gradle/
+**/.kotlin/
+
+# ─── Node / React Native ─────────────────────────────────
+**/node_modules/
+**/.expo/
+**/.expo-shared/
+**/dist/
+**/.next/
+**/.turbo/
+**/.cache/
+
+# ─── IDE & OS ─────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# ─── Env & Secrets ───────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ─── Logs ────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Test / Coverage ─────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ─── Misc ────────────────────────────────────────────────
+*.class
+*.jar
+!*-plain.jar
+*.war
+*.ear
+imp\ files/

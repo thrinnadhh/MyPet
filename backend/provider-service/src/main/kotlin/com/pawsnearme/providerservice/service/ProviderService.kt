@@ -1,0 +1,150 @@
+package com.pawsnearme.providerservice.service
+
+import com.pawsnearme.providerservice.model.*
+import com.pawsnearme.providerservice.repository.*
+import org.locationtech.jts.geom.Coordinate
+import org.locationtech.jts.geom.GeometryFactory
+import org.locationtech.jts.geom.PrecisionModel
+import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
+import java.time.Instant
+import java.util.UUID
+
+@Service
+class ProviderService(
+    private val providerRepository: ProviderRepository,
+    private val providerDocumentRepository: ProviderDocumentRepository,
+    private val profileRepository: ProfileRepository,
+    private val kafkaTemplate: KafkaTemplate<String, Any>
+) {
+    private val geometryFactory = GeometryFactory(PrecisionModel(), 4326)
+
+    @Transactional
+    fun createProvider(
+        ownerUserId: UUID,
+        providerType: ProviderType,
+        fulfillmentType: FulfillmentType,
+        name: String,
+        description: String?,
+        licenseNumber: String?,
+        licenseDocUrl: String?,
+        addressLine: String,
+        city: String,
+        pincode: String,
+        longitude: Double,
+        latitude: Double
+    ): Provider {
+        // Validate user role is MERCHANT
+        val profile = profileRepository.findById(ownerUserId).orElseThrow {
+            IllegalArgumentException("Owner user profile not found: $ownerUserId")
+        }
+        if (profile.role != UserRole.MERCHANT) {
+            throw IllegalArgumentException("User must have MERCHANT role to create a provider")
+        }
+
+        // Validate chk_fulfillment_matches_type
+        validateFulfillmentType(providerType, fulfillmentType)
+
+        // Validate VET_HOSPITAL requirements
+        if (providerType == ProviderType.VET_HOSPITAL && licenseNumber.isNullOrBlank()) {
+            throw IllegalArgumentException("Veterinary council license number is required for VET_HOSPITAL")
+        }
+
+        // longitude, latitude coordinate ordering for PostGIS
+        val point = geometryFactory.createPoint(Coordinate(longitude, latitude))
+
+        val provider = Provider(
+            ownerUserId = ownerUserId,
+            providerType = providerType,
+            fulfillmentType = fulfillmentType,
+            name = name,
+            description = description,
+            licenseNumber = licenseNumber,
+            licenseDocUrl = licenseDocUrl,
+            addressLine = addressLine,
+            city = city,
+            pincode = pincode,
+            geoLocation = point,
+            status = ProviderStatus.DRAFT
+        )
+
+        val savedProvider = providerRepository.save(provider)
+
+        // Save license document if URL is provided
+        if (!licenseDocUrl.isNullOrBlank()) {
+            val docType = if (providerType == ProviderType.VET_HOSPITAL) "VET_LICENSE" else "BUSINESS_PROOF"
+            providerDocumentRepository.save(
+                ProviderDocument(
+                    providerId = savedProvider.providerId!!,
+                    docType = docType,
+                    docUrl = licenseDocUrl
+                )
+            )
+        }
+
+        return savedProvider
+    }
+
+    private fun validateFulfillmentType(providerType: ProviderType, fulfillmentType: FulfillmentType) {
+        val isValid = when (providerType) {
+            ProviderType.PET_STORE -> fulfillmentType == FulfillmentType.DELIVERY
+            ProviderType.VET_HOSPITAL, ProviderType.GROOMING_CENTER -> fulfillmentType == FulfillmentType.APPOINTMENT
+        }
+        if (!isValid) {
+            throw IllegalArgumentException("Invalid combination: ProviderType $providerType does not support FulfillmentType $fulfillmentType")
+        }
+    }
+
+    @Transactional
+    fun uploadDocument(providerId: UUID, docType: String, docUrl: String): ProviderDocument {
+        val provider = providerRepository.findById(providerId).orElseThrow {
+            IllegalArgumentException("Provider not found: $providerId")
+        }
+        val document = ProviderDocument(
+            providerId = provider.providerId!!,
+            docType = docType,
+            docUrl = docUrl
+        )
+        return providerDocumentRepository.save(document)
+    }
+
+    @Transactional
+    fun submitForApproval(providerId: UUID): Provider {
+        val provider = providerRepository.findById(providerId).orElseThrow {
+            IllegalArgumentException("Provider not found: $providerId")
+        }
+        if (provider.status != ProviderStatus.DRAFT && provider.status != ProviderStatus.INFO_REQUESTED) {
+            throw IllegalStateException("Provider must be in DRAFT or INFO_REQUESTED status to submit for approval")
+        }
+
+        provider.status = ProviderStatus.PENDING_APPROVAL
+        return providerRepository.save(provider)
+    }
+
+    @Transactional
+    fun approveProvider(providerId: UUID): Provider {
+        val provider = providerRepository.findById(providerId).orElseThrow {
+            IllegalArgumentException("Provider not found: $providerId")
+        }
+        if (provider.status != ProviderStatus.PENDING_APPROVAL) {
+            throw IllegalStateException("Provider must be in PENDING_APPROVAL status to approve")
+        }
+
+        provider.status = ProviderStatus.ACTIVE
+        val approvedProvider = providerRepository.save(provider)
+
+        // Publish ProviderApproved event to Kafka
+        val event = mapOf(
+            "event_id" to UUID.randomUUID().toString(),
+            "event_type" to "ProviderApproved",
+            "occurred_at" to Instant.now().toString(),
+            "provider_id" to approvedProvider.providerId.toString(),
+            "provider_type" to approvedProvider.providerType.name
+        )
+        
+        kafkaTemplate.send("providers.events", approvedProvider.providerId.toString(), event)
+
+        return approvedProvider
+    }
+}
