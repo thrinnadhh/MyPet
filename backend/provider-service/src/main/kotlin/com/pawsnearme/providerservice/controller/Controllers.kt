@@ -187,6 +187,12 @@ class ProviderController(
         }
     }
 
+    @GetMapping
+    fun getProvidersByOwner(@RequestParam ownerUserId: UUID): ResponseEntity<List<ProviderResponse>> {
+        val providers = providerRepository.findByOwnerUserId(ownerUserId)
+        return ResponseEntity.ok(providers.map { mapToResponse(it) })
+    }
+
     private fun mapToResponse(p: Provider): ProviderResponse {
         return ProviderResponse(
             providerId = p.providerId!!,

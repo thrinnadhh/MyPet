@@ -19,3 +19,17 @@ spring:
           uri: ${DISCOVERY_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/api/v1/discovery/**
+        - id: order-service
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/orders/**
+        - id: appointment-service
+          uri: ${APPOINTMENT_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/appointments/**
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${SUPABASE_JWT_JWK_SET_URI:https://your-project.supabase.co/rest/v1/auth/keys}
+          secret-key: ${SUPABASE_JWT_SECRET:} # HS256 JWT secret for symmetric validation (optional dev fallback)

@@ -7,15 +7,16 @@ import {
   TextInput, 
   Alert, 
   ActivityIndicator, 
-  Platform, 
-  Modal, 
   useColorScheme,
+  Platform,
   ScrollView
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing, Colors } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
 
 const API_BASE_URL = Platform.select({
   android: 'http://10.0.2.2:8080',
@@ -151,10 +152,38 @@ export default function InventoryScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  // Provider / business context — driven by DEMO_PROVIDERS config, not raw UUIDs
+  const { user } = useAuth();
+  
+  // Provider / business context — dynamically loaded, falls back to DEMO_PROVIDERS config in local dev
+  const [providers, setProviders] = useState(DEMO_PROVIDERS);
   const [selectedProvider, setSelectedProvider] = useState(DEMO_PROVIDERS[0]);
   const selectedProviderId = selectedProvider.id;
   const selectedProviderFulfillment = selectedProvider.fulfillmentType;
+
+  const fetchProviders = useCallback(async () => {
+    if (!user) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/providers?ownerUserId=${user.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped = data.map((p: any) => ({
+            id: p.providerId,
+            label: p.providerType === 'PET_STORE' ? `🏬 ${p.name}` : p.providerType === 'VET_HOSPITAL' ? `🏥 ${p.name}` : `✂️ ${p.name}`,
+            fulfillmentType: p.fulfillmentType,
+          }));
+          setProviders(mapped);
+          setSelectedProvider(mapped[0]);
+        }
+      }
+    } catch (err) {
+      console.log("Failed to fetch dynamic providers list, using demo providers fallback:", err);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchProviders();
+  }, [fetchProviders]);
 
   // Inventory state
   const [offerings, setOfferings] = useState<Offering[]>([]);
@@ -178,6 +207,8 @@ export default function InventoryScreen() {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [newSlotStart, setNewSlotStart] = useState('');
   const [newSlotEnd, setNewSlotEnd] = useState('');
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
   const [creatingSlot, setCreatingSlot] = useState(false);
 
   // Load catalog items
@@ -524,7 +555,7 @@ export default function InventoryScreen() {
         <View style={[styles.header, { borderBottomColor: colors.backgroundSelected }]}>
           <ThemedText type="subtitle" style={{ fontWeight: '800' }}>Catalog & Inventory</ThemedText>
           <View style={styles.tabRow}>
-            {DEMO_PROVIDERS.map((provider) => (
+            {providers.map((provider) => (
               <TouchableOpacity
                 key={provider.id}
                 style={[
@@ -761,21 +792,105 @@ export default function InventoryScreen() {
               <View style={[styles.createSlotBox, { borderTopColor: colors.backgroundSelected }]}>
                 <ThemedText style={{ fontWeight: '700', marginBottom: Spacing.two }}>Create New Slot</ThemedText>
                 
-                <TextInput
-                  style={[styles.formInput, { backgroundColor: colors.backgroundElement, color: colors.text, marginBottom: Spacing.two }]}
-                  value={newSlotStart}
-                  onChangeText={setNewSlotStart}
-                  placeholder="Start: 2026-06-25T10:00:00Z"
-                  placeholderTextColor="#888"
-                />
+                {Platform.OS === 'web' ? (
+                  <View style={{ marginBottom: Spacing.two, gap: Spacing.one }}>
+                    <ThemedText type="small" style={{ color: colors.textSecondary }}>Start Time</ThemedText>
+                    <input
+                      type="datetime-local"
+                      value={newSlotStart ? newSlotStart.substring(0, 16) : ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) {
+                          setNewSlotStart(new Date(val).toISOString());
+                        } else {
+                          setNewSlotStart('');
+                        }
+                      }}
+                      style={{
+                        height: 48,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: colors.backgroundSelected,
+                        padding: 12,
+                        backgroundColor: colors.backgroundElement,
+                        color: colors.text,
+                        fontSize: 14,
+                        fontFamily: 'inherit'
+                      }}
+                    />
+                    <ThemedText type="small" style={{ color: colors.textSecondary, marginTop: Spacing.one }}>End Time</ThemedText>
+                    <input
+                      type="datetime-local"
+                      value={newSlotEnd ? newSlotEnd.substring(0, 16) : ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) {
+                          setNewSlotEnd(new Date(val).toISOString());
+                        } else {
+                          setNewSlotEnd('');
+                        }
+                      }}
+                      style={{
+                        height: 48,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: colors.backgroundSelected,
+                        padding: 12,
+                        backgroundColor: colors.backgroundElement,
+                        color: colors.text,
+                        fontSize: 14,
+                        fontFamily: 'inherit',
+                        marginBottom: Spacing.two
+                      }}
+                    />
+                  </View>
+                ) : (
+                  <View style={{ marginBottom: Spacing.two, gap: Spacing.two }}>
+                    <TouchableOpacity
+                      style={[styles.formInput, { backgroundColor: colors.backgroundElement, justifyContent: 'center' }]}
+                      onPress={() => setShowStartPicker(true)}
+                    >
+                      <ThemedText type="small" style={{ color: newSlotStart ? colors.text : '#888' }}>
+                        {newSlotStart ? `Start: ${new Date(newSlotStart).toLocaleString()}` : 'Select Start Time *'}
+                      </ThemedText>
+                    </TouchableOpacity>
+                    {showStartPicker && (
+                      <DateTimePicker
+                        value={newSlotStart ? new Date(newSlotStart) : new Date()}
+                        mode="datetime"
+                        display="default"
+                        onChange={(event, selectedDate) => {
+                          setShowStartPicker(false);
+                          if (selectedDate) {
+                            setNewSlotStart(selectedDate.toISOString());
+                          }
+                        }}
+                      />
+                    )}
 
-                <TextInput
-                  style={[styles.formInput, { backgroundColor: colors.backgroundElement, color: colors.text, marginBottom: Spacing.three }]}
-                  value={newSlotEnd}
-                  onChangeText={setNewSlotEnd}
-                  placeholder="End: 2026-06-25T10:45:00Z"
-                  placeholderTextColor="#888"
-                />
+                    <TouchableOpacity
+                      style={[styles.formInput, { backgroundColor: colors.backgroundElement, justifyContent: 'center', marginBottom: Spacing.one }]}
+                      onPress={() => setShowEndPicker(true)}
+                    >
+                      <ThemedText type="small" style={{ color: newSlotEnd ? colors.text : '#888' }}>
+                        {newSlotEnd ? `End: ${new Date(newSlotEnd).toLocaleString()}` : 'Select End Time *'}
+                      </ThemedText>
+                    </TouchableOpacity>
+                    {showEndPicker && (
+                      <DateTimePicker
+                        value={newSlotEnd ? new Date(newSlotEnd) : new Date(Date.now() + 45 * 60 * 1000)}
+                        mode="datetime"
+                        display="default"
+                        onChange={(event, selectedDate) => {
+                          setShowEndPicker(false);
+                          if (selectedDate) {
+                            setNewSlotEnd(selectedDate.toISOString());
+                          }
+                        }}
+                      />
+                    )}
+                  </View>
+                )}
 
                 <TouchableOpacity
                   style={[styles.submitBtn, { backgroundColor: PRIMARY_BLUE, marginTop: 0 }]}

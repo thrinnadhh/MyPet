@@ -60,6 +60,19 @@ class CatalogService(
         offeringRepository.deleteById(offeringId)
     }
 
+    fun decrementStock(offeringId: UUID, quantity: Int): Offering {
+        val offering = offeringRepository.findById(offeringId)
+            .orElseThrow { NoSuchElementException("Offering with ID $offeringId not found") }
+        if (offering.stockQuantity == null) {
+            throw IllegalArgumentException("Offering does not support stock tracking")
+        }
+        if (offering.stockQuantity!! < quantity) {
+            throw IllegalArgumentException("Insufficient stock quantity for offering $offeringId")
+        }
+        offering.stockQuantity = offering.stockQuantity!! - quantity
+        return offeringRepository.save(offering)
+    }
+
     // --- Slot Operations ---
 
     fun createSlot(slot: Slot): Slot {

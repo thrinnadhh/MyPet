@@ -47,6 +47,15 @@ class CatalogController(private val catalogService: CatalogService) {
         return ResponseEntity.noContent().build()
     }
 
+    @PutMapping("/offerings/{offeringId}/decrement-stock")
+    fun decrementStock(
+        @PathVariable offeringId: UUID,
+        @RequestParam quantity: Int
+    ): ResponseEntity<Offering> {
+        val updated = catalogService.decrementStock(offeringId, quantity)
+        return ResponseEntity.ok(updated)
+    }
+
     // --- Slots API ---
 
     @PostMapping("/slots")

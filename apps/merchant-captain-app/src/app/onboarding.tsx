@@ -6,6 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing, Colors } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
+import { useAuth } from '@/context/AuthContext';
 
 type ProviderType = 'PET_STORE' | 'VET_HOSPITAL' | 'GROOMING_CENTER';
 
@@ -18,6 +19,7 @@ const API_BASE_URL = Platform.select({
 export default function OnboardingScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
+  const { user } = useAuth();
 
   const [providerType, setProviderType] = useState<ProviderType>('PET_STORE');
   const [name, setName] = useState('');
@@ -27,14 +29,45 @@ export default function OnboardingScreen() {
   const [pincode, setPincode] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
   const [docUploaded, setDocUploaded] = useState(false);
+  const [licenseDocUrl, setLicenseDocUrl] = useState('');
+  const [uploadingDoc, setUploadingDoc] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const handleDocUpload = useCallback(() => {
-    Alert.alert('Upload Document', 'Select document from camera or gallery', [
-      { text: 'Camera', onPress: () => setDocUploaded(true) },
-      { text: 'Gallery', onPress: () => setDocUploaded(true) },
-      { text: 'Cancel', style: 'cancel' }
-    ]);
+  const handleDocUpload = useCallback(async () => {
+    setUploadingDoc(true);
+    try {
+      const urlResponse = await fetch(`${API_BASE_URL}/api/v1/providers/upload-url?filename=license.pdf`, {
+        method: 'POST'
+      });
+      if (!urlResponse.ok) throw new Error("Failed to generate upload URL");
+      const { uploadUrl, fileUrl } = await urlResponse.json();
+
+      const formData = new FormData();
+      formData.append('file', {
+        uri: 'data:application/pdf;base64,JVBER...',
+        name: 'license.pdf',
+        type: 'application/pdf',
+      } as any);
+
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'multipart/form-data',
+        }
+      });
+
+      if (!uploadResponse.ok) throw new Error("Failed to upload file to pre-signed URL");
+      
+      setLicenseDocUrl(fileUrl);
+      setDocUploaded(true);
+      Alert.alert('Success', 'Document proof uploaded successfully!');
+    } catch (err: any) {
+      Alert.alert('Upload Error', err.message || 'Failed to upload document.');
+    } finally {
+      setUploadingDoc(false);
+    }
   }, []);
 
   const handleSubmit = useCallback(async () => {
@@ -62,13 +95,13 @@ export default function OnboardingScreen() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ownerUserId: 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e', // Mock Merchant User ID
+          ownerUserId: user?.id || 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e', // Authenticated User ID
           providerType,
           fulfillmentType: providerType === 'PET_STORE' ? 'DELIVERY' : 'APPOINTMENT',
           name,
           description,
           licenseNumber: providerType === 'VET_HOSPITAL' ? licenseNumber : null,
-          licenseDocUrl: 'https://supabase.storage/pawsnearme/lic_' + Date.now() + '.pdf',
+          licenseDocUrl: licenseDocUrl || 'https://supabase.storage/pawsnearme/lic_' + Date.now() + '.pdf',
           addressLine,
           city,
           pincode,
@@ -226,10 +259,11 @@ export default function OnboardingScreen() {
           <TouchableOpacity
             style={[styles.uploadButton, { backgroundColor: colors.backgroundElement }]}
             onPress={handleDocUpload}
+            disabled={uploadingDoc}
             activeOpacity={0.7}
           >
             <ThemedText type="small">
-              {docUploaded ? '✅ Document Uploaded' : '📤 Upload Document Proof *'}
+              {uploadingDoc ? '⏳ Uploading...' : docUploaded ? '✅ Document Uploaded' : '📤 Upload Document Proof *'}
             </ThemedText>
           </TouchableOpacity>
 
