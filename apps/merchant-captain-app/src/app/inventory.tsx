@@ -9,7 +9,8 @@ import {
   ActivityIndicator, 
   useColorScheme,
   Platform,
-  ScrollView
+  ScrollView,
+  Modal
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';

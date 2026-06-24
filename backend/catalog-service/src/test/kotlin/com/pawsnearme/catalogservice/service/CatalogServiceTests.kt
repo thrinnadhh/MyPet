@@ -146,9 +146,13 @@ class CatalogServiceTests {
     @Test
     fun `createSlot - delivery offering - fails`() {
         val offeringId = UUID.randomUUID()
+        val providerId = UUID.randomUUID()
+        val provider = Provider(providerId, FulfillmentType.DELIVERY)
+        whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
+
         val offering = Offering(
             offeringId = offeringId,
-            providerId = UUID.randomUUID(),
+            providerId = providerId,
             name = "Dog Toy",
             price = BigDecimal("150.00"),
             stockQuantity = 10,
@@ -171,9 +175,13 @@ class CatalogServiceTests {
     @Test
     fun `createSlot - appointment offering - success`() {
         val offeringId = UUID.randomUUID()
+        val providerId = UUID.randomUUID()
+        val provider = Provider(providerId, FulfillmentType.APPOINTMENT)
+        whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
+
         val offering = Offering(
             offeringId = offeringId,
-            providerId = UUID.randomUUID(),
+            providerId = providerId,
             name = "Grooming Session",
             price = BigDecimal("800.00"),
             stockQuantity = null,
