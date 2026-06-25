@@ -1,4 +1,4 @@
-package com.pawsnearme.appointmentservice
+package com.pawsnearme.dispatchservice
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
@@ -6,8 +6,8 @@ import org.springframework.scheduling.annotation.EnableScheduling
 
 @SpringBootApplication
 @EnableScheduling
-class AppointmentServiceApplication
+class DispatchServiceApplication
 
 fun main(args: Array<String>) {
-    runApplication<AppointmentServiceApplication>(*args)
+    runApplication<DispatchServiceApplication>(*args)
 }

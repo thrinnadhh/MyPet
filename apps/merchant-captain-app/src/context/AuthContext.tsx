@@ -6,6 +6,8 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   role: string | null;
+  activeRole: string | null;
+  toggleActiveRole: () => void;
   loading: boolean;
   signOut: () => Promise<void>;
 }
@@ -14,6 +16,8 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   session: null,
   role: null,
+  activeRole: null,
+  toggleActiveRole: () => {},
   loading: true,
   signOut: async () => {},
 });
@@ -22,6 +26,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<string | null>(null);
+  const [activeRole, setActiveRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -30,7 +35,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                           process.env.EXPO_PUBLIC_SUPABASE_URL.includes("placeholder-project");
     
     if (isPlaceholder) {
-      // In local dev without keys, provide a mock user/session to avoid blocking UI development
       console.log("AuthProvider: Running in mock development mode");
       const mockUser = {
         id: 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e', // Merchant ID
@@ -52,6 +56,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setSession(mockSession);
       setUser(mockUser);
       setRole('PROVIDER');
+      setActiveRole('PROVIDER');
       setLoading(false);
       return;
     }
@@ -60,14 +65,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
-      setRole((session?.user?.app_metadata?.role as string) || 'PROVIDER');
+      const userRole = (session?.user?.app_metadata?.role as string) || 'PROVIDER';
+      setRole(userRole);
+      setActiveRole(userRole);
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
-      setRole((session?.user?.app_metadata?.role as string) || 'PROVIDER');
+      const userRole = (session?.user?.app_metadata?.role as string) || 'PROVIDER';
+      setRole(userRole);
+      setActiveRole(userRole);
       setLoading(false);
     });
 
@@ -76,12 +85,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
+  const toggleActiveRole = () => {
+    setActiveRole((prev) => (prev === 'PROVIDER' ? 'CAPTAIN' : 'PROVIDER'));
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, role, loading, signOut }}>
+    <AuthContext.Provider value={{ user, session, role, activeRole, toggleActiveRole, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   );

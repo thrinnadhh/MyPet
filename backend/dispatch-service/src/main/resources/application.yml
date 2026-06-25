@@ -1,0 +1,39 @@
+server:
+  port: ${SERVER_PORT:8086}
+
+spring:
+  application:
+    name: dispatch-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=dispatch,orders,providers,public&stringtype=unspecified}
+    username: ${DB_USERNAME:dispatch_service_role}
+    password: ${DB_PASSWORD:dispatch_service_pass}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    properties:
+      hibernate:
+        default_schema: dispatch
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: none
+    show-sql: ${JPA_SHOW_SQL:false}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6380}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: dispatch-service-group-v2
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+---
+# Dev profile: enable SQL logging
+spring:
+  config:
+    activate:
+      on-profile: dev
+  jpa:
+    show-sql: true

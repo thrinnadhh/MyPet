@@ -27,6 +27,14 @@ spring:
           uri: ${APPOINTMENT_SERVICE_URL:http://localhost:8085}
           predicates:
             - Path=/api/v1/appointments/**
+        - id: dispatch-service
+          uri: ${DISPATCH_SERVICE_URL:http://localhost:8086}
+          predicates:
+            - Path=/api/v1/dispatch/**
+        - id: captain-service
+          uri: ${CAPTAIN_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/api/v1/captains/**
   security:
     oauth2:
       resourceserver:

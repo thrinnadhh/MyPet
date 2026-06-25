@@ -19,6 +19,12 @@ BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'appointment_service_role') THEN
         CREATE ROLE appointment_service_role WITH LOGIN PASSWORD 'appointment_service_pass';
     END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'dispatch_service_role') THEN
+        CREATE ROLE dispatch_service_role WITH LOGIN PASSWORD 'dispatch_service_pass';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'captain_service_role') THEN
+        CREATE ROLE captain_service_role WITH LOGIN PASSWORD 'captain_service_pass';
+    END IF;
 END
 $$;
 
@@ -29,6 +35,8 @@ GRANT CONNECT ON DATABASE pawsnearme TO catalog_service_role;
 GRANT CONNECT ON DATABASE pawsnearme TO discovery_service_role;
 GRANT CONNECT ON DATABASE pawsnearme TO order_service_role;
 GRANT CONNECT ON DATABASE pawsnearme TO appointment_service_role;
+GRANT CONNECT ON DATABASE pawsnearme TO dispatch_service_role;
+GRANT CONNECT ON DATABASE pawsnearme TO captain_service_role;
 
 -- Scoping for Identity Service
 GRANT USAGE ON SCHEMA identity TO identity_service_role;
@@ -76,3 +84,23 @@ GRANT SELECT, UPDATE ON catalog.slots TO appointment_service_role;
 GRANT SELECT ON catalog.offerings TO appointment_service_role;
 GRANT USAGE ON SCHEMA providers TO appointment_service_role;
 GRANT SELECT ON providers.providers TO appointment_service_role;
+
+-- Scoping for Dispatch Service
+GRANT USAGE ON SCHEMA dispatch TO dispatch_service_role;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA dispatch TO dispatch_service_role;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA dispatch TO dispatch_service_role;
+GRANT USAGE ON SCHEMA orders TO dispatch_service_role;
+GRANT SELECT, UPDATE ON orders.orders TO dispatch_service_role;
+GRANT SELECT ON orders.order_items TO dispatch_service_role;
+GRANT USAGE ON SCHEMA providers TO dispatch_service_role;
+GRANT SELECT ON providers.providers TO dispatch_service_role;
+
+-- Scoping for Captain Service
+GRANT USAGE ON SCHEMA captains TO captain_service_role;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA captains TO captain_service_role;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA captains TO captain_service_role;
+GRANT USAGE ON SCHEMA identity TO captain_service_role;
+GRANT SELECT ON identity.profiles TO captain_service_role;
+GRANT SELECT ON identity.user_roles TO captain_service_role;
+GRANT USAGE ON SCHEMA orders TO captain_service_role;
+GRANT SELECT ON orders.orders TO captain_service_role;

@@ -37,6 +37,37 @@ class AppointmentController(
         }
     }
 
+    @PostMapping("/hold")
+    fun holdAppointment(
+        @Valid @RequestBody request: BookAppointmentRequest,
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?
+    ): ResponseEntity<Any> {
+        return try {
+            val finalRequest = if (authenticatedUserId != null) {
+                request.copy(customerId = UUID.fromString(authenticatedUserId))
+            } else {
+                request
+            }
+            val appointment = appointmentService.holdAppointment(finalRequest)
+            ResponseEntity.status(HttpStatus.CREATED).body(appointment)
+        } catch (e: Exception) {
+            ResponseEntity.badRequest().body(mapOf("error" to e.message))
+        }
+    }
+
+    @PostMapping("/{id}/confirm")
+    fun confirmAppointment(
+        @PathVariable id: UUID,
+        @RequestParam(required = false) paymentId: UUID?
+    ): ResponseEntity<Any> {
+        return try {
+            val appointment = appointmentService.confirmAppointment(id, paymentId)
+            ResponseEntity.ok(appointment)
+        } catch (e: Exception) {
+            ResponseEntity.badRequest().body(mapOf("error" to e.message))
+        }
+    }
+
     @GetMapping("/{id}")
     fun getAppointment(@PathVariable id: UUID): ResponseEntity<Appointment> {
         val appointment = appointmentRepository.findById(id)

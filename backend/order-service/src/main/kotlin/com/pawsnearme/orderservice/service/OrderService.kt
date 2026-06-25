@@ -136,6 +136,7 @@ class OrderService(
         
         when (newStatus) {
             OrderStatus.ACCEPTED -> order.acceptedAt = Instant.now()
+            OrderStatus.ASSIGNED, OrderStatus.REASSIGNED -> order.captainId = changedBy
             OrderStatus.READY_FOR_PICKUP -> order.readyAt = Instant.now()
             OrderStatus.PICKED_UP -> order.picked_upAt = Instant.now()
             OrderStatus.DELIVERED -> order.deliveredAt = Instant.now()
@@ -151,12 +152,17 @@ class OrderService(
 
         // Publish status changed event to Kafka
         try {
-            val event = mapOf(
+            val event = mutableMapOf(
                 "orderId" to orderId.toString(),
                 "fromStatus" to oldStatus.name,
                 "toStatus" to newStatus.name,
-                "timestamp" to Instant.now().toString()
+                "timestamp" to Instant.now().toString(),
+                "totalAmount" to updatedOrder.totalAmount.toString(),
+                "deliveryFee" to updatedOrder.deliveryFee.toString()
             )
+            if (updatedOrder.captainId != null) {
+                event["captainId"] = updatedOrder.captainId.toString()
+            }
             kafkaTemplate.send("orders.events", orderId.toString(), event)
         } catch (e: Exception) {
             println("WARNING: Failed to publish Kafka OrderStatusChanged event: ${e.message}")

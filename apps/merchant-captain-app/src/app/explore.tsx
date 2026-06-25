@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
-import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExternalLink } from '@/components/external-link';
@@ -10,8 +10,10 @@ import { Collapsible } from '@/components/ui/collapsible';
 import { WebBadge } from '@/components/web-badge';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useAuth } from '@/context/AuthContext';
 
 export default function TabTwoScreen() {
+  const { activeRole, toggleActiveRole } = useAuth();
   const safeAreaInsets = useSafeAreaInsets();
   const insets = {
     ...safeAreaInsets,
@@ -40,6 +42,22 @@ export default function TabTwoScreen() {
       <ThemedView style={styles.container}>
         <ThemedView style={styles.titleContainer}>
           <ThemedText type="subtitle">Explore</ThemedText>
+          
+          <TouchableOpacity
+            style={{
+              paddingVertical: Spacing.one * 1.5,
+              paddingHorizontal: Spacing.three,
+              borderRadius: Spacing.four,
+              backgroundColor: theme.primary,
+              marginVertical: Spacing.one
+            }}
+            onPress={toggleActiveRole}
+            activeOpacity={0.8}
+          >
+            <ThemedText style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>
+              {activeRole === 'PROVIDER' ? 'Switch to Captain Mode 🚴' : 'Switch to Merchant Mode 🏬'}
+            </ThemedText>
+          </TouchableOpacity>
           <ThemedText style={styles.centerText} themeColor="textSecondary">
             This starter app includes example{'\n'}code to help you get started.
           </ThemedText>
