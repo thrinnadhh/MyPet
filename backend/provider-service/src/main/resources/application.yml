@@ -6,9 +6,16 @@ spring:
     name: provider-service
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=providers,identity,public&stringtype=unspecified}
-    username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:postgres}
+    username: ${DB_USERNAME:provider_service_role}
+    password: ${DB_PASSWORD:provider_service_pass}
     driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    default-schema: providers
+    schemas: providers
+    user: ${FLYWAY_DB_USERNAME:postgres}
+    password: ${FLYWAY_DB_PASSWORD:postgres}
   jpa:
     properties:
       hibernate:
@@ -16,12 +23,17 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: none
-    show-sql: ${JPA_SHOW_SQL:false}
+    show-sql: false
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: provider-service-reviews
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 grpc:
   server:
@@ -34,4 +46,4 @@ spring:
     activate:
       on-profile: dev
   jpa:
-    show-sql: true
+    show-sql: false

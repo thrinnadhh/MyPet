@@ -2,6 +2,7 @@ package com.pawsnearme.catalogservice.service
 
 import com.pawsnearme.catalogservice.model.*
 import com.pawsnearme.catalogservice.repository.*
+import com.pawsnearme.catalogservice.dto.*
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -18,8 +19,19 @@ class CatalogServiceTests {
     private val offeringRepository: OfferingRepository = mock()
     private val slotRepository: SlotRepository = mock()
     private val providerRepository: ProviderRepository = mock()
+    private val billRepository: BillRepository = mock()
+    private val billItemRepository: BillItemRepository = mock()
+    private val stringRedisTemplate: org.springframework.data.redis.core.StringRedisTemplate = mock()
 
-    private val catalogService = CatalogService(offeringRepository, slotRepository, providerRepository)
+    private val catalogService = CatalogService(
+        offeringRepository,
+        slotRepository,
+        providerRepository,
+        billRepository,
+        billItemRepository,
+        stringRedisTemplate
+    )
+
 
     @Test
     fun `createOffering - delivery provider - success`() {
@@ -200,4 +212,84 @@ class CatalogServiceTests {
         assertNotNull(created)
         assertEquals(offeringId, created.offeringId)
     }
+
+    @Test
+    fun `getOfferingByBarcode - cache hit`() {
+        val providerId = UUID.randomUUID()
+        val barcode = "1234567890"
+        val offering = Offering(
+            offeringId = UUID.randomUUID(),
+            providerId = providerId,
+            name = "Test Product",
+            price = BigDecimal("10.00"),
+            stockQuantity = 5,
+            barcode = barcode
+        )
+
+        // Mock Redis geo/value template ops
+        val valueOps: org.springframework.data.redis.core.ValueOperations<String, String> = mock()
+        whenever(stringRedisTemplate.opsForValue()).thenReturn(valueOps)
+        
+        // Return cached JSON representation of offering
+        val json = """{"offeringId":"${offering.offeringId}","providerId":"$providerId","name":"Test Product","price":10.00,"stockQuantity":5,"barcode":"$barcode"}"""
+        whenever(valueOps.get("barcodes:cache:$providerId:$barcode")).thenReturn(json)
+
+        val result = catalogService.getOfferingByBarcode(providerId, barcode)
+        assertNotNull(result)
+        assertEquals(offering.offeringId, result.offeringId)
+        assertEquals("Test Product", result.name)
+    }
+
+    @Test
+    fun `createBill - success and out of stock failed items`() {
+        val storeId = UUID.randomUUID()
+        val staffId = UUID.randomUUID()
+        val key = "idem-key-1"
+        
+        val p1 = UUID.randomUUID()
+        val p2 = UUID.randomUUID()
+        
+        val off1 = Offering(offeringId = p1, providerId = storeId, name = "Product 1", price = BigDecimal("10.0"), stockQuantity = 5)
+        val off2 = Offering(offeringId = p2, providerId = storeId, name = "Product 2", price = BigDecimal("20.0"), stockQuantity = 1) // low stock
+        
+        whenever(offeringRepository.findById(p1)).thenReturn(Optional.of(off1))
+        whenever(offeringRepository.findById(p2)).thenReturn(Optional.of(off2))
+        
+        whenever(billRepository.save(any<Bill>())).thenAnswer {
+            val b = it.arguments[0] as Bill
+            if (b.id == null) {
+                b.id = UUID.randomUUID()
+            }
+            b
+        }
+        whenever(billItemRepository.save(any<BillItem>())).thenAnswer { it.arguments[0] as BillItem }
+
+        
+        val request = BillRequest(
+            storeId = storeId,
+            staffId = staffId,
+            status = "FINALIZED",
+            subtotal = BigDecimal("40.0"),
+            totalDiscount = BigDecimal("0.0"),
+            tax = BigDecimal("0.0"),
+            grandTotal = BigDecimal("0.0"),
+            idempotencyKey = key,
+            items = listOf(
+                BillItemRequest(productId = p1, barcodeScanned = "b1", quantity = 2, unitPrice = BigDecimal("10.0"), discountAmount = BigDecimal("0.0"), discountType = "NONE"),
+                BillItemRequest(productId = p2, barcodeScanned = "b2", quantity = 2, unitPrice = BigDecimal("20.0"), discountAmount = BigDecimal("0.0"), discountType = "NONE") // out of stock request!
+            )
+        )
+        
+        val response = catalogService.createBill(request)
+        assertNotNull(response)
+        assertEquals(1, response.successfulItems.size)
+        assertEquals(1, response.failedItems.size)
+        assertEquals("Out of stock", response.failedItems[0].reason)
+        assertEquals(p2, response.failedItems[0].productId)
+        
+        // Assert stock decremented only for successful items
+        assertEquals(3, off1.stockQuantity) // 5 - 2 = 3
+        assertEquals(1, off2.stockQuantity) // unchanged
+    }
 }
+

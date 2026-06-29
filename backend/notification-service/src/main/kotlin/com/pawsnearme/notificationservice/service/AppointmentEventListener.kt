@@ -1,0 +1,54 @@
+package com.pawsnearme.notificationservice.service
+
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.pawsnearme.notificationservice.event.AppointmentEvent
+import com.pawsnearme.notificationservice.model.ScheduledReminder
+import com.pawsnearme.notificationservice.repository.ScheduledReminderRepository
+import org.slf4j.LoggerFactory
+import org.springframework.kafka.annotation.KafkaListener
+import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
+import java.time.Instant
+
+@Service
+class AppointmentEventListener(
+    private val reminderRepo: ScheduledReminderRepository,
+    private val objectMapper: ObjectMapper
+) {
+    private val log = LoggerFactory.getLogger(javaClass)
+
+    @KafkaListener(topics = ["appointments.events"], groupId = "notification-service")
+    @Transactional
+    fun onAppointmentEvent(message: String) {
+        val event = runCatching {
+            objectMapper.readValue(message, AppointmentEvent::class.java)
+        }.getOrNull() ?: return log.warn("Could not parse appointment event: $message")
+
+        if (event.eventType != "APPOINTMENT_CONFIRMED") return
+
+        log.info("Scheduling reminders for appointment ${event.appointmentId}")
+        scheduleReminder(event, "APPOINTMENT_T24H", event.slotStartsAt.minusSeconds(24 * 3600))
+        scheduleReminder(event, "APPOINTMENT_T1H",  event.slotStartsAt.minusSeconds(3600))
+    }
+
+    private fun scheduleReminder(event: AppointmentEvent, templateCode: String, fireAt: Instant) {
+        if (reminderRepo.existsByReferenceIdAndTemplateCode(event.appointmentId, templateCode)) {
+            log.debug("Reminder $templateCode already exists for ${event.appointmentId}, skipping")
+            return
+        }
+        if (fireAt.isBefore(Instant.now())) {
+            log.debug("Reminder $templateCode fire-at $fireAt is in the past, skipping")
+            return
+        }
+        reminderRepo.save(
+            ScheduledReminder(
+                userId        = event.customerId,
+                referenceType = "APPOINTMENT",
+                referenceId   = event.appointmentId,
+                fireAt        = fireAt,
+                templateCode  = templateCode
+            )
+        )
+        log.info("Saved $templateCode reminder for appointment ${event.appointmentId}, fires at $fireAt")
+    }
+}

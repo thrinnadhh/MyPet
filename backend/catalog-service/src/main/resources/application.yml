@@ -9,6 +9,13 @@ spring:
     username: ${DB_USERNAME:catalog_service_role}
     password: ${DB_PASSWORD:catalog_service_pass}
     driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    default-schema: catalog
+    schemas: catalog
+    user: ${FLYWAY_DB_USERNAME:postgres}
+    password: ${FLYWAY_DB_PASSWORD:postgres}
   jpa:
     properties:
       hibernate:
@@ -16,7 +23,12 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: none
-    show-sql: ${JPA_SHOW_SQL:false}
+    show-sql: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6380}
+
 
 ---
 # Dev profile: enable SQL logging
@@ -25,4 +37,4 @@ spring:
     activate:
       on-profile: dev
   jpa:
-    show-sql: true
+    show-sql: false

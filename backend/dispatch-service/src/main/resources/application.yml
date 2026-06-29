@@ -36,4 +36,4 @@ spring:
     activate:
       on-profile: dev
   jpa:
-    show-sql: true
+    show-sql: false

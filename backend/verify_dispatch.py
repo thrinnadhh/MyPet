@@ -84,12 +84,12 @@ def setup_db_mock_data():
     conn.autocommit = True
     cur = conn.cursor()
 
-    captain_id = "99999999-9999-9999-9999-999999999999"
-    customer_id = "11111111-1111-1111-1111-111111111111"
+    captain_id = "99999999-9999-4999-8999-999999999999"
+    customer_id = "11111111-1111-4111-8111-111111111111"
     merchant_id = "d3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e"
-    provider_id = "22222222-2222-2222-2222-222222222222"
-    offering_id = "33333333-3333-3333-3333-333333333333"
-    address_id = "55555555-5555-5555-5555-555555555555"
+    provider_id = "22222222-2222-4222-8222-222222222222"
+    offering_id = "33333333-3333-4333-8333-333333333333"
+    address_id = "55555555-5555-4555-8555-555555555555"
 
     print("Cleaning up old test data...")
     # Delete from dependent tables first
@@ -108,18 +108,18 @@ def setup_db_mock_data():
     cur.execute("DELETE FROM auth.users WHERE id IN (%s, %s, %s);", (captain_id, customer_id, merchant_id))
 
     print("Inserting fresh test users...")
-    cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s);", (captain_id, "captain@pawsnearme.com"))
-    cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s);", (customer_id, "customer@pawsnearme.com"))
-    cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s);", (merchant_id, "merchant@pawsnearme.com"))
+    cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s);", (captain_id, "dispatch-captain@pawsnearme.com"))
+    cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s);", (customer_id, "dispatch-customer@pawsnearme.com"))
+    cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s);", (merchant_id, "dispatch-merchant@pawsnearme.com"))
 
     # Cleanup roles and profiles auto-created by triggers to avoid duplicate conflicts
     cur.execute("DELETE FROM identity.user_roles WHERE user_id IN (%s, %s, %s);", (captain_id, customer_id, merchant_id))
     cur.execute("DELETE FROM identity.profiles WHERE user_id IN (%s, %s, %s);", (captain_id, customer_id, merchant_id))
 
     # Explicit inserts to match testing expectation
-    cur.execute("INSERT INTO identity.profiles (user_id, role, full_name, phone_number) VALUES (%s, 'CAPTAIN', 'Test Captain', '+919999999999');", (captain_id,))
-    cur.execute("INSERT INTO identity.profiles (user_id, role, full_name, phone_number) VALUES (%s, 'CUSTOMER', 'Test Customer', '+911111111111');", (customer_id,))
-    cur.execute("INSERT INTO identity.profiles (user_id, role, full_name, phone_number) VALUES (%s, 'MERCHANT', 'Test Merchant', '+918888888888');", (merchant_id,))
+    cur.execute("INSERT INTO identity.profiles (user_id, role, full_name, phone_number) VALUES (%s, 'CAPTAIN', 'Test Captain', '+919999999901');", (captain_id,))
+    cur.execute("INSERT INTO identity.profiles (user_id, role, full_name, phone_number) VALUES (%s, 'CUSTOMER', 'Test Customer', '+911111111901');", (customer_id,))
+    cur.execute("INSERT INTO identity.profiles (user_id, role, full_name, phone_number) VALUES (%s, 'MERCHANT', 'Test Merchant', '+918888888901');", (merchant_id,))
 
     cur.execute("INSERT INTO identity.user_roles (user_id, role) VALUES (%s, 'CAPTAIN');", (captain_id,))
     cur.execute("INSERT INTO identity.user_roles (user_id, role) VALUES (%s, 'CUSTOMER');", (customer_id,))
@@ -150,12 +150,12 @@ def setup_db_mock_data():
 
 def run_integration_test():
     gateway_url = "http://localhost:8080"
-    captain_id = "99999999-9999-9999-9999-999999999999"
-    customer_id = "11111111-1111-1111-1111-111111111111"
+    captain_id = "99999999-9999-4999-8999-999999999999"
+    customer_id = "11111111-1111-4111-8111-111111111111"
     merchant_id = "d3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e"
-    provider_id = "22222222-2222-2222-2222-222222222222"
-    offering_id = "33333333-3333-3333-3333-333333333333"
-    address_id = "55555555-5555-5555-5555-555555555555"
+    provider_id = "22222222-2222-4222-8222-222222222222"
+    offering_id = "33333333-3333-4333-8333-333333333333"
+    address_id = "55555555-5555-4555-8555-555555555555"
     conn_str = "host=localhost port=5433 dbname=pawsnearme user=postgres password=postgres"
 
     # Generate mock JWTs

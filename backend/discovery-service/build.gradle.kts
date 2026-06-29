@@ -20,6 +20,7 @@ dependencies {
     
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     
     // PostgreSQL and PostGIS support for fallback queries
     runtimeOnly("org.postgresql:postgresql")

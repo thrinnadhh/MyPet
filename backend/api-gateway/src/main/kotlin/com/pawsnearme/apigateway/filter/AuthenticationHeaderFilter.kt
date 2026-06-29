@@ -13,27 +13,37 @@ import reactor.core.publisher.Mono
 class AuthenticationHeaderFilter : GlobalFilter, Ordered {
 
     override fun filter(exchange: ServerWebExchange, chain: GatewayFilterChain): Mono<Void> {
+        val sanitizedExchange = exchange.mutate()
+            .request(
+                exchange.request.mutate()
+                    .headers {
+                        it.remove("X-User-Id")
+                        it.remove("X-User-Role")
+                        it.remove("X-Admin-Api-Key")
+                    }
+                    .build()
+            )
+            .build()
+
         return ReactiveSecurityContextHolder.getContext()
             .map { it.authentication }
             .flatMap { authentication ->
                 val principal = authentication.principal
                 if (principal is Jwt) {
-                    val userId = principal.subject // 'sub' claim
-                    
-                    // Extract role from standard claims, 'role', or nested claims in 'app_metadata'
+                    val userId = principal.subject
                     val role = extractRole(principal)
-                    
-                    val mutatedRequest = exchange.request.mutate()
+
+                    val mutatedRequest = sanitizedExchange.request.mutate()
                         .header("X-User-Id", userId)
                         .header("X-User-Role", role)
                         .build()
-                    
-                    Mono.just(exchange.mutate().request(mutatedRequest).build())
+
+                    Mono.just(sanitizedExchange.mutate().request(mutatedRequest).build())
                 } else {
-                    Mono.just(exchange)
+                    Mono.just(sanitizedExchange)
                 }
             }
-            .defaultIfEmpty(exchange)
+            .defaultIfEmpty(sanitizedExchange)
             .flatMap { chain.filter(it) }
     }
 
@@ -56,7 +66,6 @@ class AuthenticationHeaderFilter : GlobalFilter, Ordered {
     }
 
     override fun getOrder(): Int {
-        // Run after security filter completes
-        return Ordered.LOWEST_PRECEDENCE - 100
+        return Ordered.HIGHEST_PRECEDENCE
     }
 }

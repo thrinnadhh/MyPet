@@ -23,6 +23,15 @@ dependencies {
     // PostgreSQL
     runtimeOnly("org.postgresql:postgresql")
     
+    // Redis & Jackson Serialization
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+
+    
+    // Flyway DB Migrations
+    implementation("org.flywaydb:flyway-core:10.1.0")
+    runtimeOnly("org.flywaydb:flyway-database-postgresql:10.1.0")
+    
     // Test dependencies
     testImplementation("com.h2database:h2")
     testImplementation("org.springframework.boot:spring-boot-starter-test")

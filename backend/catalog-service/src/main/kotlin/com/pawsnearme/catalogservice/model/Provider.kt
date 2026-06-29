@@ -12,6 +12,10 @@ class Provider(
 
     @Enumerated(EnumType.STRING)
     @Column(name = "fulfillment_type", nullable = false)
-    var fulfillmentType: FulfillmentType
+    var fulfillmentType: FulfillmentType,
+
+    @Column(name = "owner_user_id")
+    var ownerUserId: UUID? = null
 )
+
 

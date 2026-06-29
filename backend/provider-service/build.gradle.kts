@@ -28,6 +28,10 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql")
     implementation("org.hibernate.orm:hibernate-spatial:6.4.4.Final")
     
+    // Flyway DB Migrations
+    implementation("org.flywaydb:flyway-core:10.1.0")
+    runtimeOnly("org.flywaydb:flyway-database-postgresql:10.1.0")
+    
     // gRPC dependencies
     implementation("io.grpc:grpc-netty-shaded:1.62.2")
     implementation("io.grpc:grpc-protobuf:1.62.2")

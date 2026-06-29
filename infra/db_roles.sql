@@ -25,6 +25,15 @@ BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'captain_service_role') THEN
         CREATE ROLE captain_service_role WITH LOGIN PASSWORD 'captain_service_pass';
     END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'notification_service_role') THEN
+        CREATE ROLE notification_service_role WITH LOGIN PASSWORD 'notification_service_pass';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'review_service_role') THEN
+        CREATE ROLE review_service_role WITH LOGIN PASSWORD 'review_service_pass';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'payment_service_role') THEN
+        CREATE ROLE payment_service_role WITH LOGIN PASSWORD 'payment_service_pass';
+    END IF;
 END
 $$;
 
@@ -37,6 +46,9 @@ GRANT CONNECT ON DATABASE pawsnearme TO order_service_role;
 GRANT CONNECT ON DATABASE pawsnearme TO appointment_service_role;
 GRANT CONNECT ON DATABASE pawsnearme TO dispatch_service_role;
 GRANT CONNECT ON DATABASE pawsnearme TO captain_service_role;
+GRANT CONNECT ON DATABASE pawsnearme TO notification_service_role;
+GRANT CONNECT ON DATABASE pawsnearme TO review_service_role;
+GRANT CONNECT ON DATABASE pawsnearme TO payment_service_role;
 
 -- Scoping for Identity Service
 GRANT USAGE ON SCHEMA identity TO identity_service_role;
@@ -104,3 +116,33 @@ GRANT SELECT ON identity.profiles TO captain_service_role;
 GRANT SELECT ON identity.user_roles TO captain_service_role;
 GRANT USAGE ON SCHEMA orders TO captain_service_role;
 GRANT SELECT ON orders.orders TO captain_service_role;
+
+-- Scoping for Notification Service
+GRANT USAGE ON SCHEMA notifications TO notification_service_role;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA notifications TO notification_service_role;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA notifications TO notification_service_role;
+
+-- Scoping for Review Service
+GRANT USAGE ON SCHEMA reviews TO review_service_role;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA reviews TO review_service_role;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA reviews TO review_service_role;
+
+-- Scoping for Payment Service
+GRANT USAGE ON SCHEMA payments TO payment_service_role;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA payments TO payment_service_role;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA payments TO payment_service_role;
+
+-- Payout aggregation read access
+GRANT USAGE ON SCHEMA orders TO payment_service_role;
+GRANT SELECT ON orders.orders TO payment_service_role;
+GRANT SELECT ON orders.order_items TO payment_service_role;
+
+GRANT USAGE ON SCHEMA appointments TO payment_service_role;
+GRANT SELECT ON appointments.appointments TO payment_service_role;
+
+GRANT USAGE ON SCHEMA captains TO payment_service_role;
+GRANT SELECT ON captains.captain_profiles TO payment_service_role;
+GRANT SELECT ON captains.captain_earnings TO payment_service_role;
+
+GRANT USAGE ON SCHEMA providers TO payment_service_role;
+GRANT SELECT ON providers.providers TO payment_service_role;

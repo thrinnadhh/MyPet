@@ -147,4 +147,20 @@ class ProviderService(
 
         return approvedProvider
     }
+
+    @Transactional
+    fun updateProviderRating(providerId: UUID, rating: Int): Provider {
+        val provider = providerRepository.findById(providerId).orElseThrow {
+            IllegalArgumentException("Provider not found: $providerId")
+        }
+        val currentCount = provider.ratingCount
+        val currentAvg = provider.ratingAvg.toDouble()
+
+        val newCount = currentCount + 1
+        val newAvg = (currentAvg * currentCount + rating) / newCount
+
+        provider.ratingCount = newCount
+        provider.ratingAvg = java.math.BigDecimal.valueOf(newAvg).setScale(2, java.math.RoundingMode.HALF_UP)
+        return providerRepository.save(provider)
+    }
 }

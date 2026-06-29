@@ -178,7 +178,14 @@ class ProviderController(
     }
 
     @PostMapping("/{id}/approve")
-    fun approveProvider(@PathVariable id: UUID): ResponseEntity<Any> {
+    fun approveProvider(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Role", required = false) userRole: String?
+    ): ResponseEntity<Any> {
+        if (userRole != "ADMIN") {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
+                .body(mapOf("error" to "Access Denied: Only administrators can approve providers."))
+        }
         return try {
             val provider = providerService.approveProvider(id)
             ResponseEntity.ok(mapToResponse(provider))

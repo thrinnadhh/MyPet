@@ -19,7 +19,10 @@ class SecurityConfig(
     private val jwkSetUri: String,
     
     @Value("\${spring.security.oauth2.resourceserver.jwt.secret-key:}")
-    private val secretKey: String
+    private val secretKey: String,
+
+    @Value("\${spring.security.oauth2.resourceserver.jwt.allow-unsigned:false}")
+    private val allowUnsignedJwt: Boolean
 ) {
 
     @Bean
@@ -28,9 +31,10 @@ class SecurityConfig(
             .csrf { it.disable() }
             .authorizeExchange { exchange ->
                 exchange
-                    .pathMatchers("/api/v1/discovery/**").permitAll() // Publicly searchable
-                    .pathMatchers("/actuator/**").permitAll()         // Health check, etc.
-                    .anyExchange().authenticated()                    // Secure everything else
+                    .pathMatchers("/api/v1/discovery/**").permitAll()      // Publicly searchable providers
+                    .pathMatchers("/api/v1/reviews/provider/**").permitAll() // Publicly viewable reviews
+                    .pathMatchers("/actuator/**").permitAll()              // Health check, etc.
+                    .anyExchange().authenticated()                         // Secure everything else
             }
             .oauth2ResourceServer { oauth2 ->
                 oauth2.jwt { }
@@ -55,8 +59,7 @@ class SecurityConfig(
                 // JWK endpoint validation for RS256
                 NimbusReactiveJwtDecoder.withJwkSetUri(jwkSetUri).build()
             }
-            else -> {
-                // Fallback for development if keys are not provided: parse but do NOT validate signature
+            allowUnsignedJwt -> {
                 println("WARNING: Supabase Auth is running in mock/dev mode. JWT signatures are NOT validated.")
                 ReactiveJwtDecoder { jwtString ->
                     try {
@@ -75,6 +78,9 @@ class SecurityConfig(
                         reactor.core.publisher.Mono.error(e)
                     }
                 }
+            }
+            else -> {
+                throw IllegalStateException("JWT validation is not configured. Set SUPABASE_JWT_SECRET, SUPABASE_JWT_JWK_SET_URI, or ALLOW_UNSIGNED_JWT=true for local-only development.")
             }
         }
     }

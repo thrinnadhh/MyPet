@@ -16,7 +16,7 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: none
-    show-sql: ${JPA_SHOW_SQL:false}
+    show-sql: false
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -29,7 +29,7 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
-        spring.json.trusted.packages: "*"
+        spring.json.trusted.packages: "com.pawsnearme.discoveryservice.model.*,com.pawsnearme.providerservice.event.*,java.util.*,java.lang.*"
 
 ---
 # Dev profile: enable SQL logging
@@ -38,5 +38,5 @@ spring:
     activate:
       on-profile: dev
   jpa:
-    show-sql: true
+    show-sql: false
 

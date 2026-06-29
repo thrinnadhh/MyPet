@@ -1,0 +1,37 @@
+server:
+  port: ${SERVER_PORT:8089}
+
+spring:
+  application:
+    name: review-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=reviews,public&stringtype=unspecified}
+    username: ${DB_USERNAME:review_service_role}
+    password: ${DB_PASSWORD:review_service_pass}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    properties:
+      hibernate:
+        default_schema: reviews
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: none
+    show-sql: ${JPA_SHOW_SQL:false}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  jpa:
+    show-sql: false

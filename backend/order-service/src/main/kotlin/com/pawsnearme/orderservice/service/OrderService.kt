@@ -2,6 +2,9 @@ package com.pawsnearme.orderservice.service
 
 import com.pawsnearme.orderservice.model.*
 import com.pawsnearme.orderservice.repository.*
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker
+import io.github.resilience4j.retry.annotation.Retry
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
@@ -53,38 +56,11 @@ class OrderService(
         var subtotal = BigDecimal.ZERO
         val orderItemsToSave = mutableListOf<OrderItem>()
 
-        // 1. Validate offerings and decrement stock in Catalog Service
+        // 1. Validate offerings and decrement stock in Catalog Service (guarded by circuit breaker)
         for (item in request.items) {
-            // Call Catalog Service to decrement stock
-            val url = "$catalogServiceUrl/api/v1/catalog/offerings/${item.offeringId}/decrement-stock?quantity=${item.quantity}"
-            try {
-                // Returns the updated offering details containing price/name snapshots
-                val offering = restTemplate.exchange(
-                    url,
-                    org.springframework.http.HttpMethod.PUT,
-                    null,
-                    Map::class.java
-                ).body ?: throw IllegalStateException("Failed to decrement stock: offering not found")
-                
-                val priceDouble = offering["price"] as? Double ?: 0.0
-                val unitPrice = BigDecimal.valueOf(priceDouble)
-                val name = offering["name"] as? String ?: "Pet Product"
-                val lineTotal = unitPrice.multiply(BigDecimal.valueOf(item.quantity.toLong()))
-                subtotal = subtotal.add(lineTotal)
-
-                orderItemsToSave.add(
-                    OrderItem(
-                        orderId = UUID.randomUUID(), // Temporarily set, will override below
-                        offeringId = item.offeringId,
-                        offeringNameSnapshot = name,
-                        unitPriceSnapshot = unitPrice,
-                        quantity = item.quantity,
-                        lineTotal = lineTotal
-                    )
-                )
-            } catch (e: Exception) {
-                throw IllegalStateException("Failed to validate stock or deduct inventory: ${e.message}", e)
-            }
+            val cartEntry = decrementCatalogStock(item.offeringId, item.quantity, catalogServiceUrl)
+            subtotal = subtotal.add(cartEntry.lineTotal)
+            orderItemsToSave.add(cartEntry)
         }
 
         val total = subtotal.add(request.deliveryFee).subtract(request.discountAmount)
@@ -181,4 +157,41 @@ class OrderService(
         )
         orderStatusHistoryRepository.save(history)
     }
+
+    // ── Downstream calls with circuit breakers ──────────────────────────────
+
+    @CircuitBreaker(name = "catalog-service", fallbackMethod = "decrementCatalogStockFallback")
+    @Retry(name = "catalog-service")
+    fun decrementCatalogStock(offeringId: UUID, quantity: Int, baseUrl: String): OrderItem {
+        val url = "$baseUrl/api/v1/catalog/offerings/$offeringId/decrement-stock?quantity=$quantity"
+        val offering = restTemplate.exchange(
+            url,
+            org.springframework.http.HttpMethod.PUT,
+            null,
+            Map::class.java
+        ).body ?: throw IllegalStateException("Catalog service: offering $offeringId not found")
+
+        val priceDouble = offering["price"] as? Double ?: 0.0
+        val unitPrice = BigDecimal.valueOf(priceDouble)
+        val name = offering["name"] as? String ?: "Pet Product"
+        val lineTotal = unitPrice.multiply(BigDecimal.valueOf(quantity.toLong()))
+        return OrderItem(
+            orderId = UUID.randomUUID(),
+            offeringId = offeringId,
+            offeringNameSnapshot = name,
+            unitPriceSnapshot = unitPrice,
+            quantity = quantity,
+            lineTotal = lineTotal
+        )
+    }
+
+    fun decrementCatalogStockFallback(offeringId: UUID, quantity: Int, baseUrl: String, ex: Throwable): OrderItem {
+        logger.error("Catalog circuit breaker OPEN for offering $offeringId — ${ex.message}")
+        throw IllegalStateException("Catalog service unavailable. Please retry in a moment. (circuit open)")
+    }
+
+    companion object {
+        private val logger = LoggerFactory.getLogger(OrderService::class.java)
+    }
 }
+

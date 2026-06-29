@@ -225,7 +225,7 @@ class AppointmentService(
         }
     }
 
-    fun updateAppointmentStatus(appointmentId: UUID, newStatus: AppointmentStatus, changedBy: UUID, note: String? = null): Appointment {
+    fun updateAppointmentStatus(appointmentId: UUID, newStatus: AppointmentStatus, changedBy: UUID, note: String? = null, prescriptionDocUrl: String? = null): Appointment {
         val appointment = appointmentRepository.findById(appointmentId)
             .orElseThrow { NoSuchElementException("Appointment with ID $appointmentId not found") }
 
@@ -233,7 +233,12 @@ class AppointmentService(
         appointment.status = newStatus
 
         when (newStatus) {
-            AppointmentStatus.COMPLETED -> appointment.completedAt = Instant.now()
+            AppointmentStatus.COMPLETED -> {
+                appointment.completedAt = Instant.now()
+                if (prescriptionDocUrl != null) {
+                    appointment.prescriptionDocUrl = prescriptionDocUrl
+                }
+            }
             AppointmentStatus.CANCELLED -> {
                 appointment.cancelledAt = Instant.now()
                 appointment.cancellationReason = note

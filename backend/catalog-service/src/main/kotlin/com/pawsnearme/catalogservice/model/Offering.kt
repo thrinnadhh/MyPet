@@ -44,6 +44,9 @@ class Offering(
     @Column(name = "duration_minutes")
     var durationMinutes: Int? = null,
 
+    @Column(name = "barcode")
+    var barcode: String? = null,
+
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now(),
 

@@ -95,6 +95,7 @@ class AppointmentController(
         @PathVariable id: UUID,
         @RequestParam status: AppointmentStatus,
         @RequestParam(required = false) note: String?,
+        @RequestParam(required = false) prescriptionDocUrl: String?,
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?
     ): ResponseEntity<Any> {
         return try {
@@ -103,7 +104,7 @@ class AppointmentController(
             } else {
                 UUID.randomUUID() // fallback if no auth header
             }
-            val updated = appointmentService.updateAppointmentStatus(id, status, changerId, note)
+            val updated = appointmentService.updateAppointmentStatus(id, status, changerId, note, prescriptionDocUrl)
             ResponseEntity.ok(updated)
         } catch (e: Exception) {
             ResponseEntity.badRequest().body(mapOf("error" to e.message))
