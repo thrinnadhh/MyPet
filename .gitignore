@@ -1,5 +1,6 @@
 # ─── Build Artifacts ─────────────────────────────────────
 **/build/
+**/bin/
 **/.gradle/
 **/.kotlin/
 
@@ -36,8 +37,13 @@ coverage/
 
 # ─── Misc ────────────────────────────────────────────────
 *.class
+*.pyc
+__pycache__/
 *.jar
 !*-plain.jar
 *.war
 *.ear
 imp\ files/
+
+# ─── Local Tool Scratch ──────────────────────────────────
+.playwright-mcp/

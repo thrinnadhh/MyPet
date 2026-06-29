@@ -1,11 +1,11 @@
 import React, { useState, useCallback } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, Alert, ActivityIndicator, useColorScheme } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../utils/supabase';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors, Spacing } from '@/constants/theme';
-import { useColorScheme } from 'react-native';
+import { AppIcon } from '@/components/app-icon';
 
 export default function LoginScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
@@ -71,9 +71,12 @@ export default function LoginScreen() {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.innerContainer}>
           <View style={styles.header}>
-            <ThemedText type="subtitle" style={styles.logoText}>
-              PawsNearMe Merchant 🐾
-            </ThemedText>
+            <View style={styles.brandRow}>
+              <AppIcon name="store" color={colors.primary} size={28} />
+              <ThemedText type="subtitle" style={styles.logoText}>
+                PawsNearMe Merchant
+              </ThemedText>
+            </View>
             <ThemedText type="small" style={{ color: colors.textSecondary, marginTop: Spacing.one }}>
               {isSignUp ? 'Register as a merchant to list your services' : 'Log in to manage your bookings and catalog'}
             </ThemedText>
@@ -166,6 +169,12 @@ const styles = StyleSheet.create({
   },
   logoText: {
     fontWeight: 'bold',
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
   },
   form: {
     gap: Spacing.two,

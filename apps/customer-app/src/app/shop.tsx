@@ -1,10 +1,10 @@
 import React, { useCallback, useState, useEffect } from 'react';
-import { StyleSheet, Image, View, FlatList, TouchableOpacity, ScrollView, Platform, ActivityIndicator } from 'react-native';
+import { StyleSheet, Image, View, FlatList, TouchableOpacity, ScrollView, Platform, ActivityIndicator, useColorScheme } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing, Colors } from '@/constants/theme';
-import { useColorScheme } from 'react-native';
+import { AppIcon, type AppIconName } from '@/components/app-icon';
+import { Spacing, Colors, Radius, Shadows } from '@/constants/theme';
 
 const API_BASE_URL = Platform.select({
   android: 'http://10.0.2.2:8080',
@@ -13,11 +13,11 @@ const API_BASE_URL = Platform.select({
 });
 
 const CATEGORIES = [
-  { id: '1', name: 'Food & Nutrition', icon: '🍖' },
-  { id: '2', name: 'Toys & Fun', icon: '🧸' },
-  { id: '3', name: 'Pharmacy', icon: '💊' },
-  { id: '4', name: 'Accessories', icon: '🦮' },
-];
+  { id: '1', name: 'Food & Nutrition', icon: 'cart' },
+  { id: '2', name: 'Toys & Fun', icon: 'sparkle' },
+  { id: '3', name: 'Pharmacy', icon: 'medical' },
+  { id: '4', name: 'Accessories', icon: 'paw' },
+] as const;
 
 const BACKUP_STORES = [
   {
@@ -69,17 +69,17 @@ const StoreCard = React.memo(({ item, colors }: { item: Store, colors: any }) =>
           </ThemedText>
           <View style={styles.storeMeta}>
             <ThemedText type="small" style={{ color: colors.textSecondary }}>
-              ⭐ {item.rating} ({item.ratingCount} reviews)
+              {item.rating} ({item.ratingCount} reviews)
             </ThemedText>
             <ThemedText type="small" style={[styles.metaDivider, { color: colors.textSecondary }]}>•</ThemedText>
             <ThemedText type="small" style={{ color: colors.textSecondary }}>
-              📍 {item.distance}
+              {item.distance}
             </ThemedText>
           </View>
         </View>
         <View style={[styles.timeBadge, { backgroundColor: colors.background, borderColor: colors.primary }]}>
           <ThemedText type="small" style={{ color: colors.primary, fontWeight: '700' }}>
-            🕒 {item.deliveryTime}
+            {item.deliveryTime}
           </ThemedText>
         </View>
       </View>
@@ -95,20 +95,20 @@ const StoreCard = React.memo(({ item, colors }: { item: Store, colors: any }) =>
     </TouchableOpacity>
   );
 });
+StoreCard.displayName = 'StoreCard';
 
 export default function ShopScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
+  const [coords, setCoords] = useState({ longitude: 77.6404, latitude: 12.9719 });
   const [stores, setStores] = useState<Store[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const fetchStores = async () => {
     try {
-      // Fetch active providers of type PET_STORE near Indiranagar, Bangalore
       const response = await fetch(
-        `${API_BASE_URL}/api/v1/discovery/providers?longitude=77.6404&latitude=12.9719&radius=10.0&type=PET_STORE`,
+        `${API_BASE_URL}/api/v1/discovery/providers?longitude=${coords.longitude}&latitude=${coords.latitude}&radius=10.0&type=PET_STORE`,
         { headers: { 'Accept': 'application/json' } }
       );
       if (!response.ok) throw new Error('Network response not ok');
@@ -129,18 +129,28 @@ export default function ShopScreen() {
       setStores(BACKUP_STORES);
     } finally {
       setIsLoading(false);
-      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
-    fetchStores();
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setCoords({
+            longitude: position.coords.longitude,
+            latitude: position.coords.latitude
+          });
+        },
+        (error) => {
+          console.warn("Failed to get geolocation, using Indiranagar default:", error.message);
+        }
+      );
+    }
   }, []);
 
-  const handleRefresh = () => {
-    setIsRefreshing(true);
+  useEffect(() => {
     fetchStores();
-  };
+  }, [coords]);
 
   const renderStore = useCallback(({ item }: { item: Store }) => {
     return <StoreCard item={item} colors={colors} />;
@@ -156,9 +166,12 @@ export default function ShopScreen() {
             <ThemedText type="small" style={{ color: colors.textSecondary, fontWeight: '700', letterSpacing: 1 }}>
               DELIVERING TO
             </ThemedText>
-            <ThemedText style={{ color: colors.text, fontWeight: '800' }}>
-              📍 Home — Indiranagar, Bangalore
-            </ThemedText>
+            <View style={styles.locationRow}>
+              <AppIcon name="location" color={colors.primary} size={16} />
+              <ThemedText style={{ color: colors.text, fontWeight: '800' }}>
+                Home — Indiranagar, Bangalore
+              </ThemedText>
+            </View>
           </View>
         </View>
 
@@ -203,7 +216,9 @@ export default function ShopScreen() {
                 ]}
                 activeOpacity={0.7}
               >
-                <ThemedText style={styles.categoryIcon}>{cat.icon}</ThemedText>
+                <View style={[styles.categoryIcon, { backgroundColor: colors.backgroundSelected }]}>
+                  <AppIcon name={cat.icon as AppIconName} color={colors.primary} size={26} />
+                </View>
                 <ThemedText type="small" style={[styles.categoryName, { color: colors.text }]}>
                   {cat.name}
                 </ThemedText>
@@ -242,7 +257,13 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.three,
-    borderBottomWidth: 2,
+    borderBottomWidth: 1,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    marginTop: Spacing.half,
   },
   scrollContent: {
     paddingBottom: Spacing.six,
@@ -251,16 +272,11 @@ const styles = StyleSheet.create({
     marginHorizontal: Spacing.four,
     marginVertical: Spacing.four,
     height: 180,
-    borderRadius: 24,
-    borderWidth: 3,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
     overflow: 'hidden',
     position: 'relative',
-    // Claymorphic double shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 0,
-    elevation: 4,
+    ...Shadows.card,
   },
   heroImage: {
     width: '100%',
@@ -313,19 +329,18 @@ const styles = StyleSheet.create({
     width: 110,
     height: 100,
     borderRadius: 20,
-    borderWidth: 2.5,
+    borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: Spacing.two,
-    // Claymorphic shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 0,
-    elevation: 2,
+    ...Shadows.pressed,
   },
   categoryIcon: {
-    fontSize: 32,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: Spacing.one,
   },
   categoryName: {
@@ -339,15 +354,10 @@ const styles = StyleSheet.create({
   },
   storeCard: {
     padding: Spacing.four,
-    borderRadius: 24,
-    borderWidth: 3,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
     gap: Spacing.two,
-    // Claymorphic shadows
-    shadowColor: '#000',
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 0,
-    elevation: 3,
+    ...Shadows.card,
     marginBottom: Spacing.two,
   },
   storeInfo: {

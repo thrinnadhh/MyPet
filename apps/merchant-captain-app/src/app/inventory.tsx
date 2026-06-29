@@ -208,6 +208,7 @@ export default function InventoryScreen() {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [newSlotStart, setNewSlotStart] = useState('');
   const [newSlotEnd, setNewSlotEnd] = useState('');
+  const [defaultSlotEndDate] = useState(() => new Date(Date.now() + 45 * 60 * 1000));
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
   const [creatingSlot, setCreatingSlot] = useState(false);
@@ -236,6 +237,16 @@ export default function InventoryScreen() {
   useEffect(() => {
     fetchCatalog();
   }, [fetchCatalog]);
+
+  const resetForm = () => {
+    setFormName('');
+    setFormDesc('');
+    setFormCategory('');
+    setFormPrice('');
+    setFormStock('');
+    setFormSku('');
+    setFormDuration('');
+  };
 
   // Submit new offering to catalog service
   const handleAddOffering = useCallback(async () => {
@@ -323,16 +334,6 @@ export default function InventoryScreen() {
     isOffline,
     fetchCatalog
   ]);
-
-  const resetForm = () => {
-    setFormName('');
-    setFormDesc('');
-    setFormCategory('');
-    setFormPrice('');
-    setFormStock('');
-    setFormSku('');
-    setFormDuration('');
-  };
 
   // Toggle offering status
   const handleToggleOfferingStatus = useCallback(async (item: Offering) => {
@@ -879,7 +880,7 @@ export default function InventoryScreen() {
                     </TouchableOpacity>
                     {showEndPicker && (
                       <DateTimePicker
-                        value={newSlotEnd ? new Date(newSlotEnd) : new Date(Date.now() + 45 * 60 * 1000)}
+                        value={newSlotEnd ? new Date(newSlotEnd) : defaultSlotEndDate}
                         mode="datetime"
                         display="default"
                         onChange={(event, selectedDate) => {

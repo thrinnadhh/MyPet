@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { AppIcon } from '@/components/app-icon';
 import { Spacing, Colors } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 
@@ -344,7 +345,10 @@ export default function DeliveryScreen() {
                         style={[styles.btnSecondary, { borderColor: colors.primary }]}
                         onPress={() => handleNavigate(activeDelivery.storeLat, activeDelivery.storeLng, activeDelivery.storeName)}
                       >
-                        <ThemedText type="smallBold" style={{ color: colors.primary }}>Navigate 📍</ThemedText>
+                        <View style={styles.navButtonContent}>
+                          <AppIcon name="location" color={colors.primary} size={15} />
+                          <ThemedText type="smallBold" style={{ color: colors.primary }}>Navigate</ThemedText>
+                        </View>
                       </TouchableOpacity>
                       <TouchableOpacity 
                         style={[styles.btnPrimary, { backgroundColor: colors.primary }]}
@@ -395,7 +399,10 @@ export default function DeliveryScreen() {
                         style={[styles.btnSecondary, { borderColor: colors.primary }]}
                         onPress={() => handleNavigate(activeDelivery.customerLat, activeDelivery.customerLng, activeDelivery.customerName)}
                       >
-                        <ThemedText type="smallBold" style={{ color: colors.primary }}>Navigate 📍</ThemedText>
+                        <View style={styles.navButtonContent}>
+                          <AppIcon name="location" color={colors.primary} size={15} />
+                          <ThemedText type="smallBold" style={{ color: colors.primary }}>Navigate</ThemedText>
+                        </View>
                       </TouchableOpacity>
                       <TouchableOpacity 
                         style={[styles.btnPrimary, { backgroundColor: colors.primary }]}
@@ -616,6 +623,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  navButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
   },
   input: {
     height: 48,
