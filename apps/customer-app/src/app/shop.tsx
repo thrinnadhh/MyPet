@@ -1,16 +1,11 @@
 import React, { useCallback, useState, useEffect } from 'react';
-import { StyleSheet, Image, View, FlatList, TouchableOpacity, ScrollView, Platform, ActivityIndicator, useColorScheme } from 'react-native';
+import { StyleSheet, Image, View, FlatList, TouchableOpacity, ScrollView, ActivityIndicator, useColorScheme } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { AppIcon, type AppIconName } from '@/components/app-icon';
 import { Spacing, Colors, Radius, Shadows } from '@/constants/theme';
-
-const API_BASE_URL = Platform.select({
-  android: 'http://10.0.2.2:8080',
-  ios: 'http://localhost:8080',
-  default: 'http://localhost:8080',
-});
+import { appConfig } from '@/utils/app-config';
 
 const CATEGORIES = [
   { id: '1', name: 'Food & Nutrition', icon: 'cart' },
@@ -108,7 +103,7 @@ export default function ShopScreen() {
   const fetchStores = async () => {
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/v1/discovery/providers?longitude=${coords.longitude}&latitude=${coords.latitude}&radius=10.0&type=PET_STORE`,
+        `${appConfig.apiBaseUrl}/api/v1/discovery/providers?longitude=${coords.longitude}&latitude=${coords.latitude}&radius=10.0&type=PET_STORE`,
         { headers: { 'Accept': 'application/json' } }
       );
       if (!response.ok) throw new Error('Network response not ok');
@@ -125,8 +120,13 @@ export default function ShopScreen() {
       }));
       setStores(mapped);
     } catch (error) {
-      console.warn('Discovery API unavailable, falling back to mock data', error);
-      setStores(BACKUP_STORES);
+      if (appConfig.allowDemoMode) {
+        console.warn('Discovery API unavailable, using explicit demo store data', error);
+        setStores(BACKUP_STORES);
+      } else {
+        console.warn('Discovery API unavailable', error);
+        setStores([]);
+      }
     } finally {
       setIsLoading(false);
     }

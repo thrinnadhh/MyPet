@@ -29,11 +29,27 @@ data class CreateOrderRequest(
 )
 
 data class OrderPlacedEvent(
+    val eventId: UUID = UUID.randomUUID(),
+    val eventType: String = "OrderPlaced",
     val orderId: UUID,
+    val actorId: UUID,
     val customerId: UUID,
     val providerId: UUID,
     val totalAmount: BigDecimal,
-    val timestamp: Instant = Instant.now()
+    val occurredAt: Instant = Instant.now()
+)
+
+data class OrderStatusChangedEvent(
+    val eventId: UUID = UUID.randomUUID(),
+    val eventType: String,
+    val orderId: UUID,
+    val actorId: UUID,
+    val fromStatus: String,
+    val toStatus: String,
+    val totalAmount: BigDecimal,
+    val deliveryFee: BigDecimal,
+    val captainId: UUID? = null,
+    val occurredAt: Instant = Instant.now()
 )
 
 @Service
@@ -43,8 +59,13 @@ class OrderService(
     private val orderItemRepository: OrderItemRepository,
     private val orderStatusHistoryRepository: OrderStatusHistoryRepository,
     private val kafkaTemplate: KafkaTemplate<String, Any>,
+    private val systemConfigRepository: SystemConfigRepository,
+    private val disputeRepository: DisputeRepository,
+    private val invoiceRepository: InvoiceRepository,
     @Value("\${CATALOG_SERVICE_URL:http://localhost:8082}")
-    private val catalogServiceUrl: String
+    private val catalogServiceUrl: String,
+    @Value("\${PAYMENT_SERVICE_URL:http://localhost:8090}")
+    private val paymentServiceUrl: String
 ) {
     private val restTemplate = RestTemplate()
 
@@ -91,6 +112,7 @@ class OrderService(
         try {
             val event = OrderPlacedEvent(
                 orderId = savedOrder.orderId!!,
+                actorId = savedOrder.customerId,
                 customerId = savedOrder.customerId,
                 providerId = savedOrder.providerId,
                 totalAmount = savedOrder.totalAmount
@@ -115,7 +137,10 @@ class OrderService(
             OrderStatus.ASSIGNED, OrderStatus.REASSIGNED -> order.captainId = changedBy
             OrderStatus.READY_FOR_PICKUP -> order.readyAt = Instant.now()
             OrderStatus.PICKED_UP -> order.picked_upAt = Instant.now()
-            OrderStatus.DELIVERED -> order.deliveredAt = Instant.now()
+            OrderStatus.DELIVERED -> {
+                order.deliveredAt = Instant.now()
+                generateInvoiceForOrder(order)
+            }
             OrderStatus.CANCELLED -> {
                 order.cancelledAt = Instant.now()
                 order.cancellationReason = note
@@ -128,17 +153,19 @@ class OrderService(
 
         // Publish status changed event to Kafka
         try {
-            val event = mutableMapOf(
-                "orderId" to orderId.toString(),
-                "fromStatus" to oldStatus.name,
-                "toStatus" to newStatus.name,
-                "timestamp" to Instant.now().toString(),
-                "totalAmount" to updatedOrder.totalAmount.toString(),
-                "deliveryFee" to updatedOrder.deliveryFee.toString()
+            val event = OrderStatusChangedEvent(
+                eventType = when (newStatus) {
+                    OrderStatus.CANCELLED -> "OrderCancelled"
+                    else -> "OrderStatusChanged"
+                },
+                orderId = orderId,
+                actorId = changedBy,
+                fromStatus = oldStatus.name,
+                toStatus = newStatus.name,
+                totalAmount = updatedOrder.totalAmount,
+                deliveryFee = updatedOrder.deliveryFee,
+                captainId = updatedOrder.captainId
             )
-            if (updatedOrder.captainId != null) {
-                event["captainId"] = updatedOrder.captainId.toString()
-            }
             kafkaTemplate.send("orders.events", orderId.toString(), event)
         } catch (e: Exception) {
             println("WARNING: Failed to publish Kafka OrderStatusChanged event: ${e.message}")
@@ -190,8 +217,108 @@ class OrderService(
         throw IllegalStateException("Catalog service unavailable. Please retry in a moment. (circuit open)")
     }
 
+    // --- Admin Config Methods ---
+
+    fun getDisputeRefundMode(): String {
+        return systemConfigRepository.findById("dispute_refund_mode")
+            .map { it.configValue }
+            .orElse("MANUAL")
+    }
+
+    fun updateDisputeRefundMode(value: String): String {
+        if (value != "MANUAL" && value != "AUTOMATED") {
+            throw IllegalArgumentException("Invalid mode. Allowed: MANUAL, AUTOMATED")
+        }
+        val config = systemConfigRepository.findById("dispute_refund_mode")
+            .orElseGet { SystemConfig("dispute_refund_mode", "MANUAL") }
+        config.configValue = value
+        config.updatedAt = Instant.now()
+        systemConfigRepository.save(config)
+        return value
+    }
+
+    // --- Dispute Methods ---
+
+    fun createDispute(orderId: UUID, reason: String): Dispute {
+        if (!orderRepository.existsById(orderId)) {
+            throw IllegalArgumentException("Order with ID $orderId not found")
+        }
+        val dispute = Dispute(
+            orderId = orderId,
+            status = "OPEN",
+            reason = reason
+        )
+        return disputeRepository.save(dispute)
+    }
+
+    fun listDisputes(): List<Dispute> {
+        return disputeRepository.findAll()
+    }
+
+    fun getInvoiceByOrderId(orderId: UUID): Invoice {
+        return invoiceRepository.findByOrderId(orderId)
+            .orElseThrow { NoSuchElementException("Invoice not found for order $orderId") }
+    }
+
+    fun resolveDispute(disputeId: UUID, decision: String, resolutionNotes: String?): Dispute {
+        val dispute = disputeRepository.findById(disputeId)
+            .orElseThrow { NoSuchElementException("Dispute not found for ID $disputeId") }
+
+        if (dispute.status != "OPEN") {
+            throw IllegalStateException("Dispute is already resolved")
+        }
+
+        dispute.status = decision // RESOLVED or REJECTED
+        dispute.resolutionNotes = resolutionNotes
+        dispute.resolvedAt = Instant.now()
+        val savedDispute = disputeRepository.save(dispute)
+
+        if (decision == "RESOLVED") {
+            val mode = getDisputeRefundMode()
+            if (mode == "AUTOMATED") {
+                triggerPaymentRefund(dispute.orderId)
+            }
+        }
+
+        return savedDispute
+    }
+
+    private fun triggerPaymentRefund(orderId: UUID) {
+        try {
+            val url = "$paymentServiceUrl/api/v1/payments/refund?orderId=$orderId"
+            restTemplate.postForEntity(url, null, String::class.java)
+            logger.info("Dispute System: Triggered automated refund for order $orderId")
+        } catch (e: Exception) {
+            logger.error("WARNING: Failed to call payment-service refund endpoint: ${e.message}")
+        }
+    }
+
+    // --- Invoicing Helpers ---
+
+    private fun generateInvoiceForOrder(order: Order) {
+        if (!invoiceRepository.findByOrderId(order.orderId!!).isPresent) {
+            val subtotal = order.subtotalAmount
+            val taxRate = BigDecimal("0.18")
+            val tax = subtotal.multiply(taxRate).setScale(2, java.math.RoundingMode.HALF_UP)
+            val total = subtotal.add(tax).setScale(2, java.math.RoundingMode.HALF_UP)
+
+            val year = java.time.LocalDate.now().year
+            val suffix = order.orderId.toString().substring(0, 8).uppercase()
+            val invoiceNumber = "INV-$year-$suffix"
+
+            val invoice = Invoice(
+                orderId = order.orderId!!,
+                invoiceNumber = invoiceNumber,
+                subtotalAmount = subtotal,
+                taxAmount = tax,
+                totalAmount = total
+            )
+            invoiceRepository.save(invoice)
+            logger.info("Invoicing: Generated invoice $invoiceNumber for order ${order.orderId}")
+        }
+    }
+
     companion object {
         private val logger = LoggerFactory.getLogger(OrderService::class.java)
     }
 }
-

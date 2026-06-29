@@ -9,12 +9,12 @@ import java.time.Instant
 
 /**
  * Polls every 5 seconds for due reminders and dispatches them.
- * Production: call FCM/APNs or SMS gateway per templateCode.
- * Current: log-only stub.
+ * The default adapter logs Expo/FCM-intended delivery until push credentials are configured.
  */
 @Service
 class ReminderDispatchWorker(
-    private val reminderRepo: ScheduledReminderRepository
+    private val reminderRepo: ScheduledReminderRepository,
+    private val deliveryAdapter: NotificationDeliveryAdapter
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -26,19 +26,35 @@ class ReminderDispatchWorker(
 
         log.info("Dispatching ${due.size} due reminder(s)")
         due.forEach { reminder ->
-            sendNotification(reminder.userId.toString(), reminder.templateCode, reminder.referenceId.toString())
-            reminderRepo.markFired(reminder.id)
-            log.info("Fired reminder ${reminder.id} [${reminder.templateCode}] for user ${reminder.userId}")
+            val result = deliveryAdapter.deliver(
+                NotificationDeliveryRequest(
+                    userId = reminder.userId,
+                    referenceId = reminder.referenceId,
+                    referenceType = reminder.referenceType,
+                    templateCode = reminder.templateCode,
+                    message = messageFor(reminder.templateCode, reminder.referenceId.toString())
+                )
+            )
+            if (result.delivered) {
+                reminderRepo.markFired(reminder.id)
+                log.info("Delivered reminder {} via {} for user {}", reminder.id, result.provider, reminder.userId)
+            } else {
+                log.warn(
+                    "Reminder {} delivery failed via {} retryable={} reason={}",
+                    reminder.id,
+                    result.provider,
+                    result.retryable,
+                    result.failureReason
+                )
+            }
         }
     }
 
-    /** Stub: replace with real push/SMS gateway in production. */
-    private fun sendNotification(userId: String, templateCode: String, referenceId: String) {
-        val message = when (templateCode) {
+    private fun messageFor(templateCode: String, referenceId: String): String {
+        return when (templateCode) {
             "APPOINTMENT_T24H" -> "Your appointment is tomorrow! Ref: $referenceId"
             "APPOINTMENT_T1H"  -> "Your appointment is in 1 hour! Ref: $referenceId"
             else               -> "Reminder for: $referenceId"
         }
-        log.info("[PUSH STUB] → user=$userId | $message")
     }
 }

@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.math.BigDecimal
 import java.time.Instant
@@ -254,6 +256,8 @@ class CatalogServiceTests {
         
         whenever(offeringRepository.findById(p1)).thenReturn(Optional.of(off1))
         whenever(offeringRepository.findById(p2)).thenReturn(Optional.of(off2))
+        whenever(offeringRepository.decrementStockIfAvailable(p1, storeId, 2)).thenReturn(1)
+        whenever(offeringRepository.decrementStockIfAvailable(p2, storeId, 2)).thenReturn(0)
         
         whenever(billRepository.save(any<Bill>())).thenAnswer {
             val b = it.arguments[0] as Bill
@@ -291,5 +295,53 @@ class CatalogServiceTests {
         assertEquals(3, off1.stockQuantity) // 5 - 2 = 3
         assertEquals(1, off2.stockQuantity) // unchanged
     }
-}
 
+    @Test
+    fun `createBill - atomic stock guard prevents oversell`() {
+        val storeId = UUID.randomUUID()
+        val staffId = UUID.randomUUID()
+        val productId = UUID.randomUUID()
+        val offering = Offering(
+            offeringId = productId,
+            providerId = storeId,
+            name = "Low Stock Food",
+            price = BigDecimal("100.00"),
+            stockQuantity = 1
+        )
+
+        whenever(billRepository.save(any<Bill>())).thenAnswer {
+            val bill = it.arguments[0] as Bill
+            bill.also { saved -> saved.id = saved.id ?: UUID.randomUUID() }
+        }
+        whenever(offeringRepository.findById(productId)).thenReturn(Optional.of(offering))
+        whenever(offeringRepository.decrementStockIfAvailable(productId, storeId, 1)).thenReturn(0)
+
+        val response = catalogService.createBill(
+            BillRequest(
+                storeId = storeId,
+                staffId = staffId,
+                status = "FINALIZED",
+                subtotal = BigDecimal("100.00"),
+                totalDiscount = BigDecimal.ZERO,
+                tax = BigDecimal.ZERO,
+                grandTotal = BigDecimal("100.00"),
+                idempotencyKey = "idem-oversell",
+                items = listOf(
+                    BillItemRequest(
+                        productId = productId,
+                        barcodeScanned = "123",
+                        quantity = 1,
+                        unitPrice = BigDecimal("100.00"),
+                        discountAmount = BigDecimal.ZERO,
+                        discountType = "NONE"
+                    )
+                )
+            )
+        )
+
+        assertEquals(0, response.successfulItems.size)
+        assertEquals(1, response.failedItems.size)
+        assertEquals("Out of stock", response.failedItems[0].reason)
+        verify(billItemRepository, never()).save(any())
+    }
+}

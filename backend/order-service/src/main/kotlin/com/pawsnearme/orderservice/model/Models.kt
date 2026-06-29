@@ -127,3 +127,71 @@ class OrderStatusHistory(
     @Column(name = "note")
     var note: String? = null
 )
+
+@Entity
+@Table(name = "system_configs", schema = "orders")
+class SystemConfig(
+    @Id
+    @Column(name = "config_key")
+    var configKey: String,
+
+    @Column(name = "config_value", nullable = false)
+    var configValue: String,
+
+    @Column(name = "updated_at", nullable = false)
+    var updatedAt: Instant = Instant.now()
+)
+
+@Entity
+@Table(name = "disputes", schema = "orders")
+class Dispute(
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    @Column(name = "dispute_id")
+    var disputeId: UUID? = null,
+
+    @Column(name = "order_id", nullable = false)
+    var orderId: UUID,
+
+    @Column(name = "status", nullable = false)
+    var status: String = "OPEN", // OPEN, RESOLVED, REJECTED
+
+    @Column(name = "reason", nullable = false)
+    var reason: String,
+
+    @Column(name = "resolution_notes")
+    var resolutionNotes: String? = null,
+
+    @Column(name = "created_at", nullable = false)
+    var createdAt: Instant = Instant.now(),
+
+    @Column(name = "resolved_at")
+    var resolvedAt: Instant? = null
+)
+
+@Entity
+@Table(name = "invoices", schema = "orders")
+class Invoice(
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    @Column(name = "invoice_id")
+    var invoiceId: UUID? = null,
+
+    @Column(name = "order_id", nullable = false, unique = true)
+    var orderId: UUID,
+
+    @Column(name = "invoice_number", nullable = false, unique = true)
+    var invoiceNumber: String,
+
+    @Column(name = "subtotal_amount", nullable = false)
+    var subtotalAmount: BigDecimal,
+
+    @Column(name = "tax_amount", nullable = false)
+    var taxAmount: BigDecimal,
+
+    @Column(name = "total_amount", nullable = false)
+    var totalAmount: BigDecimal,
+
+    @Column(name = "generated_at", nullable = false)
+    var generatedAt: Instant = Instant.now()
+)

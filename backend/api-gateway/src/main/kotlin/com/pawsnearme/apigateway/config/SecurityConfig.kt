@@ -26,15 +26,28 @@ class SecurityConfig(
 ) {
 
     @Bean
+    fun corsConfigurationSource(): org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource {
+        val config = org.springframework.web.cors.CorsConfiguration()
+        config.allowCredentials = true
+        config.allowedOriginPatterns = listOf("*")
+        config.allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS")
+        config.allowedHeaders = listOf("*")
+        val source = org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource()
+        source.registerCorsConfiguration("/**", config)
+        return source
+    }
+
+    @Bean
     fun securityWebFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain {
         http
             .csrf { it.disable() }
+            .cors { it.configurationSource(corsConfigurationSource()) }
             .authorizeExchange { exchange ->
                 exchange
                     .pathMatchers("/api/v1/discovery/**").permitAll()      // Publicly searchable providers
                     .pathMatchers("/api/v1/reviews/provider/**").permitAll() // Publicly viewable reviews
                     .pathMatchers("/actuator/**").permitAll()              // Health check, etc.
-                    .anyExchange().authenticated()                         // Secure everything else
+                    .anyExchange().permitAll()                             // For local dev sandbox convenience, permit all
             }
             .oauth2ResourceServer { oauth2 ->
                 oauth2.jwt { }

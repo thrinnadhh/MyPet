@@ -239,9 +239,11 @@ class CatalogService(
                     throw IllegalStateException("Out of stock")
                 }
 
-                // Atomic stock decrement
+                val updatedRows = offeringRepository.decrementStockIfAvailable(item.productId, request.storeId, item.quantity)
+                if (updatedRows != 1) {
+                    throw IllegalStateException("Out of stock")
+                }
                 offering.stockQuantity = offering.stockQuantity!! - item.quantity
-                offeringRepository.save(offering)
 
                 val billItem = BillItem(
                     billId = savedBill.id!!,
@@ -301,4 +303,3 @@ class CatalogService(
         return providerRepository.existsByProviderIdAndOwnerUserId(providerId, ownerUserId)
     }
 }
-

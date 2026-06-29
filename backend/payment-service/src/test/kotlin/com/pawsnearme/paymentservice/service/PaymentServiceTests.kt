@@ -39,6 +39,10 @@ class PaymentServiceTests {
         )
         // Default: code does not exist
         whenever(promotionRepository.existsByCode(any())).thenReturn(false)
+        whenever(transactionRepository.save(any())).thenAnswer { invocation ->
+            val transaction = invocation.getArgument<Transaction>(0)
+            transaction.also { it.transactionId = it.transactionId ?: UUID.randomUUID() }
+        }
     }
 
     private fun promoOf(
@@ -64,6 +68,42 @@ class PaymentServiceTests {
     )
 
     // ── createPromotion validations ───────────────────────────────────────────
+
+    @Test
+    fun `recordPaymentResult - success returns PaymentCaptured event with event id`() {
+        val request = PaymentResultRequest(
+            userId = UUID.randomUUID(),
+            referenceId = UUID.randomUUID(),
+            transactionType = "ORDER_PAYMENT",
+            amount = BigDecimal("499.00"),
+            gatewayTransactionId = "pay_test_123",
+            success = true
+        )
+
+        val event = service.recordPaymentResult(request)
+
+        assertNotNull(event.eventId)
+        assertEquals("PaymentCaptured", event.eventType)
+        assertEquals(request.userId, event.actorId)
+        assertEquals(request.referenceId, event.referenceId)
+    }
+
+    @Test
+    fun `recordPaymentResult - failure returns PaymentFailed event with event id`() {
+        val request = PaymentResultRequest(
+            userId = UUID.randomUUID(),
+            referenceId = UUID.randomUUID(),
+            transactionType = "ORDER_PAYMENT",
+            amount = BigDecimal("499.00"),
+            gatewayTransactionId = "pay_test_failed",
+            success = false
+        )
+
+        val event = service.recordPaymentResult(request)
+
+        assertNotNull(event.eventId)
+        assertEquals("PaymentFailed", event.eventType)
+    }
 
     @Test
     fun `createPromotion - platform-wide by non-admin - throws`() {

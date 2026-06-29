@@ -1,6 +1,6 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import {
-  StyleSheet, View, FlatList, TouchableOpacity, Platform,
+  StyleSheet, View, FlatList, TouchableOpacity,
   ActivityIndicator, Modal, ScrollView, Alert, useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,12 +8,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { AppIcon } from '@/components/app-icon';
 import { Spacing, Colors, Radius, Shadows } from '@/constants/theme';
-
-const API_BASE_URL = Platform.select({
-  android: 'http://10.0.2.2:8080',
-  ios: 'http://localhost:8080',
-  default: 'http://localhost:8080',
-});
+import { appConfig } from '@/utils/app-config';
 
 const HOLD_DURATION_SECONDS = 300; // 5 minutes — matches backend TTL
 const MOCK_PET_ID = 'pet-001';
@@ -309,7 +304,7 @@ export default function VetScreen() {
   const fetchHospitals = async () => {
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/v1/discovery/providers?longitude=${coords.longitude}&latitude=${coords.latitude}&radius=10.0&type=VET_HOSPITAL`,
+        `${appConfig.apiBaseUrl}/api/v1/discovery/providers?longitude=${coords.longitude}&latitude=${coords.latitude}&radius=10.0&type=VET_HOSPITAL`,
         { headers: { Accept: 'application/json' } },
       );
       if (!response.ok) throw new Error();
@@ -324,7 +319,7 @@ export default function VetScreen() {
         ratingCount: p.ratingCount ? p.ratingCount.toString() : '0',
       })));
     } catch {
-      setHospitals(BACKUP_HOSPITALS);
+      setHospitals(appConfig.allowDemoMode ? BACKUP_HOSPITALS : []);
     } finally {
       setIsLoading(false);
     }
@@ -354,7 +349,7 @@ export default function VetScreen() {
     setLoadingSlots(true);
     try {
       const res = await fetch(
-        `${API_BASE_URL}/api/v1/catalog/providers/${providerId}/slots?status=AVAILABLE`,
+        `${appConfig.apiBaseUrl}/api/v1/catalog/providers/${providerId}/slots?status=AVAILABLE`,
         { headers: { Accept: 'application/json' } },
       );
       if (!res.ok) throw new Error();
@@ -365,9 +360,9 @@ export default function VetScreen() {
         endTime: new Date(s.endTime).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit' }),
         price: s.price ?? 499,
       }));
-      setSlots(mapped.length > 0 ? mapped : BACKUP_SLOTS);
+      setSlots(mapped.length > 0 ? mapped : appConfig.allowDemoMode ? BACKUP_SLOTS : []);
     } catch {
-      setSlots(BACKUP_SLOTS);
+      setSlots(appConfig.allowDemoMode ? BACKUP_SLOTS : []);
     } finally {
       setLoadingSlots(false);
     }
@@ -384,7 +379,7 @@ export default function VetScreen() {
     setSelectedSlot(slot);
     setPhase('holding');
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/appointments/hold`, {
+      const res = await fetch(`${appConfig.apiBaseUrl}/api/v1/appointments/hold`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -401,26 +396,34 @@ export default function VetScreen() {
         return;
       }
       const data = await res.json();
-      setHeldAppointmentId(data.appointmentId ?? data.id ?? 'demo-hold');
+      setHeldAppointmentId(data.appointmentId ?? data.id);
       setPhase('checkout');
     } catch {
-      // Offline demo — proceed
-      setHeldAppointmentId('demo-appointment-001');
-      setPhase('checkout');
+      if (appConfig.allowDemoMode) {
+        setHeldAppointmentId('demo-appointment-001');
+        setPhase('checkout');
+      } else {
+        Alert.alert('Booking Unavailable', 'Could not hold this slot. Please try again when the service is reachable.');
+        setPhase('selecting');
+      }
     }
   }, []);
 
   const handleConfirmPayment = useCallback(async () => {
     setPhase('confirming');
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/appointments/${heldAppointmentId}/confirm`, {
+      const res = await fetch(`${appConfig.apiBaseUrl}/api/v1/appointments/${heldAppointmentId}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentId: `pay_${Date.now()}` }),
       });
       if (!res.ok) throw new Error();
     } catch {
-      // Offline demo — still show success
+      if (!appConfig.allowDemoMode) {
+        Alert.alert('Payment Confirmation Failed', 'The appointment was not confirmed. Please retry.');
+        setPhase('checkout');
+        return;
+      }
     }
     setPhase('success');
     setTimeout(() => setPhase('idle'), 2500);

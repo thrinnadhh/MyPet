@@ -18,12 +18,7 @@ import { ThemedView } from '@/components/themed-view';
 import { AppIcon } from '@/components/app-icon';
 import { Spacing, Colors } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-
-const API_BASE_URL = Platform.select({
-  android: 'http://10.0.2.2:8080',
-  ios: 'http://localhost:8080',
-  default: 'http://localhost:8080',
-});
+import { appConfig } from '@/utils/app-config';
 
 interface DispatchOffer {
   offerId: string;
@@ -76,7 +71,7 @@ export default function DeliveryScreen() {
       const lat = 28.6139;
       const lng = 77.2090;
 
-      const response = await fetch(`${API_BASE_URL}/api/v1/captains/status`, {
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/captains/status`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -117,7 +112,7 @@ export default function DeliveryScreen() {
         const lat = 28.6139 + randomShift;
         const lng = 77.2090 + randomShift;
 
-        await fetch(`${API_BASE_URL}/api/v1/captains/location`, {
+        await fetch(`${appConfig.apiBaseUrl}/api/v1/captains/location`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -142,7 +137,7 @@ export default function DeliveryScreen() {
 
     const offerPoll = setInterval(async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/v1/dispatch/offers`, {
+        const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/dispatch/offers`, {
           headers: { 'X-User-Id': user.id }
         });
         const data: DispatchOffer[] = await response.json();
@@ -182,7 +177,7 @@ export default function DeliveryScreen() {
     if (!activeOffer) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/dispatch/offers/${activeOffer.offerId}/respond?response=${responseType}`, {
+      const res = await fetch(`${appConfig.apiBaseUrl}/api/v1/dispatch/offers/${activeOffer.offerId}/respond?response=${responseType}`, {
         method: 'POST'
       });
       if (res.ok) {
@@ -210,8 +205,7 @@ export default function DeliveryScreen() {
       }
     } catch (err) {
       console.warn("Response failed:", err);
-      // Fallback mock acceptance
-      if (responseType === 'ACCEPTED') {
+      if (responseType === 'ACCEPTED' && appConfig.allowDemoMode) {
         setActiveDelivery({
           jobId: activeOffer.jobId,
           orderId: activeOffer.orderId,
@@ -226,6 +220,8 @@ export default function DeliveryScreen() {
           deliveryFee: 150.00
         });
         setDeliveryStep(1);
+      } else if (!appConfig.allowDemoMode) {
+        Alert.alert('Response Failed', 'Could not reach dispatch. Please retry when the service is available.');
       }
       setActiveOffer(null);
     } finally {
@@ -254,7 +250,7 @@ export default function DeliveryScreen() {
     setVerifyingOtp(true);
     try {
       // Update order status to PICKED_UP
-      const response = await fetch(`${API_BASE_URL}/api/v1/orders/${activeDelivery?.orderId}/status?status=PICKED_UP`, {
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders/${activeDelivery?.orderId}/status?status=PICKED_UP`, {
         method: 'PUT',
         headers: { 'X-User-Id': user?.id || '' }
       });
@@ -285,7 +281,7 @@ export default function DeliveryScreen() {
     setVerifyingOtp(true);
     try {
       // Update order status to DELIVERED
-      const response = await fetch(`${API_BASE_URL}/api/v1/orders/${activeDelivery?.orderId}/status?status=DELIVERED`, {
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders/${activeDelivery?.orderId}/status?status=DELIVERED`, {
         method: 'PUT',
         headers: { 'X-User-Id': user?.id || '' }
       });

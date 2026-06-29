@@ -10,6 +10,27 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.UUID
 
+data class PaymentResultRequest(
+    val userId: UUID,
+    val referenceId: UUID,
+    val transactionType: String,
+    val amount: BigDecimal,
+    val gatewayTransactionId: String?,
+    val success: Boolean
+)
+
+data class PaymentResultEvent(
+    val eventId: UUID = UUID.randomUUID(),
+    val eventType: String,
+    val transactionId: UUID,
+    val referenceId: UUID,
+    val actorId: UUID,
+    val amount: BigDecimal,
+    val gateway: String,
+    val gatewayTransactionId: String?,
+    val occurredAt: Instant = Instant.now()
+)
+
 @Service
 class PaymentService(
     private val transactionRepository: TransactionRepository,
@@ -20,6 +41,31 @@ class PaymentService(
     private val captainEarningRefRepository: CaptainEarningRefRepository,
     private val providerRefRepository: ProviderRefRepository
 ) {
+
+    @Transactional
+    fun recordPaymentResult(request: PaymentResultRequest): PaymentResultEvent {
+        val transaction = transactionRepository.save(
+            Transaction(
+                userId = request.userId,
+                transactionType = request.transactionType,
+                referenceId = request.referenceId,
+                amount = request.amount,
+                status = if (request.success) "SUCCESS" else "FAILED",
+                gatewayTransactionId = request.gatewayTransactionId
+            )
+        )
+
+        return PaymentResultEvent(
+            eventType = if (request.success) "PaymentCaptured" else "PaymentFailed",
+            transactionId = transaction.transactionId
+                ?: throw IllegalStateException("Saved transaction did not receive an id"),
+            referenceId = request.referenceId,
+            actorId = request.userId,
+            amount = request.amount,
+            gateway = transaction.gateway,
+            gatewayTransactionId = request.gatewayTransactionId
+        )
+    }
 
     @Transactional
     fun calculatePayouts(start: LocalDate, end: LocalDate): List<Payout> {
@@ -173,5 +219,18 @@ class PaymentService(
         }
 
         return promo
+    }
+
+    @Transactional
+    fun refundPayment(referenceId: UUID): Transaction {
+        val transaction = transactionRepository.findByReferenceId(referenceId)
+            ?: throw IllegalArgumentException("Transaction not found for reference ID $referenceId")
+        
+        transaction.status = "REFUNDED"
+        transaction.updatedAt = Instant.now()
+        
+        println("Razorpay Sandbox API Call: refunding transaction ${transaction.gatewayTransactionId} for amount ${transaction.amount}")
+        
+        return transactionRepository.save(transaction)
     }
 }

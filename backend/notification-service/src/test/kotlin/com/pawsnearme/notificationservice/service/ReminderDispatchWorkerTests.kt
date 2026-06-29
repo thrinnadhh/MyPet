@@ -11,7 +11,8 @@ import java.util.UUID
 class ReminderDispatchWorkerTests {
 
     private val reminderRepo: ScheduledReminderRepository = mock()
-    private val worker = ReminderDispatchWorker(reminderRepo)
+    private val deliveryAdapter: NotificationDeliveryAdapter = mock()
+    private val worker = ReminderDispatchWorker(reminderRepo, deliveryAdapter)
 
     private fun makeReminder(templateCode: String = "APPOINTMENT_T24H") = ScheduledReminder(
         id = UUID.randomUUID(),
@@ -32,6 +33,7 @@ class ReminderDispatchWorkerTests {
         worker.dispatchDueReminders()
 
         verify(reminderRepo, never()).markFired(any())
+        verify(deliveryAdapter, never()).deliver(any())
     }
 
     @Test
@@ -39,6 +41,7 @@ class ReminderDispatchWorkerTests {
         val r1 = makeReminder("APPOINTMENT_T24H")
         val r2 = makeReminder("APPOINTMENT_T1H")
         whenever(reminderRepo.findDueReminders(any())).thenReturn(listOf(r1, r2))
+        whenever(deliveryAdapter.deliver(any())).thenReturn(NotificationDeliveryResult(delivered = true, provider = "TEST"))
 
         worker.dispatchDueReminders()
 
@@ -50,9 +53,23 @@ class ReminderDispatchWorkerTests {
     fun `dispatchDueReminders - each reminder marked fired exactly once`() {
         val reminder = makeReminder()
         whenever(reminderRepo.findDueReminders(any())).thenReturn(listOf(reminder))
+        whenever(deliveryAdapter.deliver(any())).thenReturn(NotificationDeliveryResult(delivered = true, provider = "TEST"))
 
         worker.dispatchDueReminders()
 
         verify(reminderRepo, times(1)).markFired(reminder.id)
+    }
+
+    @Test
+    fun `dispatchDueReminders - failed delivery is not marked fired`() {
+        val reminder = makeReminder()
+        whenever(reminderRepo.findDueReminders(any())).thenReturn(listOf(reminder))
+        whenever(deliveryAdapter.deliver(any())).thenReturn(
+            NotificationDeliveryResult(delivered = false, provider = "TEST", retryable = true, failureReason = "network")
+        )
+
+        worker.dispatchDueReminders()
+
+        verify(reminderRepo, never()).markFired(reminder.id)
     }
 }

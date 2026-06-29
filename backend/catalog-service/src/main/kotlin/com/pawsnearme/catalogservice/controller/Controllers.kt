@@ -178,7 +178,8 @@ class CatalogController(private val catalogService: CatalogService) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to "Access denied for store"))
         }
         return try {
-            val response = catalogService.createBill(request)
+            val authenticatedRequest = request.copy(staffId = UUID.fromString(xUserId))
+            val response = catalogService.createBill(authenticatedRequest)
             ResponseEntity.status(HttpStatus.CREATED).body(response)
         } catch (e: Exception) {
             ResponseEntity.badRequest().body(mapOf("error" to e.message))
@@ -223,4 +224,3 @@ class CatalogController(private val catalogService: CatalogService) {
         return ResponseEntity.ok(bills)
     }
 }
-

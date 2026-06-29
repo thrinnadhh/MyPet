@@ -194,6 +194,13 @@ class ProviderController(
         }
     }
 
+    @GetMapping("/pending")
+    fun getPendingProviders(): ResponseEntity<List<ProviderResponse>> {
+        val all = providerRepository.findAll()
+        val pending = all.filter { it.status == ProviderStatus.PENDING_APPROVAL }
+        return ResponseEntity.ok(pending.map { mapToResponse(it) })
+    }
+
     @GetMapping
     fun getProvidersByOwner(@RequestParam ownerUserId: UUID): ResponseEntity<List<ProviderResponse>> {
         val providers = providerRepository.findByOwnerUserId(ownerUserId)

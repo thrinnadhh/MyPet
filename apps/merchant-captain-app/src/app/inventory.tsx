@@ -18,12 +18,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing, Colors } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-
-const API_BASE_URL = Platform.select({
-  android: 'http://10.0.2.2:8080',
-  ios: 'http://localhost:8080',
-  default: 'http://localhost:8080',
-});
+import { appConfig } from '@/utils/app-config';
 
 // Stitch Design System Theme Colors
 const PRIMARY_BLUE = '#2563eb';
@@ -164,7 +159,7 @@ export default function InventoryScreen() {
   const fetchProviders = useCallback(async () => {
     if (!user) return;
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/providers?ownerUserId=${user.id}`);
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers?ownerUserId=${user.id}`);
       if (response.ok) {
         const data = await response.json();
         if (Array.isArray(data) && data.length > 0) {
@@ -178,7 +173,7 @@ export default function InventoryScreen() {
         }
       }
     } catch (err) {
-      console.log("Failed to fetch dynamic providers list, using demo providers fallback:", err);
+      console.log("Failed to fetch dynamic providers list:", err);
     }
   }, [user]);
 
@@ -219,16 +214,16 @@ export default function InventoryScreen() {
     setIsOffline(false);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/v1/catalog/offerings?providerId=${selectedProviderId}`,
+        `${appConfig.apiBaseUrl}/api/v1/catalog/offerings?providerId=${selectedProviderId}`,
         { headers: { 'Accept': 'application/json' } }
       );
       if (!response.ok) throw new Error('API request failed');
       const data = await response.json();
       setOfferings(data);
     } catch (err) {
-      console.warn('Catalog API unreachable, falling back to local sandbox data.');
-      setIsOffline(true);
-      setOfferings(OFFLINE_MOCK_OFFERINGS[selectedProviderId] || []);
+      console.warn('Catalog API unreachable.');
+      setIsOffline(appConfig.allowDemoMode);
+      setOfferings(appConfig.allowDemoMode ? OFFLINE_MOCK_OFFERINGS[selectedProviderId] || [] : []);
     } finally {
       setLoading(false);
     }
@@ -289,7 +284,7 @@ export default function InventoryScreen() {
 
     setSubmittingOffering(true);
     try {
-      if (isOffline) {
+      if (isOffline && appConfig.allowDemoMode) {
         // Offline sandbox mode simulation
         const mockNew: Offering = {
           ...payload,
@@ -300,7 +295,7 @@ export default function InventoryScreen() {
         setShowAddForm(false);
         resetForm();
       } else {
-        const response = await fetch(`${API_BASE_URL}/api/v1/catalog/offerings`, {
+        const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/offerings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -339,12 +334,12 @@ export default function InventoryScreen() {
   const handleToggleOfferingStatus = useCallback(async (item: Offering) => {
     const newStatus = item.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     try {
-      if (isOffline) {
+      if (isOffline && appConfig.allowDemoMode) {
         setOfferings((prev) =>
           prev.map((o) => (o.offeringId === item.offeringId ? { ...o, status: newStatus } : o))
         );
       } else {
-        const response = await fetch(`${API_BASE_URL}/api/v1/catalog/offerings/${item.offeringId}`, {
+        const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/offerings/${item.offeringId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...item, status: newStatus }),
@@ -365,13 +360,13 @@ export default function InventoryScreen() {
     setSelectedOffering(offering);
     setLoadingSlots(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/catalog/slots?offeringId=${offering.offeringId}`);
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/slots?offeringId=${offering.offeringId}`);
       if (!response.ok) throw new Error('API failure');
       const data = await response.json();
       setSlots(data);
     } catch (err) {
-      console.warn('Slots API unreachable, loading sandbox slots.');
-      setSlots(OFFLINE_MOCK_SLOTS[offering.offeringId || ''] || []);
+      console.warn('Slots API unreachable.');
+      setSlots(appConfig.allowDemoMode ? OFFLINE_MOCK_SLOTS[offering.offeringId || ''] || [] : []);
     } finally {
       setLoadingSlots(false);
     }
@@ -407,7 +402,7 @@ export default function InventoryScreen() {
 
     setCreatingSlot(true);
     try {
-      if (isOffline) {
+      if (isOffline && appConfig.allowDemoMode) {
         const mockNew: Slot = {
           ...payload,
           slotId: 'mock-slot-' + Date.now(),
@@ -417,7 +412,7 @@ export default function InventoryScreen() {
         setNewSlotStart('');
         setNewSlotEnd('');
       } else {
-        const response = await fetch(`${API_BASE_URL}/api/v1/catalog/slots`, {
+        const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/slots`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -452,13 +447,13 @@ export default function InventoryScreen() {
     const nextStatus = nextStatusMap[currentStatus];
 
     try {
-      if (isOffline) {
+      if (isOffline && appConfig.allowDemoMode) {
         setSlots((prev) =>
           prev.map((s) => (s.slotId === slotId ? { ...s, status: nextStatus } : s))
         );
       } else {
         const response = await fetch(
-          `${API_BASE_URL}/api/v1/catalog/slots/${slotId}/status?status=${nextStatus}`,
+          `${appConfig.apiBaseUrl}/api/v1/catalog/slots/${slotId}/status?status=${nextStatus}`,
           { method: 'PUT' }
         );
         if (response.ok && selectedOffering) {

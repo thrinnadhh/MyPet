@@ -2,9 +2,12 @@ import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import { appConfig, requireMobileConfig } from './app-config';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://placeholder-project.supabase.co';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
+requireMobileConfig();
+
+const supabaseUrl = appConfig.supabaseUrl || 'https://placeholder-project.supabase.co';
+const supabaseAnonKey = appConfig.supabaseAnonKey || 'placeholder-anon-key';
 
 const webStorage = {
   getItem: (key: string) => {

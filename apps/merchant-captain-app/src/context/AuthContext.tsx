@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../utils/supabase';
 import { Session, User } from '@supabase/supabase-js';
+import { appConfig } from '../utils/app-config';
 
 interface AuthContextType {
   user: User | null;
@@ -30,12 +31,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if we are in development placeholder mode
-    const isPlaceholder = process.env.EXPO_PUBLIC_SUPABASE_URL === undefined || 
-                          process.env.EXPO_PUBLIC_SUPABASE_URL.includes("placeholder-project");
-    
-    if (isPlaceholder) {
-      console.log("AuthProvider: Running in mock development mode");
+    if (appConfig.allowDemoMode) {
+      console.log("AuthProvider: Running in explicit demo mode");
       const mockUser = {
         id: 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e', // Merchant ID
         email: 'merchant@pawsnearme.com',

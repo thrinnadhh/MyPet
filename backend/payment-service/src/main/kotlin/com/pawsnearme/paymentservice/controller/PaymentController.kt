@@ -2,6 +2,7 @@ package com.pawsnearme.paymentservice.controller
 
 import com.pawsnearme.paymentservice.model.Payout
 import com.pawsnearme.paymentservice.model.Promotion
+import com.pawsnearme.paymentservice.service.PaymentResultRequest
 import com.pawsnearme.paymentservice.service.PaymentService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
@@ -14,6 +15,18 @@ import java.util.UUID
 @RestController
 @RequestMapping("/api/v1/payments")
 class PaymentController(private val paymentService: PaymentService) {
+
+    @PostMapping("/transactions/result")
+    fun recordPaymentResult(
+        @RequestBody request: PaymentResultRequest,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?,
+        @RequestHeader("X-User-Role", required = false) xUserRole: String?
+    ): ResponseEntity<Any> {
+        if (xUserRole != "ADMIN" && xUserId != request.userId.toString()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to "Access denied for payment result"))
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(paymentService.recordPaymentResult(request))
+    }
 
     @PostMapping("/payouts/calculate")
     fun calculatePayouts(
@@ -74,6 +87,16 @@ class PaymentController(private val paymentService: PaymentService) {
             val promo = paymentService.validateCoupon(code, orderValue, providerId, category)
             ResponseEntity.ok(promo)
         } catch (e: IllegalArgumentException) {
+            ResponseEntity.badRequest().body(mapOf("error" to e.message))
+        }
+    }
+
+    @PostMapping("/refund")
+    fun refundPayment(@RequestParam orderId: UUID): ResponseEntity<Any> {
+        return try {
+            val tx = paymentService.refundPayment(orderId)
+            ResponseEntity.ok(tx)
+        } catch (e: Exception) {
             ResponseEntity.badRequest().body(mapOf("error" to e.message))
         }
     }

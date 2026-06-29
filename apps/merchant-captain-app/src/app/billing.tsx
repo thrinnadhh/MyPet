@@ -8,7 +8,6 @@ import {
   Alert,
   ActivityIndicator,
   useColorScheme,
-  Platform,
   Modal,
   Vibration,
 } from 'react-native';
@@ -18,12 +17,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Spacing, Colors, BottomTabInset } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useBillingQueue, type CartItem } from '@/hooks/useBillingQueue';
-
-const API_BASE_URL = Platform.select({
-  android: 'http://10.0.2.2:8080',
-  ios: 'http://localhost:8080',
-  default: 'http://localhost:8080',
-});
+import { appConfig } from '@/utils/app-config';
 
 const ACCENT_AMBER = '#f59e0b';
 const SUCCESS_EMERALD = '#10b981';
@@ -135,7 +129,7 @@ export default function BillingScreen() {
         const headers: Record<string, string> = {};
         if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
 
-        const res = await fetch(`${API_BASE_URL}/api/v1/providers?ownerUserId=${user.id}`, { headers });
+        const res = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers?ownerUserId=${user.id}`, { headers });
         if (!res.ok) throw new Error('Provider lookup failed');
 
         const providers: ProviderSummary[] = await res.json();
@@ -183,7 +177,7 @@ export default function BillingScreen() {
       if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
 
       const storeQuery = storeId ? `?storeId=${storeId}` : '';
-      const res = await fetch(`${API_BASE_URL}/api/v1/catalog/offerings/by-barcode/${encodeURIComponent(trimmed)}${storeQuery}`, { headers });
+      const res = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/offerings/by-barcode/${encodeURIComponent(trimmed)}${storeQuery}`, { headers });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         Alert.alert('Not Found', body.error ?? `Barcode ${trimmed} not found in catalog`);

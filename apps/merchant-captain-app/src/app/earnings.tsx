@@ -5,7 +5,6 @@ import {
   FlatList, 
   ActivityIndicator, 
   useColorScheme, 
-  Platform,
   TouchableOpacity,
   Modal,
   TextInput,
@@ -17,12 +16,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing, Colors } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-
-const API_BASE_URL = Platform.select({
-  android: 'http://10.0.2.2:8080',
-  ios: 'http://localhost:8080',
-  default: 'http://localhost:8080',
-});
+import { appConfig } from '@/utils/app-config';
 
 const DEMO_PROVIDERS = [
   {
@@ -161,7 +155,7 @@ export default function EarningsScreen() {
   const fetchProviders = useCallback(async () => {
     if (!user || activeRole !== 'PROVIDER') return;
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/providers?ownerUserId=${user.id}`);
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers?ownerUserId=${user.id}`);
       if (response.ok) {
         const data = await response.json();
         if (Array.isArray(data) && data.length > 0) {
@@ -184,7 +178,7 @@ export default function EarningsScreen() {
     if (!user) return;
     if (showLoader) setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/captains/${user.id}/earnings`);
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/captains/${user.id}/earnings`);
       const data = await response.json();
       if (response.ok) {
         setEarnings(data);
@@ -205,7 +199,7 @@ export default function EarningsScreen() {
     if (showLoader) setLoading(true);
     try {
       // 1. Fetch Payout History
-      const payoutResponse = await fetch(`${API_BASE_URL}/api/v1/payments/payouts/user/${user.id}`, {
+      const payoutResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/payments/payouts/user/${user.id}`, {
         headers: { 'X-User-Id': user.id, 'X-User-Role': 'MERCHANT' }
       });
       if (payoutResponse.ok) {
@@ -216,7 +210,7 @@ export default function EarningsScreen() {
       }
 
       // 2. Fetch promotions
-      const promoResponse = await fetch(`${API_BASE_URL}/api/v1/payments/promotions?providerId=${selectedProvider.id}`);
+      const promoResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/payments/promotions?providerId=${selectedProvider.id}`);
       if (promoResponse.ok) {
         const data = await promoResponse.json();
         setPromotions(data);
@@ -299,7 +293,7 @@ export default function EarningsScreen() {
 
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/v1/payments/promotions`, {
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/payments/promotions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

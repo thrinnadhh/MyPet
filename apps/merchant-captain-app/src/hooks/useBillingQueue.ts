@@ -9,13 +9,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
-import { Platform } from 'react-native';
-
-const API_BASE_URL = Platform.select({
-  android: 'http://10.0.2.2:8080',
-  ios: 'http://localhost:8080',
-  default: 'http://localhost:8080',
-});
+import { appConfig } from '@/utils/app-config';
 
 const PENDING_BILLS_KEY = '@pawsnearme:pending_bills';
 
@@ -75,7 +69,7 @@ async function submitBill(bill: PendingBill, accessToken: string): Promise<boole
   const grandTotal = subtotal - totalDiscount + tax;
 
   try {
-    const res = await fetch(`${API_BASE_URL}/api/v1/catalog/bills`, {
+    const res = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/bills`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

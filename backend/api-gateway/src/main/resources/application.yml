@@ -49,6 +49,14 @@ spring:
           uri: ${DISCOVERY_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/api/v1/discovery/**
+        - id: order-service-admin
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/orders/admin/**
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
         - id: order-service
           uri: ${ORDER_SERVICE_URL:http://localhost:8084}
           predicates:
@@ -91,6 +99,15 @@ spring:
             - name: RoleGuard
               args:
                 roles: MERCHANT,ADMIN
+        - id: payment-refund-admin
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8090}
+          predicates:
+            - Path=/api/v1/payments/refund
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
         - id: payment-service
           uri: ${PAYMENT_SERVICE_URL:http://localhost:8090}
           predicates:

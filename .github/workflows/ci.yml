@@ -22,10 +22,15 @@ jobs:
           cache: 'gradle'
 
       - name: Build with Gradle
+        working-directory: backend
         run: ./gradlew build -x test --no-daemon
 
       - name: Run Backend Unit Tests
+        working-directory: backend
         run: ./gradlew test --no-daemon
+
+      - name: Check Generated Artifacts
+        run: scripts/check-no-generated-artifacts.sh
 
   mobile-validate:
     name: Mobile App Lint & Compile
@@ -42,11 +47,13 @@ jobs:
       - name: Validate Customer App
         run: |
           cd apps/customer-app
-          npm ci || npm install
-          npx tsc --noEmit
+          npm ci
+          npm run typecheck
+          npm run lint
 
       - name: Validate Merchant/Captain App
         run: |
           cd apps/merchant-captain-app
-          npm ci || npm install
-          npx tsc --noEmit
+          npm ci
+          npm run typecheck
+          npm run lint
