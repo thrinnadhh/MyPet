@@ -5,6 +5,7 @@ print("Sprint 1: Identity, Auth, Provider Onboarding")
 check("gateway strips spoofed identity headers", has_text("backend/api-gateway/src/main/kotlin/com/pawsnearme/apigateway/filter/AuthenticationHeaderFilter.kt", 'it.remove("X-User-Id")', 'it.remove("X-User-Role")'))
 check("role guard exists", exists("backend/api-gateway/src/main/kotlin/com/pawsnearme/apigateway/filter/RoleGuardGatewayFilterFactory.kt"))
 check("provider state machine exists", has_text("backend/provider-service/src/main/kotlin/com/pawsnearme/providerservice/model/Enums.kt", "PENDING_APPROVAL", "ACTIVE"))
+check("authenticated default address API exists", has_text("backend/provider-service/src/main/kotlin/com/pawsnearme/providerservice/controller/Controllers.kt", "/default", "X-User-Id", "No default delivery address found"))
 check(
     "document upload endpoints exist",
     has_text("backend/provider-service/src/main/kotlin/com/pawsnearme/providerservice/controller/Controllers.kt", "uploadDocument")

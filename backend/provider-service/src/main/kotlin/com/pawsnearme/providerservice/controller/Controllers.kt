@@ -29,6 +29,32 @@ data class ProfileResponse(
     val avatarUrl: String?
 )
 
+data class CreateAddressRequest(
+    val label: String?,
+    @field:NotBlank val line1: String,
+    val line2: String?,
+    @field:NotBlank val city: String,
+    @field:NotBlank val state: String,
+    @field:NotBlank val pincode: String,
+    @field:NotNull val geoLat: BigDecimal,
+    @field:NotNull val geoLng: BigDecimal,
+    val isDefault: Boolean = false
+)
+
+data class AddressResponse(
+    val addressId: UUID,
+    val userId: UUID,
+    val label: String?,
+    val line1: String,
+    val line2: String?,
+    val city: String,
+    val state: String,
+    val pincode: String,
+    val geoLat: BigDecimal,
+    val geoLng: BigDecimal,
+    val isDefault: Boolean
+)
+
 data class CreateProviderRequest(
     @field:NotNull val ownerUserId: UUID,
     @field:NotNull val providerType: ProviderType,
@@ -112,6 +138,86 @@ class ProfileController(
         } else {
             ResponseEntity.notFound().build()
         }
+    }
+}
+
+@RestController
+@RequestMapping("/api/v1/addresses")
+class AddressController(private val addressRepository: AddressRepository) {
+    @PostMapping
+    fun createAddress(
+        @Valid @RequestBody request: CreateAddressRequest,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?
+    ): ResponseEntity<Any> {
+        if (xUserId == null) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Unauthorized: user context missing"))
+        }
+
+        val userId = UUID.fromString(xUserId)
+        val existing = addressRepository.findByUserId(userId)
+        val shouldBeDefault = request.isDefault || existing.isEmpty()
+        if (shouldBeDefault) {
+            existing.filter { it.isDefault }.forEach {
+                it.isDefault = false
+                addressRepository.save(it)
+            }
+        }
+
+        val saved = addressRepository.save(
+            Address(
+                userId = userId,
+                label = request.label,
+                line1 = request.line1,
+                line2 = request.line2,
+                city = request.city,
+                state = request.state,
+                pincode = request.pincode,
+                geoLat = request.geoLat,
+                geoLng = request.geoLng,
+                isDefault = shouldBeDefault
+            )
+        )
+        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(mapToResponse(saved))
+    }
+
+    @GetMapping
+    fun listAddresses(@RequestHeader("X-User-Id", required = false) xUserId: String?): ResponseEntity<Any> {
+        if (xUserId == null) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Unauthorized: user context missing"))
+        }
+        val userId = UUID.fromString(xUserId)
+        return ResponseEntity.ok(addressRepository.findByUserId(userId).map { mapToResponse(it) })
+    }
+
+    @GetMapping("/default")
+    fun getDefaultAddress(@RequestHeader("X-User-Id", required = false) xUserId: String?): ResponseEntity<Any> {
+        if (xUserId == null) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Unauthorized: user context missing"))
+        }
+        val userId = UUID.fromString(xUserId)
+        val defaultAddress = addressRepository.findFirstByUserIdAndIsDefaultTrue(userId)
+            ?: return ResponseEntity.status(org.springframework.http.HttpStatus.NOT_FOUND)
+                .body(mapOf("error" to "No default delivery address found"))
+        return ResponseEntity.ok(mapToResponse(defaultAddress))
+    }
+
+    private fun mapToResponse(address: Address): AddressResponse {
+        return AddressResponse(
+            addressId = address.addressId!!,
+            userId = address.userId,
+            label = address.label,
+            line1 = address.line1,
+            line2 = address.line2,
+            city = address.city,
+            state = address.state,
+            pincode = address.pincode,
+            geoLat = address.geoLat,
+            geoLng = address.geoLng,
+            isDefault = address.isDefault
+        )
     }
 }
 

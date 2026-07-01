@@ -7,9 +7,9 @@ This tracker reflects the current repo state after Sprint 0-9 checklist files an
 | Sprint | Theme | Repo Status | Remaining Gap |
 | --- | --- | --- | --- |
 | 0 | Foundations | Mostly complete | Run clean local infra/migrations and record Kafka/Redis topic proof |
-| 1 | Identity, Auth, Provider Onboarding | Partial | Real Supabase signup/profile sync, document upload proof, admin approval proof |
+| 1 | Identity, Auth, Provider Onboarding | Partial | Real Supabase signup/profile/address sync, document upload proof, admin approval proof |
 | 2 | Catalog + Discovery | Partial | Live mobile proof for Shop, Vet, Groom with demo mode disabled |
-| 3 | Order Creation + Payment Capture | Partial | Customer checkout UI and Razorpay sandbox success/failure proof |
+| 3 | Order Creation + Payment Capture | In progress | Live checkout proof with default address, Razorpay sandbox capture/failure evidence, and stock rollback behavior |
 | 4 | Dispatch + Captain Delivery Loop | Partial | End-to-end offer expiry/retry, pickup, delivery, and earnings proof |
 | 5 | Appointment Booking + Slot Locking | Partial | Concurrent same-slot booking proof and expired hold release proof |
 | 6 | Merchant Calendar + Reminders | Partial | Real Expo/FCM credentials, visit notes/prescription upload decision, delivery evidence |
@@ -29,7 +29,7 @@ Demo/offline fixtures are allowed only when `EXPO_PUBLIC_ALLOW_DEMO_MODE=true`. 
 
 ## Immediate Next Work
 
-1. Capture live proof for Sprints 1-5 using local infra and real backend services.
-2. Add Super Admin web/API for Sprint 8.
+1. Seed or create a real default customer address, then capture the Sprint 3 checkout success/failure proof through the customer app.
+2. Capture live proof for Sprints 1-5 using local infra and real backend services.
 3. Configure real Expo/FCM reminder credentials or explicitly defer push delivery from launch scope.
 4. Add legal pages and app-store launch artifacts for Sprint 9.

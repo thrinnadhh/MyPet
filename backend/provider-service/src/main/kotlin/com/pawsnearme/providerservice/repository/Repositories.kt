@@ -9,6 +9,12 @@ import java.util.UUID
 interface ProfileRepository : JpaRepository<Profile, UUID>
 
 @Repository
+interface AddressRepository : JpaRepository<Address, UUID> {
+    fun findByUserId(userId: UUID): List<Address>
+    fun findFirstByUserIdAndIsDefaultTrue(userId: UUID): Address?
+}
+
+@Repository
 interface ProviderRepository : JpaRepository<Provider, UUID> {
     fun findByOwnerUserId(ownerUserId: UUID): List<Provider>
 }
@@ -20,4 +26,3 @@ interface ProviderDocumentRepository : JpaRepository<ProviderDocument, UUID> {
 
 @Repository
 interface UserRoleJoinRepository : JpaRepository<UserRoleJoin, com.pawsnearme.providerservice.model.UserRoleKey>
-
