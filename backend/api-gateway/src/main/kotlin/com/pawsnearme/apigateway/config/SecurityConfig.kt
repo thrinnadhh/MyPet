@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity
 import org.springframework.security.config.web.server.ServerHttpSecurity
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm
 import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder
 import org.springframework.security.web.server.SecurityWebFilterChain
@@ -69,8 +70,15 @@ class SecurityConfig(
                     .build()
             }
             jwkSetUri.isNotBlank() && !jwkSetUri.contains("your-project.supabase.co") -> {
-                // JWK endpoint validation for RS256
-                NimbusReactiveJwtDecoder.withJwkSetUri(jwkSetUri).build()
+                // JWK endpoint validation for Supabase asymmetric JWTs.
+                // Supabase projects can issue ES256 or RS256 tokens depending
+                // on their signing key configuration.
+                NimbusReactiveJwtDecoder.withJwkSetUri(jwkSetUri)
+                    .jwsAlgorithms {
+                        it.add(SignatureAlgorithm.ES256)
+                        it.add(SignatureAlgorithm.RS256)
+                    }
+                    .build()
             }
             allowUnsignedJwt -> {
                 println("WARNING: Supabase Auth is running in mock/dev mode. JWT signatures are NOT validated.")

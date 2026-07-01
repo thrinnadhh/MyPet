@@ -7,7 +7,7 @@ This tracker reflects the current repo state after Sprint 0-9 checklist files an
 | Sprint | Theme | Repo Status | Remaining Gap |
 | --- | --- | --- | --- |
 | 0 | Foundations | Mostly complete | Run clean local infra/migrations and record Kafka/Redis topic proof |
-| 1 | Identity, Auth, Provider Onboarding | Partial | Real Supabase signup/profile/address sync, document upload proof, admin approval proof |
+| 1 | Identity, Auth, Provider Onboarding | API proof captured | Mobile UI signup/onboarding proof with demo mode disabled; replace local auth mirror with a production sync strategy |
 | 2 | Catalog + Discovery | Partial | Live mobile proof for Shop, Vet, Groom with demo mode disabled |
 | 3 | Order Creation + Payment Capture | In progress | Live checkout proof with default address, Razorpay sandbox capture/failure evidence, and stock rollback behavior |
 | 4 | Dispatch + Captain Delivery Loop | Partial | End-to-end offer expiry/retry, pickup, delivery, and earnings proof |

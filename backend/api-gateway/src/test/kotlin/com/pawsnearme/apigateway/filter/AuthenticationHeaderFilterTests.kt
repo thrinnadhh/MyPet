@@ -72,4 +72,37 @@ class AuthenticationHeaderFilterTests {
         assertEquals("MERCHANT", headers.getFirst("X-User-Role"))
         assertNull(headers.getFirst("X-Admin-Api-Key"))
     }
+
+    @Test
+    fun `uses app metadata role before Supabase platform role`() {
+        val exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.get("/api/v1/providers/pending")
+        )
+        val capturedExchange = AtomicReference<org.springframework.web.server.ServerWebExchange>()
+        val chain = GatewayFilterChain {
+            capturedExchange.set(it)
+            Mono.empty()
+        }
+        val jwt = Jwt(
+            "token",
+            Instant.now(),
+            Instant.now().plusSeconds(3600),
+            mapOf("alg" to "none"),
+            mapOf(
+                "sub" to "admin-user",
+                "role" to "authenticated",
+                "app_metadata" to mapOf("role" to "ADMIN")
+            )
+        )
+        val authentication = TestingAuthenticationToken(jwt, null)
+        val securityContext = SecurityContextImpl(authentication)
+
+        filter.filter(exchange, chain)
+            .contextWrite(ReactiveSecurityContextHolder.withSecurityContext(Mono.just(securityContext)))
+            .block()
+
+        val headers = capturedExchange.get().request.headers
+        assertEquals("admin-user", headers.getFirst("X-User-Id"))
+        assertEquals("ADMIN", headers.getFirst("X-User-Role"))
+    }
 }

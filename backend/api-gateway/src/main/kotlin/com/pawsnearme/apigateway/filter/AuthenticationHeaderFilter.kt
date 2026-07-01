@@ -48,19 +48,25 @@ class AuthenticationHeaderFilter : GlobalFilter, Ordered {
     }
 
     private fun extractRole(jwt: Jwt): String {
-        // Try direct 'role' claim first
-        val directRole = jwt.claims["role"] as? String
-        if (!directRole.isNullOrBlank()) return directRole.uppercase()
-
-        // Try nested 'app_metadata' -> 'role'
+        // Supabase's direct `role` claim is usually the platform role
+        // (`authenticated`/`anon`). Prefer app_metadata for app authorization.
         val appMetadata = jwt.claims["app_metadata"] as? Map<*, *>
         val nestedAppRole = appMetadata?.get("role") as? String
         if (!nestedAppRole.isNullOrBlank()) return nestedAppRole.uppercase()
 
-        // Try nested 'user_metadata' -> 'role'
+        // Legacy/dev fallback only. Do not rely on user_metadata for production
+        // authorization decisions because users can edit it.
         val userMetadata = jwt.claims["user_metadata"] as? Map<*, *>
         val nestedUserRole = userMetadata?.get("role") as? String
         if (!nestedUserRole.isNullOrBlank()) return nestedUserRole.uppercase()
+
+        val directRole = jwt.claims["role"] as? String
+        if (!directRole.isNullOrBlank()) {
+            val normalized = directRole.uppercase()
+            if (normalized !in setOf("AUTHENTICATED", "ANON", "SERVICE_ROLE")) {
+                return normalized
+            }
+        }
 
         return "CUSTOMER" // Default role
     }
