@@ -16,6 +16,15 @@ spring:
             - name: RoleGuard
               args:
                 roles: ADMIN
+        - id: provider-commission-admin
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/providers/*/commission
+            - Method=PATCH
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
         - id: provider-service
           uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
           predicates:

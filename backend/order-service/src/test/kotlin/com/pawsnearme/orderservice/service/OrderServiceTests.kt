@@ -20,6 +20,7 @@ class OrderServiceTests {
     private val systemConfigRepository: SystemConfigRepository = mock()
     private val disputeRepository: DisputeRepository = mock()
     private val invoiceRepository: InvoiceRepository = mock()
+    private val supportCaseRepository: SupportCaseRepository = mock()
 
     private val service = OrderService(
         orderRepository,
@@ -29,6 +30,7 @@ class OrderServiceTests {
         systemConfigRepository,
         disputeRepository,
         invoiceRepository,
+        supportCaseRepository,
         "http://localhost:8082",
         "http://localhost:8090"
     )
@@ -177,5 +179,71 @@ class OrderServiceTests {
         assertEquals("Refund approved manually", result.resolutionNotes)
         assertNotNull(result.resolvedAt)
         verify(disputeRepository).save(any())
+    }
+
+    @Test
+    fun `createSupportCase - persists support action and publishes event`() {
+        val actorId = UUID.randomUUID()
+        whenever(supportCaseRepository.save(any())).thenAnswer { invocation ->
+            val supportCase = invocation.getArgument<SupportCase>(0)
+            supportCase.also { it.supportCaseId = it.supportCaseId ?: UUID.randomUUID() }
+        }
+        whenever(kafkaTemplate.send(any<String>(), any(), any())).thenReturn(mock())
+
+        val result = service.createSupportCase(
+            title = "Escalate delayed refund",
+            detail = "Customer has waited 5 days after dispute approval.",
+            actionType = "REFUND_ESCALATION",
+            entityType = "ORDER",
+            entityId = UUID.randomUUID(),
+            createdByUserId = actorId
+        )
+
+        assertEquals("Escalate delayed refund", result.title)
+        assertEquals("REFUND_ESCALATION", result.actionType)
+        assertEquals("OPEN", result.status)
+        assertEquals(actorId, result.createdByUserId)
+        verify(supportCaseRepository).save(any())
+        verify(kafkaTemplate).send(eq("support.events"), eq(result.supportCaseId.toString()), any())
+    }
+
+    @Test
+    fun `createSupportCase - rejects invalid action type`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            service.createSupportCase(
+                title = "Unknown action",
+                detail = "Invalid action",
+                actionType = "RANDOM_ACTION",
+                entityType = null,
+                entityId = null,
+                createdByUserId = null
+            )
+        }
+
+        assertTrue(ex.message!!.contains("Invalid support action type"))
+        verify(supportCaseRepository, never()).save(any())
+    }
+
+    @Test
+    fun `resolveSupportCase - marks case resolved and publishes event`() {
+        val supportCaseId = UUID.randomUUID()
+        val actorId = UUID.randomUUID()
+        val supportCase = SupportCase(
+            supportCaseId = supportCaseId,
+            title = "Review captain payout claim",
+            detail = "Captain says earnings were missed.",
+            actionType = "PAYOUT_CLAIM_REVIEW",
+            status = "OPEN"
+        )
+        whenever(supportCaseRepository.findById(supportCaseId)).thenReturn(java.util.Optional.of(supportCase))
+        whenever(supportCaseRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<SupportCase>(0) }
+        whenever(kafkaTemplate.send(any<String>(), any(), any())).thenReturn(mock())
+
+        val result = service.resolveSupportCase(supportCaseId, "Payout adjusted", actorId)
+
+        assertEquals("RESOLVED", result.status)
+        assertEquals("Payout adjusted", result.resolutionNotes)
+        assertNotNull(result.resolvedAt)
+        verify(kafkaTemplate).send(eq("support.events"), eq(supportCaseId.toString()), any())
     }
 }

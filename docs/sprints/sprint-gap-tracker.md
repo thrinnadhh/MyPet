@@ -14,7 +14,7 @@ This tracker reflects the current repo state after Sprint 0-9 checklist files an
 | 5 | Appointment Booking + Slot Locking | Partial | Concurrent same-slot booking proof and expired hold release proof |
 | 6 | Merchant Calendar + Reminders | Partial | Real Expo/FCM credentials, visit notes/prescription upload decision, delivery evidence |
 | 7 | Reviews, Payouts, Discount Controls | Partial | Live payout reconciliation and merchant/captain UI proof |
-| 8 | Hardening, Admin Console, Billing | In progress | Super Admin web/API, load tests, dashboards, backup/DR runbook |
+| 8 | Hardening, Admin Console, Billing | Complete for sprint scope | Re-run load smoke during full release regression and archive p95 results |
 | 9 | Legal, Store Submission, Launch | Missing | Legal pages, GST invoice proof, store listings, production secret checklist, rollback drill |
 
 ## Verification Commands

@@ -10,6 +10,10 @@ import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import org.springframework.kafka.core.KafkaTemplate
+import org.locationtech.jts.geom.Coordinate
+import org.locationtech.jts.geom.GeometryFactory
+import org.locationtech.jts.geom.PrecisionModel
+import java.math.BigDecimal
 import java.util.Optional
 import java.util.UUID
 
@@ -26,6 +30,8 @@ class ProviderServiceTests {
         profileRepository,
         kafkaTemplate
     )
+
+    private val geometryFactory = GeometryFactory(PrecisionModel(), 4326)
 
     @Test
     fun `createProvider with non-MERCHANT role should throw IllegalArgumentException`() {
@@ -122,4 +128,58 @@ class ProviderServiceTests {
         }
         assertTrue(exception.message!!.contains("license number is required for VET_HOSPITAL"))
     }
+
+    @Test
+    fun `updateCommission persists rounded commission and publishes event`() {
+        val providerId = UUID.randomUUID()
+        val actorId = UUID.randomUUID()
+        val provider = sampleProvider(providerId)
+        whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
+        whenever(providerRepository.save(any())).thenAnswer { it.arguments[0] as Provider }
+
+        val result = providerService.updateCommission(
+            providerId,
+            BigDecimal("18.456"),
+            actorId,
+            "Launch promo margin review"
+        )
+
+        assertEquals(BigDecimal("18.46"), result.commissionPct)
+        verify(providerRepository).save(provider)
+        verify(kafkaTemplate).send(eq("providers.events"), eq(providerId.toString()), any())
+    }
+
+    @Test
+    fun `updateCommission rejects commission below zero`() {
+        val exception = assertThrows<IllegalArgumentException> {
+            providerService.updateCommission(UUID.randomUUID(), BigDecimal("-0.01"), UUID.randomUUID(), null)
+        }
+
+        assertTrue(exception.message!!.contains("between 0 and 50"))
+        verify(providerRepository, never()).save(any())
+    }
+
+    @Test
+    fun `updateCommission rejects commission above fifty`() {
+        val exception = assertThrows<IllegalArgumentException> {
+            providerService.updateCommission(UUID.randomUUID(), BigDecimal("50.01"), UUID.randomUUID(), null)
+        }
+
+        assertTrue(exception.message!!.contains("between 0 and 50"))
+        verify(providerRepository, never()).save(any())
+    }
+
+    private fun sampleProvider(providerId: UUID) = Provider(
+        providerId = providerId,
+        ownerUserId = UUID.randomUUID(),
+        providerType = ProviderType.PET_STORE,
+        fulfillmentType = FulfillmentType.DELIVERY,
+        name = "Happy Tails",
+        addressLine = "12 Main Road",
+        city = "Bengaluru",
+        pincode = "560001",
+        geoLocation = geometryFactory.createPoint(Coordinate(77.5946, 12.9716)),
+        status = ProviderStatus.ACTIVE,
+        commissionPct = BigDecimal("15.00")
+    )
 }

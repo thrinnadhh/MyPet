@@ -2,6 +2,7 @@ import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useColorScheme } from 'react-native';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { appConfig } from '@/utils/app-config';
 
 export default function AppTabs() {
   const { activeRole } = useAuth();
@@ -13,7 +14,41 @@ export default function AppTabs() {
       backgroundColor={colors.background}
       indicatorColor={colors.backgroundElement}
       labelStyle={{ selected: { color: colors.text } }}>
-      {activeRole === 'PROVIDER' ? (
+      {activeRole === 'ADMIN' ? (
+        <>
+          <NativeTabs.Trigger name="index">
+            <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+            <NativeTabs.Trigger.Icon
+              src={require('@/assets/images/tabIcons/home.png')}
+              renderingMode="template"
+            />
+          </NativeTabs.Trigger>
+
+          <NativeTabs.Trigger name="admin">
+            <NativeTabs.Trigger.Label>Admin</NativeTabs.Trigger.Label>
+            <NativeTabs.Trigger.Icon
+              src={require('@/assets/images/tabIcons/explore.png')}
+              renderingMode="template"
+            />
+          </NativeTabs.Trigger>
+
+          <NativeTabs.Trigger name="billing">
+            <NativeTabs.Trigger.Label>POS</NativeTabs.Trigger.Label>
+            <NativeTabs.Trigger.Icon
+              src={require('@/assets/images/tabIcons/explore.png')}
+              renderingMode="template"
+            />
+          </NativeTabs.Trigger>
+
+          <NativeTabs.Trigger name="earnings">
+            <NativeTabs.Trigger.Label>Payouts</NativeTabs.Trigger.Label>
+            <NativeTabs.Trigger.Icon
+              src={require('@/assets/images/tabIcons/explore.png')}
+              renderingMode="template"
+            />
+          </NativeTabs.Trigger>
+        </>
+      ) : activeRole === 'PROVIDER' ? (
         <>
           <NativeTabs.Trigger name="index">
             <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
@@ -54,6 +89,16 @@ export default function AppTabs() {
               renderingMode="template"
             />
           </NativeTabs.Trigger>
+
+          {appConfig.allowDemoMode ? (
+            <NativeTabs.Trigger name="admin">
+              <NativeTabs.Trigger.Label>Admin</NativeTabs.Trigger.Label>
+              <NativeTabs.Trigger.Icon
+                src={require('@/assets/images/tabIcons/explore.png')}
+                renderingMode="template"
+              />
+            </NativeTabs.Trigger>
+          ) : null}
         </>
       ) : (
         <>

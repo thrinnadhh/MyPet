@@ -27,7 +27,7 @@ const LIVE_TASKS = [
 export default function Index() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
-  const { user, activeRole } = useAuth();
+  const { user, role, activeRole } = useAuth();
   const router = useRouter();
 
   const greeting = useMemo(() => {
@@ -50,7 +50,11 @@ export default function Index() {
           <View style={[styles.hero, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
             <View style={styles.heroCopy}>
               <ThemedText type="small" style={{ color: colors.textSecondary, fontWeight: '800' }}>
-                {activeRole === 'PROVIDER' ? 'MERCHANT CONTROL ROOM' : 'CAPTAIN HOME'}
+              {activeRole === 'ADMIN'
+                ? 'SUPER ADMIN CONTROL ROOM'
+                : activeRole === 'PROVIDER'
+                  ? 'MERCHANT CONTROL ROOM'
+                  : 'CAPTAIN HOME'}
               </ThemedText>
               <ThemedText style={[styles.heroTitle, { color: colors.text }]}>
                 {greeting}
@@ -100,6 +104,9 @@ export default function Index() {
               { label: 'Inventory', icon: 'cart', route: '/inventory' },
               { label: 'Bookings', icon: 'calendar', route: '/explore' },
               { label: 'Payouts', icon: 'medical', route: '/earnings' },
+              ...(role === 'ADMIN' || appConfig.allowDemoMode
+                ? [{ label: 'Super Admin', icon: 'shield', route: '/admin' }]
+                : []),
             ].map((item) => (
               <TouchableOpacity
                 key={item.label}

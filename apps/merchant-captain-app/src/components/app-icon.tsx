@@ -4,32 +4,46 @@ import { Text, type StyleProp, type ViewStyle } from 'react-native';
 type AppIconName =
   | 'cart'
   | 'calendar'
+  | 'check'
   | 'clock'
+  | 'dispute'
+  | 'gear'
   | 'location'
   | 'paw'
+  | 'percent'
   | 'store'
   | 'medical'
   | 'sparkle'
   | 'star'
+  | 'support'
+  | 'shield'
   | 'history'
   | 'truck'
   | 'wallet'
-  | 'inventory';
+  | 'inventory'
+  | 'xmark';
 
 const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: string }> = {
   cart: { ios: 'cart.fill', android: 'shopping_cart', fallback: 'C' },
   calendar: { ios: 'calendar', android: 'calendar_month', fallback: 'D' },
+  check: { ios: 'checkmark.circle.fill', android: 'check_circle', fallback: 'Y' },
   clock: { ios: 'clock.fill', android: 'schedule', fallback: 'T' },
+  dispute: { ios: 'exclamationmark.bubble.fill', android: 'report', fallback: '!' },
+  gear: { ios: 'gearshape.fill', android: 'settings', fallback: 'G' },
   location: { ios: 'location.fill', android: 'location_on', fallback: 'L' },
   paw: { ios: 'pawprint.fill', android: 'pets', fallback: 'P' },
+  percent: { ios: 'percent', android: 'percent', fallback: '%' },
   store: { ios: 'storefront.fill', android: 'storefront', fallback: 'S' },
   medical: { ios: 'cross.case.fill', android: 'medical_services', fallback: 'M' },
   sparkle: { ios: 'sparkles', android: 'auto_awesome', fallback: '*' },
   star: { ios: 'star.fill', android: 'star', fallback: 'R' },
+  support: { ios: 'headphones', android: 'support_agent', fallback: 'A' },
+  shield: { ios: 'shield.lefthalf.filled', android: 'admin_panel_settings', fallback: 'A' },
   history: { ios: 'clock.arrow.circlepath', android: 'history', fallback: 'H' },
   truck: { ios: 'scooter', android: 'local_shipping', fallback: 'D' },
   wallet: { ios: 'wallet.pass.fill', android: 'account_balance_wallet', fallback: 'W' },
   inventory: { ios: 'shippingbox.fill', android: 'inventory_2', fallback: 'I' },
+  xmark: { ios: 'xmark.circle.fill', android: 'cancel', fallback: 'N' },
 };
 
 export function AppIcon({

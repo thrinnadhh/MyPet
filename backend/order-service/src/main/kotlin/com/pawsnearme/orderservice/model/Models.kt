@@ -170,6 +170,45 @@ class Dispute(
 )
 
 @Entity
+@Table(name = "support_cases", schema = "orders")
+class SupportCase(
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    @Column(name = "support_case_id")
+    var supportCaseId: UUID? = null,
+
+    @Column(name = "title", nullable = false)
+    var title: String,
+
+    @Column(name = "detail", nullable = false)
+    var detail: String,
+
+    @Column(name = "action_type", nullable = false)
+    var actionType: String,
+
+    @Column(name = "entity_type")
+    var entityType: String? = null,
+
+    @Column(name = "entity_id")
+    var entityId: UUID? = null,
+
+    @Column(name = "status", nullable = false)
+    var status: String = "OPEN",
+
+    @Column(name = "created_by_user_id")
+    var createdByUserId: UUID? = null,
+
+    @Column(name = "created_at", nullable = false)
+    var createdAt: Instant = Instant.now(),
+
+    @Column(name = "resolved_at")
+    var resolvedAt: Instant? = null,
+
+    @Column(name = "resolution_notes")
+    var resolutionNotes: String? = null
+)
+
+@Entity
 @Table(name = "invoices", schema = "orders")
 class Invoice(
     @Id

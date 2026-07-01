@@ -59,6 +59,7 @@ if [[ "$RUN_FLOWS" == "1" ]]; then
   run "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/backend/verify_sprint6.py"
   run "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/backend/verify_sprint7.py"
   run "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/backend/verify_sprint8.py"
+  run python3 "$ROOT_DIR/scripts/load-smoke-sprint8.py" --requests 5 --concurrency 4
   run "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/backend/verify_sprint9.py"
   run "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/backend/verify_deviations_resolved.py"
 fi

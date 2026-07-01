@@ -52,6 +52,16 @@ data class OrderStatusChangedEvent(
     val occurredAt: Instant = Instant.now()
 )
 
+data class SupportCaseEvent(
+    val eventId: UUID = UUID.randomUUID(),
+    val eventType: String,
+    val supportCaseId: UUID,
+    val actorId: UUID?,
+    val actionType: String,
+    val status: String,
+    val occurredAt: Instant = Instant.now()
+)
+
 @Service
 @Transactional
 class OrderService(
@@ -62,6 +72,7 @@ class OrderService(
     private val systemConfigRepository: SystemConfigRepository,
     private val disputeRepository: DisputeRepository,
     private val invoiceRepository: InvoiceRepository,
+    private val supportCaseRepository: SupportCaseRepository,
     @Value("\${CATALOG_SERVICE_URL:http://localhost:8082}")
     private val catalogServiceUrl: String,
     @Value("\${PAYMENT_SERVICE_URL:http://localhost:8090}")
@@ -281,6 +292,88 @@ class OrderService(
         }
 
         return savedDispute
+    }
+
+    // --- Support Case Methods ---
+
+    fun listSupportCases(): List<SupportCase> {
+        return supportCaseRepository.findAllByOrderByCreatedAtDesc()
+    }
+
+    fun createSupportCase(
+        title: String,
+        detail: String,
+        actionType: String,
+        entityType: String?,
+        entityId: UUID?,
+        createdByUserId: UUID?
+    ): SupportCase {
+        if (title.isBlank()) {
+            throw IllegalArgumentException("Support case title is required")
+        }
+        if (detail.isBlank()) {
+            throw IllegalArgumentException("Support case detail is required")
+        }
+
+        val normalizedActionType = normalizeSupportActionType(actionType)
+        val supportCase = SupportCase(
+            title = title.trim(),
+            detail = detail.trim(),
+            actionType = normalizedActionType,
+            entityType = entityType?.trim()?.uppercase()?.ifBlank { null },
+            entityId = entityId,
+            status = "OPEN",
+            createdByUserId = createdByUserId
+        )
+        val saved = supportCaseRepository.save(supportCase)
+        publishSupportCaseEvent("SupportCaseOpened", saved)
+        return saved
+    }
+
+    fun resolveSupportCase(supportCaseId: UUID, resolutionNotes: String?, actorId: UUID?): SupportCase {
+        val supportCase = supportCaseRepository.findById(supportCaseId)
+            .orElseThrow { NoSuchElementException("Support case not found for ID $supportCaseId") }
+
+        if (supportCase.status != "OPEN") {
+            throw IllegalStateException("Support case is already resolved")
+        }
+
+        supportCase.status = "RESOLVED"
+        supportCase.resolutionNotes = resolutionNotes
+        supportCase.resolvedAt = Instant.now()
+        val saved = supportCaseRepository.save(supportCase)
+        publishSupportCaseEvent("SupportCaseResolved", saved, actorId)
+        return saved
+    }
+
+    private fun normalizeSupportActionType(actionType: String): String {
+        val normalized = actionType.trim().uppercase()
+        val allowed = setOf(
+            "INFO_REQUEST",
+            "REFUND_ESCALATION",
+            "PAYOUT_CLAIM_REVIEW",
+            "CUSTOMER_CALLBACK",
+            "GENERAL"
+        )
+        if (normalized !in allowed) {
+            throw IllegalArgumentException("Invalid support action type. Allowed: ${allowed.joinToString(", ")}")
+        }
+        return normalized
+    }
+
+    private fun publishSupportCaseEvent(eventType: String, supportCase: SupportCase, actorId: UUID? = supportCase.createdByUserId) {
+        try {
+            val event = SupportCaseEvent(
+                eventType = eventType,
+                supportCaseId = supportCase.supportCaseId!!,
+                actorId = actorId,
+                actionType = supportCase.actionType,
+                status = supportCase.status
+            )
+            kafkaTemplate.send("support.events", supportCase.supportCaseId.toString(), event)
+        } catch (e: Exception) {
+            logger.error("WARNING: Failed to publish support case event: ${e.message}")
+        }
     }
 
     private fun triggerPaymentRefund(orderId: UUID) {

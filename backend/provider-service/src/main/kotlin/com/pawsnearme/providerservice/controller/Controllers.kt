@@ -4,6 +4,8 @@ import com.pawsnearme.providerservice.model.*
 import com.pawsnearme.providerservice.repository.*
 import com.pawsnearme.providerservice.service.ProviderService
 import jakarta.validation.Valid
+import jakarta.validation.constraints.DecimalMax
+import jakarta.validation.constraints.DecimalMin
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotNull
 import org.springframework.http.ResponseEntity
@@ -93,6 +95,14 @@ data class ProviderResponse(
 data class UploadDocumentRequest(
     @field:NotBlank val docType: String,
     @field:NotBlank val docUrl: String
+)
+
+data class UpdateProviderCommissionRequest(
+    @field:NotNull
+    @field:DecimalMin("0.00")
+    @field:DecimalMax("50.00")
+    val commissionPct: BigDecimal,
+    val reason: String?
 )
 
 // --- Controllers ---
@@ -250,6 +260,13 @@ class ProviderController(
         }
     }
 
+    @GetMapping("/pending")
+    fun getPendingProviders(): ResponseEntity<List<ProviderResponse>> {
+        val all = providerRepository.findAll()
+        val pending = all.filter { it.status == ProviderStatus.PENDING_APPROVAL }
+        return ResponseEntity.ok(pending.map { mapToResponse(it) })
+    }
+
     @GetMapping("/{id}")
     fun getProvider(@PathVariable id: UUID): ResponseEntity<ProviderResponse> {
         val provider = providerRepository.findById(id)
@@ -300,11 +317,24 @@ class ProviderController(
         }
     }
 
-    @GetMapping("/pending")
-    fun getPendingProviders(): ResponseEntity<List<ProviderResponse>> {
-        val all = providerRepository.findAll()
-        val pending = all.filter { it.status == ProviderStatus.PENDING_APPROVAL }
-        return ResponseEntity.ok(pending.map { mapToResponse(it) })
+    @PatchMapping("/{id}/commission")
+    fun updateCommission(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Role", required = false) userRole: String?,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
+        @Valid @RequestBody request: UpdateProviderCommissionRequest
+    ): ResponseEntity<Any> {
+        if (userRole != "ADMIN") {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
+                .body(mapOf("error" to "Access Denied: Only administrators can update provider commission."))
+        }
+        return try {
+            val actorUserId = userId?.let { UUID.fromString(it) }
+            val provider = providerService.updateCommission(id, request.commissionPct, actorUserId, request.reason)
+            ResponseEntity.ok(mapToResponse(provider))
+        } catch (e: IllegalArgumentException) {
+            ResponseEntity.badRequest().body(mapOf("error" to e.message))
+        }
     }
 
     @GetMapping

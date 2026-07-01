@@ -2,10 +2,23 @@ package com.pawsnearme.orderservice.controller
 
 import com.pawsnearme.orderservice.model.Dispute
 import com.pawsnearme.orderservice.model.Invoice
+import com.pawsnearme.orderservice.model.SupportCase
 import com.pawsnearme.orderservice.service.OrderService
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.util.UUID
+
+data class CreateSupportCaseRequest(
+    val title: String,
+    val detail: String,
+    val actionType: String,
+    val entityType: String? = null,
+    val entityId: UUID? = null
+)
+
+data class ResolveSupportCaseRequest(
+    val resolutionNotes: String? = null
+)
 
 @RestController
 @RequestMapping("/api/v1/orders")
@@ -51,6 +64,41 @@ class AdminController(private val orderService: OrderService) {
         val notes = request["resolutionNotes"]
         val dispute = orderService.resolveDispute(id, decision, notes)
         return ResponseEntity.ok(dispute)
+    }
+
+    // --- Support Cases ---
+
+    @GetMapping("/admin/support-cases")
+    fun listSupportCases(): ResponseEntity<List<SupportCase>> {
+        return ResponseEntity.ok(orderService.listSupportCases())
+    }
+
+    @PostMapping("/admin/support-cases")
+    fun createSupportCase(
+        @RequestHeader("X-User-Id", required = false) xUserId: String?,
+        @RequestBody request: CreateSupportCaseRequest
+    ): ResponseEntity<SupportCase> {
+        val actorId = xUserId?.let { UUID.fromString(it) }
+        val supportCase = orderService.createSupportCase(
+            title = request.title,
+            detail = request.detail,
+            actionType = request.actionType,
+            entityType = request.entityType,
+            entityId = request.entityId,
+            createdByUserId = actorId
+        )
+        return ResponseEntity.ok(supportCase)
+    }
+
+    @PostMapping("/admin/support-cases/{id}/resolve")
+    fun resolveSupportCase(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?,
+        @RequestBody request: ResolveSupportCaseRequest
+    ): ResponseEntity<SupportCase> {
+        val actorId = xUserId?.let { UUID.fromString(it) }
+        val supportCase = orderService.resolveSupportCase(id, request.resolutionNotes, actorId)
+        return ResponseEntity.ok(supportCase)
     }
 
     // --- Invoices ---

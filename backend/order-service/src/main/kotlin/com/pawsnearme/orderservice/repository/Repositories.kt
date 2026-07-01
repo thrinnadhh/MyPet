@@ -6,6 +6,7 @@ import com.pawsnearme.orderservice.model.OrderStatusHistory
 import com.pawsnearme.orderservice.model.SystemConfig
 import com.pawsnearme.orderservice.model.Dispute
 import com.pawsnearme.orderservice.model.Invoice
+import com.pawsnearme.orderservice.model.SupportCase
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.stereotype.Repository
 import java.util.UUID
@@ -37,4 +38,9 @@ interface DisputeRepository : JpaRepository<Dispute, UUID> {
 @Repository
 interface InvoiceRepository : JpaRepository<Invoice, UUID> {
     fun findByOrderId(orderId: UUID): java.util.Optional<Invoice>
+}
+
+@Repository
+interface SupportCaseRepository : JpaRepository<SupportCase, UUID> {
+    fun findAllByOrderByCreatedAtDesc(): List<SupportCase>
 }
