@@ -1,16 +1,20 @@
 import React, { useState, useCallback } from 'react';
 import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing, Colors } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
+import { useAuth } from '@/context/AuthContext';
+import { appConfig } from '@/utils/app-config';
 
 type ProviderType = 'PET_STORE' | 'VET_HOSPITAL' | 'GROOMING_CENTER';
 
 export default function OnboardingScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
+  const { user } = useAuth();
 
   const [providerType, setProviderType] = useState<ProviderType>('PET_STORE');
   const [name, setName] = useState('');
@@ -20,17 +24,55 @@ export default function OnboardingScreen() {
   const [pincode, setPincode] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
   const [docUploaded, setDocUploaded] = useState(false);
+  const [licenseDocUrl, setLicenseDocUrl] = useState('');
+  const [uploadingDoc, setUploadingDoc] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [longitude, setLongitude] = useState('77.5946');
+  const [latitude, setLatitude] = useState('12.9716');
 
-  const handleDocUpload = useCallback(() => {
-    Alert.alert('Upload Document', 'Select document from camera or gallery', [
-      { text: 'Camera', onPress: () => setDocUploaded(true) },
-      { text: 'Gallery', onPress: () => setDocUploaded(true) },
-      { text: 'Cancel', style: 'cancel' }
-    ]);
+  const handleDocUpload = useCallback(async () => {
+    setUploadingDoc(true);
+    try {
+      const urlResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers/upload-url?filename=license.pdf`, {
+        method: 'POST'
+      });
+      if (!urlResponse.ok) throw new Error("Failed to generate upload URL");
+      const { uploadUrl, fileUrl } = await urlResponse.json();
+
+      const formData = new FormData();
+      formData.append('file', {
+        uri: 'data:application/pdf;base64,JVBER...',
+        name: 'license.pdf',
+        type: 'application/pdf',
+      } as any);
+
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'multipart/form-data',
+        }
+      });
+
+      if (!uploadResponse.ok) throw new Error("Failed to upload file to pre-signed URL");
+      
+      setLicenseDocUrl(fileUrl);
+      setDocUploaded(true);
+      Alert.alert('Success', 'Document proof uploaded successfully!');
+    } catch (err: any) {
+      Alert.alert('Upload Error', err.message || 'Failed to upload document.');
+    } finally {
+      setUploadingDoc(false);
+    }
   }, []);
 
   const handleSubmit = useCallback(async () => {
+    if (!user) {
+      Alert.alert('Error', 'Please log in to submit your merchant application.');
+      return;
+    }
+
     if (!name.trim() || !addressLine.trim() || !city.trim() || !pincode.trim()) {
       Alert.alert('Error', 'Please fill all mandatory fields.');
       return;
@@ -46,28 +88,34 @@ export default function OnboardingScreen() {
       return;
     }
 
+    const parsedLng = parseFloat(longitude);
+    const parsedLat = parseFloat(latitude);
+    if (isNaN(parsedLng) || isNaN(parsedLat)) {
+      Alert.alert('Error', 'Please enter valid coordinate numbers.');
+      return;
+    }
+
     setSubmitting(true);
     
-    // Simulate API request to backend (Provider Service via API Gateway)
     try {
-      const response = await fetch('http://localhost:8080/api/v1/providers', {
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ownerUserId: 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e', // Mock Merchant User ID
+          ownerUserId: user.id,
           providerType,
           fulfillmentType: providerType === 'PET_STORE' ? 'DELIVERY' : 'APPOINTMENT',
           name,
           description,
           licenseNumber: providerType === 'VET_HOSPITAL' ? licenseNumber : null,
-          licenseDocUrl: 'https://supabase.storage/pawsnearme/lic_' + Date.now() + '.pdf',
+          licenseDocUrl: licenseDocUrl || 'https://supabase.storage/pawsnearme/lic_' + Date.now() + '.pdf',
           addressLine,
           city,
           pincode,
-          longitude: 77.5946, // Bangalore Center
-          latitude: 12.9716,
+          longitude: parsedLng,
+          latitude: parsedLat,
         }),
       });
 
@@ -75,7 +123,7 @@ export default function OnboardingScreen() {
       
       if (response.ok) {
         // Trigger status transition to PENDING_APPROVAL
-        const submitResponse = await fetch(`http://localhost:8080/api/v1/providers/${data.providerId}/submit`, {
+        const submitResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers/${data.providerId}/submit`, {
           method: 'POST',
         });
 
@@ -100,7 +148,7 @@ export default function OnboardingScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [providerType, name, description, addressLine, city, pincode, licenseNumber, docUploaded]);
+  }, [providerType, name, description, addressLine, city, pincode, licenseNumber, docUploaded, longitude, latitude, user]);
 
   return (
     <ThemedView style={styles.container}>
@@ -184,6 +232,28 @@ export default function OnboardingScreen() {
             />
           </View>
 
+          <ThemedText style={styles.sectionLabel}>
+            Location Coordinates (GPS)
+          </ThemedText>
+          <View style={styles.row}>
+            <TextInput
+              placeholder="Longitude *"
+              placeholderTextColor="#888"
+              keyboardType="numeric"
+              style={[styles.input, { flex: 1, backgroundColor: colors.backgroundElement, color: colors.text }]}
+              value={longitude}
+              onChangeText={setLongitude}
+            />
+            <TextInput
+              placeholder="Latitude *"
+              placeholderTextColor="#888"
+              keyboardType="numeric"
+              style={[styles.input, { flex: 1, backgroundColor: colors.backgroundElement, color: colors.text }]}
+              value={latitude}
+              onChangeText={setLatitude}
+            />
+          </View>
+
           {/* Adapted Onboarding Fields */}
           {providerType === 'VET_HOSPITAL' && (
             <>
@@ -220,10 +290,11 @@ export default function OnboardingScreen() {
           <TouchableOpacity
             style={[styles.uploadButton, { backgroundColor: colors.backgroundElement }]}
             onPress={handleDocUpload}
+            disabled={uploadingDoc}
             activeOpacity={0.7}
           >
             <ThemedText type="small">
-              {docUploaded ? '✅ Document Uploaded' : '📤 Upload Document Proof *'}
+              {uploadingDoc ? '⏳ Uploading...' : docUploaded ? '✅ Document Uploaded' : '📤 Upload Document Proof *'}
             </ThemedText>
           </TouchableOpacity>
 

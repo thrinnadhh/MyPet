@@ -8,6 +8,8 @@ import org.locationtech.jts.geom.PrecisionModel
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Instant
 import java.util.UUID
 
@@ -146,5 +148,50 @@ class ProviderService(
         kafkaTemplate.send("providers.events", approvedProvider.providerId.toString(), event)
 
         return approvedProvider
+    }
+
+    @Transactional
+    fun updateCommission(providerId: UUID, commissionPct: BigDecimal, actorUserId: UUID?, reason: String?): Provider {
+        if (commissionPct < BigDecimal.ZERO || commissionPct > BigDecimal("50.00")) {
+            throw IllegalArgumentException("Commission percentage must be between 0 and 50")
+        }
+
+        val provider = providerRepository.findById(providerId).orElseThrow {
+            IllegalArgumentException("Provider not found: $providerId")
+        }
+        val previousCommissionPct = provider.commissionPct
+        provider.commissionPct = commissionPct.setScale(2, RoundingMode.HALF_UP)
+        val updatedProvider = providerRepository.save(provider)
+
+        val event = mapOf(
+            "event_id" to UUID.randomUUID().toString(),
+            "event_type" to "ProviderCommissionUpdated",
+            "occurred_at" to Instant.now().toString(),
+            "actor_id" to actorUserId?.toString(),
+            "provider_id" to updatedProvider.providerId.toString(),
+            "previous_commission_pct" to previousCommissionPct.toPlainString(),
+            "new_commission_pct" to updatedProvider.commissionPct.toPlainString(),
+            "reason" to reason
+        )
+
+        kafkaTemplate.send("providers.events", updatedProvider.providerId.toString(), event)
+
+        return updatedProvider
+    }
+
+    @Transactional
+    fun updateProviderRating(providerId: UUID, rating: Int): Provider {
+        val provider = providerRepository.findById(providerId).orElseThrow {
+            IllegalArgumentException("Provider not found: $providerId")
+        }
+        val currentCount = provider.ratingCount
+        val currentAvg = provider.ratingAvg.toDouble()
+
+        val newCount = currentCount + 1
+        val newAvg = (currentAvg * currentCount + rating) / newCount
+
+        provider.ratingCount = newCount
+        provider.ratingAvg = java.math.BigDecimal.valueOf(newAvg).setScale(2, java.math.RoundingMode.HALF_UP)
+        return providerRepository.save(provider)
     }
 }

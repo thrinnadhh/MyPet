@@ -1,0 +1,30 @@
+import { Platform } from 'react-native';
+
+const isTruthy = (value: string | undefined) => value === 'true' || value === '1';
+
+const defaultGatewayUrl = Platform.select({
+  android: 'http://10.0.2.2:8080',
+  ios: 'http://localhost:8080',
+  default: 'http://localhost:8080',
+}) ?? 'http://localhost:8080';
+
+export const appConfig = {
+  apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || defaultGatewayUrl,
+  supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
+  supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+  allowDemoMode: isTruthy(process.env.EXPO_PUBLIC_ALLOW_DEMO_MODE),
+};
+
+export function requireMobileConfig() {
+  const missing = [
+    appConfig.supabaseUrl ? null : 'EXPO_PUBLIC_SUPABASE_URL',
+    appConfig.supabaseAnonKey ? null : 'EXPO_PUBLIC_SUPABASE_ANON_KEY',
+  ].filter(Boolean);
+
+  if (missing.length > 0 && !appConfig.allowDemoMode) {
+    throw new Error(
+      `Missing mobile configuration: ${missing.join(', ')}. ` +
+      'Set EXPO_PUBLIC_ALLOW_DEMO_MODE=true only for local demo fixtures.'
+    );
+  }
+}

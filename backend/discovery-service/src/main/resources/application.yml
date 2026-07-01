@@ -1,13 +1,13 @@
 server:
-  port: 8083
+  port: ${SERVER_PORT:8083}
 
 spring:
   application:
     name: discovery-service
   datasource:
-    url: jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=providers,catalog,public&stringtype=unspecified
-    username: discovery_service_role
-    password: discovery_service_pass
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=providers,catalog,public&stringtype=unspecified}
+    username: ${DB_USERNAME:discovery_service_role}
+    password: ${DB_PASSWORD:discovery_service_pass}
     driver-class-name: org.postgresql.Driver
   jpa:
     properties:
@@ -16,17 +16,27 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: none
-    show-sql: true
+    show-sql: false
   data:
     redis:
-      host: localhost
-      port: 6380
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6380}
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       group-id: discovery-service-group
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
-        spring.json.trusted.packages: "*"
+        spring.json.trusted.packages: "com.pawsnearme.discoveryservice.model.*,com.pawsnearme.providerservice.event.*,java.util.*,java.lang.*"
+
+---
+# Dev profile: enable SQL logging
+spring:
+  config:
+    activate:
+      on-profile: dev
+  jpa:
+    show-sql: false
+

@@ -1,0 +1,75 @@
+server:
+  port: ${SERVER_PORT:8084}
+
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=orders,providers,catalog,public&stringtype=unspecified}
+    username: ${DB_USERNAME:order_service_role}
+    password: ${DB_PASSWORD:order_service_pass}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    properties:
+      hibernate:
+        default_schema: orders
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: none
+    show-sql: ${JPA_SHOW_SQL:false}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+---
+# Dev profile: enable SQL logging
+spring:
+  config:
+    activate:
+      on-profile: dev
+  jpa:
+    show-sql: false
+
+---
+# Resilience4j circuit breakers
+resilience4j:
+  circuitbreaker:
+    instances:
+      catalog-service:
+        register-health-indicator: true
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+      payment-service:
+        register-health-indicator: true
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        failure-rate-threshold: 60
+        wait-duration-in-open-state: 20s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+  retry:
+    instances:
+      catalog-service:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - java.io.IOException
+          - org.springframework.web.client.RestClientException
+      payment-service:
+        max-attempts: 2
+        wait-duration: 200ms
+        retry-exceptions:
+          - java.io.IOException
+          - org.springframework.web.client.RestClientException
+  timelimiter:
+    instances:
+      catalog-service:
+        timeout-duration: 5s
+      payment-service:
+        timeout-duration: 8s

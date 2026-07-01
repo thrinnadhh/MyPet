@@ -13,7 +13,7 @@ interface ProviderRepository : JpaRepository<Provider, UUID> {
     fun findByStatus(status: ProviderStatus): List<Provider>
 
     @Query(value = """
-        SELECT p.provider_id AS providerId,
+         SELECT p.provider_id AS providerId,
                p.provider_type AS providerType,
                p.fulfillment_type AS fulfillmentType,
                p.name AS name,
@@ -21,15 +21,15 @@ interface ProviderRepository : JpaRepository<Provider, UUID> {
                p.address_line AS addressLine,
                p.city AS city,
                p.pincode AS pincode,
-               ST_X(p.geo_location::geometry) AS longitude,
-               ST_Y(p.geo_location::geometry) AS latitude,
+               ST_X(CAST(p.geo_location AS geometry)) AS longitude,
+               ST_Y(CAST(p.geo_location AS geometry)) AS latitude,
                p.rating_avg AS ratingAvg,
                p.rating_count AS ratingCount,
-               ST_Distance(p.geo_location, ST_SetSRID(ST_Point(:longitude, :latitude), 4326)::geography) AS distance
+               ST_Distance(p.geo_location, CAST(ST_SetSRID(ST_Point(:longitude, :latitude), 4326) AS geography)) AS distance
         FROM providers.providers p
         WHERE p.status = 'ACTIVE'
-          AND (:providerType IS NULL OR p.provider_type = :providerType)
-          AND ST_DWithin(p.geo_location, ST_SetSRID(ST_Point(:longitude, :latitude), 4326)::geography, :radiusMeters)
+          AND (CAST(:providerType AS varchar) IS NULL OR p.provider_type = :providerType)
+          AND ST_DWithin(p.geo_location, CAST(ST_SetSRID(ST_Point(:longitude, :latitude), 4326) AS geography), :radiusMeters)
         ORDER BY distance ASC
     """, nativeQuery = true)
     fun findNearbyActiveProviders(

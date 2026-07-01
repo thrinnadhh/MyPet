@@ -1,0 +1,116 @@
+package com.pawsnearme.catalogservice.dto
+
+import com.pawsnearme.catalogservice.model.OfferingStatus
+import com.pawsnearme.catalogservice.model.SlotStatus
+import jakarta.validation.constraints.DecimalMin
+import jakarta.validation.constraints.Min
+import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.NotNull
+import java.math.BigDecimal
+import java.time.Instant
+import java.util.UUID
+
+data class OfferingRequest(
+    @field:NotNull(message = "Provider ID is required")
+    val providerId: UUID?,
+
+    @field:NotBlank(message = "Offering name is required")
+    val name: String?,
+
+    val description: String?,
+
+    val category: String?,
+
+    @field:NotNull(message = "Price is required")
+    @field:DecimalMin(value = "0.0", inclusive = true, message = "Price must be non-negative")
+    val price: BigDecimal?,
+
+    val imageUrl: String?,
+
+    val status: OfferingStatus = OfferingStatus.ACTIVE,
+
+    @field:Min(value = 0, message = "Stock quantity must be non-negative")
+    val stockQuantity: Int?,
+
+    val sku: String?,
+
+    @field:Min(value = 1, message = "Duration must be at least 1 minute")
+    val durationMinutes: Int?,
+
+    val barcode: String? = null
+)
+
+data class SlotRequest(
+    @field:NotNull(message = "Offering ID is required")
+    val offeringId: UUID?,
+
+    @field:NotNull(message = "Slot start time is required")
+    val slotStart: Instant?,
+
+    @field:NotNull(message = "Slot end time is required")
+    val slotEnd: Instant?,
+
+    val status: SlotStatus = SlotStatus.AVAILABLE
+)
+
+data class BillItemRequest(
+    @field:NotNull(message = "Product ID is required")
+    val productId: UUID?,
+
+    @field:NotBlank(message = "Barcode is required")
+    val barcodeScanned: String?,
+
+    @field:Min(value = 1, message = "Quantity must be at least 1")
+    val quantity: Int?,
+
+    @field:NotNull(message = "Unit price is required")
+    val unitPrice: BigDecimal?,
+
+    @field:NotNull(message = "Discount amount is required")
+    val discountAmount: BigDecimal?,
+
+    @field:NotBlank(message = "Discount type is required")
+    val discountType: String?
+)
+
+data class BillRequest(
+    @field:NotNull(message = "Store ID is required")
+    val storeId: UUID?,
+
+    @field:NotNull(message = "Staff ID is required")
+    val staffId: UUID?,
+
+    @field:NotBlank(message = "Status is required")
+    val status: String?,
+
+    @field:NotNull(message = "Subtotal is required")
+    val subtotal: BigDecimal?,
+
+    @field:NotNull(message = "Total discount is required")
+    val totalDiscount: BigDecimal?,
+
+    @field:NotNull(message = "Tax is required")
+    val tax: BigDecimal?,
+
+    @field:NotNull(message = "Grand total is required")
+    val grandTotal: BigDecimal?,
+
+    @field:NotBlank(message = "Idempotency key is required")
+    val idempotencyKey: String?,
+
+    val items: List<BillItemRequest> = emptyList()
+)
+
+data class FailedBillItem(
+    val productId: UUID,
+    val barcode: String,
+    val reason: String
+)
+
+data class BillResponse(
+    val bill: com.pawsnearme.catalogservice.model.Bill,
+    val successfulItems: List<com.pawsnearme.catalogservice.model.BillItem>,
+    val failedItems: List<FailedBillItem>
+)
+
+

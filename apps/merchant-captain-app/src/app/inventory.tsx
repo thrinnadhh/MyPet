@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   StyleSheet, 
   View, 
@@ -7,21 +7,18 @@ import {
   TextInput, 
   Alert, 
   ActivityIndicator, 
-  Platform, 
-  Modal, 
   useColorScheme,
-  ScrollView
+  Platform,
+  ScrollView,
+  Modal
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing, Colors } from '@/constants/theme';
-
-const API_BASE_URL = Platform.select({
-  android: 'http://10.0.2.2:8080',
-  ios: 'http://localhost:8080',
-  default: 'http://localhost:8080',
-});
+import { useAuth } from '@/context/AuthContext';
+import { appConfig } from '@/utils/app-config';
 
 // Stitch Design System Theme Colors
 const PRIMARY_BLUE = '#2563eb';
@@ -50,6 +47,23 @@ interface Slot {
   slotEnd: string; // ISO String
   status: 'AVAILABLE' | 'HELD' | 'BOOKED' | 'BLOCKED';
 }
+
+/**
+ * DEMO_PROVIDERS: Placeholder provider data used until Supabase Auth supplies
+ * real session-based provider IDs. Replace with auth context in Sprint 3.
+ */
+const DEMO_PROVIDERS = [
+  {
+    id: 'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
+    label: '🏬 Pet Store',
+    fulfillmentType: 'DELIVERY' as const,
+  },
+  {
+    id: 'e2b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
+    label: '✂️ Groomer',
+    fulfillmentType: 'APPOINTMENT' as const,
+  },
+];
 
 const OFFLINE_MOCK_OFFERINGS: Record<string, Offering[]> = {
   // e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e (PET_STORE - DELIVERY)
@@ -134,11 +148,38 @@ export default function InventoryScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  // Business / Provider details
-  const [selectedProviderId, setSelectedProviderId] = useState('e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e');
-  const selectedProviderFulfillment = useMemo(() => {
-    return selectedProviderId === 'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e' ? 'DELIVERY' : 'APPOINTMENT';
-  }, [selectedProviderId]);
+  const { user } = useAuth();
+  
+  // Provider / business context — dynamically loaded, falls back to DEMO_PROVIDERS config in local dev
+  const [providers, setProviders] = useState(DEMO_PROVIDERS);
+  const [selectedProvider, setSelectedProvider] = useState(DEMO_PROVIDERS[0]);
+  const selectedProviderId = selectedProvider.id;
+  const selectedProviderFulfillment = selectedProvider.fulfillmentType;
+
+  const fetchProviders = useCallback(async () => {
+    if (!user) return;
+    try {
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers?ownerUserId=${user.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped = data.map((p: any) => ({
+            id: p.providerId,
+            label: p.providerType === 'PET_STORE' ? `🏬 ${p.name}` : p.providerType === 'VET_HOSPITAL' ? `🏥 ${p.name}` : `✂️ ${p.name}`,
+            fulfillmentType: p.fulfillmentType,
+          }));
+          setProviders(mapped);
+          setSelectedProvider(mapped[0]);
+        }
+      }
+    } catch (err) {
+      console.log("Failed to fetch dynamic providers list:", err);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchProviders();
+  }, [fetchProviders]);
 
   // Inventory state
   const [offerings, setOfferings] = useState<Offering[]>([]);
@@ -162,6 +203,9 @@ export default function InventoryScreen() {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [newSlotStart, setNewSlotStart] = useState('');
   const [newSlotEnd, setNewSlotEnd] = useState('');
+  const [defaultSlotEndDate] = useState(() => new Date(Date.now() + 45 * 60 * 1000));
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
   const [creatingSlot, setCreatingSlot] = useState(false);
 
   // Load catalog items
@@ -170,16 +214,16 @@ export default function InventoryScreen() {
     setIsOffline(false);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/v1/catalog/offerings?providerId=${selectedProviderId}`,
+        `${appConfig.apiBaseUrl}/api/v1/catalog/offerings?providerId=${selectedProviderId}`,
         { headers: { 'Accept': 'application/json' } }
       );
       if (!response.ok) throw new Error('API request failed');
       const data = await response.json();
       setOfferings(data);
     } catch (err) {
-      console.warn('Catalog API unreachable, falling back to local sandbox data.');
-      setIsOffline(true);
-      setOfferings(OFFLINE_MOCK_OFFERINGS[selectedProviderId] || []);
+      console.warn('Catalog API unreachable.');
+      setIsOffline(appConfig.allowDemoMode);
+      setOfferings(appConfig.allowDemoMode ? OFFLINE_MOCK_OFFERINGS[selectedProviderId] || [] : []);
     } finally {
       setLoading(false);
     }
@@ -188,6 +232,16 @@ export default function InventoryScreen() {
   useEffect(() => {
     fetchCatalog();
   }, [fetchCatalog]);
+
+  const resetForm = () => {
+    setFormName('');
+    setFormDesc('');
+    setFormCategory('');
+    setFormPrice('');
+    setFormStock('');
+    setFormSku('');
+    setFormDuration('');
+  };
 
   // Submit new offering to catalog service
   const handleAddOffering = useCallback(async () => {
@@ -230,7 +284,7 @@ export default function InventoryScreen() {
 
     setSubmittingOffering(true);
     try {
-      if (isOffline) {
+      if (isOffline && appConfig.allowDemoMode) {
         // Offline sandbox mode simulation
         const mockNew: Offering = {
           ...payload,
@@ -241,7 +295,7 @@ export default function InventoryScreen() {
         setShowAddForm(false);
         resetForm();
       } else {
-        const response = await fetch(`${API_BASE_URL}/api/v1/catalog/offerings`, {
+        const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/offerings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -276,26 +330,16 @@ export default function InventoryScreen() {
     fetchCatalog
   ]);
 
-  const resetForm = () => {
-    setFormName('');
-    setFormDesc('');
-    setFormCategory('');
-    setFormPrice('');
-    setFormStock('');
-    setFormSku('');
-    setFormDuration('');
-  };
-
   // Toggle offering status
   const handleToggleOfferingStatus = useCallback(async (item: Offering) => {
     const newStatus = item.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     try {
-      if (isOffline) {
+      if (isOffline && appConfig.allowDemoMode) {
         setOfferings((prev) =>
           prev.map((o) => (o.offeringId === item.offeringId ? { ...o, status: newStatus } : o))
         );
       } else {
-        const response = await fetch(`${API_BASE_URL}/api/v1/catalog/offerings/${item.offeringId}`, {
+        const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/offerings/${item.offeringId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...item, status: newStatus }),
@@ -316,13 +360,13 @@ export default function InventoryScreen() {
     setSelectedOffering(offering);
     setLoadingSlots(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/catalog/slots?offeringId=${offering.offeringId}`);
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/slots?offeringId=${offering.offeringId}`);
       if (!response.ok) throw new Error('API failure');
       const data = await response.json();
       setSlots(data);
     } catch (err) {
-      console.warn('Slots API unreachable, loading sandbox slots.');
-      setSlots(OFFLINE_MOCK_SLOTS[offering.offeringId || ''] || []);
+      console.warn('Slots API unreachable.');
+      setSlots(appConfig.allowDemoMode ? OFFLINE_MOCK_SLOTS[offering.offeringId || ''] || [] : []);
     } finally {
       setLoadingSlots(false);
     }
@@ -358,7 +402,7 @@ export default function InventoryScreen() {
 
     setCreatingSlot(true);
     try {
-      if (isOffline) {
+      if (isOffline && appConfig.allowDemoMode) {
         const mockNew: Slot = {
           ...payload,
           slotId: 'mock-slot-' + Date.now(),
@@ -368,7 +412,7 @@ export default function InventoryScreen() {
         setNewSlotStart('');
         setNewSlotEnd('');
       } else {
-        const response = await fetch(`${API_BASE_URL}/api/v1/catalog/slots`, {
+        const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/slots`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -403,13 +447,13 @@ export default function InventoryScreen() {
     const nextStatus = nextStatusMap[currentStatus];
 
     try {
-      if (isOffline) {
+      if (isOffline && appConfig.allowDemoMode) {
         setSlots((prev) =>
           prev.map((s) => (s.slotId === slotId ? { ...s, status: nextStatus } : s))
         );
       } else {
         const response = await fetch(
-          `${API_BASE_URL}/api/v1/catalog/slots/${slotId}/status?status=${nextStatus}`,
+          `${appConfig.apiBaseUrl}/api/v1/catalog/slots/${slotId}/status?status=${nextStatus}`,
           { method: 'PUT' }
         );
         if (response.ok && selectedOffering) {
@@ -508,35 +552,27 @@ export default function InventoryScreen() {
         <View style={[styles.header, { borderBottomColor: colors.backgroundSelected }]}>
           <ThemedText type="subtitle" style={{ fontWeight: '800' }}>Catalog & Inventory</ThemedText>
           <View style={styles.tabRow}>
-            <TouchableOpacity
-              style={[
-                styles.tabBtn,
-                selectedProviderId === 'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e' && { 
-                  backgroundColor: colors.backgroundSelected, 
-                  borderWidth: 2, 
-                  borderColor: colors.text 
-                }
-              ]}
-              onPress={() => setSelectedProviderId('e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e')}
-              activeOpacity={0.7}
-            >
-              <ThemedText type="small" style={{ fontWeight: '700' }}>🏬 Pet Store</ThemedText>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[
-                styles.tabBtn,
-                selectedProviderId === 'e2b07384-d113-4e4e-9c8e-3d8e3d8e3d8e' && { 
-                  backgroundColor: colors.backgroundSelected, 
-                  borderWidth: 2, 
-                  borderColor: colors.text 
-                }
-              ]}
-              onPress={() => setSelectedProviderId('e2b07384-d113-4e4e-9c8e-3d8e3d8e3d8e')}
-              activeOpacity={0.7}
-            >
-              <ThemedText type="small" style={{ fontWeight: '700' }}>✂️ Groomer</ThemedText>
-            </TouchableOpacity>
+            {providers.map((provider) => (
+              <TouchableOpacity
+                key={provider.id}
+                style={[
+                  styles.tabBtn,
+                  { backgroundColor: colors.backgroundElement },
+                  selectedProviderId === provider.id && {
+                    backgroundColor: colors.backgroundSelected,
+                    borderWidth: 2,
+                    borderColor: colors.text,
+                  }
+                ]}
+                onPress={() => setSelectedProvider(provider)}
+                activeOpacity={0.7}
+                accessibilityRole="tab"
+                accessibilityLabel={`Switch to ${provider.label}`}
+                accessibilityState={{ selected: selectedProviderId === provider.id }}
+              >
+                <ThemedText type="small" style={{ fontWeight: '700' }}>{provider.label}</ThemedText>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
 
@@ -753,21 +789,105 @@ export default function InventoryScreen() {
               <View style={[styles.createSlotBox, { borderTopColor: colors.backgroundSelected }]}>
                 <ThemedText style={{ fontWeight: '700', marginBottom: Spacing.two }}>Create New Slot</ThemedText>
                 
-                <TextInput
-                  style={[styles.formInput, { backgroundColor: colors.backgroundElement, color: colors.text, marginBottom: Spacing.two }]}
-                  value={newSlotStart}
-                  onChangeText={setNewSlotStart}
-                  placeholder="Start: 2026-06-25T10:00:00Z"
-                  placeholderTextColor="#888"
-                />
+                {Platform.OS === 'web' ? (
+                  <View style={{ marginBottom: Spacing.two, gap: Spacing.one }}>
+                    <ThemedText type="small" style={{ color: colors.textSecondary }}>Start Time</ThemedText>
+                    <input
+                      type="datetime-local"
+                      value={newSlotStart ? newSlotStart.substring(0, 16) : ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) {
+                          setNewSlotStart(new Date(val).toISOString());
+                        } else {
+                          setNewSlotStart('');
+                        }
+                      }}
+                      style={{
+                        height: 48,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: colors.backgroundSelected,
+                        padding: 12,
+                        backgroundColor: colors.backgroundElement,
+                        color: colors.text,
+                        fontSize: 14,
+                        fontFamily: 'inherit'
+                      }}
+                    />
+                    <ThemedText type="small" style={{ color: colors.textSecondary, marginTop: Spacing.one }}>End Time</ThemedText>
+                    <input
+                      type="datetime-local"
+                      value={newSlotEnd ? newSlotEnd.substring(0, 16) : ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) {
+                          setNewSlotEnd(new Date(val).toISOString());
+                        } else {
+                          setNewSlotEnd('');
+                        }
+                      }}
+                      style={{
+                        height: 48,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: colors.backgroundSelected,
+                        padding: 12,
+                        backgroundColor: colors.backgroundElement,
+                        color: colors.text,
+                        fontSize: 14,
+                        fontFamily: 'inherit',
+                        marginBottom: Spacing.two
+                      }}
+                    />
+                  </View>
+                ) : (
+                  <View style={{ marginBottom: Spacing.two, gap: Spacing.two }}>
+                    <TouchableOpacity
+                      style={[styles.formInput, { backgroundColor: colors.backgroundElement, justifyContent: 'center' }]}
+                      onPress={() => setShowStartPicker(true)}
+                    >
+                      <ThemedText type="small" style={{ color: newSlotStart ? colors.text : '#888' }}>
+                        {newSlotStart ? `Start: ${new Date(newSlotStart).toLocaleString()}` : 'Select Start Time *'}
+                      </ThemedText>
+                    </TouchableOpacity>
+                    {showStartPicker && (
+                      <DateTimePicker
+                        value={newSlotStart ? new Date(newSlotStart) : new Date()}
+                        mode="datetime"
+                        display="default"
+                        onChange={(event, selectedDate) => {
+                          setShowStartPicker(false);
+                          if (selectedDate) {
+                            setNewSlotStart(selectedDate.toISOString());
+                          }
+                        }}
+                      />
+                    )}
 
-                <TextInput
-                  style={[styles.formInput, { backgroundColor: colors.backgroundElement, color: colors.text, marginBottom: Spacing.three }]}
-                  value={newSlotEnd}
-                  onChangeText={setNewSlotEnd}
-                  placeholder="End: 2026-06-25T10:45:00Z"
-                  placeholderTextColor="#888"
-                />
+                    <TouchableOpacity
+                      style={[styles.formInput, { backgroundColor: colors.backgroundElement, justifyContent: 'center', marginBottom: Spacing.one }]}
+                      onPress={() => setShowEndPicker(true)}
+                    >
+                      <ThemedText type="small" style={{ color: newSlotEnd ? colors.text : '#888' }}>
+                        {newSlotEnd ? `End: ${new Date(newSlotEnd).toLocaleString()}` : 'Select End Time *'}
+                      </ThemedText>
+                    </TouchableOpacity>
+                    {showEndPicker && (
+                      <DateTimePicker
+                        value={newSlotEnd ? new Date(newSlotEnd) : defaultSlotEndDate}
+                        mode="datetime"
+                        display="default"
+                        onChange={(event, selectedDate) => {
+                          setShowEndPicker(false);
+                          if (selectedDate) {
+                            setNewSlotEnd(selectedDate.toISOString());
+                          }
+                        }}
+                      />
+                    )}
+                  </View>
+                )}
 
                 <TouchableOpacity
                   style={[styles.submitBtn, { backgroundColor: PRIMARY_BLUE, marginTop: 0 }]}

@@ -1,23 +1,19 @@
 import React, { useCallback, useState, useEffect } from 'react';
-import { StyleSheet, Image, View, FlatList, TouchableOpacity, ScrollView, Platform, ActivityIndicator } from 'react-native';
+import { StyleSheet, Image, View, FlatList, TouchableOpacity, ScrollView, ActivityIndicator, useColorScheme, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing, Colors } from '@/constants/theme';
-import { useColorScheme } from 'react-native';
-
-const API_BASE_URL = Platform.select({
-  android: 'http://10.0.2.2:8080',
-  ios: 'http://localhost:8080',
-  default: 'http://localhost:8080',
-});
+import { AppIcon, type AppIconName } from '@/components/app-icon';
+import { Spacing, Colors, Radius, Shadows } from '@/constants/theme';
+import { appConfig } from '@/utils/app-config';
+import { useAuth } from '@/context/AuthContext';
 
 const CATEGORIES = [
-  { id: '1', name: 'Food & Nutrition', icon: '🍖' },
-  { id: '2', name: 'Toys & Fun', icon: '🧸' },
-  { id: '3', name: 'Pharmacy', icon: '💊' },
-  { id: '4', name: 'Accessories', icon: '🦮' },
-];
+  { id: '1', name: 'Food & Nutrition', icon: 'cart' },
+  { id: '2', name: 'Toys & Fun', icon: 'sparkle' },
+  { id: '3', name: 'Pharmacy', icon: 'medical' },
+  { id: '4', name: 'Accessories', icon: 'paw' },
+] as const;
 
 const BACKUP_STORES = [
   {
@@ -50,17 +46,37 @@ interface Store {
   tags: string[];
 }
 
-const StoreCard = React.memo(({ item, colors }: { item: Store, colors: any }) => {
+interface Offering {
+  offeringId: string;
+  name: string;
+  description?: string;
+  category?: string;
+  price: number;
+  stockQuantity?: number;
+}
+
+interface Address {
+  addressId: string;
+  label?: string;
+  line1: string;
+  city: string;
+  pincode: string;
+}
+
+const DEMO_DELIVERY_ADDRESS_ID = '11111111-1111-4111-8111-111111111111';
+
+const StoreCard = React.memo(({ item, colors, isSelected, onPress }: { item: Store, colors: any, isSelected: boolean, onPress: () => void }) => {
   return (
     <TouchableOpacity 
       style={[
         styles.storeCard, 
         { 
           backgroundColor: colors.backgroundElement,
-          borderColor: colors.textSecondary,
+          borderColor: isSelected ? colors.primary : colors.textSecondary,
         }
       ]}
       activeOpacity={0.7}
+      onPress={onPress}
     >
       <View style={styles.storeInfo}>
         <View style={{ flex: 1, paddingRight: Spacing.two }}>
@@ -69,17 +85,17 @@ const StoreCard = React.memo(({ item, colors }: { item: Store, colors: any }) =>
           </ThemedText>
           <View style={styles.storeMeta}>
             <ThemedText type="small" style={{ color: colors.textSecondary }}>
-              ⭐ {item.rating} ({item.ratingCount} reviews)
+              {item.rating} ({item.ratingCount} reviews)
             </ThemedText>
             <ThemedText type="small" style={[styles.metaDivider, { color: colors.textSecondary }]}>•</ThemedText>
             <ThemedText type="small" style={{ color: colors.textSecondary }}>
-              📍 {item.distance}
+              {item.distance}
             </ThemedText>
           </View>
         </View>
         <View style={[styles.timeBadge, { backgroundColor: colors.background, borderColor: colors.primary }]}>
           <ThemedText type="small" style={{ color: colors.primary, fontWeight: '700' }}>
-            🕒 {item.deliveryTime}
+            {item.deliveryTime}
           </ThemedText>
         </View>
       </View>
@@ -95,20 +111,34 @@ const StoreCard = React.memo(({ item, colors }: { item: Store, colors: any }) =>
     </TouchableOpacity>
   );
 });
+StoreCard.displayName = 'StoreCard';
 
 export default function ShopScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
+  const { user, session } = useAuth();
 
+  const [coords, setCoords] = useState({ longitude: 77.6404, latitude: 12.9719 });
   const [stores, setStores] = useState<Store[]>([]);
+  const [selectedStore, setSelectedStore] = useState<Store | null>(null);
+  const [offerings, setOfferings] = useState<Offering[]>([]);
+  const [cart, setCart] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLoadingOfferings, setIsLoadingOfferings] = useState(false);
+  const [checkoutState, setCheckoutState] = useState<'idle' | 'success' | 'failure'>('idle');
+
+  const authHeaders = useCallback((): Record<string, string> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' };
+    if (session?.access_token) {
+      headers.Authorization = `Bearer ${session.access_token}`;
+    }
+    return headers;
+  }, [session]);
 
   const fetchStores = async () => {
     try {
-      // Fetch active providers of type PET_STORE near Indiranagar, Bangalore
       const response = await fetch(
-        `${API_BASE_URL}/api/v1/discovery/providers?longitude=77.6404&latitude=12.9719&radius=10.0&type=PET_STORE`,
+        `${appConfig.apiBaseUrl}/api/v1/discovery/providers?longitude=${coords.longitude}&latitude=${coords.latitude}&radius=10.0&type=PET_STORE`,
         { headers: { 'Accept': 'application/json' } }
       );
       if (!response.ok) throw new Error('Network response not ok');
@@ -124,27 +154,182 @@ export default function ShopScreen() {
         tags: p.description ? [p.description.substring(0, 15), 'Store'] : ['Pet Store'],
       }));
       setStores(mapped);
+      if (mapped.length > 0 && !selectedStore) {
+        setSelectedStore(mapped[0]);
+      }
     } catch (error) {
-      console.warn('Discovery API unavailable, falling back to mock data', error);
-      setStores(BACKUP_STORES);
+      if (appConfig.allowDemoMode) {
+        console.warn('Discovery API unavailable, using explicit demo store data', error);
+        setStores(BACKUP_STORES);
+      } else {
+        console.warn('Discovery API unavailable', error);
+        setStores([]);
+      }
     } finally {
       setIsLoading(false);
-      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
-    fetchStores();
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setCoords({
+            longitude: position.coords.longitude,
+            latitude: position.coords.latitude
+          });
+        },
+        (error) => {
+          console.warn("Failed to get geolocation, using Indiranagar default:", error.message);
+        }
+      );
+    }
   }, []);
 
-  const handleRefresh = () => {
-    setIsRefreshing(true);
+  useEffect(() => {
     fetchStores();
+  }, [coords]);
+
+  useEffect(() => {
+    const fetchOfferings = async () => {
+      if (!selectedStore) return;
+      setIsLoadingOfferings(true);
+      setCart({});
+      setCheckoutState('idle');
+      try {
+        const response = await fetch(
+          `${appConfig.apiBaseUrl}/api/v1/catalog/offerings?providerId=${selectedStore.id}`,
+          { headers: { Accept: 'application/json' } }
+        );
+        if (!response.ok) throw new Error('Unable to load store products');
+        const data = await response.json();
+        const mapped = data
+          .filter((item: any) => item.status !== 'INACTIVE' && item.stockQuantity !== 0)
+          .map((item: any) => ({
+            offeringId: item.offeringId,
+            name: item.name,
+            description: item.description,
+            category: item.category,
+            price: Number(item.price ?? 0),
+            stockQuantity: item.stockQuantity,
+          }));
+        setOfferings(mapped);
+      } catch (error) {
+        console.warn('Catalog offerings unavailable', error);
+        setOfferings([]);
+      } finally {
+        setIsLoadingOfferings(false);
+      }
+    };
+
+    fetchOfferings();
+  }, [selectedStore]);
+
+  const selectedItems = offerings
+    .map((offering) => ({ offering, quantity: cart[offering.offeringId] ?? 0 }))
+    .filter((item) => item.quantity > 0);
+
+  const cartTotal = selectedItems.reduce((total, item) => total + item.offering.price * item.quantity, 0);
+
+  const updateQuantity = (offeringId: string, nextQuantity: number) => {
+    setCart((current) => {
+      const next = { ...current };
+      if (nextQuantity <= 0) {
+        delete next[offeringId];
+      } else {
+        next[offeringId] = nextQuantity;
+      }
+      return next;
+    });
+  };
+
+  const loadDefaultAddress = async (): Promise<Address> => {
+    if (appConfig.allowDemoMode) {
+      return {
+        addressId: DEMO_DELIVERY_ADDRESS_ID,
+        label: 'Demo Home',
+        line1: 'Explicit demo delivery address',
+        city: 'Bangalore',
+        pincode: '560038',
+      };
+    }
+
+    const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/addresses/default`, {
+      headers: authHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error('Add a default delivery address before checkout.');
+    }
+    return response.json();
+  };
+
+  const checkout = async (success: boolean) => {
+    if (!user || !selectedStore || selectedItems.length === 0 || checkoutState !== 'idle') return;
+
+    setCheckoutState(success ? 'success' : 'failure');
+    try {
+      const address = await loadDefaultAddress();
+      const orderResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          customerId: user.id,
+          providerId: selectedStore.id,
+          deliveryAddressId: address.addressId,
+          deliveryFee: 0,
+          discountAmount: 0,
+          items: selectedItems.map((item) => ({
+            offeringId: item.offering.offeringId,
+            quantity: item.quantity,
+          })),
+        }),
+      });
+      const orderPayload = await orderResponse.json();
+      if (!orderResponse.ok) {
+        throw new Error(orderPayload?.error || 'Order creation failed.');
+      }
+
+      const paymentResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/payments/transactions/result`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          userId: user.id,
+          referenceId: orderPayload.orderId,
+          transactionType: 'ORDER_PAYMENT',
+          amount: orderPayload.totalAmount,
+          gatewayTransactionId: `sandbox_${success ? 'captured' : 'failed'}_${orderPayload.orderId}`,
+          success,
+        }),
+      });
+      const paymentPayload = await paymentResponse.json();
+      if (!paymentResponse.ok) {
+        throw new Error(paymentPayload?.error || 'Payment verification failed.');
+      }
+
+      setCart({});
+      Alert.alert(
+        success ? 'Payment captured' : 'Payment failed',
+        success
+          ? `Order ${String(orderPayload.orderId).slice(0, 8)} is placed.`
+          : `Failure event recorded for order ${String(orderPayload.orderId).slice(0, 8)}.`
+      );
+    } catch (error: any) {
+      Alert.alert('Checkout unavailable', error?.message || 'Please try again.');
+    } finally {
+      setCheckoutState('idle');
+    }
   };
 
   const renderStore = useCallback(({ item }: { item: Store }) => {
-    return <StoreCard item={item} colors={colors} />;
-  }, [colors]);
+    return (
+      <StoreCard
+        item={item}
+        colors={colors}
+        isSelected={selectedStore?.id === item.id}
+        onPress={() => setSelectedStore(item)}
+      />
+    );
+  }, [colors, selectedStore?.id]);
 
   const keyExtractor = useCallback((item: Store) => item.id, []);
 
@@ -156,9 +341,12 @@ export default function ShopScreen() {
             <ThemedText type="small" style={{ color: colors.textSecondary, fontWeight: '700', letterSpacing: 1 }}>
               DELIVERING TO
             </ThemedText>
-            <ThemedText style={{ color: colors.text, fontWeight: '800' }}>
-              📍 Home — Indiranagar, Bangalore
-            </ThemedText>
+            <View style={styles.locationRow}>
+              <AppIcon name="location" color={colors.primary} size={16} />
+              <ThemedText style={{ color: colors.text, fontWeight: '800' }}>
+                Home — Indiranagar, Bangalore
+              </ThemedText>
+            </View>
           </View>
         </View>
 
@@ -203,7 +391,9 @@ export default function ShopScreen() {
                 ]}
                 activeOpacity={0.7}
               >
-                <ThemedText style={styles.categoryIcon}>{cat.icon}</ThemedText>
+                <View style={[styles.categoryIcon, { backgroundColor: colors.backgroundSelected }]}>
+                  <AppIcon name={cat.icon as AppIconName} color={colors.primary} size={26} />
+                </View>
                 <ThemedText type="small" style={[styles.categoryName, { color: colors.text }]}>
                   {cat.name}
                 </ThemedText>
@@ -226,6 +416,101 @@ export default function ShopScreen() {
             scrollEnabled={false}
             contentContainerStyle={styles.storesList}
           />
+
+          {selectedStore && (
+            <View style={styles.checkoutSection}>
+              <View style={styles.sectionHeader}>
+                <ThemedText style={[styles.sectionTitleText, { color: colors.text }]}>
+                  {selectedStore.name}
+                </ThemedText>
+                {isLoadingOfferings && <ActivityIndicator size="small" color={colors.primary} />}
+              </View>
+
+              <View style={styles.productList}>
+                {!isLoadingOfferings && offerings.length === 0 ? (
+                  <View style={[styles.emptyState, { borderColor: colors.textSecondary, backgroundColor: colors.backgroundElement }]}>
+                    <ThemedText style={{ color: colors.text, fontWeight: '800' }}>
+                      No live products available
+                    </ThemedText>
+                    <ThemedText type="small" style={{ color: colors.textSecondary }}>
+                      This store needs active catalog offerings before checkout can run.
+                    </ThemedText>
+                  </View>
+                ) : (
+                  offerings.map((offering) => {
+                    const quantity = cart[offering.offeringId] ?? 0;
+                    return (
+                      <View
+                        key={offering.offeringId}
+                        style={[styles.productCard, { backgroundColor: colors.backgroundElement, borderColor: colors.textSecondary }]}
+                      >
+                        <View style={styles.productInfo}>
+                          <ThemedText style={[styles.productName, { color: colors.text }]}>
+                            {offering.name}
+                          </ThemedText>
+                          {!!offering.description && (
+                            <ThemedText type="small" style={{ color: colors.textSecondary }} numberOfLines={2}>
+                              {offering.description}
+                            </ThemedText>
+                          )}
+                          <ThemedText style={{ color: colors.primary, fontWeight: '800' }}>
+                            Rs {offering.price.toFixed(2)}
+                          </ThemedText>
+                        </View>
+                        <View style={styles.quantityControl}>
+                          <TouchableOpacity
+                            style={[styles.quantityButton, { borderColor: colors.primary }]}
+                            onPress={() => updateQuantity(offering.offeringId, quantity - 1)}
+                            disabled={quantity === 0}
+                          >
+                            <ThemedText style={{ color: colors.primary, fontWeight: '900' }}>-</ThemedText>
+                          </TouchableOpacity>
+                          <ThemedText style={[styles.quantityText, { color: colors.text }]}>
+                            {quantity}
+                          </ThemedText>
+                          <TouchableOpacity
+                            style={[styles.quantityButton, { borderColor: colors.primary }]}
+                            onPress={() => updateQuantity(offering.offeringId, quantity + 1)}
+                          >
+                            <ThemedText style={{ color: colors.primary, fontWeight: '900' }}>+</ThemedText>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })
+                )}
+              </View>
+
+              {selectedItems.length > 0 && (
+                <View style={[styles.cartBar, { backgroundColor: colors.backgroundElement, borderColor: colors.primary }]}>
+                  <View>
+                    <ThemedText style={{ color: colors.text, fontWeight: '800' }}>
+                      {selectedItems.length} item{selectedItems.length === 1 ? '' : 's'} selected
+                    </ThemedText>
+                    <ThemedText type="small" style={{ color: colors.textSecondary }}>
+                      Total Rs {cartTotal.toFixed(2)}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.checkoutActions}>
+                    <TouchableOpacity
+                      style={[styles.checkoutButton, { backgroundColor: colors.primary }]}
+                      onPress={() => checkout(true)}
+                      disabled={checkoutState !== 'idle'}
+                    >
+                      <ThemedText type="small" style={styles.checkoutButtonText}>Pay</ThemedText>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.failureButton, { borderColor: colors.textSecondary }]}
+                      onPress={() => checkout(false)}
+                      disabled={checkoutState !== 'idle'}
+                    >
+                      <ThemedText type="small" style={{ color: colors.text, fontWeight: '800' }}>Fail</ThemedText>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
@@ -242,7 +527,13 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.three,
-    borderBottomWidth: 2,
+    borderBottomWidth: 1,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    marginTop: Spacing.half,
   },
   scrollContent: {
     paddingBottom: Spacing.six,
@@ -251,16 +542,11 @@ const styles = StyleSheet.create({
     marginHorizontal: Spacing.four,
     marginVertical: Spacing.four,
     height: 180,
-    borderRadius: 24,
-    borderWidth: 3,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
     overflow: 'hidden',
     position: 'relative',
-    // Claymorphic double shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 0,
-    elevation: 4,
+    ...Shadows.card,
   },
   heroImage: {
     width: '100%',
@@ -313,19 +599,18 @@ const styles = StyleSheet.create({
     width: 110,
     height: 100,
     borderRadius: 20,
-    borderWidth: 2.5,
+    borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: Spacing.two,
-    // Claymorphic shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 0,
-    elevation: 2,
+    ...Shadows.pressed,
   },
   categoryIcon: {
-    fontSize: 32,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: Spacing.one,
   },
   categoryName: {
@@ -339,15 +624,10 @@ const styles = StyleSheet.create({
   },
   storeCard: {
     padding: Spacing.four,
-    borderRadius: 24,
-    borderWidth: 3,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
     gap: Spacing.two,
-    // Claymorphic shadows
-    shadowColor: '#000',
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 0,
-    elevation: 3,
+    ...Shadows.card,
     marginBottom: Spacing.two,
   },
   storeInfo: {
@@ -390,5 +670,94 @@ const styles = StyleSheet.create({
   tagText: {
     fontSize: 11,
     fontWeight: '700',
+  },
+  checkoutSection: {
+    marginTop: Spacing.two,
+  },
+  productList: {
+    paddingHorizontal: Spacing.four,
+    gap: Spacing.three,
+  },
+  emptyState: {
+    borderWidth: 1,
+    borderRadius: Radius.lg,
+    padding: Spacing.four,
+    gap: Spacing.one,
+  },
+  productCard: {
+    borderWidth: 1,
+    borderRadius: Radius.lg,
+    padding: Spacing.three,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 96,
+    gap: Spacing.three,
+    ...Shadows.pressed,
+  },
+  productInfo: {
+    flex: 1,
+    gap: Spacing.half,
+  },
+  productName: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  quantityControl: {
+    width: 104,
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  quantityButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quantityText: {
+    minWidth: 28,
+    textAlign: 'center',
+    fontWeight: '900',
+  },
+  cartBar: {
+    marginHorizontal: Spacing.four,
+    marginTop: Spacing.four,
+    borderWidth: 1,
+    borderRadius: Radius.lg,
+    padding: Spacing.three,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+    ...Shadows.card,
+  },
+  checkoutActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  checkoutButton: {
+    minWidth: 72,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.three,
+  },
+  checkoutButtonText: {
+    color: '#ffffff',
+    fontWeight: '900',
+  },
+  failureButton: {
+    minWidth: 58,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.three,
   },
 });

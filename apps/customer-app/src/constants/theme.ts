@@ -9,22 +9,34 @@ import { Platform } from 'react-native';
 
 export const Colors = {
   light: {
-    text: '#064E3B',
-    background: '#ECFDF5', // Soft Mint
-    backgroundElement: '#ffffff', // Clean White Cards
-    backgroundSelected: '#D1FAE5',
-    textSecondary: '#047857',
-    primary: '#059669',
-    cta: '#F97316', // Action Orange
+    text: '#172033',
+    background: '#F8FAFC',
+    backgroundElement: '#FFFFFF',
+    backgroundSelected: '#FFE7D1',
+    textSecondary: '#5B667A',
+    primary: '#F97316',
+    cta: '#2563EB',
+    success: '#0F9F6E',
+    warning: '#B45309',
+    danger: '#B91C1C',
+    border: '#E2E8F0',
+    muted: '#EEF2F7',
+    accent: '#14B8A6',
   },
   dark: {
-    text: '#F0FDF4',
-    background: '#022C22', // Deep Emerald Dark Mode
-    backgroundElement: '#064E3B', // Dark Emerald Cards
-    backgroundSelected: '#047857',
-    textSecondary: '#A7F3D0',
-    primary: '#10B981',
-    cta: '#F97316',
+    text: '#F8FAFC',
+    background: '#111827',
+    backgroundElement: '#1F2937',
+    backgroundSelected: '#3A2A1F',
+    textSecondary: '#CBD5E1',
+    primary: '#FB923C',
+    cta: '#60A5FA',
+    success: '#34D399',
+    warning: '#FBBF24',
+    danger: '#F87171',
+    border: '#334155',
+    muted: '#273449',
+    accent: '#2DD4BF',
   },
 } as const;
 
@@ -63,6 +75,30 @@ export const Spacing = {
   four: 24,
   five: 32,
   six: 64,
+} as const;
+
+export const Radius = {
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+} as const;
+
+export const Shadows = {
+  card: {
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    elevation: 3,
+  },
+  pressed: {
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 1,
+  },
 } as const;
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;

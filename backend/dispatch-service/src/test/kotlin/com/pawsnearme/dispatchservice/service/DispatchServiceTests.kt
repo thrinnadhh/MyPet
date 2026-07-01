@@ -1,0 +1,91 @@
+package com.pawsnearme.dispatchservice.service
+
+import com.pawsnearme.dispatchservice.model.*
+import com.pawsnearme.dispatchservice.repository.*
+import jakarta.persistence.EntityManager
+import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
+import org.mockito.kotlin.*
+import org.springframework.data.redis.core.StringRedisTemplate
+import org.springframework.kafka.core.KafkaTemplate
+import java.time.Instant
+import java.util.Optional
+import java.util.UUID
+
+class DispatchServiceTests {
+
+    private val jobRepository: DispatchJobRepository = mock()
+    private val offerRepository: DispatchOfferRepository = mock()
+    private val redisTemplate: StringRedisTemplate = mock()
+    private val kafkaTemplate: KafkaTemplate<String, Any> = mock()
+    private val entityManager: EntityManager = mock()
+
+    private val service = DispatchService(
+        jobRepository, offerRepository, redisTemplate, kafkaTemplate, entityManager
+    )
+
+    // ── startDispatchProcess ──────────────────────────────────────────────────
+
+    @Test
+    fun `startDispatchProcess - duplicate job - returns existing without saving again`() {
+        val orderId = UUID.randomUUID()
+        val existingJob = DispatchJob(orderId = orderId, status = JobStatus.ACCEPTED)
+            .also { it.jobId = UUID.randomUUID() }
+
+        whenever(jobRepository.findByOrderId(orderId)).thenReturn(existingJob)
+
+        val result = service.startDispatchProcess(orderId)
+
+        assertEquals(existingJob.jobId, result.jobId)
+        verify(jobRepository, never()).save(any()) // No second save
+    }
+
+    // ── respondToOffer ────────────────────────────────────────────────────────
+
+    @Test
+    fun `respondToOffer - offer not found - throws NoSuchElementException`() {
+        val offerId = UUID.randomUUID()
+        whenever(offerRepository.findById(offerId)).thenReturn(Optional.empty())
+
+        assertThrows<NoSuchElementException> { service.respondToOffer(offerId, "ACCEPTED") }
+    }
+
+    @Test
+    fun `respondToOffer - already responded - throws IllegalStateException`() {
+        val offerId = UUID.randomUUID()
+        val jobId = UUID.randomUUID()
+        val offer = DispatchOffer(
+            jobId = jobId,
+            captainId = UUID.randomUUID(),
+            response = "ACCEPTED", // already set
+            offeredAt = Instant.now(),
+            offerRank = 1
+        )
+
+        whenever(offerRepository.findById(offerId)).thenReturn(Optional.of(offer))
+
+        val ex = assertThrows<IllegalStateException> { service.respondToOffer(offerId, "REJECTED") }
+        assertTrue(ex.message!!.contains("already responded"))
+    }
+
+    // ── triggerNextOffer — max attempts exceeded ───────────────────────────────
+
+    @Test
+    fun `triggerNextOffer - max attempts reached - marks job as FAILED`() {
+        val jobId = UUID.randomUUID()
+        val job = DispatchJob(
+            orderId = UUID.randomUUID(),
+            status = JobStatus.PENDING_ASSIGNMENT,
+            attemptCount = 3,
+            maxAttempts = 3
+        ).also { it.jobId = jobId }
+
+        whenever(jobRepository.save(any())).thenReturn(job)
+
+        service.triggerNextOffer(job)
+
+        assertEquals(JobStatus.FAILED, job.status)
+        verify(jobRepository).save(job)
+    }
+}

@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
 
 spring:
   application:
@@ -7,15 +7,124 @@ spring:
   cloud:
     gateway:
       routes:
+        - id: provider-approval-admin
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/providers/*/approve
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: provider-commission-admin
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/providers/*/commission
+            - Method=PATCH
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
         - id: provider-service
-          uri: http://localhost:8081
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/v1/providers/**, /api/v1/profiles/**, /api/v1/pets/**, /api/v1/addresses/**
-        - id: catalog-service
-          uri: http://localhost:8082
+        - id: provider-service-grpc
+          uri: ${PROVIDER_SERVICE_GRPC_URL:grpc://localhost:9091}
           predicates:
-            - Path=/api/v1/catalog/**
+            - Path=/com.pawsnearme.providerservice.grpc.ProviderService/**
+        - id: catalog-service-writes
+          uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/catalog/offerings/**, /api/v1/catalog/slots/**
+            - Method=POST,PUT,DELETE
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
+        - id: catalog-service
+          uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/catalog/offerings/**, /api/v1/catalog/slots/**
+        - id: catalog-service-billing
+          uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/catalog/bills/**, /api/v1/catalog/offerings/by-barcode/**
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
         - id: discovery-service
-          uri: http://localhost:8083
+          uri: ${DISCOVERY_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/api/v1/discovery/**
+        - id: order-service-admin
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/orders/admin/**
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: order-service
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/orders/**
+        - id: appointment-service
+          uri: ${APPOINTMENT_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/appointments/**
+        - id: dispatch-service
+          uri: ${DISPATCH_SERVICE_URL:http://localhost:8086}
+          predicates:
+            - Path=/api/v1/dispatch/**
+        - id: captain-service
+          uri: ${CAPTAIN_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/api/v1/captains/**
+        - id: notification-service
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8088}
+          predicates:
+            - Path=/api/v1/notifications/**
+        - id: review-service
+          uri: ${REVIEW_SERVICE_URL:http://localhost:8089}
+          predicates:
+            - Path=/api/v1/reviews/**
+        - id: payment-payout-admin
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8090}
+          predicates:
+            - Path=/api/v1/payments/payouts/calculate
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: payment-promotions-write
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8090}
+          predicates:
+            - Path=/api/v1/payments/promotions
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
+        - id: payment-refund-admin
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8090}
+          predicates:
+            - Path=/api/v1/payments/refund
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: payment-service
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8090}
+          predicates:
+            - Path=/api/v1/payments/**
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${SUPABASE_JWT_JWK_SET_URI:https://your-project.supabase.co/rest/v1/auth/keys}
+          secret-key: ${SUPABASE_JWT_SECRET:} # HS256 JWT secret for symmetric validation (optional dev fallback)
+          allow-unsigned: ${ALLOW_UNSIGNED_JWT:false}
