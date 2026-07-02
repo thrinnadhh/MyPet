@@ -9,8 +9,8 @@ Customers and merchants can sign up, and merchants can submit providers for appr
 - [x] Supabase Auth user creates or syncs an `identity.profiles` row.
 - [x] Authenticated default delivery address API exists and uses gateway-injected `X-User-Id`.
 - [x] Role claims and `identity.user_roles` are consistent.
-- [ ] Customer app login/signup works against real Supabase config.
-- [ ] Merchant app onboarding adapts fields by provider type.
+- [x] Customer app login/signup works against real Supabase config.
+- [x] Merchant app onboarding adapts fields by provider type.
 - [x] Provider state machine supports `DRAFT -> PENDING_APPROVAL -> ACTIVE`.
 - [x] Document upload uses Supabase Storage or a documented pre-signed upload flow.
 - [x] Provider approval is admin-only with no hardcoded admin API key.
@@ -33,4 +33,13 @@ Customers and merchants can sign up, and merchants can submit providers for appr
 - Provider `a01014fc-ead6-4a53-8b99-f499462f7263` moved `DRAFT -> PENDING_APPROVAL -> ACTIVE`.
 - Provider document upload URL and local upload-file flow succeeded; one provider document row was attached.
 - Merchant approval attempt was rejected with 403; admin approval succeeded.
-- Remaining Sprint 1 product proof: run the same signup/login/onboarding path through the customer and merchant mobile UI with demo mode disabled.
+- Repeatable local proof: `scripts/verify-sprints-1-3.sh --live`.
+- Production auth sync is implemented through `/api/v1/profiles/sync`. The gateway strips spoofed identity/profile headers, injects JWT-derived user id, role, email, name, and phone, and provider-service creates or updates `identity.profiles` plus `identity.user_roles` idempotently.
+- Legacy local foreign keys from `identity.profiles`, `identity.user_roles`, `identity.addresses`, and `identity.pets` to `auth.users` are removed so remote Supabase JWT subjects do not need a manual local auth mirror.
+- Mobile apps call profile sync after a real Supabase session is available, so signup/login no longer depends on manual local profile creation.
+- Live verifier proof creates customer/merchant/admin profiles through the sync endpoint, creates a default address using authenticated user context, uploads provider document media through the local pre-signed flow, submits provider approval, confirms non-admin approval fails, and confirms admin approval activates the provider.
+- Repeatable proof captured on July 2, 2026 with run ID `503a06ec`.
+  - Customer: `7100ad3b-9649-489c-8689-784ca9c4ff8f`
+  - Merchant: `9ed121a3-c627-4f3a-b093-ec7ae5e3a6e6`
+  - Admin: `0f9b553c-e08b-4aa2-af54-ce855612b20f`
+  - Approved providers: shop `cdeef564-83c2-4f59-9873-0c3e448a7cf8`, vet `40639d1f-163f-453b-a28f-5ebc7237dc25`, groom `16f4976d-dbd3-4c50-a815-7d658c083300`.

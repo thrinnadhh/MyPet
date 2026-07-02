@@ -32,14 +32,14 @@ export default function LoginScreen() {
 
     try {
       if (isSignUp) {
-        // Sign up flow as MERCHANT/PROVIDER role
+        // Sign up flow as MERCHANT role
         const { error } = await supabase.auth.signUp({
           email,
           password,
           options: {
             data: {
               full_name: fullName,
-              role: 'PROVIDER', // Default role for Merchant app signup
+              role: 'MERCHANT', // Backend authorization role for merchant operators
             },
           },
         });

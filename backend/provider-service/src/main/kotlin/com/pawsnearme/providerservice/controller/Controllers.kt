@@ -111,23 +111,19 @@ data class UpdateProviderCommissionRequest(
 @RequestMapping("/api/v1/profiles")
 class ProfileController(
     private val profileRepository: ProfileRepository,
-    private val userRoleJoinRepository: UserRoleJoinRepository
+    private val providerService: ProviderService
 ) {
     @PostMapping
     fun createProfile(@Valid @RequestBody request: CreateProfileRequest): ResponseEntity<ProfileResponse> {
-        val profile = Profile(
+        val savedProfile = providerService.syncAuthenticatedProfile(
             userId = request.userId,
-            role = request.role,
+            role = request.role.name,
+            email = null,
             fullName = request.fullName,
             phoneNumber = request.phoneNumber,
             avatarUrl = request.avatarUrl
         )
-        val savedProfile = profileRepository.save(profile)
-        
-        // Populate user_roles join table
-        val roleKey = UserRoleKey(request.userId, request.role)
-        userRoleJoinRepository.save(UserRoleJoin(roleKey))
-        
+
         return ResponseEntity.ok(
             ProfileResponse(
                 savedProfile.userId,
@@ -137,6 +133,42 @@ class ProfileController(
                 savedProfile.avatarUrl
             )
         )
+    }
+
+    @PostMapping("/sync")
+    fun syncAuthenticatedProfile(
+        @RequestHeader("X-User-Id", required = false) xUserId: String?,
+        @RequestHeader("X-User-Role", required = false) xUserRole: String?,
+        @RequestHeader("X-User-Email", required = false) xUserEmail: String?,
+        @RequestHeader("X-User-Full-Name", required = false) xUserFullName: String?,
+        @RequestHeader("X-User-Phone", required = false) xUserPhone: String?
+    ): ResponseEntity<Any> {
+        if (xUserId.isNullOrBlank()) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Unauthorized: user context missing"))
+        }
+
+        return try {
+            val savedProfile = providerService.syncAuthenticatedProfile(
+                userId = UUID.fromString(xUserId),
+                role = xUserRole,
+                email = xUserEmail,
+                fullName = xUserFullName,
+                phoneNumber = xUserPhone,
+                avatarUrl = null
+            )
+            ResponseEntity.ok(
+                ProfileResponse(
+                    savedProfile.userId,
+                    savedProfile.role,
+                    savedProfile.fullName,
+                    savedProfile.phoneNumber,
+                    savedProfile.avatarUrl
+                )
+            )
+        } catch (e: IllegalArgumentException) {
+            ResponseEntity.badRequest().body(mapOf("error" to e.message))
+        }
     }
 
     @GetMapping("/{id}")

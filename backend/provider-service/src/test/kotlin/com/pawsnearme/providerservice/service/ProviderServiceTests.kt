@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockito.Mockito.*
+import org.mockito.kotlin.argThat
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
@@ -22,12 +23,14 @@ class ProviderServiceTests {
     private val providerRepository: ProviderRepository = mock()
     private val providerDocumentRepository: ProviderDocumentRepository = mock()
     private val profileRepository: ProfileRepository = mock()
+    private val userRoleJoinRepository: UserRoleJoinRepository = mock()
     private val kafkaTemplate: KafkaTemplate<String, Any> = mock()
 
     private val providerService = ProviderService(
         providerRepository,
         providerDocumentRepository,
         profileRepository,
+        userRoleJoinRepository,
         kafkaTemplate
     )
 
@@ -167,6 +170,58 @@ class ProviderServiceTests {
 
         assertTrue(exception.message!!.contains("between 0 and 50"))
         verify(providerRepository, never()).save(any())
+    }
+
+    @Test
+    fun `syncAuthenticatedProfile creates profile and maps provider role to merchant`() {
+        val userId = UUID.randomUUID()
+        whenever(profileRepository.findById(userId)).thenReturn(Optional.empty())
+        whenever(profileRepository.save(any())).thenAnswer { it.arguments[0] as Profile }
+        whenever(userRoleJoinRepository.save(any())).thenAnswer { it.arguments[0] as UserRoleJoin }
+
+        val result = providerService.syncAuthenticatedProfile(
+            userId = userId,
+            role = "PROVIDER",
+            email = "merchant@example.com",
+            fullName = "Merchant Owner",
+            phoneNumber = "+919999000001",
+            avatarUrl = null
+        )
+
+        assertEquals(userId, result.userId)
+        assertEquals(UserRole.MERCHANT, result.role)
+        assertEquals("Merchant Owner", result.fullName)
+        assertEquals("+919999000001", result.phoneNumber)
+        verify(profileRepository).save(any())
+        verify(userRoleJoinRepository).save(argThat { id.userId == userId && id.role == UserRole.MERCHANT })
+    }
+
+    @Test
+    fun `syncAuthenticatedProfile updates existing profile role without overwriting blank metadata`() {
+        val userId = UUID.randomUUID()
+        val existing = Profile(
+            userId = userId,
+            role = UserRole.CUSTOMER,
+            fullName = "Existing Name",
+            phoneNumber = "+919999000002"
+        )
+        whenever(profileRepository.findById(userId)).thenReturn(Optional.of(existing))
+        whenever(profileRepository.save(any())).thenAnswer { it.arguments[0] as Profile }
+        whenever(userRoleJoinRepository.save(any())).thenAnswer { it.arguments[0] as UserRoleJoin }
+
+        val result = providerService.syncAuthenticatedProfile(
+            userId = userId,
+            role = "ADMIN",
+            email = null,
+            fullName = "",
+            phoneNumber = "",
+            avatarUrl = null
+        )
+
+        assertEquals(UserRole.ADMIN, result.role)
+        assertEquals("Existing Name", result.fullName)
+        assertEquals("+919999000002", result.phoneNumber)
+        verify(userRoleJoinRepository).save(argThat { id.userId == userId && id.role == UserRole.ADMIN })
     }
 
     private fun sampleProvider(providerId: UUID) = Provider(

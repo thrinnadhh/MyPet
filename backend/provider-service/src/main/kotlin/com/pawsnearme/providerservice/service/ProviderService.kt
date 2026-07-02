@@ -18,9 +18,57 @@ class ProviderService(
     private val providerRepository: ProviderRepository,
     private val providerDocumentRepository: ProviderDocumentRepository,
     private val profileRepository: ProfileRepository,
+    private val userRoleJoinRepository: UserRoleJoinRepository,
     private val kafkaTemplate: KafkaTemplate<String, Any>
 ) {
     private val geometryFactory = GeometryFactory(PrecisionModel(), 4326)
+
+    @Transactional
+    fun syncAuthenticatedProfile(
+        userId: UUID,
+        role: String?,
+        email: String?,
+        fullName: String?,
+        phoneNumber: String?,
+        avatarUrl: String?
+    ): Profile {
+        val normalizedRole = normalizeUserRole(role)
+        val displayName = resolveDisplayName(userId, email, fullName)
+        val resolvedPhone = phoneNumber?.takeIf { it.isNotBlank() } ?: "unspecified-$userId"
+
+        val profile = profileRepository.findById(userId).orElse(null)?.apply {
+            this.role = normalizedRole
+            if (!fullName.isNullOrBlank()) this.fullName = fullName
+            if (!phoneNumber.isNullOrBlank()) this.phoneNumber = phoneNumber
+            if (!avatarUrl.isNullOrBlank()) this.avatarUrl = avatarUrl
+        } ?: Profile(
+            userId = userId,
+            role = normalizedRole,
+            fullName = displayName,
+            phoneNumber = resolvedPhone,
+            avatarUrl = avatarUrl
+        )
+
+        val savedProfile = profileRepository.save(profile)
+        userRoleJoinRepository.save(UserRoleJoin(UserRoleKey(userId, normalizedRole)))
+        return savedProfile
+    }
+
+    private fun normalizeUserRole(role: String?): UserRole {
+        val normalized = role?.uppercase()
+        return when (normalized) {
+            "PROVIDER", "MERCHANT" -> UserRole.MERCHANT
+            "CAPTAIN" -> UserRole.CAPTAIN
+            "ADMIN" -> UserRole.ADMIN
+            else -> UserRole.CUSTOMER
+        }
+    }
+
+    private fun resolveDisplayName(userId: UUID, email: String?, fullName: String?): String {
+        if (!fullName.isNullOrBlank()) return fullName
+        val emailName = email?.substringBefore("@")?.takeIf { it.isNotBlank() }
+        return emailName ?: "User ${userId.toString().take(8)}"
+    }
 
     @Transactional
     fun createProvider(

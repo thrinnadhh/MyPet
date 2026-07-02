@@ -15,8 +15,14 @@ check(
     and has_text("backend/provider-service/src/main/kotlin/com/pawsnearme/providerservice/controller/MediaController.kt", "upload-url", "upload-file")
 )
 check("merchant onboarding uploads document and submits provider", has_text("apps/merchant-captain-app/src/app/onboarding.tsx", "upload-url", "/submit"))
+check("authenticated profile sync endpoint exists", has_text("backend/provider-service/src/main/kotlin/com/pawsnearme/providerservice/controller/Controllers.kt", "/sync", "X-User-Id", "syncAuthenticatedProfile"))
+check(
+    "profile sync removes local auth mirror dependency",
+    has_text("backend/provider-service/src/main/resources/db/migration/V3__remove_legacy_auth_user_fk_for_profile_sync.sql", "profiles_user_id_fkey", "user_roles_user_id_fkey")
+    and has_text("backend/provider-service/src/main/resources/db/migration/V4__remove_legacy_auth_user_fk_for_profile_owned_records.sql", "addresses_user_id_fkey", "pets_owner_id_fkey")
+)
+check("mobile syncs profile after auth", has_text("apps/customer-app/src/context/AuthContext.tsx", "syncAuthenticatedProfile", "CUSTOMER") and has_text("apps/merchant-captain-app/src/context/AuthContext.tsx", "syncAuthenticatedProfile", "MERCHANT"))
+check("repeatable live proof exists", has_text("backend/verify_sprints_1_2_live.py", "/api/v1/profiles/sync", "non-admin provider approval rejected", "admin provider approval activated provider"))
+check("sprint proof documented", has_text("docs/sprints/sprint-1-identity-provider-onboarding.md", "Repeatable local proof", "verify-sprints-1-3.sh --live"))
 
-finish("Sprint 1", [
-    "Run customer and merchant mobile signup/onboarding screens against real Supabase config with demo mode disabled.",
-    "Replace the local auth.users mirror used in live proof with a production auth sync strategy.",
-])
+finish("Sprint 1")

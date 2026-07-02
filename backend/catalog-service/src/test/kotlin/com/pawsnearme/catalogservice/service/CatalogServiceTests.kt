@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockito.kotlin.any
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -213,6 +214,71 @@ class CatalogServiceTests {
         val created = catalogService.createSlot(slot)
         assertNotNull(created)
         assertEquals(offeringId, created.offeringId)
+    }
+
+    @Test
+    fun `decrementStock - uses atomic guard and returns updated stock`() {
+        val providerId = UUID.randomUUID()
+        val offeringId = UUID.randomUUID()
+        val offering = Offering(
+            offeringId = offeringId,
+            providerId = providerId,
+            name = "Dog Food",
+            price = BigDecimal("499.00"),
+            stockQuantity = 5
+        )
+        whenever(offeringRepository.findById(offeringId)).thenReturn(Optional.of(offering))
+        whenever(offeringRepository.decrementStockIfAvailable(offeringId, providerId, 2)).thenReturn(1)
+
+        val updated = catalogService.decrementStock(offeringId, 2)
+
+        assertEquals(3, updated.stockQuantity)
+        verify(offeringRepository).decrementStockIfAvailable(eq(offeringId), eq(providerId), eq(2))
+        verify(offeringRepository, never()).save(any())
+    }
+
+    @Test
+    fun `decrementStock - atomic guard prevents oversell`() {
+        val providerId = UUID.randomUUID()
+        val offeringId = UUID.randomUUID()
+        val offering = Offering(
+            offeringId = offeringId,
+            providerId = providerId,
+            name = "Low Stock Food",
+            price = BigDecimal("199.00"),
+            stockQuantity = 1
+        )
+        whenever(offeringRepository.findById(offeringId)).thenReturn(Optional.of(offering))
+        whenever(offeringRepository.decrementStockIfAvailable(offeringId, providerId, 1)).thenReturn(0)
+
+        val exception = assertThrows<IllegalArgumentException> {
+            catalogService.decrementStock(offeringId, 1)
+        }
+
+        assertTrue(exception.message!!.contains("Insufficient stock"))
+        assertEquals(1, offering.stockQuantity)
+        verify(offeringRepository, never()).save(any())
+    }
+
+    @Test
+    fun `restoreStock - increments tracked stock`() {
+        val providerId = UUID.randomUUID()
+        val offeringId = UUID.randomUUID()
+        val offering = Offering(
+            offeringId = offeringId,
+            providerId = providerId,
+            name = "Returned Food",
+            price = BigDecimal("299.00"),
+            stockQuantity = 4
+        )
+        whenever(offeringRepository.findById(offeringId)).thenReturn(Optional.of(offering))
+        whenever(offeringRepository.incrementStockIfTracked(offeringId, 3)).thenReturn(1)
+
+        val updated = catalogService.restoreStock(offeringId, 3)
+
+        assertEquals(7, updated.stockQuantity)
+        verify(offeringRepository).incrementStockIfTracked(eq(offeringId), eq(3))
+        verify(offeringRepository, never()).save(any())
     }
 
     @Test

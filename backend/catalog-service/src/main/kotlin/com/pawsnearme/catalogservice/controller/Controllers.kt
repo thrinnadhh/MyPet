@@ -85,6 +85,15 @@ class CatalogController(private val catalogService: CatalogService) {
         return ResponseEntity.ok(updated)
     }
 
+    @PutMapping("/offerings/{offeringId}/restore-stock")
+    fun restoreStock(
+        @PathVariable offeringId: UUID,
+        @RequestParam quantity: Int
+    ): ResponseEntity<Offering> {
+        val updated = catalogService.restoreStock(offeringId, quantity)
+        return ResponseEntity.ok(updated)
+    }
+
     // --- Slots API ---
 
     @PostMapping("/slots")
