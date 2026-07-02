@@ -1,6 +1,7 @@
 package com.pawsnearme.dispatchservice.controller
 
-import com.pawsnearme.dispatchservice.model.DispatchOffer
+import com.pawsnearme.dispatchservice.model.DispatchJob
+import com.pawsnearme.dispatchservice.model.JobStatus
 import com.pawsnearme.dispatchservice.repository.DispatchOfferRepository
 import com.pawsnearme.dispatchservice.repository.DispatchJobRepository
 import com.pawsnearme.dispatchservice.service.DispatchService
@@ -20,6 +21,10 @@ data class DispatchOfferDTO(
     val orderId: UUID
 )
 
+data class DeliveryProofRequest(
+    val proofCode: String? = null
+)
+
 @RestController
 @RequestMapping("/api/v1/dispatch")
 class DispatchController(
@@ -30,6 +35,7 @@ class DispatchController(
 
     @PostMapping("/offers/{offerId}/respond")
     fun respondToOffer(
+        @RequestHeader(value = "X-User-Id", required = false) xUserId: String?,
         @PathVariable offerId: UUID,
         @RequestParam response: String
     ): ResponseEntity<Any> {
@@ -37,7 +43,8 @@ class DispatchController(
             return ResponseEntity.badRequest().body(mapOf("error" to "Invalid response. Must be ACCEPTED or REJECTED."))
         }
         return try {
-            val offer = dispatchService.respondToOffer(offerId, response)
+            val captainId = xUserId?.let { UUID.fromString(it) }
+            val offer = dispatchService.respondToOffer(offerId, response, captainId)
             ResponseEntity.ok(offer)
         } catch (e: Exception) {
             ResponseEntity.badRequest().body(mapOf("error" to (e.message ?: "Failed to respond to offer.")))
@@ -66,5 +73,45 @@ class DispatchController(
             )
         }
         return ResponseEntity.ok(dtos)
+    }
+
+    @GetMapping("/jobs")
+    fun listJobs(
+        @RequestParam(required = false) status: JobStatus?
+    ): ResponseEntity<List<DispatchJob>> {
+        val jobs = jobRepository.findAll()
+            .filter { status == null || it.status == status }
+            .sortedByDescending { it.createdAt }
+        return ResponseEntity.ok(jobs)
+    }
+
+    @PostMapping("/jobs/{jobId}/pickup")
+    fun markPickedUp(
+        @RequestHeader(value = "X-User-Id", required = false) xUserId: String?,
+        @PathVariable jobId: UUID,
+        @RequestBody request: DeliveryProofRequest
+    ): ResponseEntity<Any> {
+        val captainId = xUserId?.let { UUID.fromString(it) }
+            ?: return ResponseEntity.status(401).body(mapOf("error" to "Missing authenticated captain context."))
+        return try {
+            ResponseEntity.ok(dispatchService.markPickedUp(jobId, captainId, request.proofCode))
+        } catch (e: Exception) {
+            ResponseEntity.badRequest().body(mapOf("error" to (e.message ?: "Failed to mark pickup.")))
+        }
+    }
+
+    @PostMapping("/jobs/{jobId}/deliver")
+    fun markDelivered(
+        @RequestHeader(value = "X-User-Id", required = false) xUserId: String?,
+        @PathVariable jobId: UUID,
+        @RequestBody request: DeliveryProofRequest
+    ): ResponseEntity<Any> {
+        val captainId = xUserId?.let { UUID.fromString(it) }
+            ?: return ResponseEntity.status(401).body(mapOf("error" to "Missing authenticated captain context."))
+        return try {
+            ResponseEntity.ok(dispatchService.markDelivered(jobId, captainId, request.proofCode))
+        } catch (e: Exception) {
+            ResponseEntity.badRequest().body(mapOf("error" to (e.message ?: "Failed to mark delivered.")))
+        }
     }
 }

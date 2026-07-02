@@ -12,5 +12,6 @@ interface DispatchJobRepository : JpaRepository<DispatchJob, UUID> {
 interface DispatchOfferRepository : JpaRepository<DispatchOffer, UUID> {
     fun findByJobId(jobId: UUID): List<DispatchOffer>
     fun findByJobIdAndResponseIsNull(jobId: UUID): DispatchOffer?
+    fun findByJobIdAndCaptainId(jobId: UUID, captainId: UUID): DispatchOffer?
     fun findByCaptainIdAndResponseIsNull(captainId: UUID): List<DispatchOffer>
 }
