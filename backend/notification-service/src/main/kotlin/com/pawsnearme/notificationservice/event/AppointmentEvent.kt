@@ -1,6 +1,7 @@
 package com.pawsnearme.notificationservice.event
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.fasterxml.jackson.annotation.JsonProperty
 import java.time.Instant
 import java.util.UUID
 
@@ -10,11 +11,18 @@ import java.util.UUID
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class AppointmentEvent(
-    val eventType: String,            // e.g. "APPOINTMENT_CONFIRMED"
+    @JsonProperty("event_type")
+    val eventType: String,
+    @JsonProperty("appointment_id")
     val appointmentId: UUID,
+    @JsonProperty("customer_id")
     val customerId: UUID,
+    @JsonProperty("slot_id")
     val slotId: UUID,
-    val providerName: String,
-    val slotStartsAt: Instant,
+    @JsonProperty("slot_start")
+    val slotStart: Instant? = null,
+    @JsonProperty("to_status")
+    val toStatus: String? = null,
+    @JsonProperty("occurred_at")
     val occurredAt: Instant = Instant.now()
 )

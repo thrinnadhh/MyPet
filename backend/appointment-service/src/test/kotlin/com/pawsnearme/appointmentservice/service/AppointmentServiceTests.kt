@@ -126,6 +126,9 @@ class AppointmentServiceTests {
         whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appointment))
         whenever(redisTemplate.hasKey("hold:slots:$slotId")).thenReturn(true)
         whenever(appointmentRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Appointment>(0) }
+        whenever(restOperations.getForObject("http://localhost:8082/api/v1/catalog/slots/$slotId", CatalogSlotSnapshot::class.java)).thenReturn(
+            CatalogSlotSnapshot(slotId = slotId, slotStart = Instant.parse("2026-07-05T10:00:00Z"))
+        )
 
         val saved = service.confirmAppointment(appointmentId)
 
@@ -138,6 +141,7 @@ class AppointmentServiceTests {
             assertTrue(it.contains("\"actor_id\""))
             assertTrue(it.contains("\"appointment_id\""))
             assertTrue(it.contains("\"slot_id\""))
+            assertTrue(it.contains("\"slot_start\":\"2026-07-05T10:00:00Z\""))
         })
     }
 

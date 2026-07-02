@@ -20,19 +20,18 @@ import { AppIcon } from '@/components/app-icon';
 import { BottomTabInset, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/context/AuthContext';
+import { appConfig } from '@/utils/app-config';
+import {
+  completeMerchantBooking,
+  fetchMerchantBookings,
+  type MerchantAppointmentStatus,
+  type MerchantBooking,
+} from '@/services/merchant-appointments';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type AppointmentStatus = 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
-
-interface Booking {
-  id: string;
-  customerName: string;
-  petName: string;
-  serviceName: string;
-  slotStartsAt: string;
-  status: AppointmentStatus;
-}
+type AppointmentStatus = MerchantAppointmentStatus;
+type Booking = MerchantBooking;
 
 // ─── Mock data (replace with API call) ───────────────────────────────────────
 
@@ -44,6 +43,9 @@ const MOCK_BOOKINGS: Booking[] = [
     serviceName: 'Full Grooming',
     slotStartsAt: new Date(Date.now() + 2 * 3600_000).toISOString(),
     status: 'CONFIRMED',
+    providerId: 'demo-provider-1',
+    offeringId: 'demo-offering-1',
+    slotId: 'demo-slot-1',
   },
   {
     id: '2',
@@ -52,6 +54,9 @@ const MOCK_BOOKINGS: Booking[] = [
     serviceName: 'Vet Checkup',
     slotStartsAt: new Date(Date.now() + 5 * 3600_000).toISOString(),
     status: 'CONFIRMED',
+    providerId: 'demo-provider-2',
+    offeringId: 'demo-offering-2',
+    slotId: 'demo-slot-2',
   },
   {
     id: '3',
@@ -60,16 +65,21 @@ const MOCK_BOOKINGS: Booking[] = [
     serviceName: 'Vaccination',
     slotStartsAt: new Date(Date.now() - 1 * 3600_000).toISOString(),
     status: 'COMPLETED',
+    providerId: 'demo-provider-3',
+    offeringId: 'demo-offering-3',
+    slotId: 'demo-slot-3',
   },
 ];
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<AppointmentStatus, string> = {
+  SLOT_HELD: '#a855f7',
   CONFIRMED:  '#22c55e',
   COMPLETED:  '#3b82f6',
   CANCELLED:  '#ef4444',
   NO_SHOW:    '#f97316',
+  EXPIRED: '#64748b',
 };
 
 function StatusBadge({ status }: { status: AppointmentStatus }) {
@@ -88,7 +98,7 @@ interface CompleteModalProps {
   booking: Booking | null;
   visible: boolean;
   onClose: () => void;
-  onSubmit: (bookingId: string, notes: string) => void;
+  onSubmit: (bookingId: string, notes: string) => Promise<void>;
 }
 
 function CompleteModal({ booking, visible, onClose, onSubmit }: CompleteModalProps) {
@@ -99,12 +109,13 @@ function CompleteModal({ booking, visible, onClose, onSubmit }: CompleteModalPro
   const handleSubmit = useCallback(async () => {
     if (!booking) return;
     setLoading(true);
-    // Simulate API call
-    await new Promise(r => setTimeout(r, 600));
-    onSubmit(booking.id, notes);
-    setNotes('');
-    setLoading(false);
-    onClose();
+    try {
+      await onSubmit(booking.id, notes);
+      setNotes('');
+      onClose();
+    } finally {
+      setLoading(false);
+    }
   }, [booking, notes, onSubmit, onClose]);
 
   if (!booking) return null;
@@ -140,10 +151,6 @@ function CompleteModal({ booking, visible, onClose, onSubmit }: CompleteModalPro
             onChangeText={setNotes}
             accessibilityLabel="Visit notes input"
           />
-
-          <ThemedText style={[styles.label, { marginTop: Spacing.three }]} themeColor="textSecondary">
-            📎 Document upload available in full app build
-          </ThemedText>
 
           <TouchableOpacity
             style={[styles.submitBtn, { backgroundColor: theme.primary }]}
@@ -230,13 +237,16 @@ type FilterType = 'ALL' | 'CONFIRMED' | 'COMPLETED';
 export default function BookingsScreen() {
   const theme = useTheme();
   const safeAreaInsets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
+  const userId = user?.id;
+  const accessToken = session?.access_token;
 
   const [bookings, setBookings] = useState<Booking[]>(MOCK_BOOKINGS);
   const [filter, setFilter] = useState<FilterType>('ALL');
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
-  const [loading] = useState(false);
+  const [loading, setLoading] = useState(!appConfig.allowDemoMode);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const insets = {
     ...safeAreaInsets,
@@ -248,7 +258,39 @@ export default function BookingsScreen() {
     web: { paddingTop: Spacing.six },
   });
 
-  // Filter logic
+  const loadBookings = useCallback(async () => {
+    if (appConfig.allowDemoMode) {
+      setBookings(MOCK_BOOKINGS);
+      setLoadError(null);
+      setLoading(false);
+      return;
+    }
+
+    if (!userId) {
+      setBookings([]);
+      setLoadError('Sign in to view bookings.');
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const liveBookings = await fetchMerchantBookings(userId, accessToken);
+      setBookings(liveBookings);
+      setLoadError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not load bookings.';
+      setBookings([]);
+      setLoadError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken, userId]);
+
+  useEffect(() => {
+    void loadBookings();
+  }, [loadBookings]);
+
   const filtered = bookings.filter(b => filter === 'ALL' || b.status === filter);
 
   const handleComplete = useCallback((booking: Booking) => {
@@ -256,12 +298,23 @@ export default function BookingsScreen() {
     setModalVisible(true);
   }, []);
 
-  const handleSubmitComplete = useCallback((bookingId: string, notes: string) => {
-    setBookings(prev =>
-      prev.map(b => b.id === bookingId ? { ...b, status: 'COMPLETED' as AppointmentStatus } : b)
-    );
-    Alert.alert('Done!', 'Appointment marked as completed.');
-  }, []);
+  const handleSubmitComplete = useCallback(async (bookingId: string, notes: string) => {
+    try {
+      if (appConfig.allowDemoMode) {
+        setBookings(prev =>
+          prev.map(b => b.id === bookingId ? { ...b, status: 'COMPLETED' as AppointmentStatus, visitNotes: notes } : b)
+        );
+      } else {
+        await completeMerchantBooking(bookingId, notes, accessToken);
+        await loadBookings();
+      }
+      Alert.alert('Done!', 'Appointment marked as completed.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Appointment was not completed.';
+      Alert.alert('Could Not Complete', message);
+      throw error;
+    }
+  }, [accessToken, loadBookings]);
 
   const renderItem = useCallback(
     ({ item }: { item: Booking }) => (
@@ -308,6 +361,19 @@ export default function BookingsScreen() {
       {loading ? (
         <View style={styles.centred}>
           <ActivityIndicator size="large" color={theme.primary} />
+        </View>
+      ) : loadError ? (
+        <View style={styles.centred}>
+          <AppIcon name="calendar" color={theme.primary} size={34} />
+          <ThemedText themeColor="textSecondary">{loadError}</ThemedText>
+          <TouchableOpacity
+            style={[styles.completeBtn, { borderColor: theme.primary, paddingHorizontal: Spacing.four }]}
+            onPress={() => void loadBookings()}
+            accessibilityLabel="Retry loading bookings"
+            accessibilityRole="button"
+          >
+            <ThemedText style={{ color: theme.primary, fontWeight: '600' }}>Retry</ThemedText>
+          </TouchableOpacity>
         </View>
       ) : filtered.length === 0 ? (
         <View style={styles.centred}>

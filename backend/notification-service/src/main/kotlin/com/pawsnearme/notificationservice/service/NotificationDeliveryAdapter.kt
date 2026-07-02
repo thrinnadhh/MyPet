@@ -1,6 +1,7 @@
 package com.pawsnearme.notificationservice.service
 
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.util.UUID
 
@@ -24,17 +25,38 @@ interface NotificationDeliveryAdapter {
 }
 
 @Component
-class LoggingPushNotificationDeliveryAdapter : NotificationDeliveryAdapter {
+class ConfiguredNotificationDeliveryAdapter(
+    @Value("\${notification.delivery.mode:LOGGED_DEV}")
+    private val deliveryMode: String
+) : NotificationDeliveryAdapter {
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun deliver(request: NotificationDeliveryRequest): NotificationDeliveryResult {
+        if (deliveryMode.equals("EXPO_FCM", ignoreCase = true)) {
+            return NotificationDeliveryResult(
+                delivered = false,
+                provider = "EXPO_FCM",
+                retryable = false,
+                failureReason = "Expo/FCM push token registration is not configured for this user."
+            )
+        }
+
+        if (!deliveryMode.equals("LOGGED_DEV", ignoreCase = true)) {
+            return NotificationDeliveryResult(
+                delivered = false,
+                provider = deliveryMode,
+                retryable = false,
+                failureReason = "Unsupported notification delivery mode: $deliveryMode"
+            )
+        }
+
         log.info(
-            "[EXPO_FCM_PENDING_CONFIG] user={} reference={} template={} message={}",
+            "[LOGGED_DEV_REMINDER] user={} reference={} template={} message={}",
             request.userId,
             request.referenceId,
             request.templateCode,
             request.message
         )
-        return NotificationDeliveryResult(delivered = true, provider = "LOGGED_EXPO_FCM")
+        return NotificationDeliveryResult(delivered = true, provider = "LOGGED_DEV")
     }
 }

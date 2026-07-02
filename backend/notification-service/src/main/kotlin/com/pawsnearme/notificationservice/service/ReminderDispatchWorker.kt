@@ -1,5 +1,6 @@
 package com.pawsnearme.notificationservice.service
 
+import com.pawsnearme.notificationservice.model.ReminderDeliveryStatus
 import com.pawsnearme.notificationservice.repository.ScheduledReminderRepository
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
@@ -9,7 +10,7 @@ import java.time.Instant
 
 /**
  * Polls every 5 seconds for due reminders and dispatches them.
- * The default adapter logs Expo/FCM-intended delivery until push credentials are configured.
+ * The default local adapter logs delivery; production modes must fail visibly until push tokens are configured.
  */
 @Service
 class ReminderDispatchWorker(
@@ -26,6 +27,7 @@ class ReminderDispatchWorker(
 
         log.info("Dispatching ${due.size} due reminder(s)")
         due.forEach { reminder ->
+            reminderRepo.markAttempted(reminder.id, ReminderDeliveryStatus.ATTEMPTED, Instant.now())
             val result = deliveryAdapter.deliver(
                 NotificationDeliveryRequest(
                     userId = reminder.userId,
@@ -36,9 +38,21 @@ class ReminderDispatchWorker(
                 )
             )
             if (result.delivered) {
-                reminderRepo.markFired(reminder.id)
+                val deliveredStatus = if (result.provider == "LOGGED_DEV") {
+                    ReminderDeliveryStatus.DELIVERED_LOGGED
+                } else {
+                    ReminderDeliveryStatus.DELIVERED
+                }
+                reminderRepo.markDelivered(reminder.id, deliveredStatus, result.provider, Instant.now())
                 log.info("Delivered reminder {} via {} for user {}", reminder.id, result.provider, reminder.userId)
             } else {
+                reminderRepo.markFailed(
+                    reminder.id,
+                    ReminderDeliveryStatus.FAILED,
+                    result.provider,
+                    result.retryable,
+                    result.failureReason
+                )
                 log.warn(
                     "Reminder {} delivery failed via {} retryable={} reason={}",
                     reminder.id,

@@ -4,6 +4,14 @@ import jakarta.persistence.*
 import java.time.Instant
 import java.util.UUID
 
+enum class ReminderDeliveryStatus {
+    SCHEDULED,
+    ATTEMPTED,
+    DELIVERED,
+    DELIVERED_LOGGED,
+    FAILED
+}
+
 @Entity
 @Table(
     schema = "notifications",
@@ -36,5 +44,30 @@ data class ScheduledReminder(
 
     /** Template key, e.g. "APPOINTMENT_T24H", "APPOINTMENT_T1H". */
     @Column(name = "template_code", nullable = false)
-    val templateCode: String
+    val templateCode: String,
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "delivery_status", nullable = false, columnDefinition = "reminder_delivery_status")
+    var deliveryStatus: ReminderDeliveryStatus = ReminderDeliveryStatus.SCHEDULED,
+
+    @Column(name = "provider")
+    var provider: String? = null,
+
+    @Column(name = "attempt_count", nullable = false)
+    var attemptCount: Int = 0,
+
+    @Column(name = "last_attempt_at")
+    var lastAttemptAt: Instant? = null,
+
+    @Column(name = "delivered_at")
+    var deliveredAt: Instant? = null,
+
+    @Column(name = "retryable_failure", nullable = false)
+    var retryableFailure: Boolean = false,
+
+    @Column(name = "failure_reason")
+    var failureReason: String? = null,
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    val createdAt: Instant = Instant.now()
 )

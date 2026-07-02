@@ -1,6 +1,7 @@
 package com.pawsnearme.notificationservice.service
 
 import com.pawsnearme.notificationservice.model.ScheduledReminder
+import com.pawsnearme.notificationservice.model.ReminderDeliveryStatus
 import com.pawsnearme.notificationservice.repository.ScheduledReminderRepository
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
@@ -27,17 +28,18 @@ class ReminderDispatchWorkerTests {
     // ── dispatchDueReminders ──────────────────────────────────────────────────
 
     @Test
-    fun `dispatchDueReminders - no due reminders - does not call markFired`() {
+    fun `dispatchDueReminders - no due reminders - does not record attempts`() {
         whenever(reminderRepo.findDueReminders(any())).thenReturn(emptyList())
 
         worker.dispatchDueReminders()
 
-        verify(reminderRepo, never()).markFired(any())
+        verify(reminderRepo, never()).markAttempted(any(), any(), any())
+        verify(reminderRepo, never()).markDelivered(any(), any(), any(), any())
         verify(deliveryAdapter, never()).deliver(any())
     }
 
     @Test
-    fun `dispatchDueReminders - two due reminders - marks both fired`() {
+    fun `dispatchDueReminders - two due reminders - marks both delivered`() {
         val r1 = makeReminder("APPOINTMENT_T24H")
         val r2 = makeReminder("APPOINTMENT_T1H")
         whenever(reminderRepo.findDueReminders(any())).thenReturn(listOf(r1, r2))
@@ -45,23 +47,30 @@ class ReminderDispatchWorkerTests {
 
         worker.dispatchDueReminders()
 
-        verify(reminderRepo).markFired(r1.id)
-        verify(reminderRepo).markFired(r2.id)
+        verify(reminderRepo).markAttempted(eq(r1.id), eq(ReminderDeliveryStatus.ATTEMPTED), any())
+        verify(reminderRepo).markAttempted(eq(r2.id), eq(ReminderDeliveryStatus.ATTEMPTED), any())
+        verify(reminderRepo).markDelivered(eq(r1.id), eq(ReminderDeliveryStatus.DELIVERED), eq("TEST"), any())
+        verify(reminderRepo).markDelivered(eq(r2.id), eq(ReminderDeliveryStatus.DELIVERED), eq("TEST"), any())
     }
 
     @Test
-    fun `dispatchDueReminders - each reminder marked fired exactly once`() {
+    fun `dispatchDueReminders - logged dev delivery uses logged status`() {
         val reminder = makeReminder()
         whenever(reminderRepo.findDueReminders(any())).thenReturn(listOf(reminder))
-        whenever(deliveryAdapter.deliver(any())).thenReturn(NotificationDeliveryResult(delivered = true, provider = "TEST"))
+        whenever(deliveryAdapter.deliver(any())).thenReturn(NotificationDeliveryResult(delivered = true, provider = "LOGGED_DEV"))
 
         worker.dispatchDueReminders()
 
-        verify(reminderRepo, times(1)).markFired(reminder.id)
+        verify(reminderRepo, times(1)).markDelivered(
+            eq(reminder.id),
+            eq(ReminderDeliveryStatus.DELIVERED_LOGGED),
+            eq("LOGGED_DEV"),
+            any()
+        )
     }
 
     @Test
-    fun `dispatchDueReminders - failed delivery is not marked fired`() {
+    fun `dispatchDueReminders - failed delivery is marked failed and not delivered`() {
         val reminder = makeReminder()
         whenever(reminderRepo.findDueReminders(any())).thenReturn(listOf(reminder))
         whenever(deliveryAdapter.deliver(any())).thenReturn(
@@ -70,6 +79,8 @@ class ReminderDispatchWorkerTests {
 
         worker.dispatchDueReminders()
 
-        verify(reminderRepo, never()).markFired(reminder.id)
+        verify(reminderRepo).markAttempted(eq(reminder.id), eq(ReminderDeliveryStatus.ATTEMPTED), any())
+        verify(reminderRepo).markFailed(eq(reminder.id), eq(ReminderDeliveryStatus.FAILED), eq("TEST"), eq(true), eq("network"))
+        verify(reminderRepo, never()).markDelivered(eq(reminder.id), any(), any(), any())
     }
 }

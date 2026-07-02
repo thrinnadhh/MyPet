@@ -43,8 +43,17 @@ data class AppointmentBookedEvent(
     val providerId: UUID,
     @get:JsonProperty("slot_id")
     val slotId: UUID,
+    @get:JsonProperty("slot_start")
+    val slotStart: String? = null,
     @get:JsonProperty("price_amount")
     val priceAmount: BigDecimal
+)
+
+data class CatalogSlotSnapshot(
+    val slotId: UUID? = null,
+    val slotStart: Instant? = null,
+    val slotEnd: Instant? = null,
+    val status: String? = null
 )
 
 data class AppointmentStatusChangedEvent(
@@ -102,6 +111,16 @@ class AppointmentService(
         restTemplate.put(url, null)
     }
 
+    private fun fetchCatalogSlotStart(slotId: UUID): String? {
+        return try {
+            val url = "$catalogServiceUrl/api/v1/catalog/slots/$slotId"
+            restTemplate.getForObject(url, CatalogSlotSnapshot::class.java)?.slotStart?.toString()
+        } catch (e: Exception) {
+            println("WARNING: Failed to read slot start from Catalog Service: ${e.message}")
+            null
+        }
+    }
+
     private fun publishAppointmentBooked(saved: Appointment) {
         try {
             val event = AppointmentBookedEvent(
@@ -110,6 +129,7 @@ class AppointmentService(
                 customerId = saved.customerId,
                 providerId = saved.providerId,
                 slotId = saved.slotId,
+                slotStart = fetchCatalogSlotStart(saved.slotId),
                 priceAmount = saved.priceAmount
             )
             kafkaTemplate.send("appointments.events", saved.appointmentId.toString(), objectMapper.writeValueAsString(event))

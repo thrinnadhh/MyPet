@@ -9,6 +9,14 @@ spring:
     username: ${DB_USERNAME:notification_service_role}
     password: ${DB_PASSWORD:notification_service_pass}
     driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    default-schema: notifications
+    schemas: notifications
+    create-schemas: true
+    user: ${FLYWAY_DB_USERNAME:postgres}
+    password: ${FLYWAY_DB_PASSWORD:postgres}
   jpa:
     properties:
       hibernate:

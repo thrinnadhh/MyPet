@@ -24,11 +24,18 @@ class AppointmentEventListener(
             objectMapper.readValue(message, AppointmentEvent::class.java)
         }.getOrNull() ?: return log.warn("Could not parse appointment event: $message")
 
-        if (event.eventType != "APPOINTMENT_CONFIRMED") return
+        val isConfirmedBooking = event.eventType == "AppointmentBooked" ||
+            (event.eventType == "AppointmentStatusChanged" && event.toStatus == "CONFIRMED")
+        if (!isConfirmedBooking) return
+
+        val slotStart = event.slotStart ?: return log.warn(
+            "Cannot schedule reminders for appointment {} because slot_start is missing",
+            event.appointmentId
+        )
 
         log.info("Scheduling reminders for appointment ${event.appointmentId}")
-        scheduleReminder(event, "APPOINTMENT_T24H", event.slotStartsAt.minusSeconds(24 * 3600))
-        scheduleReminder(event, "APPOINTMENT_T1H",  event.slotStartsAt.minusSeconds(3600))
+        scheduleReminder(event, "APPOINTMENT_T24H", slotStart.minusSeconds(24 * 3600))
+        scheduleReminder(event, "APPOINTMENT_T1H",  slotStart.minusSeconds(3600))
     }
 
     private fun scheduleReminder(event: AppointmentEvent, templateCode: String, fireAt: Instant) {
