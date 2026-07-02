@@ -1,6 +1,7 @@
 package com.pawsnearme.appointmentservice.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.pawsnearme.appointmentservice.model.*
 import com.pawsnearme.appointmentservice.repository.*
 import org.springframework.beans.factory.annotation.Value
@@ -9,7 +10,7 @@ import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import org.springframework.web.client.RestTemplate
+import org.springframework.web.client.RestOperations
 import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
@@ -26,12 +27,43 @@ data class BookAppointmentRequest(
 )
 
 data class AppointmentBookedEvent(
+    @get:JsonProperty("event_id")
+    val eventId: UUID = UUID.randomUUID(),
+    @get:JsonProperty("event_type")
+    val eventType: String = "AppointmentBooked",
+    @get:JsonProperty("occurred_at")
+    val occurredAt: String = Instant.now().toString(),
+    @get:JsonProperty("actor_id")
+    val actorId: UUID,
+    @get:JsonProperty("appointment_id")
     val appointmentId: UUID,
+    @get:JsonProperty("customer_id")
     val customerId: UUID,
+    @get:JsonProperty("provider_id")
     val providerId: UUID,
+    @get:JsonProperty("slot_id")
     val slotId: UUID,
-    val priceAmount: BigDecimal,
-    val timestamp: Instant = Instant.now()
+    @get:JsonProperty("price_amount")
+    val priceAmount: BigDecimal
+)
+
+data class AppointmentStatusChangedEvent(
+    @get:JsonProperty("event_id")
+    val eventId: UUID = UUID.randomUUID(),
+    @get:JsonProperty("event_type")
+    val eventType: String = "AppointmentStatusChanged",
+    @get:JsonProperty("occurred_at")
+    val occurredAt: String = Instant.now().toString(),
+    @get:JsonProperty("actor_id")
+    val actorId: UUID,
+    @get:JsonProperty("appointment_id")
+    val appointmentId: UUID,
+    @get:JsonProperty("slot_id")
+    val slotId: UUID,
+    @get:JsonProperty("from_status")
+    val fromStatus: String,
+    @get:JsonProperty("to_status")
+    val toStatus: String
 )
 
 @Service
@@ -41,33 +73,85 @@ class AppointmentService(
     private val appointmentStatusHistoryRepository: AppointmentStatusHistoryRepository,
     private val redisTemplate: StringRedisTemplate,
     private val kafkaTemplate: KafkaTemplate<String, Any>,
+    private val restTemplate: RestOperations,
     @Value("\${CATALOG_SERVICE_URL:http://localhost:8082}")
     private val catalogServiceUrl: String,
     @Value("\${appointment.hold-duration-seconds:300}")
     private val holdDurationSeconds: Long
 ) {
-    private val restTemplate = RestTemplate()
+    private val objectMapper = ObjectMapper()
+    private val writeLockDuration = Duration.ofSeconds(10)
+    private val holdDuration: Duration
+        get() = Duration.ofSeconds(holdDurationSeconds)
+
+    private fun writeLockKey(slotId: UUID) = "lock:slots:$slotId"
+
+    private fun holdKey(slotId: UUID) = "hold:slots:$slotId"
+
+    private fun acquireWriteLock(slotId: UUID): Boolean =
+        redisTemplate.opsForValue().setIfAbsent(writeLockKey(slotId), "locked", writeLockDuration) == true
+
+    private fun activeAppointmentExists(slotId: UUID): Boolean =
+        appointmentRepository.existsBySlotIdAndStatusNotIn(
+            slotId,
+            listOf(AppointmentStatus.CANCELLED, AppointmentStatus.EXPIRED)
+        )
+
+    private fun updateCatalogSlotStatus(slotId: UUID, status: String) {
+        val url = "$catalogServiceUrl/api/v1/catalog/slots/$slotId/status?status=$status"
+        restTemplate.put(url, null)
+    }
+
+    private fun publishAppointmentBooked(saved: Appointment) {
+        try {
+            val event = AppointmentBookedEvent(
+                actorId = saved.customerId,
+                appointmentId = saved.appointmentId!!,
+                customerId = saved.customerId,
+                providerId = saved.providerId,
+                slotId = saved.slotId,
+                priceAmount = saved.priceAmount
+            )
+            kafkaTemplate.send("appointments.events", saved.appointmentId.toString(), objectMapper.writeValueAsString(event))
+        } catch (e: Exception) {
+            println("WARNING: Failed to publish Kafka AppointmentBooked event: ${e.message}")
+        }
+    }
+
+    private fun publishAppointmentStatusChanged(
+        appointment: Appointment,
+        fromStatus: AppointmentStatus,
+        toStatus: AppointmentStatus,
+        actorId: UUID
+    ) {
+        try {
+            val event = AppointmentStatusChangedEvent(
+                actorId = actorId,
+                appointmentId = appointment.appointmentId!!,
+                slotId = appointment.slotId,
+                fromStatus = fromStatus.name,
+                toStatus = toStatus.name
+            )
+            kafkaTemplate.send("appointments.events", appointment.appointmentId.toString(), objectMapper.writeValueAsString(event))
+        } catch (e: Exception) {
+            println("WARNING: Failed to publish Kafka AppointmentStatusChanged event: ${e.message}")
+        }
+    }
 
     // --- Direct Booking (original single-stage method kept for backward compatibility) ---
     fun bookAppointment(request: BookAppointmentRequest): Appointment {
-        val lockKey = "lock:slots:${request.slotId}"
-        val acquired = redisTemplate.opsForValue().setIfAbsent(lockKey, "locked", Duration.ofSeconds(300))
-        if (acquired != true) {
+        val lockKey = writeLockKey(request.slotId)
+        if (!acquireWriteLock(request.slotId)) {
             throw IllegalStateException("Slot is currently being booked by another customer. Please try again.")
         }
 
         try {
-            val alreadyBooked = appointmentRepository.existsBySlotIdAndStatusNotIn(
-                request.slotId, 
-                listOf(AppointmentStatus.CANCELLED, AppointmentStatus.EXPIRED)
-            )
-            if (alreadyBooked) {
+            if (activeAppointmentExists(request.slotId)) {
                 throw IllegalStateException("Slot is already booked or held by another customer.")
             }
 
-            val url = "$catalogServiceUrl/api/v1/catalog/slots/${request.slotId}/status?status=BOOKED"
             try {
-                restTemplate.put(url, null)
+                updateCatalogSlotStatus(request.slotId, "BOOKED")
             } catch (e: Exception) {
                 throw IllegalStateException("Failed to book slot in Catalog Service: ${e.message}", e)
             }
@@ -85,20 +169,7 @@ class AppointmentService(
             val saved = appointmentRepository.save(appointment)
 
             logStatusChange(saved.appointmentId!!, null, AppointmentStatus.CONFIRMED, saved.customerId, "Appointment booked and confirmed")
-
-            try {
-                val event = AppointmentBookedEvent(
-                    appointmentId = saved.appointmentId!!,
-                    customerId = saved.customerId,
-                    providerId = saved.providerId,
-                    slotId = saved.slotId,
-                    priceAmount = saved.priceAmount
-                )
-                val jsonString = ObjectMapper().writeValueAsString(event)
-                kafkaTemplate.send("appointments.events", saved.appointmentId.toString(), jsonString)
-            } catch (e: Exception) {
-                println("WARNING: Failed to publish Kafka AppointmentBooked event: ${e.message}")
-            }
+            publishAppointmentBooked(saved)
 
             return saved
         } finally {
@@ -108,24 +179,18 @@ class AppointmentService(
 
     // --- Two-stage Checkout: Hold Slot (Task 2) ---
     fun holdAppointment(request: BookAppointmentRequest): Appointment {
-        val lockKey = "lock:slots:${request.slotId}"
-        val acquired = redisTemplate.opsForValue().setIfAbsent(lockKey, "locked", Duration.ofSeconds(300))
-        if (acquired != true) {
+        val lockKey = writeLockKey(request.slotId)
+        if (!acquireWriteLock(request.slotId)) {
             throw IllegalStateException("Slot is currently being booked by another customer. Please try again.")
         }
 
         try {
-            val alreadyBooked = appointmentRepository.existsBySlotIdAndStatusNotIn(
-                request.slotId, 
-                listOf(AppointmentStatus.CANCELLED, AppointmentStatus.EXPIRED)
-            )
-            if (alreadyBooked) {
+            if (activeAppointmentExists(request.slotId) || redisTemplate.hasKey(holdKey(request.slotId)) == true) {
                 throw IllegalStateException("Slot is already booked or held by another customer.")
             }
 
-            val url = "$catalogServiceUrl/api/v1/catalog/slots/${request.slotId}/status?status=HELD"
             try {
-                restTemplate.put(url, null)
+                updateCatalogSlotStatus(request.slotId, "HELD")
             } catch (e: Exception) {
                 throw IllegalStateException("Failed to hold slot in Catalog Service: ${e.message}", e)
             }
@@ -143,6 +208,7 @@ class AppointmentService(
             val saved = appointmentRepository.save(appointment)
 
             logStatusChange(saved.appointmentId!!, null, AppointmentStatus.SLOT_HELD, saved.customerId, "Slot held for customer")
+            redisTemplate.opsForValue().set(holdKey(saved.slotId), saved.appointmentId.toString(), holdDuration)
 
             return saved
         } finally {
@@ -160,23 +226,22 @@ class AppointmentService(
         }
 
         val cutoff = Instant.now().minusSeconds(holdDurationSeconds)
-        if (appointment.bookedAt.isBefore(cutoff)) {
+        if (appointment.bookedAt.isBefore(cutoff) || redisTemplate.hasKey(holdKey(appointment.slotId)) == false) {
             appointment.status = AppointmentStatus.EXPIRED
             appointmentRepository.save(appointment)
             logStatusChange(appointmentId, AppointmentStatus.SLOT_HELD, AppointmentStatus.EXPIRED, appointment.customerId, "Hold expired before confirmation")
+            redisTemplate.delete(holdKey(appointment.slotId))
             
-            val url = "$catalogServiceUrl/api/v1/catalog/slots/${appointment.slotId}/status?status=AVAILABLE"
             try {
-                restTemplate.put(url, null)
+                updateCatalogSlotStatus(appointment.slotId, "AVAILABLE")
             } catch (e: Exception) {
                 println("WARNING: Failed to set slot back to AVAILABLE in Catalog Service: ${e.message}")
             }
             throw IllegalStateException("Slot hold has expired. Please select the slot and try again.")
         }
 
-        val url = "$catalogServiceUrl/api/v1/catalog/slots/${appointment.slotId}/status?status=BOOKED"
         try {
-            restTemplate.put(url, null)
+            updateCatalogSlotStatus(appointment.slotId, "BOOKED")
         } catch (e: Exception) {
             throw IllegalStateException("Failed to book slot in Catalog Service: ${e.message}", e)
         }
@@ -187,20 +252,9 @@ class AppointmentService(
         val saved = appointmentRepository.save(appointment)
 
         logStatusChange(saved.appointmentId!!, oldStatus, AppointmentStatus.CONFIRMED, saved.customerId, "Appointment confirmed")
-
-        try {
-            val event = AppointmentBookedEvent(
-                appointmentId = saved.appointmentId!!,
-                customerId = saved.customerId,
-                providerId = saved.providerId,
-                slotId = saved.slotId,
-                priceAmount = saved.priceAmount
-            )
-            val jsonString = ObjectMapper().writeValueAsString(event)
-            kafkaTemplate.send("appointments.events", saved.appointmentId.toString(), jsonString)
-        } catch (e: Exception) {
-            println("WARNING: Failed to publish Kafka AppointmentBooked event: ${e.message}")
-        }
+        redisTemplate.delete(holdKey(saved.slotId))
+        publishAppointmentBooked(saved)
+        publishAppointmentStatusChanged(saved, oldStatus, AppointmentStatus.CONFIRMED, saved.customerId)
 
         return saved
     }
@@ -215,9 +269,9 @@ class AppointmentService(
                 appointment.status = AppointmentStatus.EXPIRED
                 appointmentRepository.save(appointment)
                 logStatusChange(appointment.appointmentId!!, AppointmentStatus.SLOT_HELD, AppointmentStatus.EXPIRED, appointment.customerId, "Slot hold expired")
+                redisTemplate.delete(holdKey(appointment.slotId))
 
-                val url = "$catalogServiceUrl/api/v1/catalog/slots/${appointment.slotId}/status?status=AVAILABLE"
-                restTemplate.put(url, null)
+                updateCatalogSlotStatus(appointment.slotId, "AVAILABLE")
                 println("AppointmentService: Slot hold expired for appointment ${appointment.appointmentId}, slot ${appointment.slotId} is now AVAILABLE.")
             } catch (e: Exception) {
                 println("WARNING: Failed to expire slot hold for appointment ${appointment.appointmentId}: ${e.message}")
@@ -243,9 +297,9 @@ class AppointmentService(
                 appointment.cancelledAt = Instant.now()
                 appointment.cancellationReason = note
                 
-                val url = "$catalogServiceUrl/api/v1/catalog/slots/${appointment.slotId}/status?status=AVAILABLE"
                 try {
-                    restTemplate.put(url, null)
+                    updateCatalogSlotStatus(appointment.slotId, "AVAILABLE")
+                    redisTemplate.delete(holdKey(appointment.slotId))
                 } catch (e: Exception) {
                     println("WARNING: Failed to set slot back to AVAILABLE in Catalog Service: ${e.message}")
                 }
@@ -255,19 +309,7 @@ class AppointmentService(
 
         val updated = appointmentRepository.save(appointment)
         logStatusChange(appointmentId, oldStatus, newStatus, changedBy, note)
-
-        try {
-            val event = mapOf(
-                "appointmentId" to appointmentId.toString(),
-                "fromStatus" to oldStatus.name,
-                "toStatus" to newStatus.name,
-                "timestamp" to Instant.now().toString()
-            )
-            val jsonString = ObjectMapper().writeValueAsString(event)
-            kafkaTemplate.send("appointments.events", appointmentId.toString(), jsonString)
-        } catch (e: Exception) {
-            println("WARNING: Failed to publish Kafka AppointmentStatusChanged event: ${e.message}")
-        }
+        publishAppointmentStatusChanged(updated, oldStatus, newStatus, changedBy)
 
         return updated
     }

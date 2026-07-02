@@ -9,10 +9,17 @@ import { ThemedView } from '@/components/themed-view';
 import { AppIcon } from '@/components/app-icon';
 import { Spacing, Colors, Radius, Shadows } from '@/constants/theme';
 import { appConfig } from '@/utils/app-config';
+import { useAuth } from '@/context/AuthContext';
+import {
+  confirmAppointmentHold,
+  fetchAvailableAppointmentSlots,
+  holdAppointmentSlot,
+  type AppointmentSlotOption,
+} from '@/services/appointment-booking';
 
 const HOLD_DURATION_SECONDS = 300;
-const MOCK_PET_ID = 'pet-001';
-const MOCK_CUSTOMER_ID = 'customer-001';
+const DEMO_PROVIDER_ID = '11111111-1111-1111-1111-111111111112';
+const DEMO_OFFERING_ID = '22222222-2222-2222-2222-222222222223';
 
 const BACKUP_SALONS: Salon[] = [
   { id: 'g-001', name: 'Pet Spa & Bath (Demo)', services: 'Bath & Brush, Full Groom, Nail Trim', nextSlot: 'Today, 5:00 PM', distance: '1.4 km', rating: '4.9', ratingCount: '110' },
@@ -20,20 +27,15 @@ const BACKUP_SALONS: Salon[] = [
 ];
 
 const BACKUP_SLOTS: Slot[] = [
-  { id: 'sg-001', startTime: 'Today, 5:00 PM', endTime: 'Today, 5:30 PM', price: 349 },
-  { id: 'sg-002', startTime: 'Today, 5:30 PM', endTime: 'Today, 6:00 PM', price: 349 },
-  { id: 'sg-003', startTime: 'Today, 6:00 PM', endTime: 'Today, 6:30 PM', price: 449 },
-  { id: 'sg-004', startTime: 'Tomorrow, 11:00 AM', endTime: 'Tomorrow, 11:30 AM', price: 349 },
+  { id: '33333333-3333-3333-3333-333333333341', providerId: DEMO_PROVIDER_ID, offeringId: DEMO_OFFERING_ID, serviceName: 'Full grooming', startTime: 'Today, 5:00 PM', endTime: 'Today, 5:30 PM', price: 349 },
+  { id: '33333333-3333-3333-3333-333333333342', providerId: DEMO_PROVIDER_ID, offeringId: DEMO_OFFERING_ID, serviceName: 'Bath and brush', startTime: 'Today, 5:30 PM', endTime: 'Today, 6:00 PM', price: 349 },
+  { id: '33333333-3333-3333-3333-333333333343', providerId: DEMO_PROVIDER_ID, offeringId: DEMO_OFFERING_ID, serviceName: 'Premium grooming', startTime: 'Today, 6:00 PM', endTime: 'Today, 6:30 PM', price: 449 },
+  { id: '33333333-3333-3333-3333-333333333344', providerId: DEMO_PROVIDER_ID, offeringId: DEMO_OFFERING_ID, serviceName: 'Full grooming', startTime: 'Tomorrow, 11:00 AM', endTime: 'Tomorrow, 11:30 AM', price: 349 },
 ];
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface Slot {
-  id: string;
-  startTime: string;
-  endTime: string;
-  price: number;
-}
+type Slot = AppointmentSlotOption;
 
 type BookingPhase = 'idle' | 'selecting' | 'holding' | 'checkout' | 'confirming' | 'success';
 
@@ -207,6 +209,7 @@ const CheckoutOverlay = ({
 
           <View style={[styles.summaryBox, { backgroundColor: colors.background, borderColor: colors.backgroundSelected }]}>
             <SummaryRow label="Salon" value={salon?.name ?? ''} colors={colors} />
+            <SummaryRow label="Service" value={slot?.serviceName ?? ''} colors={colors} />
             <SummaryRow label="Slot" value={slot?.startTime ?? ''} colors={colors} />
             <SummaryRow label="Duration" value={`until ${slot?.endTime ?? ''}`} colors={colors} />
             <SummaryRow label="Amount" value={`₹${slot?.price ?? 0}`} colors={colors} bold />
@@ -259,6 +262,7 @@ const CheckoutOverlay = ({
 export default function GroomScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
+  const { user, session } = useAuth();
 
   const [salons, setSalons] = useState<Salon[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -342,18 +346,7 @@ export default function GroomScreen() {
   const fetchSlots = async (providerId: string) => {
     setLoadingSlots(true);
     try {
-      const res = await fetch(
-        `${appConfig.apiBaseUrl}/api/v1/catalog/providers/${providerId}/slots?status=AVAILABLE`,
-        { headers: { Accept: 'application/json' } },
-      );
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      const mapped: Slot[] = data.map((s: any) => ({
-        id: s.slotId,
-        startTime: new Date(s.startTime).toLocaleString('en-IN', { weekday: 'short', hour: '2-digit', minute: '2-digit' }),
-        endTime: new Date(s.endTime).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-        price: s.price ?? 349,
-      }));
+      const mapped = await fetchAvailableAppointmentSlots(providerId);
       setSlots(mapped.length > 0 ? mapped : appConfig.allowDemoMode ? BACKUP_SLOTS : []);
     } catch {
       setSlots(appConfig.allowDemoMode ? BACKUP_SLOTS : []);
@@ -373,55 +366,41 @@ export default function GroomScreen() {
     setSelectedSlot(slot);
     setPhase('holding');
     try {
-      const res = await fetch(`${appConfig.apiBaseUrl}/api/v1/appointments/hold`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          slotId: slot.id,
-          petId: MOCK_PET_ID,
-          customerId: MOCK_CUSTOMER_ID,
-          notes: 'Grooming via PawsNearMe',
-        }),
+      const appointmentId = await holdAppointmentSlot({
+        slot,
+        userId: user?.id,
+        accessToken: session?.access_token,
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        Alert.alert('Slot Unavailable', err.message ?? 'This slot was just taken. Please choose another.');
-        setPhase('selecting');
-        return;
-      }
-      const data = await res.json();
-      setHeldAppointmentId(data.appointmentId ?? data.id);
+      setHeldAppointmentId(appointmentId);
       setPhase('checkout');
-    } catch {
+    } catch (error) {
       if (appConfig.allowDemoMode) {
         setHeldAppointmentId('demo-groom-001');
         setPhase('checkout');
       } else {
-        Alert.alert('Booking Unavailable', 'Could not hold this slot. Please try again when the service is reachable.');
+        const message = error instanceof Error ? error.message : 'Could not hold this slot. Please try again when the service is reachable.';
+        Alert.alert('Booking Unavailable', message);
         setPhase('selecting');
       }
     }
-  }, []);
+  }, [session, user]);
 
   const handleConfirmPayment = useCallback(async () => {
+    if (!heldAppointmentId) return;
     setPhase('confirming');
     try {
-      const res = await fetch(`${appConfig.apiBaseUrl}/api/v1/appointments/${heldAppointmentId}/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentId: `pay_${Date.now()}` }),
-      });
-      if (!res.ok) throw new Error();
-    } catch {
+      await confirmAppointmentHold(heldAppointmentId, session?.access_token);
+    } catch (error) {
       if (!appConfig.allowDemoMode) {
-        Alert.alert('Payment Confirmation Failed', 'The appointment was not confirmed. Please retry.');
+        const message = error instanceof Error ? error.message : 'The appointment was not confirmed. Please retry.';
+        Alert.alert('Payment Confirmation Failed', message);
         setPhase('checkout');
         return;
       }
     }
     setPhase('success');
     setTimeout(() => setPhase('idle'), 2500);
-  }, [heldAppointmentId]);
+  }, [heldAppointmentId, session]);
 
   const handleCancelSlots = useCallback(() => setPhase('idle'), []);
 

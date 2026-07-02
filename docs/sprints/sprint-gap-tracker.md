@@ -11,7 +11,7 @@ This tracker reflects the current repo state after Sprint 0-9 checklist files an
 | 2 | Catalog + Discovery | Complete for sprint scope | Re-run live Shop, Vet, and Groom proof during full release regression |
 | 3 | Order Creation + Payment Capture | Complete for sprint scope | Re-run UI checkout proof during full release regression and replace sandbox-equivalent proof with Razorpay sandbox evidence before production launch |
 | 4 | Dispatch + Captain Delivery Loop | Complete for sprint scope | Re-run live expiry/reassignment, pickup, delivery, and earnings proof during full release regression |
-| 5 | Appointment Booking + Slot Locking | Partial | Concurrent same-slot booking proof and expired hold release proof |
+| 5 | Appointment Booking + Slot Locking | Complete for sprint scope | Re-run appointment-service tests and live appointment proof during full release regression |
 | 6 | Merchant Calendar + Reminders | Partial | Real Expo/FCM credentials, visit notes/prescription upload decision, delivery evidence |
 | 7 | Reviews, Payouts, Discount Controls | Partial | Live payout reconciliation and merchant/captain UI proof |
 | 8 | Hardening, Admin Console, Billing | Complete for sprint scope | Re-run load smoke during full release regression and archive p95 results |
@@ -29,7 +29,6 @@ Demo/offline fixtures are allowed only when `EXPO_PUBLIC_ALLOW_DEMO_MODE=true`. 
 
 ## Immediate Next Work
 
-1. Capture live proof for Sprint 5 using local infra and real backend services.
-2. Configure real Expo/FCM reminder credentials or explicitly defer push delivery from launch scope.
-3. Add legal pages and app-store launch artifacts for Sprint 9.
-4. Re-run Sprint 1-4 proof during release regression, including Razorpay sandbox evidence for Sprint 3.
+1. Configure real Expo/FCM reminder credentials or explicitly defer push delivery from launch scope.
+2. Add legal pages and app-store launch artifacts for Sprint 9.
+3. Re-run Sprint 1-5 proof during release regression, including Razorpay sandbox evidence for Sprint 3.

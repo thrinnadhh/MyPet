@@ -9,6 +9,10 @@ spring:
     username: ${DB_USERNAME:appointment_service_role}
     password: ${DB_PASSWORD:appointment_service_pass}
     driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    default-schema: appointments
+    schemas: appointments
   jpa:
     properties:
       hibernate:

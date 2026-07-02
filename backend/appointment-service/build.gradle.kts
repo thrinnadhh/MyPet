@@ -24,6 +24,10 @@ dependencies {
     
     // PostgreSQL
     runtimeOnly("org.postgresql:postgresql")
+
+    // Flyway DB Migrations
+    implementation("org.flywaydb:flyway-core:10.1.0")
+    runtimeOnly("org.flywaydb:flyway-database-postgresql:10.1.0")
     
     // Test dependencies
     testImplementation("com.h2database:h2")
