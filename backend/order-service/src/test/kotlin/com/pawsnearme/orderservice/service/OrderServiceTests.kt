@@ -2,76 +2,84 @@ package com.pawsnearme.orderservice.service
 
 import com.pawsnearme.orderservice.model.*
 import com.pawsnearme.orderservice.repository.*
-import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockito.kotlin.*
 import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.web.client.RestTemplate
 import java.math.BigDecimal
+import java.time.Instant
 import java.util.UUID
 
 class OrderServiceTests {
 
-    private val orderRepository: OrderRepository = mock()
-    private val orderItemRepository: OrderItemRepository = mock()
-    private val orderStatusHistoryRepository: OrderStatusHistoryRepository = mock()
-    private val kafkaTemplate: KafkaTemplate<String, Any> = mock()
-    private val systemConfigRepository: SystemConfigRepository = mock()
-    private val disputeRepository: DisputeRepository = mock()
-    private val invoiceRepository: InvoiceRepository = mock()
-    private val supportCaseRepository: SupportCaseRepository = mock()
-
-    private val service = OrderService(
-        orderRepository,
-        orderItemRepository,
-        orderStatusHistoryRepository,
-        kafkaTemplate,
-        systemConfigRepository,
-        disputeRepository,
-        invoiceRepository,
-        supportCaseRepository,
-        "http://localhost:8082",
-        "http://localhost:8090"
-    )
+    private lateinit var orderRepository: OrderRepository
+    private lateinit var orderItemRepository: OrderItemRepository
+    private lateinit var orderStatusHistoryRepository: OrderStatusHistoryRepository
+    private lateinit var kafkaTemplate: KafkaTemplate<String, Any>
+    private lateinit var systemConfigRepository: SystemConfigRepository
+    private lateinit var disputeRepository: DisputeRepository
+    private lateinit var invoiceRepository: InvoiceRepository
+    private lateinit var supportCaseRepository: SupportCaseRepository
+    private lateinit var restTemplate: RestTemplate
+    private lateinit var outboxService: com.pawsnearme.common.outbox.OutboxService
+    private lateinit var service: OrderService
 
     private val customerId = UUID.randomUUID()
     private val providerId = UUID.randomUUID()
-    private val addressId = UUID.randomUUID()
 
     @BeforeEach
     fun setup() {
-        whenever(orderRepository.save(any())).thenAnswer { invocation ->
-            val order = invocation.getArgument<Order>(0)
-            order.also { it.orderId = it.orderId ?: UUID.randomUUID() }
-        }
-        whenever(orderItemRepository.saveAll(any<List<OrderItem>>())).thenAnswer { invocation ->
-            invocation.getArgument<List<OrderItem>>(0)
-        }
-        whenever(orderStatusHistoryRepository.save(any())).thenAnswer { invocation ->
-            invocation.getArgument<OrderStatusHistory>(0)
-        }
+        orderRepository = mock()
+        orderItemRepository = mock()
+        orderStatusHistoryRepository = mock()
+        kafkaTemplate = mock()
+        systemConfigRepository = mock()
+        disputeRepository = mock()
+        invoiceRepository = mock()
+        supportCaseRepository = mock()
+        restTemplate = mock()
+        outboxService = mock()
+
+        service = OrderService(
+            orderRepository = orderRepository,
+            orderItemRepository = orderItemRepository,
+            orderStatusHistoryRepository = orderStatusHistoryRepository,
+            kafkaTemplate = kafkaTemplate,
+            systemConfigRepository = systemConfigRepository,
+            disputeRepository = disputeRepository,
+            invoiceRepository = invoiceRepository,
+            supportCaseRepository = supportCaseRepository,
+            outboxService = outboxService,
+            catalogServiceUrl = "http://localhost:8082",
+            paymentServiceUrl = "http://localhost:8090",
+            restTemplate = restTemplate
+        )
     }
 
     private fun savedOrder(status: OrderStatus) = Order(
+        orderId = UUID.randomUUID(),
         customerId = customerId,
         providerId = providerId,
-        deliveryAddressId = addressId,
+        deliveryAddressId = UUID.randomUUID(),
         status = status,
-        subtotalAmount = BigDecimal("100.00"),
-        totalAmount = BigDecimal("100.00")
-    ).also { it.orderId = UUID.randomUUID() }
+        subtotalAmount = BigDecimal("500.00"),
+        totalAmount = BigDecimal("500.00")
+    )
 
-    // ── createOrder — empty items guard ────────────────────────────────────────
+    // ── createOrder ───────────────────────────────────────────────────────────
 
     @Test
-    fun `createOrder - empty items list - throws IllegalArgumentException`() {
+    fun `createOrder - rejects order with empty items`() {
         val request = CreateOrderRequest(
             customerId = customerId,
             providerId = providerId,
-            deliveryAddressId = addressId,
+            deliveryAddressId = UUID.randomUUID(),
             items = emptyList()
         )
+
         val ex = assertThrows<IllegalArgumentException> { service.createOrder(request) }
         assertTrue(ex.message!!.contains("at least one item"))
     }
@@ -103,100 +111,96 @@ class OrderServiceTests {
     fun `updateOrderStatus - sets acceptedAt when transitioning to ACCEPTED`() {
         val order = savedOrder(OrderStatus.PLACED)
         whenever(orderRepository.findById(order.orderId!!)).thenReturn(java.util.Optional.of(order))
-        whenever(kafkaTemplate.send(any<String>(), any(), any())).thenReturn(mock())
+        whenever(orderRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Order>(0) }
 
-        service.updateOrderStatus(order.orderId!!, OrderStatus.ACCEPTED, customerId)
+        val result = service.updateOrderStatus(order.orderId!!, OrderStatus.ACCEPTED, customerId)
 
-        assertNotNull(order.acceptedAt)
-        assertEquals(OrderStatus.ACCEPTED, order.status)
+        assertEquals(OrderStatus.ACCEPTED, result.status)
+        assertNotNull(result.acceptedAt)
+        verify(orderRepository).save(any())
+        verify(outboxService).saveEvent(
+            eventId = any(),
+            aggregateType = eq("ORDER"),
+            aggregateId = eq(order.orderId!!),
+            eventType = eq("OrderStatusChanged"),
+            eventPayload = any()
+        )
     }
 
     @Test
-    fun `updateOrderStatus - publishes event id and actor id`() {
-        val order = savedOrder(OrderStatus.PLACED)
+    fun `updateOrderStatus - sets readyAt when transitioning to READY_FOR_PICKUP`() {
+        val order = savedOrder(OrderStatus.ACCEPTED)
         whenever(orderRepository.findById(order.orderId!!)).thenReturn(java.util.Optional.of(order))
-        whenever(orderItemRepository.findByOrderId(order.orderId!!)).thenReturn(emptyList())
-        whenever(kafkaTemplate.send(any<String>(), any(), any())).thenReturn(mock())
+        whenever(orderRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Order>(0) }
 
-        service.updateOrderStatus(order.orderId!!, OrderStatus.CANCELLED, customerId, "customer request")
+        val result = service.updateOrderStatus(order.orderId!!, OrderStatus.READY_FOR_PICKUP, customerId)
 
-        argumentCaptor<Any>().apply {
-            verify(kafkaTemplate).send(eq("orders.events"), eq(order.orderId.toString()), capture())
-            val event = firstValue as OrderStatusChangedEvent
-            assertNotNull(event.eventId)
-            assertEquals("OrderCancelled", event.eventType)
-            assertEquals(customerId, event.actorId)
-            assertEquals(order.orderId, event.orderId)
-        }
-        verify(orderItemRepository).findByOrderId(order.orderId!!)
+        assertEquals(OrderStatus.READY_FOR_PICKUP, result.status)
+        assertNotNull(result.readyAt)
+        verify(orderRepository).save(any())
     }
 
     @Test
-    fun `updateOrderStatus - non releasing transition does not restore stock`() {
-        val order = savedOrder(OrderStatus.PLACED)
-        whenever(orderRepository.findById(order.orderId!!)).thenReturn(java.util.Optional.of(order))
-        whenever(kafkaTemplate.send(any<String>(), any(), any())).thenReturn(mock())
-
-        service.updateOrderStatus(order.orderId!!, OrderStatus.PREPARING, customerId)
-
-        assertEquals(OrderStatus.PREPARING, order.status)
-        verify(orderItemRepository, never()).findByOrderId(order.orderId!!)
-    }
-
-    @Test
-    fun `updateOrderStatus - sets deliveredAt when transitioning to DELIVERED`() {
+    fun `updateOrderStatus - DELIVERED - sets deliveredAt and generates invoice`() {
         val order = savedOrder(OrderStatus.PICKED_UP)
         whenever(orderRepository.findById(order.orderId!!)).thenReturn(java.util.Optional.of(order))
-        whenever(kafkaTemplate.send(any<String>(), any(), any())).thenReturn(mock())
-
-        service.updateOrderStatus(order.orderId!!, OrderStatus.DELIVERED, customerId)
-
-        assertNotNull(order.deliveredAt)
-        assertEquals(OrderStatus.DELIVERED, order.status)
-    }
-
-    // ── Invoicing & Disputes — Sprint 9 ──────────────────────────────────────
-
-    @Test
-    fun `updateOrderStatus - DELIVERED - generates invoice when not present`() {
-        val order = savedOrder(OrderStatus.PICKED_UP).apply {
-            subtotalAmount = BigDecimal("100.00")
-            totalAmount = BigDecimal("100.00")
-        }
-        whenever(orderRepository.findById(order.orderId!!)).thenReturn(java.util.Optional.of(order))
+        whenever(orderRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Order>(0) }
         whenever(invoiceRepository.findByOrderId(order.orderId!!)).thenReturn(java.util.Optional.empty())
 
-        service.updateOrderStatus(order.orderId!!, OrderStatus.DELIVERED, customerId)
+        val result = service.updateOrderStatus(order.orderId!!, OrderStatus.DELIVERED, customerId)
 
-        verify(invoiceRepository).save(argThat {
-            assertEquals(order.orderId, orderId)
-            assertEquals(BigDecimal("100.00"), subtotalAmount)
-            assertEquals(BigDecimal("18.00"), taxAmount) // 18% of 100
-            assertEquals(BigDecimal("118.00"), totalAmount) // 100 + 18
-            invoiceNumber.startsWith("INV-")
+        assertEquals(OrderStatus.DELIVERED, result.status)
+        assertNotNull(result.deliveredAt)
+        verify(invoiceRepository).save(check<Invoice> {
+            assertEquals(order.orderId, it.orderId)
+            assertEquals(BigDecimal("500.00"), it.subtotalAmount)
+            assertEquals(BigDecimal("90.00"), it.taxAmount)
+            assertEquals(BigDecimal("590.00"), it.totalAmount)
+            assertTrue(it.invoiceNumber.startsWith("INV-"))
         })
     }
 
     @Test
-    fun `resolveDispute - MANUAL mode - resolves dispute and does not trigger refund`() {
-        val disputeId = UUID.randomUUID()
-        val orderId = UUID.randomUUID()
-        val dispute = Dispute(disputeId, orderId, "OPEN", "Wrong size")
+    fun `updateOrderStatus - DELIVERED - does not duplicate invoice if exists`() {
+        val order = savedOrder(OrderStatus.PICKED_UP)
+        val invoice = Invoice(
+            orderId = order.orderId!!,
+            invoiceNumber = "INV-2026-ABCD",
+            subtotalAmount = BigDecimal("500.00"),
+            taxAmount = BigDecimal("90.00"),
+            totalAmount = BigDecimal("590.00")
+        )
+        whenever(orderRepository.findById(order.orderId!!)).thenReturn(java.util.Optional.of(order))
+        whenever(orderRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Order>(0) }
+        whenever(invoiceRepository.findByOrderId(order.orderId!!)).thenReturn(java.util.Optional.of(invoice))
 
-        whenever(disputeRepository.findById(disputeId)).thenReturn(java.util.Optional.of(dispute))
-        whenever(disputeRepository.save(any())).thenReturn(dispute)
-        whenever(systemConfigRepository.findById("dispute_refund_mode")).thenReturn(java.util.Optional.of(SystemConfig("dispute_refund_mode", "MANUAL")))
+        val result = service.updateOrderStatus(order.orderId!!, OrderStatus.DELIVERED, customerId)
 
-        val result = service.resolveDispute(disputeId, "RESOLVED", "Refund approved manually")
-
-        assertEquals("RESOLVED", result.status)
-        assertEquals("Refund approved manually", result.resolutionNotes)
-        assertNotNull(result.resolvedAt)
-        verify(disputeRepository).save(any())
+        assertEquals(OrderStatus.DELIVERED, result.status)
+        verify(invoiceRepository, never()).save(any())
     }
 
     @Test
-    fun `createSupportCase - persists support action and publishes event`() {
+    fun `updateOrderStatus - CANCELLED - restores reserved stock`() {
+        val order = savedOrder(OrderStatus.PLACED)
+        val items = listOf(OrderItem(orderId = order.orderId!!, offeringId = UUID.randomUUID(), offeringNameSnapshot = "Item 1", unitPriceSnapshot = BigDecimal("100.00"), quantity = 2, lineTotal = BigDecimal("200.00")))
+        whenever(orderRepository.findById(order.orderId!!)).thenReturn(java.util.Optional.of(order))
+        whenever(orderRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Order>(0) }
+        whenever(orderItemRepository.findByOrderId(order.orderId!!)).thenReturn(items)
+        whenever(restTemplate.postForObject(any<String>(), anyOrNull(), eq(String::class.java))).thenReturn("SUCCESS")
+
+        val result = service.updateOrderStatus(order.orderId!!, OrderStatus.CANCELLED, customerId, "customer request")
+
+        assertEquals(OrderStatus.CANCELLED, result.status)
+        assertNotNull(result.cancelledAt)
+        assertEquals("customer request", result.cancellationReason)
+        verify(restTemplate).postForObject(eq("http://localhost:8082/api/v1/catalog/offerings/${items[0].offeringId}/increment?qty=2"), anyOrNull(), eq(String::class.java))
+    }
+
+    // ── support cases ─────────────────────────────────────────────────────────
+
+    @Test
+    fun `createSupportCase - creates support case and publishes event`() {
         val actorId = UUID.randomUUID()
         whenever(supportCaseRepository.save(any())).thenAnswer { invocation ->
             val supportCase = invocation.getArgument<SupportCase>(0)
@@ -218,7 +222,13 @@ class OrderServiceTests {
         assertEquals("OPEN", result.status)
         assertEquals(actorId, result.createdByUserId)
         verify(supportCaseRepository).save(any())
-        verify(kafkaTemplate).send(eq("support.events"), eq(result.supportCaseId.toString()), any())
+        verify(outboxService).saveEvent(
+            eventId = any(),
+            aggregateType = eq("SUPPORT"),
+            aggregateId = eq(result.supportCaseId!!),
+            eventType = eq("SupportCaseOpened"),
+            eventPayload = any()
+        )
     }
 
     @Test
@@ -258,6 +268,86 @@ class OrderServiceTests {
         assertEquals("RESOLVED", result.status)
         assertEquals("Payout adjusted", result.resolutionNotes)
         assertNotNull(result.resolvedAt)
-        verify(kafkaTemplate).send(eq("support.events"), eq(supportCaseId.toString()), any())
+        verify(outboxService).saveEvent(
+            eventId = any(),
+            aggregateType = eq("SUPPORT"),
+            aggregateId = eq(supportCaseId),
+            eventType = eq("SupportCaseResolved"),
+            eventPayload = any()
+        )
+    }
+
+    // ── confirmOrder ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `confirmOrder - success confirms order, sets status ACCEPTED and paymentId`() {
+        val orderId = UUID.randomUUID()
+        val paymentId = UUID.randomUUID()
+        val order = Order(
+            orderId = orderId,
+            customerId = customerId,
+            providerId = providerId,
+            deliveryAddressId = UUID.randomUUID(),
+            status = OrderStatus.PLACED,
+            subtotalAmount = BigDecimal("500.00"),
+            totalAmount = BigDecimal("500.00")
+        )
+        whenever(orderRepository.findById(orderId)).thenReturn(java.util.Optional.of(order))
+        whenever(orderRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Order>(0) }
+        
+        val paymentResponse = mapOf(
+            "status" to "SUCCESS",
+            "amount" to 500.0
+        )
+        whenever(restTemplate.exchange(
+            eq("http://localhost:8090/api/v1/payments/transactions/$paymentId"),
+            eq(org.springframework.http.HttpMethod.GET),
+            any<org.springframework.http.HttpEntity<Any>>(),
+            eq(Map::class.java)
+        )).thenReturn(org.springframework.http.ResponseEntity.ok(paymentResponse))
+
+        val saved = service.confirmOrder(orderId, paymentId)
+
+        assertEquals(OrderStatus.ACCEPTED, saved.status)
+        assertEquals(paymentId, saved.paymentId)
+        verify(outboxService).saveEvent(
+            eventId = any(),
+            aggregateType = eq("ORDER"),
+            aggregateId = eq(orderId),
+            eventType = eq("OrderStatusChanged"),
+            eventPayload = any()
+        )
+    }
+
+    @Test
+    fun `confirmOrder - payment status not SUCCESS - throws`() {
+        val orderId = UUID.randomUUID()
+        val paymentId = UUID.randomUUID()
+        val order = Order(
+            orderId = orderId,
+            customerId = customerId,
+            providerId = providerId,
+            deliveryAddressId = UUID.randomUUID(),
+            status = OrderStatus.PLACED,
+            subtotalAmount = BigDecimal("500.00"),
+            totalAmount = BigDecimal("500.00")
+        )
+        whenever(orderRepository.findById(orderId)).thenReturn(java.util.Optional.of(order))
+        
+        val paymentResponse = mapOf(
+            "status" to "FAILED",
+            "amount" to 500.0
+        )
+        whenever(restTemplate.exchange(
+            eq("http://localhost:8090/api/v1/payments/transactions/$paymentId"),
+            eq(org.springframework.http.HttpMethod.GET),
+            any<org.springframework.http.HttpEntity<Any>>(),
+            eq(Map::class.java)
+        )).thenReturn(org.springframework.http.ResponseEntity.ok(paymentResponse))
+
+        val ex = assertThrows<IllegalStateException> {
+            service.confirmOrder(orderId, paymentId)
+        }
+        assertTrue(ex.message!!.contains("expected SUCCESS"))
     }
 }

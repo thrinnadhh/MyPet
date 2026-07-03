@@ -19,10 +19,11 @@ class AppointmentAuthTests {
     private val invoiceRepository: AppointmentInvoiceRepository = mock()
     private val redisTemplate: StringRedisTemplate = mock()
     private val restOperations: RestOperations = mock()
+    private val outboxService: com.pawsnearme.common.outbox.OutboxService = mock()
 
     private val service = AppointmentService(
         appointmentRepository, statusHistoryRepository, invoiceRepository,
-        redisTemplate, mock(), restOperations,
+        redisTemplate, mock(), restOperations, outboxService,
         "http://localhost:8082", 300L, "http://localhost:8081"
     )
 

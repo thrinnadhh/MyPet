@@ -8,10 +8,13 @@ import jakarta.validation.constraints.DecimalMax
 import jakarta.validation.constraints.DecimalMin
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotNull
+import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.math.BigDecimal
 import java.util.UUID
+
+class ProviderAccessDeniedException(message: String) : RuntimeException(message)
 
 // --- DTOs ---
 
@@ -144,42 +147,33 @@ class ProfileController(
         @RequestHeader("X-User-Phone", required = false) xUserPhone: String?
     ): ResponseEntity<Any> {
         if (xUserId.isNullOrBlank()) {
-            return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED)
-                .body(mapOf("error" to "Unauthorized: user context missing"))
+            throw ProviderAccessDeniedException("Unauthorized: user context missing")
         }
 
-        return try {
-            val savedProfile = providerService.syncAuthenticatedProfile(
-                userId = UUID.fromString(xUserId),
-                role = xUserRole,
-                email = xUserEmail,
-                fullName = xUserFullName,
-                phoneNumber = xUserPhone,
-                avatarUrl = null
+        val savedProfile = providerService.syncAuthenticatedProfile(
+            userId = UUID.fromString(xUserId),
+            role = xUserRole,
+            email = xUserEmail,
+            fullName = xUserFullName,
+            phoneNumber = xUserPhone,
+            avatarUrl = null
+        )
+        return ResponseEntity.ok(
+            ProfileResponse(
+                savedProfile.userId,
+                savedProfile.role,
+                savedProfile.fullName,
+                savedProfile.phoneNumber,
+                savedProfile.avatarUrl
             )
-            ResponseEntity.ok(
-                ProfileResponse(
-                    savedProfile.userId,
-                    savedProfile.role,
-                    savedProfile.fullName,
-                    savedProfile.phoneNumber,
-                    savedProfile.avatarUrl
-                )
-            )
-        } catch (e: IllegalArgumentException) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        )
     }
 
     @GetMapping("/{id}")
     fun getProfile(@PathVariable id: UUID): ResponseEntity<ProfileResponse> {
-        val profile = profileRepository.findById(id)
-        return if (profile.isPresent) {
-            val p = profile.get()
-            ResponseEntity.ok(ProfileResponse(p.userId, p.role, p.fullName, p.phoneNumber, p.avatarUrl))
-        } else {
-            ResponseEntity.notFound().build()
-        }
+        val p = profileRepository.findById(id)
+            .orElseThrow { NoSuchElementException("Profile with ID $id not found") }
+        return ResponseEntity.ok(ProfileResponse(p.userId, p.role, p.fullName, p.phoneNumber, p.avatarUrl))
     }
 }
 
@@ -192,8 +186,7 @@ class AddressController(private val addressRepository: AddressRepository) {
         @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Any> {
         if (xUserId == null) {
-            return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED)
-                .body(mapOf("error" to "Unauthorized: user context missing"))
+            throw ProviderAccessDeniedException("Unauthorized: user context missing")
         }
 
         val userId = UUID.fromString(xUserId)
@@ -220,14 +213,13 @@ class AddressController(private val addressRepository: AddressRepository) {
                 isDefault = shouldBeDefault
             )
         )
-        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(mapToResponse(saved))
+        return ResponseEntity.status(HttpStatus.CREATED).body(mapToResponse(saved))
     }
 
     @GetMapping
     fun listAddresses(@RequestHeader("X-User-Id", required = false) xUserId: String?): ResponseEntity<Any> {
         if (xUserId == null) {
-            return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED)
-                .body(mapOf("error" to "Unauthorized: user context missing"))
+            throw ProviderAccessDeniedException("Unauthorized: user context missing")
         }
         val userId = UUID.fromString(xUserId)
         return ResponseEntity.ok(addressRepository.findByUserId(userId).map { mapToResponse(it) })
@@ -236,13 +228,11 @@ class AddressController(private val addressRepository: AddressRepository) {
     @GetMapping("/default")
     fun getDefaultAddress(@RequestHeader("X-User-Id", required = false) xUserId: String?): ResponseEntity<Any> {
         if (xUserId == null) {
-            return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED)
-                .body(mapOf("error" to "Unauthorized: user context missing"))
+            throw ProviderAccessDeniedException("Unauthorized: user context missing")
         }
         val userId = UUID.fromString(xUserId)
         val defaultAddress = addressRepository.findFirstByUserIdAndIsDefaultTrue(userId)
-            ?: return ResponseEntity.status(org.springframework.http.HttpStatus.NOT_FOUND)
-                .body(mapOf("error" to "No default delivery address found"))
+            ?: throw NoSuchElementException("No default delivery address found")
         return ResponseEntity.ok(mapToResponse(defaultAddress))
     }
 
@@ -271,25 +261,21 @@ class ProviderController(
 ) {
     @PostMapping
     fun createProvider(@Valid @RequestBody request: CreateProviderRequest): ResponseEntity<Any> {
-        return try {
-            val provider = providerService.createProvider(
-                ownerUserId = request.ownerUserId,
-                providerType = request.providerType,
-                fulfillmentType = request.fulfillmentType,
-                name = request.name,
-                description = request.description,
-                licenseNumber = request.licenseNumber,
-                licenseDocUrl = request.licenseDocUrl,
-                addressLine = request.addressLine,
-                city = request.city,
-                pincode = request.pincode,
-                longitude = request.longitude,
-                latitude = request.latitude
-            )
-            ResponseEntity.ok(mapToResponse(provider))
-        } catch (e: IllegalArgumentException) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        val provider = providerService.createProvider(
+            ownerUserId = request.ownerUserId,
+            providerType = request.providerType,
+            fulfillmentType = request.fulfillmentType,
+            name = request.name,
+            description = request.description,
+            licenseNumber = request.licenseNumber,
+            licenseDocUrl = request.licenseDocUrl,
+            addressLine = request.addressLine,
+            city = request.city,
+            pincode = request.pincode,
+            longitude = request.longitude,
+            latitude = request.latitude
+        )
+        return ResponseEntity.ok(mapToResponse(provider))
     }
 
     @GetMapping("/pending")
@@ -302,11 +288,8 @@ class ProviderController(
     @GetMapping("/{id}")
     fun getProvider(@PathVariable id: UUID): ResponseEntity<ProviderResponse> {
         val provider = providerRepository.findById(id)
-        return if (provider.isPresent) {
-            ResponseEntity.ok(mapToResponse(provider.get()))
-        } else {
-            ResponseEntity.notFound().build()
-        }
+            .orElseThrow { NoSuchElementException("Provider with ID $id not found") }
+        return ResponseEntity.ok(mapToResponse(provider))
     }
 
     @PostMapping("/{id}/documents")
@@ -314,22 +297,14 @@ class ProviderController(
         @PathVariable id: UUID,
         @Valid @RequestBody request: UploadDocumentRequest
     ): ResponseEntity<Any> {
-        return try {
-            val doc = providerService.uploadDocument(id, request.docType, request.docUrl)
-            ResponseEntity.ok(doc)
-        } catch (e: IllegalArgumentException) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        val doc = providerService.uploadDocument(id, request.docType, request.docUrl)
+        return ResponseEntity.ok(doc)
     }
 
     @PostMapping("/{id}/submit")
     fun submitForApproval(@PathVariable id: UUID): ResponseEntity<Any> {
-        return try {
-            val provider = providerService.submitForApproval(id)
-            ResponseEntity.ok(mapToResponse(provider))
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        val provider = providerService.submitForApproval(id)
+        return ResponseEntity.ok(mapToResponse(provider))
     }
 
     @PostMapping("/{id}/approve")
@@ -338,15 +313,10 @@ class ProviderController(
         @RequestHeader("X-User-Role", required = false) userRole: String?
     ): ResponseEntity<Any> {
         if (userRole != "ADMIN") {
-            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
-                .body(mapOf("error" to "Access Denied: Only administrators can approve providers."))
+            throw ProviderAccessDeniedException("Access Denied: Only administrators can approve providers.")
         }
-        return try {
-            val provider = providerService.approveProvider(id)
-            ResponseEntity.ok(mapToResponse(provider))
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        val provider = providerService.approveProvider(id)
+        return ResponseEntity.ok(mapToResponse(provider))
     }
 
     @PatchMapping("/{id}/commission")
@@ -357,16 +327,11 @@ class ProviderController(
         @Valid @RequestBody request: UpdateProviderCommissionRequest
     ): ResponseEntity<Any> {
         if (userRole != "ADMIN") {
-            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
-                .body(mapOf("error" to "Access Denied: Only administrators can update provider commission."))
+            throw ProviderAccessDeniedException("Access Denied: Only administrators can update provider commission.")
         }
-        return try {
-            val actorUserId = userId?.let { UUID.fromString(it) }
-            val provider = providerService.updateCommission(id, request.commissionPct, actorUserId, request.reason)
-            ResponseEntity.ok(mapToResponse(provider))
-        } catch (e: IllegalArgumentException) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        val actorUserId = userId?.let { UUID.fromString(it) }
+        val provider = providerService.updateCommission(id, request.commissionPct, actorUserId, request.reason)
+        return ResponseEntity.ok(mapToResponse(provider))
     }
 
     @GetMapping

@@ -28,12 +28,14 @@ class ReviewEventListenerTests {
     private val profileRepository: ProfileRepository = mock()
     private val userRoleJoinRepository: UserRoleJoinRepository = mock()
     private val kafkaTemplate: KafkaTemplate<String, Any> = mock()
+    private val outboxService: com.pawsnearme.common.outbox.OutboxService = mock()
     private val providerService = ProviderService(
         providerRepository,
         providerDocumentRepository,
         profileRepository,
         userRoleJoinRepository,
-        kafkaTemplate
+        kafkaTemplate,
+        outboxService
     )
     private val listener = ReviewEventListener(providerService, ObjectMapper())
     private val geometryFactory = GeometryFactory(PrecisionModel(), 4326)

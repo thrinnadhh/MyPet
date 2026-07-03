@@ -27,9 +27,11 @@ class AppointmentServiceTests {
     private val kafkaTemplate: KafkaTemplate<String, Any> = mock()
     private val restOperations: RestOperations = mock()
 
+    private val outboxService: com.pawsnearme.common.outbox.OutboxService = mock()
+
     private val service = AppointmentService(
         appointmentRepository, statusHistoryRepository, invoiceRepository,
-        redisTemplate, kafkaTemplate, restOperations,
+        redisTemplate, kafkaTemplate, restOperations, outboxService,
         "http://localhost:8082", 300L
     )
 
@@ -136,14 +138,18 @@ class AppointmentServiceTests {
         assertEquals(AppointmentStatus.CONFIRMED, saved.status)
         verify(redisTemplate).delete("hold:slots:$slotId")
         verify(restOperations).put("http://localhost:8082/api/v1/catalog/slots/$slotId/status?status=BOOKED", null)
-        verify(kafkaTemplate, atLeastOnce()).send(eq("appointments.events"), eq(appointmentId.toString()), check<String> {
-            assertTrue(it.contains("\"event_id\""))
-            assertTrue(it.contains("\"occurred_at\""))
-            assertTrue(it.contains("\"actor_id\""))
-            assertTrue(it.contains("\"appointment_id\""))
-            assertTrue(it.contains("\"slot_id\""))
-            assertTrue(it.contains("\"slot_start\":\"2026-07-05T10:00:00Z\""))
-        })
+        verify(outboxService, atLeastOnce()).saveEvent(
+            eventId = any(),
+            aggregateType = eq("APPOINTMENT"),
+            aggregateId = eq(appointmentId),
+            eventType = eq("AppointmentBooked"),
+            eventPayload = check<AppointmentBookedEvent> {
+                assertEquals(customerId, it.actorId)
+                assertEquals(appointmentId, it.appointmentId)
+                assertEquals(slotId, it.slotId)
+                assertEquals("2026-07-05T10:00:00Z", it.slotStart)
+            }
+        )
     }
 
     @Test
@@ -185,12 +191,16 @@ class AppointmentServiceTests {
 
         service.updateAppointmentStatus(appointmentId, AppointmentStatus.COMPLETED, customerId, "visit done", "https://example.com/rx.pdf")
 
-        verify(kafkaTemplate).send(eq("appointments.events"), eq(appointmentId.toString()), check<String> {
-            assertTrue(it.contains("\"event_id\""))
-            assertTrue(it.contains("\"event_type\":\"AppointmentStatusChanged\""))
-            assertTrue(it.contains("\"from_status\":\"CONFIRMED\""))
-            assertTrue(it.contains("\"to_status\":\"COMPLETED\""))
-        })
+        verify(outboxService).saveEvent(
+            eventId = any(),
+            aggregateType = eq("APPOINTMENT"),
+            aggregateId = eq(appointmentId),
+            eventType = eq("AppointmentStatusChanged"),
+            eventPayload = check<AppointmentStatusChangedEvent> {
+                assertEquals("CONFIRMED", it.fromStatus)
+                assertEquals("COMPLETED", it.toStatus)
+            }
+        )
     }
 
     @Test

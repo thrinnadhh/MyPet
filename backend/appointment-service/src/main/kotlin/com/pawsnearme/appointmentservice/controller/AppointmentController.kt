@@ -6,7 +6,6 @@ import com.pawsnearme.appointmentservice.model.AppointmentStatus
 import com.pawsnearme.appointmentservice.repository.AppointmentRepository
 import com.pawsnearme.appointmentservice.service.BookAppointmentRequest
 import com.pawsnearme.appointmentservice.service.AppointmentService
-import com.pawsnearme.appointmentservice.service.AppointmentAccessDeniedException
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -28,13 +27,9 @@ class AppointmentController(
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
         }
-        return try {
-            val finalRequest = request.copy(customerId = UUID.fromString(authenticatedUserId))
-            val appointment = appointmentService.bookAppointment(finalRequest)
-            ResponseEntity.status(HttpStatus.CREATED).body(appointment)
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        val finalRequest = request.copy(customerId = UUID.fromString(authenticatedUserId))
+        val appointment = appointmentService.bookAppointment(finalRequest)
+        return ResponseEntity.status(HttpStatus.CREATED).body(appointment)
     }
 
     @PostMapping("/hold")
@@ -45,13 +40,9 @@ class AppointmentController(
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
         }
-        return try {
-            val finalRequest = request.copy(customerId = UUID.fromString(authenticatedUserId))
-            val appointment = appointmentService.holdAppointment(finalRequest)
-            ResponseEntity.status(HttpStatus.CREATED).body(appointment)
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        val finalRequest = request.copy(customerId = UUID.fromString(authenticatedUserId))
+        val appointment = appointmentService.holdAppointment(finalRequest)
+        return ResponseEntity.status(HttpStatus.CREATED).body(appointment)
     }
 
     @PostMapping("/{id}/confirm")
@@ -59,12 +50,8 @@ class AppointmentController(
         @PathVariable id: UUID,
         @RequestParam(required = false) paymentId: UUID?
     ): ResponseEntity<Any> {
-        return try {
-            val appointment = appointmentService.confirmAppointment(id, paymentId)
-            ResponseEntity.ok(appointment)
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        val appointment = appointmentService.confirmAppointment(id, paymentId)
+        return ResponseEntity.ok(appointment)
     }
 
     @GetMapping("/{id}")
@@ -76,26 +63,15 @@ class AppointmentController(
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
         }
-        return try {
-            val callerId = UUID.fromString(authenticatedUserId)
-            val appointment = appointmentService.getAppointment(id, callerId, authenticatedUserRole)
-            ResponseEntity.ok(appointment)
-        } catch (e: AppointmentAccessDeniedException) {
-            ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to e.message))
-        } catch (e: NoSuchElementException) {
-            ResponseEntity.notFound().build()
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        val callerId = UUID.fromString(authenticatedUserId)
+        val appointment = appointmentService.getAppointment(id, callerId, authenticatedUserRole)
+        return ResponseEntity.ok(appointment)
     }
 
     @GetMapping("/{id}/invoice")
     fun getAppointmentInvoice(@PathVariable id: UUID): ResponseEntity<AppointmentInvoice> {
-        return try {
-            ResponseEntity.ok(appointmentService.getInvoiceByAppointmentId(id))
-        } catch (e: NoSuchElementException) {
-            ResponseEntity.notFound().build()
-        }
+        val invoice = appointmentService.getInvoiceByAppointmentId(id)
+        return ResponseEntity.ok(invoice)
     }
 
     @GetMapping("/customer/{customerId}")
@@ -107,15 +83,9 @@ class AppointmentController(
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
         }
-        return try {
-            val callerId = UUID.fromString(authenticatedUserId)
-            val appointments = appointmentService.getAppointmentsByCustomer(customerId, callerId, authenticatedUserRole)
-            ResponseEntity.ok(appointments)
-        } catch (e: AppointmentAccessDeniedException) {
-            ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to e.message))
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        val callerId = UUID.fromString(authenticatedUserId)
+        val appointments = appointmentService.getAppointmentsByCustomer(customerId, callerId, authenticatedUserRole)
+        return ResponseEntity.ok(appointments)
     }
 
     @GetMapping("/provider/{providerId}")
@@ -127,15 +97,9 @@ class AppointmentController(
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
         }
-        return try {
-            val callerId = UUID.fromString(authenticatedUserId)
-            val appointments = appointmentService.getAppointmentsByProvider(providerId, callerId, authenticatedUserRole)
-            ResponseEntity.ok(appointments)
-        } catch (e: AppointmentAccessDeniedException) {
-            ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to e.message))
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        val callerId = UUID.fromString(authenticatedUserId)
+        val appointments = appointmentService.getAppointmentsByProvider(providerId, callerId, authenticatedUserRole)
+        return ResponseEntity.ok(appointments)
     }
 
     @PutMapping("/{id}/status")
@@ -150,14 +114,8 @@ class AppointmentController(
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
         }
-        return try {
-            val changerId = UUID.fromString(authenticatedUserId)
-            val updated = appointmentService.updateAppointmentStatus(id, status, changerId, authenticatedUserRole, note, prescriptionDocUrl)
-            ResponseEntity.ok(updated)
-        } catch (e: AppointmentAccessDeniedException) {
-            ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to e.message))
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        val changerId = UUID.fromString(authenticatedUserId)
+        val updated = appointmentService.updateAppointmentStatus(id, status, changerId, authenticatedUserRole, note, prescriptionDocUrl)
+        return ResponseEntity.ok(updated)
     }
 }

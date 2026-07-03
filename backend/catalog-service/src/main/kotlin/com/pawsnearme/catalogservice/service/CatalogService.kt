@@ -1,5 +1,6 @@
 package com.pawsnearme.catalogservice.service
 
+import org.slf4j.LoggerFactory
 import com.pawsnearme.catalogservice.model.*
 import com.pawsnearme.catalogservice.repository.*
 import com.pawsnearme.catalogservice.dto.*
@@ -22,6 +23,7 @@ class CatalogService(
     private val billItemRepository: BillItemRepository,
     private val stringRedisTemplate: StringRedisTemplate
 ) {
+    private val logger = LoggerFactory.getLogger(CatalogService::class.java)
     private val objectMapper = ObjectMapper().registerKotlinModule()
 
 
@@ -49,7 +51,7 @@ class CatalogService(
             try {
                 stringRedisTemplate.delete("barcodes:cache:${existing.providerId}:${existing.barcode}")
             } catch (e: Exception) {
-                println("WARNING: Redis cache eviction failed: ${e.message}")
+                logger.warn("Redis cache eviction failed: {}", e.message, e)
             }
         }
 
@@ -85,7 +87,7 @@ class CatalogService(
             try {
                 stringRedisTemplate.delete("barcodes:cache:${existing.providerId}:${existing.barcode}")
             } catch (e: Exception) {
-                println("WARNING: Redis cache eviction failed: ${e.message}")
+                logger.warn("Redis cache eviction failed: {}", e.message, e)
             }
         }
         
@@ -212,7 +214,7 @@ class CatalogService(
                 return objectMapper.readValue(cachedJson, Offering::class.java)
             }
         } catch (e: Exception) {
-            println("WARNING: Redis cache read failed: ${e.message}")
+            logger.warn("Redis cache read failed: {}", e.message, e)
         }
 
         val offering = offeringRepository.findByProviderIdAndBarcode(providerId, barcode)
@@ -221,7 +223,7 @@ class CatalogService(
         try {
             stringRedisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(offering), java.time.Duration.ofMinutes(5))
         } catch (e: Exception) {
-            println("WARNING: Redis cache write failed: ${e.message}")
+            logger.warn("Redis cache write failed: {}", e.message, e)
         }
 
         return offering

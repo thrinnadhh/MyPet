@@ -1,5 +1,6 @@
 package com.pawsnearme.orderservice.service
 
+import com.pawsnearme.common.outbox.OutboxService
 import com.pawsnearme.orderservice.model.*
 import com.pawsnearme.orderservice.repository.*
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker
@@ -73,6 +74,7 @@ class OrderService(
     private val disputeRepository: DisputeRepository,
     private val invoiceRepository: InvoiceRepository,
     private val supportCaseRepository: SupportCaseRepository,
+    private val outboxService: OutboxService,
     @Value("\${CATALOG_SERVICE_URL:http://localhost:8082}")
     private val catalogServiceUrl: String,
     @Value("\${PAYMENT_SERVICE_URL:http://localhost:8090}")
@@ -90,7 +92,6 @@ class OrderService(
             var subtotal = BigDecimal.ZERO
             val orderItemsToSave = mutableListOf<OrderItem>()
 
-            // 1. Validate live offering price/stock and reserve stock in Catalog Service.
             for (item in request.items) {
                 val cartEntry = decrementCatalogStock(item.offeringId, item.quantity, catalogServiceUrl)
                 reservedItems.add(item)
@@ -100,7 +101,6 @@ class OrderService(
 
             val total = subtotal.add(request.deliveryFee).subtract(request.discountAmount)
 
-            // 2. Create and Save the Order
             val order = Order(
                 customerId = request.customerId,
                 providerId = request.providerId,
@@ -113,34 +113,100 @@ class OrderService(
             )
             val savedOrder = orderRepository.save(order)
 
-            // 3. Save Order Items with the persistent Order ID
             for (item in orderItemsToSave) {
                 item.orderId = savedOrder.orderId!!
                 orderItemRepository.save(item)
             }
 
-            // 4. Log initial history
             logStatusChange(savedOrder.orderId!!, null, OrderStatus.PLACED, savedOrder.customerId, "Order placed successfully")
 
-            // 5. Publish Order Placed Event to Kafka
-            try {
-                val event = OrderPlacedEvent(
-                    orderId = savedOrder.orderId!!,
-                    actorId = savedOrder.customerId,
-                    customerId = savedOrder.customerId,
-                    providerId = savedOrder.providerId,
-                    totalAmount = savedOrder.totalAmount
-                )
-                kafkaTemplate.send("orders.events", savedOrder.orderId.toString(), event)
-            } catch (e: Exception) {
-                println("WARNING: Failed to publish Kafka OrderPlaced event: ${e.message}")
-            }
+            val event = OrderPlacedEvent(
+                orderId = savedOrder.orderId!!,
+                actorId = savedOrder.customerId,
+                customerId = savedOrder.customerId,
+                providerId = savedOrder.providerId,
+                totalAmount = savedOrder.totalAmount
+            )
+            outboxService.saveEvent(
+                eventId = event.eventId,
+                aggregateType = "ORDER",
+                aggregateId = savedOrder.orderId!!,
+                eventType = "OrderPlaced",
+                eventPayload = event
+            )
 
             return savedOrder
         } catch (e: Exception) {
             restoreReservedCatalogStock(reservedItems)
             throw e
         }
+    }
+
+    @Transactional
+    fun confirmOrder(orderId: UUID, paymentId: UUID?): Order {
+        val order = orderRepository.findById(orderId)
+            .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
+
+        if (order.status == OrderStatus.ACCEPTED) {
+            return order
+        }
+
+        if (order.status != OrderStatus.PLACED) {
+            throw IllegalStateException("Order is not in PLACED state. Current state: ${order.status}")
+        }
+
+        val paymentIdToUse = paymentId
+            ?: throw IllegalArgumentException("Payment ID is required to confirm order")
+
+        try {
+            val url = "$paymentServiceUrl/api/v1/payments/transactions/$paymentIdToUse"
+            val headers = org.springframework.http.HttpHeaders()
+            headers.set("X-User-Role", "ADMIN")
+            val entity = org.springframework.http.HttpEntity<Any>(headers)
+            val response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, Map::class.java)
+            val tx = response.body ?: throw IllegalStateException("Payment transaction $paymentIdToUse not found")
+
+            val status = tx["status"] as? String
+            val amountVal = (tx["amount"] as? Number)?.toDouble() ?: 0.0
+            val expectedAmount = order.totalAmount.toDouble()
+
+            if (status != "SUCCESS") {
+                throw IllegalStateException("Payment status is $status, but expected SUCCESS to confirm order")
+            }
+            if (Math.abs(amountVal - expectedAmount) > 0.01) {
+                throw IllegalStateException("Payment amount $amountVal does not match order total $expectedAmount")
+            }
+        } catch (e: Exception) {
+            throw IllegalStateException("Payment verification failed: ${e.message}", e)
+        }
+
+        val oldStatus = order.status
+        order.status = OrderStatus.ACCEPTED
+        order.paymentId = paymentIdToUse
+        order.acceptedAt = Instant.now()
+        val saved = orderRepository.save(order)
+
+        logStatusChange(saved.orderId!!, oldStatus, OrderStatus.ACCEPTED, saved.customerId, "Order confirmed and paid")
+
+        val event = OrderStatusChangedEvent(
+            eventType = "OrderStatusChanged",
+            orderId = saved.orderId!!,
+            actorId = saved.customerId,
+            fromStatus = oldStatus.name,
+            toStatus = OrderStatus.ACCEPTED.name,
+            totalAmount = saved.totalAmount,
+            deliveryFee = saved.deliveryFee,
+            captainId = saved.captainId
+        )
+        outboxService.saveEvent(
+            eventId = event.eventId,
+            aggregateType = "ORDER",
+            aggregateId = saved.orderId!!,
+            eventType = "OrderStatusChanged",
+            eventPayload = event
+        )
+
+        return saved
     }
 
     fun updateOrderStatus(orderId: UUID, newStatus: OrderStatus, changedBy: UUID, note: String? = null): Order {
@@ -172,93 +238,73 @@ class OrderService(
         val updatedOrder = orderRepository.save(order)
         logStatusChange(orderId, oldStatus, newStatus, changedBy, note)
 
-        // Publish status changed event to Kafka
-        try {
-            val event = OrderStatusChangedEvent(
-                eventType = when (newStatus) {
-                    OrderStatus.CANCELLED -> "OrderCancelled"
-                    else -> "OrderStatusChanged"
-                },
-                orderId = orderId,
-                actorId = changedBy,
-                fromStatus = oldStatus.name,
-                toStatus = newStatus.name,
-                totalAmount = updatedOrder.totalAmount,
-                deliveryFee = updatedOrder.deliveryFee,
-                captainId = updatedOrder.captainId
-            )
-            kafkaTemplate.send("orders.events", orderId.toString(), event)
-        } catch (e: Exception) {
-            println("WARNING: Failed to publish Kafka OrderStatusChanged event: ${e.message}")
-        }
+        val event = OrderStatusChangedEvent(
+            eventType = when (newStatus) {
+                OrderStatus.CANCELLED -> "OrderCancelled"
+                else -> "OrderStatusChanged"
+            },
+            orderId = orderId,
+            actorId = changedBy,
+            fromStatus = oldStatus.name,
+            toStatus = newStatus.name,
+            totalAmount = updatedOrder.totalAmount,
+            deliveryFee = updatedOrder.deliveryFee,
+            captainId = updatedOrder.captainId
+        )
+        outboxService.saveEvent(
+            eventId = event.eventId,
+            aggregateType = "ORDER",
+            aggregateId = orderId,
+            eventType = event.eventType,
+            eventPayload = event
+        )
 
         return updatedOrder
     }
 
-    private fun logStatusChange(orderId: UUID, from: OrderStatus?, to: OrderStatus, by: UUID, note: String?) {
+    private fun logStatusChange(orderId: UUID, fromStatus: OrderStatus?, toStatus: OrderStatus, changedByUserId: UUID, note: String?) {
         val history = OrderStatusHistory(
             orderId = orderId,
-            fromStatus = from,
-            toStatus = to,
-            changedByUserId = by,
+            fromStatus = fromStatus,
+            toStatus = toStatus,
+            changedByUserId = changedByUserId,
             note = note
         )
         orderStatusHistoryRepository.save(history)
     }
 
-    // ── Downstream calls with circuit breakers ──────────────────────────────
+    @CircuitBreaker(name = "catalogService", fallbackMethod = "decrementCatalogStockFallback")
+    @Retry(name = "catalogService")
+    private fun decrementCatalogStock(offeringId: UUID, quantity: Int, baseUrl: String): OrderItem {
+        val url = "$baseUrl/api/v1/catalog/offerings/$offeringId/decrement?qty=$quantity"
+        val response = restTemplate.postForObject(url, null, Map::class.java)
+            ?: throw IllegalStateException("Catalog service returned empty response")
 
-    @CircuitBreaker(name = "catalog-service", fallbackMethod = "decrementCatalogStockFallback")
-    @Retry(name = "catalog-service")
-    fun decrementCatalogStock(offeringId: UUID, quantity: Int, baseUrl: String): OrderItem {
-        if (quantity <= 0) {
-            throw IllegalArgumentException("Quantity must be greater than zero")
-        }
-        val url = "$baseUrl/api/v1/catalog/offerings/$offeringId/decrement-stock?quantity=$quantity"
-        val offering = restTemplate.exchange(
-            url,
-            org.springframework.http.HttpMethod.PUT,
-            null,
-            Map::class.java
-        ).body ?: throw IllegalStateException("Catalog service: offering $offeringId not found")
+        val price = parseCatalogPrice(response["price"])
+        val name = response["name"] as? String ?: "Pet Product"
 
-        val unitPrice = parseCatalogPrice(offering["price"])
-        val name = offering["name"] as? String ?: "Pet Product"
-        val lineTotal = unitPrice.multiply(BigDecimal.valueOf(quantity.toLong()))
         return OrderItem(
             orderId = UUID.randomUUID(),
             offeringId = offeringId,
             offeringNameSnapshot = name,
-            unitPriceSnapshot = unitPrice,
+            unitPriceSnapshot = price,
             quantity = quantity,
-            lineTotal = lineTotal
+            lineTotal = price.multiply(BigDecimal(quantity))
         )
     }
 
-    fun decrementCatalogStockFallback(offeringId: UUID, quantity: Int, baseUrl: String, ex: Throwable): OrderItem {
-        logger.error("Catalog circuit breaker OPEN for offering $offeringId — ${ex.message}")
-        throw IllegalStateException("Catalog service unavailable. Please retry in a moment. (circuit open)")
-    }
-
-    fun restoreCatalogStock(offeringId: UUID, quantity: Int, baseUrl: String) {
-        if (quantity <= 0) {
-            throw IllegalArgumentException("Quantity must be greater than zero")
-        }
-        val url = "$baseUrl/api/v1/catalog/offerings/$offeringId/restore-stock?quantity=$quantity"
-        restTemplate.exchange(
-            url,
-            org.springframework.http.HttpMethod.PUT,
-            null,
-            Map::class.java
-        )
+    fun decrementCatalogStockFallback(offeringId: UUID, quantity: Int, baseUrl: String, e: Throwable): OrderItem {
+        logger.error("Catalog Service decrement call failed (Circuit Breaker fallback active): ${e.message}")
+        throw IllegalStateException("Catalog service is currently unavailable (circuit open). Please try again later.", e)
     }
 
     private fun restoreReservedCatalogStock(items: List<OrderItemRequest>) {
-        for (item in items.asReversed()) {
+        for (item in items) {
             try {
-                restoreCatalogStock(item.offeringId, item.quantity, catalogServiceUrl)
-            } catch (restoreError: Exception) {
-                logger.error("WARNING: Failed to restore catalog stock for offering ${item.offeringId}: ${restoreError.message}")
+                val url = "$catalogServiceUrl/api/v1/catalog/offerings/${item.offeringId}/increment?qty=${item.quantity}"
+                restTemplate.postForObject(url, null, String::class.java)
+            } catch (e: Exception) {
+                logger.error("WARNING: Failed to restore catalog stock for offering ${item.offeringId}: ${e.message}")
             }
         }
     }
@@ -282,8 +328,6 @@ class OrderService(
         }
     }
 
-    // --- Admin Config Methods ---
-
     fun getDisputeRefundMode(): String {
         return systemConfigRepository.findById("dispute_refund_mode")
             .map { it.configValue }
@@ -301,8 +345,6 @@ class OrderService(
         systemConfigRepository.save(config)
         return value
     }
-
-    // --- Dispute Methods ---
 
     fun createDispute(orderId: UUID, reason: String): Dispute {
         if (!orderRepository.existsById(orderId)) {
@@ -333,7 +375,7 @@ class OrderService(
             throw IllegalStateException("Dispute is already resolved")
         }
 
-        dispute.status = decision // RESOLVED or REJECTED
+        dispute.status = decision
         dispute.resolutionNotes = resolutionNotes
         dispute.resolvedAt = Instant.now()
         val savedDispute = disputeRepository.save(dispute)
@@ -347,8 +389,6 @@ class OrderService(
 
         return savedDispute
     }
-
-    // --- Support Case Methods ---
 
     fun listSupportCases(): List<SupportCase> {
         return supportCaseRepository.findAllByOrderByCreatedAtDesc()
@@ -416,18 +456,20 @@ class OrderService(
     }
 
     private fun publishSupportCaseEvent(eventType: String, supportCase: SupportCase, actorId: UUID? = supportCase.createdByUserId) {
-        try {
-            val event = SupportCaseEvent(
-                eventType = eventType,
-                supportCaseId = supportCase.supportCaseId!!,
-                actorId = actorId,
-                actionType = supportCase.actionType,
-                status = supportCase.status
-            )
-            kafkaTemplate.send("support.events", supportCase.supportCaseId.toString(), event)
-        } catch (e: Exception) {
-            logger.error("WARNING: Failed to publish support case event: ${e.message}")
-        }
+        val event = SupportCaseEvent(
+            eventType = eventType,
+            supportCaseId = supportCase.supportCaseId!!,
+            actorId = actorId,
+            actionType = supportCase.actionType,
+            status = supportCase.status
+        )
+        outboxService.saveEvent(
+            eventId = event.eventId,
+            aggregateType = "SUPPORT",
+            aggregateId = supportCase.supportCaseId!!,
+            eventType = eventType,
+            eventPayload = event
+        )
     }
 
     private fun triggerPaymentRefund(orderId: UUID) {
@@ -439,8 +481,6 @@ class OrderService(
             logger.error("WARNING: Failed to call payment-service refund endpoint: ${e.message}")
         }
     }
-
-    // --- Invoicing Helpers ---
 
     private fun generateInvoiceForOrder(order: Order) {
         if (!invoiceRepository.findByOrderId(order.orderId!!).isPresent) {

@@ -1,5 +1,6 @@
 package com.pawsnearme.notificationservice.service
 
+import com.pawsnearme.notificationservice.config.NotificationTemplateProperties
 import com.pawsnearme.notificationservice.model.ScheduledReminder
 import com.pawsnearme.notificationservice.model.ReminderDeliveryStatus
 import org.junit.jupiter.api.Test
@@ -12,7 +13,10 @@ class ReminderDispatchWorkerTests {
 
     private val transactionService: ReminderTransactionService = mock()
     private val deliveryAdapter: NotificationDeliveryAdapter = mock()
-    private val worker = ReminderDispatchWorker(transactionService, deliveryAdapter)
+    private val templateProperties: NotificationTemplateProperties = mock<NotificationTemplateProperties>().also {
+        whenever(it.messageFor(any(), any())).thenReturn("Test reminder message")
+    }
+    private val worker = ReminderDispatchWorker(transactionService, deliveryAdapter, templateProperties)
 
     private fun makeReminder(templateCode: String = "APPOINTMENT_T24H") = ScheduledReminder(
         id = UUID.randomUUID(),

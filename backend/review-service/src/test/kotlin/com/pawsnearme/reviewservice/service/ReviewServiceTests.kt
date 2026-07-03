@@ -14,7 +14,8 @@ class ReviewServiceTests {
 
     private val reviewRepo: ReviewRepository = mock()
     private val kafkaTemplate: KafkaTemplate<String, Any> = mock()
-    private val service = ReviewService(reviewRepo, kafkaTemplate)
+    private val outboxService: com.pawsnearme.common.outbox.OutboxService = mock()
+    private val service = ReviewService(reviewRepo, kafkaTemplate, outboxService)
 
     private fun buildReview(rating: Int = 4, targetType: String = "PROVIDER") = Review(
         customerId = UUID.randomUUID(),
@@ -46,7 +47,13 @@ class ReviewServiceTests {
         val result = service.submitReview(review)
 
         assertNotNull(result.id)
-        verify(kafkaTemplate).send(eq("reviews.events"), any(), any())
+        verify(outboxService).saveEvent(
+            eventId = any(),
+            aggregateType = eq("REVIEW"),
+            aggregateId = any(),
+            eventType = eq("ReviewSubmitted"),
+            eventPayload = any()
+        )
     }
 
     @Test

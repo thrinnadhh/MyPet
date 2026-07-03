@@ -44,15 +44,11 @@ class DispatchController(
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated captain context."))
         }
         if (response != "ACCEPTED" && response != "REJECTED") {
-            return ResponseEntity.badRequest().body(mapOf("error" to "Invalid response. Must be ACCEPTED or REJECTED."))
+            throw IllegalArgumentException("Invalid response. Must be ACCEPTED or REJECTED.")
         }
-        return try {
-            val captainId = UUID.fromString(xUserId)
-            val offer = dispatchService.respondToOffer(offerId, response, captainId)
-            ResponseEntity.ok(offer)
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to (e.message ?: "Failed to respond to offer.")))
-        }
+        val captainId = UUID.fromString(xUserId)
+        val offer = dispatchService.respondToOffer(offerId, response, captainId)
+        return ResponseEntity.ok(offer)
     }
 
     @GetMapping("/offers")
@@ -65,7 +61,8 @@ class DispatchController(
         val finalCaptainId = UUID.fromString(xUserId)
         val offers = offerRepository.findByCaptainIdAndResponseIsNull(finalCaptainId)
         val dtos = offers.map { offer ->
-            val job = jobRepository.findById(offer.jobId).get()
+            val job = jobRepository.findById(offer.jobId)
+                .orElseThrow { NoSuchElementException("Job ${offer.jobId} not found") }
             DispatchOfferDTO(
                 offerId = offer.offerId!!,
                 jobId = offer.jobId,
@@ -95,7 +92,7 @@ class DispatchController(
         @PathVariable orderId: UUID
     ): ResponseEntity<Any> {
         val job = jobRepository.findByOrderId(orderId)
-            ?: return ResponseEntity.notFound().build()
+            ?: throw NoSuchElementException("Job for order $orderId not found")
         return ResponseEntity.ok(job)
     }
 
@@ -108,12 +105,9 @@ class DispatchController(
         if (xUserId.isNullOrBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated captain context."))
         }
-        return try {
-            val captainId = UUID.fromString(xUserId)
-            ResponseEntity.ok(dispatchService.markPickedUp(jobId, captainId, request.proofCode))
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to (e.message ?: "Failed to mark pickup.")))
-        }
+        val captainId = UUID.fromString(xUserId)
+        val updated = dispatchService.markPickedUp(jobId, captainId, request.proofCode)
+        return ResponseEntity.ok(updated)
     }
 
     @PostMapping("/jobs/{jobId}/deliver")
@@ -125,11 +119,8 @@ class DispatchController(
         if (xUserId.isNullOrBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated captain context."))
         }
-        return try {
-            val captainId = UUID.fromString(xUserId)
-            ResponseEntity.ok(dispatchService.markDelivered(jobId, captainId, request.proofCode))
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to (e.message ?: "Failed to mark delivered.")))
-        }
+        val captainId = UUID.fromString(xUserId)
+        val updated = dispatchService.markDelivered(jobId, captainId, request.proofCode)
+        return ResponseEntity.ok(updated)
     }
 }

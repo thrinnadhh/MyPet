@@ -11,6 +11,8 @@ import java.util.UUID
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class AppointmentEvent(
+    @JsonProperty("event_id")
+    val eventId: UUID = UUID.randomUUID(),
     @JsonProperty("event_type")
     val eventType: String,
     @JsonProperty("appointment_id")

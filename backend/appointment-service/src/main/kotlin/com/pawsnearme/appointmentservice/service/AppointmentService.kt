@@ -1,5 +1,6 @@
 package com.pawsnearme.appointmentservice.service
 
+import org.slf4j.LoggerFactory
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.pawsnearme.appointmentservice.model.*
@@ -17,6 +18,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
+import com.pawsnearme.common.outbox.OutboxService
 
 class AppointmentAccessDeniedException(message: String) : RuntimeException(message)
 
@@ -88,6 +90,7 @@ class AppointmentService(
     private val redisTemplate: StringRedisTemplate,
     private val kafkaTemplate: KafkaTemplate<String, Any>,
     private val restTemplate: RestOperations,
+    private val outboxService: OutboxService,
     @Value("\${CATALOG_SERVICE_URL:http://localhost:8082}")
     private val catalogServiceUrl: String,
     @Value("\${appointment.hold-duration-seconds:300}")
@@ -95,6 +98,7 @@ class AppointmentService(
     @Value("\${PROVIDER_SERVICE_URL:http://localhost:8081}")
     private val providerServiceUrl: String = "http://localhost:8081"
 ) {
+    private val logger = LoggerFactory.getLogger(AppointmentService::class.java)
     private val objectMapper = ObjectMapper()
     private val writeLockDuration = Duration.ofSeconds(10)
     private val holdDuration: Duration
@@ -123,26 +127,30 @@ class AppointmentService(
             val url = "$catalogServiceUrl/api/v1/catalog/slots/$slotId"
             restTemplate.getForObject(url, CatalogSlotSnapshot::class.java)?.slotStart?.toString()
         } catch (e: Exception) {
-            println("WARNING: Failed to read slot start from Catalog Service: ${e.message}")
+            logger.warn("Failed to read slot start from Catalog Service: {}", e.message, e)
             null
         }
     }
 
     private fun publishAppointmentBooked(saved: Appointment) {
-        try {
-            val event = AppointmentBookedEvent(
-                actorId = saved.customerId,
-                appointmentId = saved.appointmentId!!,
-                customerId = saved.customerId,
-                providerId = saved.providerId,
-                slotId = saved.slotId,
-                slotStart = fetchCatalogSlotStart(saved.slotId),
-                priceAmount = saved.priceAmount
-            )
-            kafkaTemplate.send("appointments.events", saved.appointmentId.toString(), objectMapper.writeValueAsString(event))
-        } catch (e: Exception) {
-            println("WARNING: Failed to publish Kafka AppointmentBooked event: ${e.message}")
-        }
+        val eventId = UUID.randomUUID()
+        val event = AppointmentBookedEvent(
+            eventId = eventId,
+            actorId = saved.customerId,
+            appointmentId = saved.appointmentId!!,
+            customerId = saved.customerId,
+            providerId = saved.providerId,
+            slotId = saved.slotId,
+            slotStart = fetchCatalogSlotStart(saved.slotId),
+            priceAmount = saved.priceAmount
+        )
+        outboxService.saveEvent(
+            eventId = eventId,
+            aggregateType = "APPOINTMENT",
+            aggregateId = saved.appointmentId!!,
+            eventType = "AppointmentBooked",
+            eventPayload = event
+        )
     }
 
     private fun publishAppointmentStatusChanged(
@@ -151,18 +159,22 @@ class AppointmentService(
         toStatus: AppointmentStatus,
         actorId: UUID
     ) {
-        try {
-            val event = AppointmentStatusChangedEvent(
-                actorId = actorId,
-                appointmentId = appointment.appointmentId!!,
-                slotId = appointment.slotId,
-                fromStatus = fromStatus.name,
-                toStatus = toStatus.name
-            )
-            kafkaTemplate.send("appointments.events", appointment.appointmentId.toString(), objectMapper.writeValueAsString(event))
-        } catch (e: Exception) {
-            println("WARNING: Failed to publish Kafka AppointmentStatusChanged event: ${e.message}")
-        }
+        val eventId = UUID.randomUUID()
+        val event = AppointmentStatusChangedEvent(
+            eventId = eventId,
+            actorId = actorId,
+            appointmentId = appointment.appointmentId!!,
+            slotId = appointment.slotId,
+            fromStatus = fromStatus.name,
+            toStatus = toStatus.name
+        )
+        outboxService.saveEvent(
+            eventId = eventId,
+            aggregateType = "APPOINTMENT",
+            aggregateId = appointment.appointmentId!!,
+            eventType = "AppointmentStatusChanged",
+            eventPayload = event
+        )
     }
 
     fun bookAppointment(request: BookAppointmentRequest): Appointment {
@@ -196,7 +208,7 @@ class AppointmentService(
                 try {
                     updateCatalogSlotStatus(request.slotId, "AVAILABLE")
                 } catch (rollbackEx: Exception) {
-                    println("WARNING: Failed to revert slot status to AVAILABLE after database failure: ${rollbackEx.message}")
+                    logger.error("Failed to revert slot status to AVAILABLE after database failure: {}", rollbackEx.message, rollbackEx)
                 }
                 throw e
             }
@@ -208,7 +220,7 @@ class AppointmentService(
                 try {
                     updateCatalogSlotStatus(request.slotId, "AVAILABLE")
                 } catch (rollbackEx: Exception) {
-                    println("WARNING: Failed to revert slot status to AVAILABLE after booking event logging failure: ${rollbackEx.message}")
+                    logger.error("Failed to revert slot status to AVAILABLE after booking event logging failure: {}", rollbackEx.message, rollbackEx)
                 }
                 throw e
             }
@@ -250,7 +262,7 @@ class AppointmentService(
                 try {
                     updateCatalogSlotStatus(request.slotId, "AVAILABLE")
                 } catch (rollbackEx: Exception) {
-                    println("WARNING: Failed to revert slot status to AVAILABLE after database failure: ${rollbackEx.message}")
+                    logger.error("Failed to revert slot status to AVAILABLE after database failure: {}", rollbackEx.message, rollbackEx)
                 }
                 throw e
             }
@@ -262,7 +274,7 @@ class AppointmentService(
                 try {
                     updateCatalogSlotStatus(request.slotId, "AVAILABLE")
                 } catch (rollbackEx: Exception) {
-                    println("WARNING: Failed to revert slot status to AVAILABLE after status logging failure: ${rollbackEx.message}")
+                    logger.error("Failed to revert slot status to AVAILABLE after status logging failure: {}", rollbackEx.message, rollbackEx)
                 }
                 throw e
             }
@@ -292,7 +304,7 @@ class AppointmentService(
             try {
                 updateCatalogSlotStatus(appointment.slotId, "AVAILABLE")
             } catch (e: Exception) {
-                println("WARNING: Failed to set slot back to AVAILABLE in Catalog Service: ${e.message}")
+                logger.warn("Failed to set slot back to AVAILABLE in Catalog Service: {}", e.message, e)
             }
             throw IllegalStateException("Slot hold has expired. Please select the slot and try again.")
         }
@@ -329,9 +341,9 @@ class AppointmentService(
                 redisTemplate.delete(holdKey(appointment.slotId))
 
                 updateCatalogSlotStatus(appointment.slotId, "AVAILABLE")
-                println("AppointmentService: Slot hold expired for appointment ${appointment.appointmentId}, slot ${appointment.slotId} is now AVAILABLE.")
+                logger.info("Slot hold expired for appointment {}, slot {} is now AVAILABLE.", appointment.appointmentId, appointment.slotId)
             } catch (e: Exception) {
-                println("WARNING: Failed to expire slot hold for appointment ${appointment.appointmentId}: ${e.message}")
+                logger.error("Failed to expire slot hold for appointment {}: {}", appointment.appointmentId, e.message, e)
             }
         }
     }
@@ -343,7 +355,7 @@ class AppointmentService(
             val ownerIdStr = response?.get("ownerUserId") as? String
             ownerIdStr?.let { UUID.fromString(it) }
         } catch (e: Exception) {
-            println("WARNING: Failed to fetch provider owner from Provider Service: ${e.message}")
+            logger.warn("Failed to fetch provider owner from Provider Service: {}", e.message, e)
             null
         }
     }
@@ -433,7 +445,7 @@ class AppointmentService(
                     updateCatalogSlotStatus(appointment.slotId, "AVAILABLE")
                     redisTemplate.delete(holdKey(appointment.slotId))
                 } catch (e: Exception) {
-                    println("WARNING: Failed to set slot back to AVAILABLE in Catalog Service: ${e.message}")
+                    logger.warn("Failed to set slot back to AVAILABLE in Catalog Service: {}", e.message, e)
                 }
             }
             else -> {}

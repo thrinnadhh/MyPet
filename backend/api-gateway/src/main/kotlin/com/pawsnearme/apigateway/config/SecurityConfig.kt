@@ -1,5 +1,6 @@
 package com.pawsnearme.apigateway.config
 
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -81,7 +82,7 @@ class SecurityConfig(
                     .build()
             }
             allowUnsignedJwt -> {
-                println("WARNING: Supabase Auth is running in mock/dev mode. JWT signatures are NOT validated.")
+                logger.warn("Supabase Auth is running in mock/dev mode. JWT signatures are NOT validated.")
                 ReactiveJwtDecoder { jwtString ->
                     try {
                         val jwt = com.nimbusds.jwt.JWTParser.parse(jwtString)
@@ -104,5 +105,8 @@ class SecurityConfig(
                 throw IllegalStateException("JWT validation is not configured. Set SUPABASE_JWT_SECRET, SUPABASE_JWT_JWK_SET_URI, or ALLOW_UNSIGNED_JWT=true for local-only development.")
             }
         }
+    }
+    companion object {
+        private val logger = LoggerFactory.getLogger(SecurityConfig::class.java)
     }
 }

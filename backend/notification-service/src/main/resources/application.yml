@@ -1,6 +1,16 @@
 server:
   port: ${SERVER_PORT:8088}
 
+# Notification template registry — message patterns keyed by templateCode.
+# Use {referenceId} as the substitution placeholder.
+# Adding a new reminder type only requires a new entry here, no code change.
+notification:
+  templates:
+    APPOINTMENT_T24H: "Your appointment is tomorrow! Ref: {referenceId}"
+    APPOINTMENT_T1H: "Your appointment is in 1 hour! Ref: {referenceId}"
+    ORDER_DELIVERED: "Your order has been delivered! Order: {referenceId}"
+    ORDER_PLACED: "Your order has been placed successfully! Order: {referenceId}"
+
 spring:
   application:
     name: notification-service
@@ -45,3 +55,10 @@ spring:
       on-profile: dev
   jpa:
     show-sql: false
+
+# Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway
+# Enable in staging/production; leave disabled in local dev
+gateway:
+  trust:
+    enabled: ${GATEWAY_TRUST_ENABLED:false}
+    secret: ${GATEWAY_SECRET:dev-secret-change-in-production}

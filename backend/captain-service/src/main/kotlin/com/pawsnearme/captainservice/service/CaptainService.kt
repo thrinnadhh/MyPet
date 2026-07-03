@@ -1,5 +1,6 @@
 package com.pawsnearme.captainservice.service
 
+import org.slf4j.LoggerFactory
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.captainservice.model.*
@@ -24,6 +25,7 @@ class CaptainService(
 ) {
 
     companion object {
+        private val logger = LoggerFactory.getLogger(CaptainService::class.java)
         private const val GEO_KEY = "captains:locations"
     }
 
@@ -87,7 +89,7 @@ class CaptainService(
         val event: Map<String, Any> = try {
             ObjectMapper().readValue(record.value(), object : TypeReference<Map<String, Any>>() {})
         } catch (e: Exception) {
-            println("WARNING: Failed to parse Kafka event: ${e.message}")
+            logger.warn("Failed to parse Kafka event: {}", e.message, e)
             return
         }
         val toStatus = event["toStatus"] as? String
@@ -117,7 +119,7 @@ class CaptainService(
             profileRepository.findById(captainId).ifPresent { profile ->
                 profile.totalDeliveries += 1
                 profileRepository.save(profile)
-                println("CaptainService: Recorded earning of $earningAmount for Captain $captainId on Order $orderId.")
+                logger.info("Recorded earning of {} for Captain {} on Order {}.", earningAmount, captainId, orderId)
             }
         }
     }

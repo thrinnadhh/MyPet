@@ -11,10 +11,10 @@ This file captures the highest-priority follow-up from the codebase audit. It is
 
 ## P0: Transaction And Event Reliability
 
-- [ ] Add an outbox table per write-owning service for order, appointment, payment, dispatch, review, provider, and billing events.
-- [ ] Add `event_id` to all event payloads and a processed-events store for each consumer.
-- [ ] Configure retry and DLQ topics before adding more consumers.
-- [ ] Replace best-effort `println` failures around Kafka publishing with observable failed-event records.
+- [x] Add an outbox table per write-owning service for order, appointment, payment, dispatch, review, provider, and billing events.
+- [x] Add `event_id` to all event payloads and a processed-events store for each consumer.
+- [x] Configure retry and DLQ topics before adding more consumers.
+- [x] Replace best-effort `println` failures around Kafka publishing with observable failed-event records.
 
 ## P1: Service Boundaries
 
@@ -24,6 +24,11 @@ The current system is a microservice-style repo, but several services directly r
 2. **Strict service boundaries:** each service owns its schema, cross-service reads happen through APIs/events/read models, and DB roles enforce that boundary.
 
 Do not stay in the middle: it keeps microservice operational cost while preserving monolith coupling.
+
+### Allowed Exceptions & Trust Boundaries
+
+*   **Cross-Schema Read Exception:** `dispatch-service` (`DispatchService.getProviderCoordinates`) directly joins the `orders.orders` and `providers.providers` tables. This is an explicit, documented exception to the strict microservice database isolation boundary to avoid API roundtrips and minimize latency in the critical dispatch allocation loop.
+*   **Service Port Trust Boundaries:** Internal microservices trust caller identity injected via `X-User-Id` and `X-User-Role` headers. The API Gateway serves as the hard security trust boundary: it MUST validate all incoming external Supabase JWTs, strip any client-supplied `X-User-*` headers, and inject the authenticated context. Direct microservice ports (e.g., 8080-8089) must not be exposed to the public internet and must only accept traffic from the gateway or internal VPC subnet.
 
 ## P1: Mobile Integration Quality
 

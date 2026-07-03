@@ -11,6 +11,7 @@ spring:
     driver-class-name: org.postgresql.Driver
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
+    baseline-on-migrate: true
     default-schema: appointments
     schemas: appointments
   jpa:
@@ -36,3 +37,10 @@ spring:
       on-profile: dev
   jpa:
     show-sql: false
+
+# Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway
+# Enable in staging/production; leave disabled in local dev
+gateway:
+  trust:
+    enabled: ${GATEWAY_TRUST_ENABLED:false}
+    secret: ${GATEWAY_SECRET:dev-secret-change-in-production}

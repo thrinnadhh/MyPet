@@ -1,7 +1,10 @@
 package com.pawsnearme.dispatchservice.service
 
+import org.slf4j.LoggerFactory
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.pawsnearme.common.idempotency.IdempotencyService
+import com.pawsnearme.common.outbox.OutboxService
 import com.pawsnearme.dispatchservice.model.*
 import com.pawsnearme.dispatchservice.repository.*
 import jakarta.persistence.EntityManager
@@ -14,6 +17,9 @@ import org.springframework.data.redis.domain.geo.GeoReference
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.annotation.KafkaListener
+import org.springframework.kafka.annotation.RetryableTopic
+import org.springframework.kafka.retrytopic.TopicSuffixingStrategy
+import org.springframework.retry.annotation.Backoff
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
@@ -33,6 +39,8 @@ class DispatchService(
     private val redisTemplate: StringRedisTemplate,
     private val kafkaTemplate: KafkaTemplate<String, Any>,
     private val entityManager: EntityManager,
+    private val outboxService: OutboxService,
+    private val idempotencyService: IdempotencyService,
     @Value("\${ORDER_SERVICE_URL:http://localhost:8084}")
     private val orderServiceBaseUrl: String = "http://localhost:8084",
     private val restTemplate: RestOperations = RestTemplate()
@@ -42,24 +50,41 @@ class DispatchService(
     private val orderServiceUrl = "$orderServiceBaseUrl/api/v1/orders"
 
     companion object {
+        private val logger = LoggerFactory.getLogger(DispatchService::class.java)
         private const val GEO_KEY = "captains:locations"
     }
 
     // --- Kafka Listener for Orders ---
+    @RetryableTopic(
+        attempts = "3",
+        backoff = Backoff(delay = 1000, multiplier = 2.0),
+        topicSuffixingStrategy = TopicSuffixingStrategy.SUFFIX_WITH_DELAY_VALUE,
+        dltTopicSuffix = ".dlq"
+    )
     @KafkaListener(topics = ["orders.events"], groupId = "dispatch-service-group-v2")
     fun handleOrderStatusChanged(record: ConsumerRecord<String, String>) {
         val event: Map<String, Any> = try {
             objectMapper.readValue(record.value(), object : TypeReference<Map<String, Any>>() {})
         } catch (e: Exception) {
-            println("WARNING: Failed to parse Kafka event: ${e.message}")
+            logger.warn("Failed to parse Kafka event: {}", e.message, e)
             return
         }
+
+        val eventIdStr = event["eventId"] as? String ?: event["event_id"] as? String ?: return
+        val eventId = try { UUID.fromString(eventIdStr) } catch(e: Exception) { return }
+
+        // Idempotency check
+        if (!idempotencyService.checkAndRecord(eventId)) {
+            logger.info("Duplicate event ignored: {}", eventId)
+            return
+        }
+
         val toStatus = event["toStatus"] as? String
 
         if (toStatus == "READY_FOR_PICKUP") {
             val orderIdStr = event["orderId"] as? String ?: return
             val orderId = UUID.fromString(orderIdStr)
-            println("DispatchJob: Received READY_FOR_PICKUP for order $orderId. Starting dispatch...")
+            logger.info("Received READY_FOR_PICKUP for order {}. Starting dispatch...", orderId)
             // Start dispatch process
             startDispatchProcess(orderId)
         }
@@ -87,7 +112,7 @@ class DispatchService(
             job.status = JobStatus.FAILED
             job.resolvedAt = Instant.now()
             jobRepository.save(job)
-            println("DispatchJob: Failed to assign order ${job.orderId} after ${job.maxAttempts} attempts.")
+            logger.error("Failed to assign order {} after {} attempts.", job.orderId, job.maxAttempts)
             
             publishDispatchEvent("DispatchJobFailed", job, null, mapOf("reason" to "MAX_ATTEMPTS_EXHAUSTED"))
             return
@@ -96,7 +121,7 @@ class DispatchService(
         // 1. Get Provider coordinates from DB
         val providerCoords = getProviderCoordinates(job.orderId)
         if (providerCoords == null) {
-            println("DispatchJob: Coordinates for order ${job.orderId} not found. Failing job.")
+            logger.error("Coordinates for order {} not found. Failing job.", job.orderId)
             job.status = JobStatus.FAILED
             jobRepository.save(job)
             return
@@ -116,7 +141,7 @@ class DispatchService(
                 args
             )
         } catch (e: Exception) {
-            println("WARNING: Redis Geo lookup failed: ${e.message}")
+            logger.warn("Redis Geo lookup failed: {}", e.message, e)
             null
         }
 
@@ -142,21 +167,17 @@ class DispatchService(
             jobRepository.save(job)
 
             // Publish Offer Event
-            try {
-                publishDispatchEvent(
-                    "DispatchJobOffered",
-                    job,
-                    candidate,
-                    mapOf(
-                        "offer_id" to offer.offerId.toString(),
-                        "offer_rank" to offer.offerRank
-                    )
+            publishDispatchEvent(
+                "DispatchJobOffered",
+                job,
+                candidate,
+                mapOf(
+                    "offer_id" to offer.offerId.toString(),
+                    "offer_rank" to offer.offerRank
                 )
-            } catch (e: Exception) {
-                println("WARNING: Failed to publish Kafka DispatchJobOffered event: ${e.message}")
-            }
+            )
 
-            println("DispatchJob: Offered Job ${job.jobId} to Captain $candidate.")
+            logger.info("Offered Job {} to Captain {}.", job.jobId, candidate)
         } else {
             // No candidate available, try again or fail
             job.attemptCount += 1
@@ -191,13 +212,9 @@ class DispatchService(
             updateOrderStatus(job.orderId, "ASSIGNED", offer.captainId, "Captain accepted dispatch offer")
 
             // Publish accepted event
-            try {
-                publishDispatchEvent("DispatchJobAccepted", job, offer.captainId, mapOf("offer_id" to offer.offerId.toString()))
-            } catch (e: Exception) {
-                println("WARNING: Failed to publish Kafka DispatchJobAccepted event: ${e.message}")
-            }
+            publishDispatchEvent("DispatchJobAccepted", job, offer.captainId, mapOf("offer_id" to offer.offerId.toString()))
 
-            println("DispatchJob: Job ${job.jobId} ACCEPTED by Captain ${offer.captainId}.")
+            logger.info("Job {} ACCEPTED by Captain {}.", job.jobId, offer.captainId)
         } else {
             job.status = JobStatus.PENDING_ASSIGNMENT
             jobRepository.save(job)
@@ -254,7 +271,7 @@ class DispatchService(
                     job.status = JobStatus.PENDING_ASSIGNMENT
                     jobRepository.save(job)
 
-                    println("DispatchJob: Offer ${pendingOffer.offerId} to Captain ${pendingOffer.captainId} TIMED OUT. Retrying assignment.")
+                    logger.info("Offer {} to Captain {} TIMED OUT. Retrying assignment.", pendingOffer.offerId, pendingOffer.captainId)
                     triggerNextOffer(job)
                 }
             }
@@ -275,7 +292,7 @@ class DispatchService(
             val lat = (result[1] as Number).toDouble()
             Pair(lng, lat)
         } catch (e: Exception) {
-            println("WARNING: Failed to fetch coordinates for order $orderId: ${e.message}")
+            logger.warn("Failed to fetch coordinates for order {}: {}", orderId, e.message, e)
             null
         }
     }
@@ -313,8 +330,9 @@ class DispatchService(
         captainId: UUID?,
         attributes: Map<String, Any?>
     ) {
+        val eventId = UUID.randomUUID()
         val event = mutableMapOf<String, Any?>(
-            "event_id" to UUID.randomUUID().toString(),
+            "event_id" to eventId.toString(),
             "event_type" to eventType,
             "occurred_at" to Instant.now().toString(),
             "job_id" to job.jobId.toString(),
@@ -325,11 +343,13 @@ class DispatchService(
             "attempt_count" to job.attemptCount
         )
         event.putAll(attributes)
-        try {
-            val jsonString = objectMapper.writeValueAsString(event)
-            kafkaTemplate.send("dispatch.events", job.jobId.toString(), jsonString)
-        } catch (e: Exception) {
-            println("WARNING: Failed to publish $eventType event: ${e.message}")
-        }
+        
+        outboxService.saveEvent(
+            eventId = eventId,
+            aggregateType = "DISPATCH",
+            aggregateId = job.jobId!!,
+            eventType = eventType,
+            eventPayload = event
+        )
     }
 }

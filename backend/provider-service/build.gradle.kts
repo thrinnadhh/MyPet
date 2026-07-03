@@ -13,7 +13,7 @@ kotlin {
 }
 
 dependencies {
-    // Import Spring Boot BOM for dependency version management
+    implementation(project(":common"))
     implementation(platform("org.springframework.boot:spring-boot-dependencies:3.2.3"))
 
     implementation("org.springframework.boot:spring-boot-starter-web")

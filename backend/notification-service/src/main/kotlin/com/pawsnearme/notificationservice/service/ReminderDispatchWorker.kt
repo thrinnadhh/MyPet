@@ -1,20 +1,22 @@
 package com.pawsnearme.notificationservice.service
 
+import com.pawsnearme.notificationservice.config.NotificationTemplateProperties
 import com.pawsnearme.notificationservice.model.ReminderDeliveryStatus
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import java.time.Instant
-import java.util.UUID
 
 /**
  * Polls every 5 seconds for due reminders and dispatches them.
- * The default local adapter logs delivery; production modes must fail visibly until push tokens are configured.
+ * Message text is resolved from [NotificationTemplateProperties] (application.yml),
+ * so new template types require only a config change, not a code change.
  */
 @Service
 class ReminderDispatchWorker(
     private val transactionService: ReminderTransactionService,
-    private val deliveryAdapter: NotificationDeliveryAdapter
+    private val deliveryAdapter: NotificationDeliveryAdapter,
+    private val templateProperties: NotificationTemplateProperties
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -33,7 +35,7 @@ class ReminderDispatchWorker(
                         referenceId = reminder.referenceId,
                         referenceType = reminder.referenceType,
                         templateCode = reminder.templateCode,
-                        message = messageFor(reminder.templateCode, reminder.referenceId.toString())
+                        message = templateProperties.messageFor(reminder.templateCode, reminder.referenceId.toString())
                     )
                 )
                 if (result.delivered) {
@@ -65,12 +67,5 @@ class ReminderDispatchWorker(
             }
         }
     }
-
-    private fun messageFor(templateCode: String, referenceId: String): String {
-        return when (templateCode) {
-            "APPOINTMENT_T24H" -> "Your appointment is tomorrow! Ref: $referenceId"
-            "APPOINTMENT_T1H"  -> "Your appointment is in 1 hour! Ref: $referenceId"
-            else               -> "Reminder for: $referenceId"
-        }
-    }
 }
+

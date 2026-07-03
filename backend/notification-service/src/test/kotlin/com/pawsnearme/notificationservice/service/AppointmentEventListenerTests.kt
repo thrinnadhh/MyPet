@@ -23,7 +23,10 @@ class AppointmentEventListenerTests {
     private val objectMapper = ObjectMapper()
         .registerKotlinModule()
         .registerModule(JavaTimeModule())
-    private val listener = AppointmentEventListener(reminderRepo, objectMapper)
+    private val idempotencyService: com.pawsnearme.common.idempotency.IdempotencyService = mock<com.pawsnearme.common.idempotency.IdempotencyService>().apply {
+        whenever(checkAndRecord(any())).thenReturn(true)
+    }
+    private val listener = AppointmentEventListener(reminderRepo, objectMapper, idempotencyService)
 
     @Test
     fun `AppointmentBooked snake case event schedules appointment reminders`() {

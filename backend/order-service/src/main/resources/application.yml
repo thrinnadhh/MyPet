@@ -9,6 +9,11 @@ spring:
     username: ${DB_USERNAME:order_service_role}
     password: ${DB_PASSWORD:order_service_pass}
     driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    baseline-on-migrate: true
+    default-schema: orders
+    schemas: orders
   jpa:
     properties:
       hibernate:
@@ -73,3 +78,10 @@ resilience4j:
         timeout-duration: 5s
       payment-service:
         timeout-duration: 8s
+
+# Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway
+# Enable in staging/production; leave disabled in local dev
+gateway:
+  trust:
+    enabled: ${GATEWAY_TRUST_ENABLED:false}
+    secret: ${GATEWAY_SECRET:dev-secret-change-in-production}

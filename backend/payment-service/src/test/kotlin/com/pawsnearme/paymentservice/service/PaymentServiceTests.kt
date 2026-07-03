@@ -34,9 +34,14 @@ class PaymentServiceTests {
         captainEarningRefRepository = mock()
         providerRefRepository = mock()
         service = PaymentService(
-            transactionRepository, payoutRepository, promotionRepository,
-            orderRefRepository, appointmentRefRepository,
-            captainEarningRefRepository, providerRefRepository
+            transactionRepository = transactionRepository,
+            payoutRepository = payoutRepository,
+            promotionRepository = promotionRepository,
+            orderRefRepository = orderRefRepository,
+            appointmentRefRepository = appointmentRefRepository,
+            captainEarningRefRepository = captainEarningRefRepository,
+            providerRefRepository = providerRefRepository,
+            razorpaySandboxMode = true
         )
         // Default: code does not exist
         whenever(promotionRepository.existsByCode(any())).thenReturn(false)
@@ -74,18 +79,28 @@ class PaymentServiceTests {
         validUntil = validUntil
     )
 
-    // ── createPromotion validations ───────────────────────────────────────────
+    // ── recordPaymentResult ───────────────────────────────────────────────────
 
     @Test
     fun `recordPaymentResult - success returns PaymentCaptured event with event id`() {
+        val referenceId = UUID.randomUUID()
         val request = PaymentResultRequest(
             userId = UUID.randomUUID(),
-            referenceId = UUID.randomUUID(),
+            referenceId = referenceId,
             transactionType = "ORDER_PAYMENT",
             amount = BigDecimal("499.00"),
-            gatewayTransactionId = "pay_test_123",
+            gatewayTransactionId = "sandbox_captured_123",
             success = true
         )
+
+        val transaction = Transaction(
+            userId = request.userId,
+            transactionType = request.transactionType,
+            referenceId = request.referenceId,
+            amount = request.amount,
+            status = "PENDING"
+        )
+        whenever(transactionRepository.findByReferenceId(referenceId)).thenReturn(transaction)
 
         val event = service.recordPaymentResult(request)
 
@@ -97,20 +112,32 @@ class PaymentServiceTests {
 
     @Test
     fun `recordPaymentResult - failure returns PaymentFailed event with event id`() {
+        val referenceId = UUID.randomUUID()
         val request = PaymentResultRequest(
             userId = UUID.randomUUID(),
-            referenceId = UUID.randomUUID(),
+            referenceId = referenceId,
             transactionType = "ORDER_PAYMENT",
             amount = BigDecimal("499.00"),
-            gatewayTransactionId = "pay_test_failed",
+            gatewayTransactionId = "sandbox_failed_123",
             success = false
         )
+
+        val transaction = Transaction(
+            userId = request.userId,
+            transactionType = request.transactionType,
+            referenceId = request.referenceId,
+            amount = request.amount,
+            status = "PENDING"
+        )
+        whenever(transactionRepository.findByReferenceId(referenceId)).thenReturn(transaction)
 
         val event = service.recordPaymentResult(request)
 
         assertNotNull(event.eventId)
         assertEquals("PaymentFailed", event.eventType)
     }
+
+    // ── createPromotion validations ───────────────────────────────────────────
 
     @Test
     fun `createPromotion - platform-wide by non-admin - throws`() {
@@ -256,37 +283,22 @@ class PaymentServiceTests {
         assertEquals(promo.code, result.code)
     }
 
+    // ── calculatePayouts ──────────────────────────────────────────────────────
+
     @Test
     fun `calculatePayouts - creates merchant payout from delivered order and completed appointment`() {
         val providerId = UUID.randomUUID()
         val ownerId = UUID.randomUUID()
         val start = LocalDate.parse("2026-07-01")
         val end = LocalDate.parse("2026-07-07")
-        whenever(providerRefRepository.findAll()).thenReturn(listOf(ProviderRef(providerId, ownerId)))
-        whenever(orderRefRepository.findByStatusAndDeliveredAtBetween(eq("DELIVERED"), any(), any())).thenReturn(
-            listOf(
-                OrderRef(
-                    orderId = UUID.randomUUID(),
-                    providerId = providerId,
-                    captainId = null,
-                    status = "DELIVERED",
-                    totalAmount = BigDecimal("400.00"),
-                    deliveredAt = Instant.parse("2026-07-02T10:00:00Z")
-                )
-            )
-        )
-        whenever(appointmentRefRepository.findByStatusAndCompletedAtBetween(eq("COMPLETED"), any(), any())).thenReturn(
-            listOf(
-                AppointmentRef(
-                    appointmentId = UUID.randomUUID(),
-                    providerId = providerId,
-                    status = "COMPLETED",
-                    priceAmount = BigDecimal("600.00"),
-                    completedAt = Instant.parse("2026-07-03T10:00:00Z")
-                )
-            )
-        )
-        whenever(captainEarningRefRepository.findByPayoutIdIsNullAndEarnedAtBetween(any(), any())).thenReturn(emptyList())
+
+        // DB aggregation returns (providerId, ownerUserId, sum) tuples
+        whenever(orderRefRepository.sumTotalAmountByOwnerAndPeriod(eq("DELIVERED"), any(), any()))
+            .thenReturn(listOf(arrayOf(providerId, ownerId, BigDecimal("400.00"))))
+        whenever(appointmentRefRepository.sumPriceAmountByOwnerAndPeriod(eq("COMPLETED"), any(), any()))
+            .thenReturn(listOf(arrayOf(providerId, ownerId, BigDecimal("600.00"))))
+        // No captain rows
+        whenever(captainEarningRefRepository.sumAmountByCaptainAndPeriod(any(), any())).thenReturn(emptyList())
 
         val payouts = service.calculatePayouts(start, end)
 
@@ -308,10 +320,16 @@ class PaymentServiceTests {
             earnedAt = Instant.parse("2026-07-02T10:00:00Z"),
             payoutId = null
         )
-        whenever(providerRefRepository.findAll()).thenReturn(emptyList())
-        whenever(orderRefRepository.findByStatusAndDeliveredAtBetween(eq("DELIVERED"), any(), any())).thenReturn(emptyList())
-        whenever(appointmentRefRepository.findByStatusAndCompletedAtBetween(eq("COMPLETED"), any(), any())).thenReturn(emptyList())
-        whenever(captainEarningRefRepository.findByPayoutIdIsNullAndEarnedAtBetween(any(), any())).thenReturn(listOf(earning))
+
+        // No merchant rows
+        whenever(orderRefRepository.sumTotalAmountByOwnerAndPeriod(any(), any(), any())).thenReturn(emptyList())
+        whenever(appointmentRefRepository.sumPriceAmountByOwnerAndPeriod(any(), any(), any())).thenReturn(emptyList())
+        // Captain aggregation returns (captainId, sum)
+        whenever(captainEarningRefRepository.sumAmountByCaptainAndPeriod(any(), any()))
+            .thenReturn(listOf(arrayOf(captainId, BigDecimal("150.00"))))
+        // Bulk-link fetch for this captain
+        whenever(captainEarningRefRepository.findByPayoutIdIsNullAndEarnedAtBetweenAndCaptainId(any(), any(), eq(captainId)))
+            .thenReturn(listOf(earning))
         whenever(captainEarningRefRepository.save(any())).thenAnswer { it.arguments[0] as CaptainEarningRef }
 
         val payouts = service.calculatePayouts(start, end)
@@ -340,10 +358,15 @@ class PaymentServiceTests {
             earnedAt = Instant.parse("2026-07-02T10:00:00Z"),
             payoutId = null
         )
-        whenever(providerRefRepository.findAll()).thenReturn(emptyList())
-        whenever(orderRefRepository.findByStatusAndDeliveredAtBetween(eq("DELIVERED"), any(), any())).thenReturn(emptyList())
-        whenever(appointmentRefRepository.findByStatusAndCompletedAtBetween(eq("COMPLETED"), any(), any())).thenReturn(emptyList())
-        whenever(captainEarningRefRepository.findByPayoutIdIsNullAndEarnedAtBetween(any(), any())).thenReturn(listOf(earning))
+
+        // No merchant rows
+        whenever(orderRefRepository.sumTotalAmountByOwnerAndPeriod(any(), any(), any())).thenReturn(emptyList())
+        whenever(appointmentRefRepository.sumPriceAmountByOwnerAndPeriod(any(), any(), any())).thenReturn(emptyList())
+        // Captain aggregation
+        whenever(captainEarningRefRepository.sumAmountByCaptainAndPeriod(any(), any()))
+            .thenReturn(listOf(arrayOf(captainId, BigDecimal("150.00"))))
+        whenever(captainEarningRefRepository.findByPayoutIdIsNullAndEarnedAtBetweenAndCaptainId(any(), any(), eq(captainId)))
+            .thenReturn(listOf(earning))
         whenever(
             payoutRepository.findByPayeeUserIdAndPayeeRoleAndPeriodStartAndPeriodEnd(
                 captainId,

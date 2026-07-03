@@ -1,6 +1,6 @@
 # PawsNearMe Sprint Gap Tracker
 
-This tracker reflects the current repo state after Sprint 0-10 checklist files and verification entrypoints were added. A sprint is complete only when code checks pass and live/manual proof is captured without hidden production mock success paths.
+This tracker reflects the current repo state after Sprint 0-11 checklist files and verification entrypoints were added. A sprint is complete only when code checks pass and live/manual proof is captured without hidden production mock success paths.
 
 ## Current Status
 
@@ -9,7 +9,7 @@ This tracker reflects the current repo state after Sprint 0-10 checklist files a
 | 0 | Foundations | Mostly complete | Run clean local infra/migrations and record Kafka/Redis topic proof |
 | 1 | Identity, Auth, Provider Onboarding | Complete for sprint scope | Re-run auth sync/profile onboarding proof during full release regression |
 | 2 | Catalog + Discovery | Complete for sprint scope | Re-run live Shop, Vet, and Groom proof during full release regression |
-| 3 | Order Creation + Payment Capture | Complete for sprint scope | Re-run UI checkout proof during full release regression and replace sandbox-equivalent proof with Razorpay sandbox evidence before production launch |
+| 3 | Order Creation + Payment Capture | Complete for sprint scope | Re-run UI checkout proof during full release regression; Razorpay sandbox integration resolved in Sprint 11 |
 | 4 | Dispatch + Captain Delivery Loop | Complete for sprint scope | Re-run live expiry/reassignment, pickup, delivery, and earnings proof during full release regression |
 | 5 | Appointment Booking + Slot Locking | Complete for sprint scope | Re-run appointment-service tests and live appointment proof during full release regression |
 | 6 | Merchant Calendar + Reminders | Complete for sprint scope | Real Expo/FCM push-token registration and vendor delivery evidence before production launch |
@@ -17,12 +17,16 @@ This tracker reflects the current repo state after Sprint 0-10 checklist files a
 | 8 | Hardening, Admin Console, Billing | Complete for sprint scope | Re-run load smoke during full release regression and archive p95 results |
 | 9 | Legal, Store Submission, Launch | Repo artifacts implemented | Store-console submission, real production secret configuration, and rollback drill evidence outside git |
 | 10 | Authorization Hardening | Complete for sprint scope | Re-run Gateway filter checks and verify dispatch OTP flow with mobile apps |
+| 11 | Payment Integrity | Complete for sprint scope | Re-run verification script against gateway and verify webhook workflows |
+| 12 | Event Reliability (Outbox) | Complete | Transactional outbox, poller, idempotency, and DLQ routing fully implemented and verified |
 
 ## Verification Commands
 
 - Baseline: `scripts/verify-all.sh`
 - Live flows: `scripts/verify-all.sh --flows`
 - Individual sprint checks: `python backend/verify_sprint<N>.py`
+- Payment Integrity check: `python backend/verify_payments.py`
+- Outbox & DLQ check: `python backend/verify_outbox_dlq.py`
 
 ## Production Acceptance Rule
 

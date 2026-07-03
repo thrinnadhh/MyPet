@@ -26,9 +26,4 @@ class DiscoveryController(private val discoveryService: DiscoveryService) {
         )
         return ResponseEntity.ok(providers)
     }
-
-    @ExceptionHandler(IllegalArgumentException::class)
-    fun handleBadRequest(ex: IllegalArgumentException): ResponseEntity<Map<String, String>> {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapOf("error" to (ex.message ?: "Bad Request")))
-    }
 }

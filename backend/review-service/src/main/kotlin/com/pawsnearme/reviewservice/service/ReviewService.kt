@@ -8,10 +8,13 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 import java.util.UUID
 
+import com.pawsnearme.common.outbox.OutboxService
+
 @Service
 class ReviewService(
     private val reviewRepo: ReviewRepository,
-    private val kafkaTemplate: KafkaTemplate<String, Any>
+    private val kafkaTemplate: KafkaTemplate<String, Any>,
+    private val outboxService: OutboxService
 ) {
 
     @Transactional
@@ -26,9 +29,10 @@ class ReviewService(
         }
         val savedReview = reviewRepo.save(reviewToSave)
 
-        // Publish ReviewSubmitted event to Kafka
+        // Publish ReviewSubmitted event to transactional outbox
+        val eventId = UUID.randomUUID()
         val event = mapOf(
-            "event_id" to UUID.randomUUID().toString(),
+            "event_id" to eventId.toString(),
             "event_type" to "ReviewSubmitted",
             "occurred_at" to Instant.now().toString(),
             "review_id" to savedReview.id.toString(),
@@ -39,7 +43,14 @@ class ReviewService(
             "rating" to savedReview.rating,
             "comment" to savedReview.comment
         )
-        kafkaTemplate.send("reviews.events", savedReview.providerId.toString(), event)
+        
+        outboxService.saveEvent(
+            eventId = eventId,
+            aggregateType = "REVIEW",
+            aggregateId = savedReview.id!!,
+            eventType = "ReviewSubmitted",
+            eventPayload = event
+        )
 
         return savedReview
     }

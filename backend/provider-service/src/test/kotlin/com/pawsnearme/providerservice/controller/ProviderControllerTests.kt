@@ -8,11 +8,12 @@ import com.pawsnearme.providerservice.repository.ProviderRepository
 import com.pawsnearme.providerservice.service.ProviderService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.locationtech.jts.geom.Coordinate
 import org.locationtech.jts.geom.GeometryFactory
 import org.locationtech.jts.geom.PrecisionModel
-import org.mockito.Mockito.never
-import org.mockito.Mockito.verify
+import org.mockito.kotlin.never
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
@@ -30,14 +31,14 @@ class ProviderControllerTests {
     fun `updateCommission rejects non-admin caller`() {
         val providerId = UUID.randomUUID()
 
-        val response = controller.updateCommission(
-            providerId,
-            "MERCHANT",
-            UUID.randomUUID().toString(),
-            UpdateProviderCommissionRequest(BigDecimal("16.00"), "Not allowed")
-        )
-
-        assertEquals(HttpStatus.FORBIDDEN, response.statusCode)
+        assertThrows<ProviderAccessDeniedException> {
+            controller.updateCommission(
+                providerId,
+                "MERCHANT",
+                UUID.randomUUID().toString(),
+                UpdateProviderCommissionRequest(BigDecimal("16.00"), "Not allowed")
+            )
+        }
         verify(providerService, never()).updateCommission(any(), any(), any(), any())
     }
 

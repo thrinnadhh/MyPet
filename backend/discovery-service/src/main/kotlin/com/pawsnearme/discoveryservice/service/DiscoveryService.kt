@@ -1,5 +1,6 @@
 package com.pawsnearme.discoveryservice.service
 
+import org.slf4j.LoggerFactory
 import com.pawsnearme.discoveryservice.model.*
 import com.pawsnearme.discoveryservice.repository.ProviderRepository
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -42,6 +43,7 @@ class DiscoveryService(
 ) : CommandLineRunner {
 
     companion object {
+        private val logger = LoggerFactory.getLogger(DiscoveryService::class.java)
         private const val GEO_KEY = "providers:locations"
         private const val CACHE_PREFIX = "providers:cache:"
     }
@@ -64,9 +66,9 @@ class DiscoveryService(
                 // Evict cache to ensure fresh data on first queries
                 stringRedisTemplate.delete("$CACHE_PREFIX${provider.providerId}")
             }
-            println("Redis Geo cache warmed with ${activeProviders.size} active providers.")
+            logger.info("Redis Geo cache warmed with {} active providers.", activeProviders.size)
         } catch (e: Exception) {
-            System.err.println("Failed to warm Redis Geo cache: ${e.message}")
+            logger.error("Failed to warm Redis Geo cache: {}", e.message, e)
         }
     }
 
@@ -93,7 +95,7 @@ class DiscoveryService(
                         RedisPoint(lng, lat),
                         provider.providerId.toString()
                     )
-                    println("Kafka Sync: Added provider $providerId to Redis Geo index and evicted cache.")
+                    logger.info("Kafka Sync: Added provider {} to Redis Geo index and evicted cache.", providerId)
                 }
             }
         }
@@ -105,9 +107,9 @@ class DiscoveryService(
             val event = record.value()
             val providerIdStr = event["providerId"] as? String ?: event["provider_id"] as? String ?: return
             stringRedisTemplate.delete("$CACHE_PREFIX$providerIdStr")
-            println("Kafka Sync: Evicted provider cache for $providerIdStr due to new review submission.")
+            logger.info("Kafka Sync: Evicted provider cache for {} due to new review submission.", providerIdStr)
         } catch (e: Exception) {
-            System.err.println("Error processing review Kafka event in DiscoveryService: ${e.message}")
+            logger.error("Error processing review Kafka event in DiscoveryService: {}", e.message, e)
         }
     }
 
@@ -195,7 +197,7 @@ class DiscoveryService(
                             java.time.Duration.ofSeconds(300)
                         )
                     } catch (e: Exception) {
-                        System.err.println("Failed to cache provider $id: ${e.message}")
+                        logger.error("Failed to cache provider {}: {}", id, e.message, e)
                     }
                     dto
                 }
@@ -223,7 +225,7 @@ class DiscoveryService(
                 )
             }
         } catch (e: Exception) {
-            System.err.println("Redis query failed, falling back to PostGIS: ${e.message}")
+            logger.error("Redis query failed, falling back to PostGIS: {}", e.message, e)
             queryPostgisFallback(longitude, latitude, radiusKm, providerType)
         }
     }
