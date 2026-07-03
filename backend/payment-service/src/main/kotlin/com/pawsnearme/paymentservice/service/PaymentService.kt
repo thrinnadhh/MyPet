@@ -114,7 +114,7 @@ class PaymentService(
                     periodStart = start,
                     periodEnd = end
                 )
-                createdPayouts.add(payoutRepository.save(payout))
+                createdPayouts.add(getOrCreatePayout(payout))
             }
         }
 
@@ -129,7 +129,7 @@ class PaymentService(
                     periodStart = start,
                     periodEnd = end
                 )
-                val savedPayout = payoutRepository.save(payout)
+                val savedPayout = getOrCreatePayout(payout)
                 createdPayouts.add(savedPayout)
 
                 val earnings = captainEarningsByCaptain[captainId] ?: emptyList()
@@ -144,10 +144,23 @@ class PaymentService(
     }
 
     @Transactional
-    fun createPromotion(promo: Promotion, creatorRole: String): Promotion {
+    fun createPromotion(promo: Promotion, creatorRole: String, creatorUserId: UUID?): Promotion {
         // Platform-wide check
         if (promo.providerId == null && creatorRole != "ADMIN") {
             throw IllegalArgumentException("Platform-wide coupons can only be created by ADMIN users")
+        }
+
+        if (creatorRole == "MERCHANT") {
+            val providerId = promo.providerId
+                ?: throw IllegalArgumentException("Merchant coupons must be scoped to a provider")
+            val actorId = creatorUserId
+                ?: throw IllegalArgumentException("Merchant coupon creation requires X-User-Id")
+            val provider = providerRefRepository.findById(providerId).orElseThrow {
+                IllegalArgumentException("Provider not found: $providerId")
+            }
+            if (provider.ownerUserId != actorId) {
+                throw IllegalArgumentException("Merchant cannot create coupons for a provider they do not own")
+            }
         }
 
         if (promotionRepository.existsByCode(promo.code)) {
@@ -177,6 +190,15 @@ class PaymentService(
         }
 
         return promotionRepository.save(promo)
+    }
+
+    private fun getOrCreatePayout(payout: Payout): Payout {
+        return payoutRepository.findByPayeeUserIdAndPayeeRoleAndPeriodStartAndPeriodEnd(
+            payout.payeeUserId,
+            payout.payeeRole,
+            payout.periodStart,
+            payout.periodEnd
+        ) ?: payoutRepository.save(payout)
     }
 
     fun listPromotions(providerId: UUID?): List<Promotion> {

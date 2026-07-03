@@ -123,6 +123,33 @@ if not service_up(PAYMENT_SVC, "/actuator/health"):
     skip("All payment-service tests", "service not running on port 8090")
     skipped += 7
 else:
+    merchant_user_id = str(uuid.uuid4())
+    merchant_provider_id = str(uuid.uuid4())
+    try:
+        conn = psycopg2.connect(DB_URL)
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO providers.providers (
+                provider_id, owner_user_id, provider_type, fulfillment_type, name,
+                address_line, city, pincode, geo_location, status, rating_avg, rating_count
+            )
+            VALUES (
+                %s, %s, 'PET_STORE', 'DELIVERY', 'Sprint 7 Promo Store',
+                '12 Coupon Road', 'Hyderabad', '500001',
+                ST_GeomFromText('POINT(78.4867 17.3850)', 4326), 'ACTIVE', 0.00, 0
+            )
+            ON CONFLICT (provider_id) DO NOTHING
+        """, (merchant_provider_id, merchant_user_id))
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"  {FAIL}  Could not seed merchant-owned provider: {e}")
+        failed += 1
+
+    merchant_headers = {"X-User-Role": "MERCHANT", "X-User-Id": merchant_user_id}
+    admin_headers = {"X-User-Role": "ADMIN", "X-User-Id": str(uuid.uuid4())}
+
     # A. Test Flat promotion: flat discounts cannot exceed 30% of min order value
     payload_invalid_flat = {
         "code": "FLAT_INVALID",
@@ -131,9 +158,9 @@ else:
         "minOrderValue": 100.00,
         "validFrom": "2026-06-01T00:00:00Z",
         "validUntil": "2026-12-31T23:59:59Z",
-        "providerId": str(uuid.uuid4())
+        "providerId": merchant_provider_id
     }
-    r = requests.post(f"{PAYMENT_SVC}/api/v1/payments/promotions", json=payload_invalid_flat, headers={"X-User-Role": "MERCHANT"})
+    r = requests.post(f"{PAYMENT_SVC}/api/v1/payments/promotions", json=payload_invalid_flat, headers=merchant_headers)
     test("Creating flat discount > 30% min_order_value is rejected (400)", r.status_code == 400, f"got {r.status_code}: {r.text}")
 
     # B. Test Percentage promotion: percentage discount cannot exceed 30%
@@ -143,9 +170,9 @@ else:
         "discountValue": 35.00,
         "validFrom": "2026-06-01T00:00:00Z",
         "validUntil": "2026-12-31T23:59:59Z",
-        "providerId": str(uuid.uuid4())
+        "providerId": merchant_provider_id
     }
-    r = requests.post(f"{PAYMENT_SVC}/api/v1/payments/promotions", json=payload_invalid_pct, headers={"X-User-Role": "MERCHANT"})
+    r = requests.post(f"{PAYMENT_SVC}/api/v1/payments/promotions", json=payload_invalid_pct, headers=merchant_headers)
     test("Creating percentage discount > 30% is rejected (400)", r.status_code == 400, f"got {r.status_code}: {r.text}")
 
     # C. Test Platform-wide promotion requires ADMIN
@@ -156,12 +183,24 @@ else:
         "validFrom": "2026-06-01T00:00:00Z",
         "validUntil": "2026-12-31T23:59:59Z"
     }
-    r = requests.post(f"{PAYMENT_SVC}/api/v1/payments/promotions", json=payload_platform, headers={"X-User-Role": "MERCHANT"})
+    r = requests.post(f"{PAYMENT_SVC}/api/v1/payments/promotions", json=payload_platform, headers=merchant_headers)
     test("Creating platform-wide coupon by MERCHANT is forbidden (400/403)", r.status_code in [400, 403], f"got {r.status_code}: {r.text}")
+
+    # C2. Merchant cannot create coupon for another provider
+    payload_other_provider = {
+        "code": f"OTHER_{uuid.uuid4().hex[:6].upper()}",
+        "discountType": "PERCENTAGE",
+        "discountValue": 10.00,
+        "validFrom": "2026-06-01T00:00:00Z",
+        "validUntil": "2026-12-31T23:59:59Z",
+        "providerId": str(uuid.uuid4())
+    }
+    r = requests.post(f"{PAYMENT_SVC}/api/v1/payments/promotions", json=payload_other_provider, headers=merchant_headers)
+    test("Merchant coupon for unowned provider is rejected (400)", r.status_code == 400, f"got {r.status_code}: {r.text}")
 
     # D. Test Valid promotion creation
     promo_code = f"PROMO_{uuid.uuid4().hex[:6].upper()}"
-    provider_id = str(uuid.uuid4())
+    provider_id = merchant_provider_id
     payload_valid = {
         "code": promo_code,
         "discountType": "FLAT",
@@ -172,8 +211,20 @@ else:
         "applicableCategory": "Drools",
         "providerId": provider_id
     }
-    r = requests.post(f"{PAYMENT_SVC}/api/v1/payments/promotions", json=payload_valid, headers={"X-User-Role": "MERCHANT"})
+    r = requests.post(f"{PAYMENT_SVC}/api/v1/payments/promotions", json=payload_valid, headers=merchant_headers)
     test("Creating valid promotion returns 201", r.status_code == 201, f"got {r.status_code}: {r.text}")
+
+    # D2. Admin can create platform-wide coupon
+    admin_code = f"PLATFORM_{uuid.uuid4().hex[:6].upper()}"
+    payload_admin_platform = {
+        "code": admin_code,
+        "discountType": "PERCENTAGE",
+        "discountValue": 10.00,
+        "validFrom": "2026-06-01T00:00:00Z",
+        "validUntil": "2026-12-31T23:59:59Z"
+    }
+    r = requests.post(f"{PAYMENT_SVC}/api/v1/payments/promotions", json=payload_admin_platform, headers=admin_headers)
+    test("Admin can create platform-wide coupon (201)", r.status_code == 201, f"got {r.status_code}: {r.text}")
 
     # E. Test coupon validation
     r_val = requests.get(f"{PAYMENT_SVC}/api/v1/payments/promotions/validate", params={
@@ -192,6 +243,80 @@ else:
         "category": "FOOD"
     })
     test("Validating coupon with wrong category is rejected (400)", r_val_cat.status_code == 400, f"got {r_val_cat.status_code}")
+
+    # G. Payout batch creates merchant and captain payouts and links captain earning
+    try:
+        conn = psycopg2.connect(DB_URL)
+        conn.autocommit = True
+        cur = conn.cursor()
+        payout_customer_id = str(uuid.uuid4())
+        payout_order_id = str(uuid.uuid4())
+        payout_appointment_id = str(uuid.uuid4())
+        payout_captain_id = str(uuid.uuid4())
+        payout_earning_id = str(uuid.uuid4())
+        payout_start = "2026-07-01"
+        payout_end = "2026-07-07"
+
+        cur.execute("""
+            INSERT INTO captains.captain_profiles (captain_id, status, vehicle_type, vehicle_number)
+            VALUES (%s, 'ACTIVE', 'BIKE', 'TS07S7777')
+            ON CONFLICT (captain_id) DO NOTHING
+        """, (payout_captain_id,))
+        cur.execute("""
+            INSERT INTO orders.orders (
+                order_id, customer_id, provider_id, captain_id, delivery_address_id, status,
+                subtotal_amount, delivery_fee, discount_amount, total_amount, placed_at, delivered_at
+            )
+            VALUES (%s, %s, %s, %s, %s, 'DELIVERED', 400.00, 40.00, 0.00, 440.00, '2026-07-02T09:00:00Z', '2026-07-02T10:00:00Z')
+            ON CONFLICT (order_id) DO NOTHING
+        """, (payout_order_id, payout_customer_id, merchant_provider_id, payout_captain_id, str(uuid.uuid4())))
+        cur.execute("""
+            INSERT INTO appointments.appointments (
+                appointment_id, customer_id, provider_id, offering_id, slot_id, pet_id, status,
+                price_amount, pay_at_clinic, booked_at, completed_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, 'COMPLETED', 600.00, false, '2026-07-03T09:00:00Z', '2026-07-03T10:00:00Z')
+            ON CONFLICT (appointment_id) DO NOTHING
+        """, (payout_appointment_id, payout_customer_id, merchant_provider_id, str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())))
+        cur.execute("""
+            INSERT INTO captains.captain_earnings (earning_id, captain_id, order_id, amount, earned_at, payout_id)
+            VALUES (%s, %s, %s, 150.00, '2026-07-02T10:15:00Z', NULL)
+            ON CONFLICT (earning_id) DO NOTHING
+        """, (payout_earning_id, payout_captain_id, payout_order_id))
+
+        r_payout = requests.post(
+            f"{PAYMENT_SVC}/api/v1/payments/payouts/calculate",
+            params={"start": payout_start, "end": payout_end},
+            headers=admin_headers,
+            timeout=10
+        )
+        test("Admin payout batch returns 200", r_payout.status_code == 200, f"got {r_payout.status_code}: {r_payout.text}")
+        payout_body = r_payout.json() if r_payout.status_code == 200 else []
+        test("Payout batch creates merchant and captain payouts", isinstance(payout_body, list) and len(payout_body) >= 2, f"got {payout_body}")
+
+        cur.execute("SELECT payout_id FROM captains.captain_earnings WHERE earning_id = %s", (payout_earning_id,))
+        linked_payout = cur.fetchone()[0]
+        test("Captain earning linked to payout record", linked_payout is not None)
+
+        r_payout_again = requests.post(
+            f"{PAYMENT_SVC}/api/v1/payments/payouts/calculate",
+            params={"start": payout_start, "end": payout_end},
+            headers=admin_headers,
+            timeout=10
+        )
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM payments.payouts
+            WHERE period_start = %s AND period_end = %s AND payee_user_id IN (%s, %s)
+        """, (payout_start, payout_end, merchant_user_id, payout_captain_id))
+        payout_count = cur.fetchone()[0]
+        test("Re-running payout batch does not duplicate payee-period payouts", r_payout_again.status_code == 200 and payout_count == 2, f"count {payout_count}")
+
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"  {FAIL}  Payout batch integration test failed: {e}")
+        failed += 1
 
 
 # ─── 3. Event-Driven Ratings Updates Tests ────────────────────────────────────

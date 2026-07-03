@@ -37,6 +37,7 @@ interface EarningRecord {
   orderId: string;
   amount: number;
   earnedAt: string;
+  payoutId?: string | null;
 }
 
 interface PayoutRecord {
@@ -65,20 +66,35 @@ interface Promotion {
   isActive: boolean;
 }
 
+interface ProviderOption {
+  id: string;
+  label: string;
+  fulfillmentType: string;
+}
+
+interface ProviderResponse {
+  providerId: string;
+  providerType: 'PET_STORE' | 'VET_HOSPITAL' | 'GROOMING_CENTER';
+  fulfillmentType: string;
+  name: string;
+}
+
 const MOCK_EARNINGS: EarningRecord[] = [
   {
     earningId: 'earn-1',
     captainId: 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
     orderId: 'order-101',
     amount: 150.00,
-    earnedAt: new Date(Date.now() - 3600 * 1000 * 3).toISOString()
+    earnedAt: new Date(Date.now() - 3600 * 1000 * 3).toISOString(),
+    payoutId: null
   },
   {
     earningId: 'earn-2',
     captainId: 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
     orderId: 'order-102',
     amount: 150.00,
-    earnedAt: new Date(Date.now() - 3600 * 1000 * 24).toISOString()
+    earnedAt: new Date(Date.now() - 3600 * 1000 * 24).toISOString(),
+    payoutId: 'payout-demo'
   }
 ];
 
@@ -126,18 +142,19 @@ const MOCK_PROMOTIONS: Promotion[] = [
 export default function EarningsScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
-  const { user, activeRole } = useAuth();
+  const { user, session, activeRole } = useAuth();
 
   // Common State
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [screenError, setScreenError] = useState('');
 
   // Captain View State
   const [earnings, setEarnings] = useState<EarningRecord[]>([]);
 
   // Provider (Merchant) View State
-  const [providers, setProviders] = useState(DEMO_PROVIDERS);
-  const [selectedProvider, setSelectedProvider] = useState(DEMO_PROVIDERS[0]);
+  const [providers, setProviders] = useState<ProviderOption[]>(appConfig.allowDemoMode ? DEMO_PROVIDERS : []);
+  const [selectedProvider, setSelectedProvider] = useState<ProviderOption | null>(appConfig.allowDemoMode ? DEMO_PROVIDERS[0] : null);
   const [payouts, setPayouts] = useState<PayoutRecord[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   
@@ -151,80 +168,135 @@ export default function EarningsScreen() {
   const [applicableCategory, setApplicableCategory] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
+  const authHeaders = useCallback((roleOverride?: string) => {
+    const headers: Record<string, string> = {};
+    if (session?.access_token) {
+      headers.Authorization = `Bearer ${session.access_token}`;
+    }
+    if (user?.id) {
+      headers['X-User-Id'] = user.id;
+    }
+    headers['X-User-Role'] = roleOverride ?? (activeRole === 'PROVIDER' ? 'MERCHANT' : activeRole ?? 'CAPTAIN');
+    return headers;
+  }, [activeRole, session, user]);
+
   // Fetch Providers list for Merchant
   const fetchProviders = useCallback(async () => {
     if (!user || activeRole !== 'PROVIDER') return;
+    if (appConfig.allowDemoMode) {
+      setProviders(DEMO_PROVIDERS);
+      setSelectedProvider((current) => current ?? DEMO_PROVIDERS[0]);
+      return;
+    }
+    setScreenError('');
     try {
-      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers?ownerUserId=${user.id}`);
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers?ownerUserId=${user.id}`, {
+        headers: authHeaders('MERCHANT'),
+      });
       if (response.ok) {
-        const data = await response.json();
+        const data: ProviderResponse[] = await response.json();
         if (Array.isArray(data) && data.length > 0) {
-          const mapped = data.map((p: any) => ({
+          const mapped = data.map((p) => ({
             id: p.providerId,
-            label: p.providerType === 'PET_STORE' ? `🏬 ${p.name}` : p.providerType === 'VET_HOSPITAL' ? `🏥 ${p.name}` : `✂️ ${p.name}`,
+            label: p.providerType === 'PET_STORE' ? `Store ${p.name}` : p.providerType === 'VET_HOSPITAL' ? `Vet ${p.name}` : `Groom ${p.name}`,
             fulfillmentType: p.fulfillmentType,
           }));
           setProviders(mapped);
-          setSelectedProvider(mapped[0]);
+          setSelectedProvider((current) => mapped.find((item) => item.id === current?.id) ?? mapped[0]);
+        } else {
+          setProviders([]);
+          setSelectedProvider(null);
         }
+      } else {
+        setScreenError(`Could not load providers (${response.status}).`);
+        setProviders([]);
+        setSelectedProvider(null);
       }
     } catch (err) {
-      console.log('Failed to fetch dynamic providers, using fallback');
+      setScreenError('Network error while loading providers.');
+      setProviders([]);
+      setSelectedProvider(null);
     }
-  }, [user, activeRole]);
+  }, [activeRole, authHeaders, user]);
 
   // Fetch Captain Earnings
-  const fetchCaptainEarnings = async (showLoader = true) => {
+  const fetchCaptainEarnings = useCallback(async (showLoader = true) => {
     if (!user) return;
     if (showLoader) setLoading(true);
+    setScreenError('');
     try {
-      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/captains/${user.id}/earnings`);
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/captains/${user.id}/earnings`, {
+        headers: authHeaders('CAPTAIN'),
+      });
       const data = await response.json();
       if (response.ok) {
         setEarnings(data);
-      } else {
+      } else if (appConfig.allowDemoMode) {
         setEarnings(MOCK_EARNINGS);
+      } else {
+        setScreenError(`Could not load captain earnings (${response.status}).`);
+        setEarnings([]);
       }
     } catch (err) {
-      setEarnings(MOCK_EARNINGS);
+      if (appConfig.allowDemoMode) {
+        setEarnings(MOCK_EARNINGS);
+      } else {
+        setScreenError('Network error while loading captain earnings.');
+        setEarnings([]);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [authHeaders, user]);
 
   // Fetch Merchant Payouts & Promotions
-  const fetchMerchantData = async (showLoader = true) => {
-    if (!user) return;
+  const fetchMerchantData = useCallback(async (showLoader = true) => {
+    if (!user || !selectedProvider) return;
     if (showLoader) setLoading(true);
+    setScreenError('');
     try {
       // 1. Fetch Payout History
       const payoutResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/payments/payouts/user/${user.id}`, {
-        headers: { 'X-User-Id': user.id, 'X-User-Role': 'MERCHANT' }
+        headers: authHeaders('MERCHANT')
       });
       if (payoutResponse.ok) {
         const data = await payoutResponse.json();
         setPayouts(data);
-      } else {
+      } else if (appConfig.allowDemoMode) {
         setPayouts(MOCK_PAYOUTS);
+      } else {
+        setScreenError(`Could not load payout history (${payoutResponse.status}).`);
+        setPayouts([]);
       }
 
       // 2. Fetch promotions
-      const promoResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/payments/promotions?providerId=${selectedProvider.id}`);
+      const promoResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/payments/promotions?providerId=${selectedProvider.id}`, {
+        headers: authHeaders('MERCHANT'),
+      });
       if (promoResponse.ok) {
         const data = await promoResponse.json();
         setPromotions(data);
-      } else {
+      } else if (appConfig.allowDemoMode) {
         setPromotions(MOCK_PROMOTIONS);
+      } else {
+        setScreenError((current) => current || `Could not load promotions (${promoResponse.status}).`);
+        setPromotions([]);
       }
     } catch (err) {
-      setPayouts(MOCK_PAYOUTS);
-      setPromotions(MOCK_PROMOTIONS);
+      if (appConfig.allowDemoMode) {
+        setPayouts(MOCK_PAYOUTS);
+        setPromotions(MOCK_PROMOTIONS);
+      } else {
+        setScreenError('Network error while loading payout and promotion data.');
+        setPayouts([]);
+        setPromotions([]);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [authHeaders, selectedProvider, user]);
 
   useEffect(() => {
     if (activeRole === 'PROVIDER') {
@@ -232,13 +304,13 @@ export default function EarningsScreen() {
     } else {
       fetchCaptainEarnings();
     }
-  }, [user, activeRole, fetchProviders]);
+  }, [activeRole, fetchCaptainEarnings, fetchProviders, user]);
 
   useEffect(() => {
     if (activeRole === 'PROVIDER') {
       fetchMerchantData();
     }
-  }, [selectedProvider, activeRole]);
+  }, [activeRole, fetchMerchantData, selectedProvider]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -251,6 +323,7 @@ export default function EarningsScreen() {
 
   const handleCreatePromotion = async () => {
     setErrorMsg('');
+    if (!selectedProvider) return setErrorMsg('Create a provider before adding a coupon');
     const val = parseFloat(discountValue);
     const minOrd = minOrderValue ? parseFloat(minOrderValue) : null;
     const maxDisc = maxDiscountAmount ? parseFloat(maxDiscountAmount) : null;
@@ -297,7 +370,7 @@ export default function EarningsScreen() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Role': 'MERCHANT'
+          ...authHeaders('MERCHANT')
         },
         body: JSON.stringify(payload)
       });
@@ -348,6 +421,12 @@ export default function EarningsScreen() {
             </View>
           </View>
 
+          {screenError ? (
+            <View style={[styles.errorBanner, { borderColor: colors.warning }]}>
+              <ThemedText style={{ color: colors.warning, fontWeight: '700' }}>{screenError}</ThemedText>
+            </View>
+          ) : null}
+
           <View style={styles.listHeader}>
             <ThemedText style={{ fontWeight: '700' }}>Recent Delivery Transactions</ThemedText>
           </View>
@@ -368,6 +447,9 @@ export default function EarningsScreen() {
                     <ThemedText style={{ fontWeight: '600' }}>Order #{item.orderId.split('-').pop() || item.orderId}</ThemedText>
                     <ThemedText type="small" style={{ color: colors.textSecondary, marginTop: Spacing.one }}>
                       {new Date(item.earnedAt).toLocaleString()}
+                    </ThemedText>
+                    <ThemedText type="small" style={{ color: item.payoutId ? colors.cta : colors.textSecondary, marginTop: Spacing.one }}>
+                      {item.payoutId ? `Payout linked #${item.payoutId.split('-').pop()}` : 'Awaiting payout batch'}
                     </ThemedText>
                   </View>
                   <ThemedText style={{ fontWeight: '700', color: colors.cta }}>
@@ -402,13 +484,16 @@ export default function EarningsScreen() {
                 onPress={() => setSelectedProvider(p)}
                 style={[
                   styles.providerTab,
-                  { backgroundColor: selectedProvider.id === p.id ? colors.primary : colors.backgroundElement }
+                  { backgroundColor: selectedProvider?.id === p.id ? colors.primary : colors.backgroundElement }
                 ]}>
-                <ThemedText style={{ color: selectedProvider.id === p.id ? '#fff' : colors.text, fontWeight: '600' }}>
+                <ThemedText style={{ color: selectedProvider?.id === p.id ? '#fff' : colors.text, fontWeight: '600' }}>
                   {p.label}
                 </ThemedText>
               </TouchableOpacity>
             ))}
+            {providers.length === 0 ? (
+              <ThemedText style={{ color: colors.textSecondary }}>No approved providers found.</ThemedText>
+            ) : null}
           </ScrollView>
         </View>
 
@@ -429,6 +514,12 @@ export default function EarningsScreen() {
             <ThemedText style={[styles.statValue, { color: colors.primary }]}>{promotions.length}</ThemedText>
           </View>
         </View>
+
+        {screenError ? (
+          <View style={[styles.errorBanner, { borderColor: colors.warning }]}>
+            <ThemedText style={{ color: colors.warning, fontWeight: '700' }}>{screenError}</ThemedText>
+          </View>
+        ) : null}
 
         <View style={styles.listHeaderRow}>
           <ThemedText style={{ fontWeight: '700' }}>Payout History</ThemedText>
@@ -476,7 +567,7 @@ export default function EarningsScreen() {
               </View>
             ) : (
               promotions.map((promo) => (
-                <View key={promo.promotionId} style={[styles.earningItem, { borderBottomColor: colors.backgroundSelected }]}>
+                <View key={promo.promotionId ?? promo.code} style={[styles.earningItem, { borderBottomColor: colors.backgroundSelected }]}>
                   <View>
                     <ThemedText style={{ fontWeight: '700', color: colors.primary }}>{promo.code}</ThemedText>
                     <ThemedText type="small" style={{ color: colors.textSecondary }}>
@@ -665,6 +756,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.six,
+  },
+  errorBanner: {
+    marginHorizontal: Spacing.four,
+    marginBottom: Spacing.three,
+    borderWidth: 1,
+    borderRadius: Spacing.one,
+    padding: Spacing.two,
   },
   modalOverlay: {
     flex: 1,

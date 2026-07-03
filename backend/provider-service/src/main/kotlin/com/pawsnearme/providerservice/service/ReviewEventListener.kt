@@ -33,7 +33,11 @@ class ReviewEventListener(
                 val providerId = UUID.fromString(providerIdStr)
                 val rating = ratingNum.toInt()
                 log.info("Applying review rating {} to provider {}", rating, providerId)
-                providerService.updateProviderRating(providerId, rating)
+                runCatching {
+                    providerService.updateProviderRating(providerId, rating)
+                }.onFailure {
+                    log.warn("Skipping ReviewSubmitted event for unknown provider {}", providerId, it)
+                }
             } else {
                 log.warn("Invalid ReviewSubmitted event payload - provider_id: {}, rating: {}", providerIdStr, ratingNum)
             }

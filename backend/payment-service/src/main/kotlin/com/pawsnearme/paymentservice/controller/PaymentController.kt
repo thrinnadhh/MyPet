@@ -56,13 +56,14 @@ class PaymentController(private val paymentService: PaymentService) {
     @PostMapping("/promotions")
     fun createPromotion(
         @Valid @RequestBody promo: Promotion,
-        @RequestHeader("X-User-Role", required = false) role: String?
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestHeader("X-User-Id", required = false) userId: String?
     ): ResponseEntity<Any> {
         if (role != "MERCHANT" && role != "ADMIN") {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to "Access denied: role not authorized"))
         }
         return try {
-            val created = paymentService.createPromotion(promo, role)
+            val created = paymentService.createPromotion(promo, role, userId?.let(UUID::fromString))
             ResponseEntity.status(HttpStatus.CREATED).body(created)
         } catch (e: IllegalArgumentException) {
             ResponseEntity.badRequest().body(mapOf("error" to e.message))

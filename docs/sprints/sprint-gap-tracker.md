@@ -13,7 +13,7 @@ This tracker reflects the current repo state after Sprint 0-9 checklist files an
 | 4 | Dispatch + Captain Delivery Loop | Complete for sprint scope | Re-run live expiry/reassignment, pickup, delivery, and earnings proof during full release regression |
 | 5 | Appointment Booking + Slot Locking | Complete for sprint scope | Re-run appointment-service tests and live appointment proof during full release regression |
 | 6 | Merchant Calendar + Reminders | Complete for sprint scope | Real Expo/FCM push-token registration and vendor delivery evidence before production launch |
-| 7 | Reviews, Payouts, Discount Controls | Partial | Live payout reconciliation and merchant/captain UI proof |
+| 7 | Reviews, Payouts, Discount Controls | Live verifier green | Manual merchant/captain Earnings UI proof with demo mode off |
 | 8 | Hardening, Admin Console, Billing | Complete for sprint scope | Re-run load smoke during full release regression and archive p95 results |
 | 9 | Legal, Store Submission, Launch | Missing | Legal pages, GST invoice proof, store listings, production secret checklist, rollback drill |
 

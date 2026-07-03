@@ -3,6 +3,7 @@ package com.pawsnearme.paymentservice.repository
 import com.pawsnearme.paymentservice.model.*
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.stereotype.Repository
+import java.time.LocalDate
 import java.time.Instant
 import java.util.UUID
 
@@ -14,6 +15,12 @@ interface TransactionRepository : JpaRepository<Transaction, UUID> {
 @Repository
 interface PayoutRepository : JpaRepository<Payout, UUID> {
     fun findByPayeeUserId(payeeUserId: UUID): List<Payout>
+    fun findByPayeeUserIdAndPayeeRoleAndPeriodStartAndPeriodEnd(
+        payeeUserId: UUID,
+        payeeRole: String,
+        periodStart: LocalDate,
+        periodEnd: LocalDate
+    ): Payout?
 }
 
 @Repository
