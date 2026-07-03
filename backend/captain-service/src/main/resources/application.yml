@@ -5,10 +5,20 @@ spring:
   application:
     name: captain-service
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=captains,identity,public&stringtype=unspecified}
+    url: ${SUPAVISOR_DB_URL:${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=captains,identity,public&stringtype=unspecified}}
     username: ${DB_USERNAME:captain_service_role}
     password: ${DB_PASSWORD:captain_service_pass}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    default-schema: captains
+    schemas: captains
+    create-schemas: true
+    user: ${FLYWAY_DB_USERNAME:postgres}
+    password: ${FLYWAY_DB_PASSWORD:postgres}
   jpa:
     properties:
       hibernate:
@@ -23,6 +33,8 @@ spring:
       port: ${REDIS_PORT:6380}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    listener:
+      concurrency: ${KAFKA_LISTENER_CONCURRENCY:3}
     consumer:
       group-id: captain-service-group-v2
       auto-offset-reset: earliest

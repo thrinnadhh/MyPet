@@ -1,14 +1,16 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity, useColorScheme, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
 import { AppIcon } from '@/components/app-icon';
+import { OrderIncomingAlert } from '@/components/order-incoming-alert';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors, Radius, Shadows, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { appConfig } from '@/utils/app-config';
+import { fetchUnreadMerchantAlerts, markAlertRead } from '@/services/notifications';
 
 const ACTIONS = [
   { id: 'approval', label: 'Provider approval', value: 'Pending proof', tone: 'warning' },
@@ -27,8 +29,37 @@ const LIVE_TASKS = [
 export default function Index() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
-  const { user, role, activeRole } = useAuth();
+  const { user, role, activeRole, session } = useAuth();
   const router = useRouter();
+  const [incomingOrder, setIncomingOrder] = useState<{ id: string; amount: string } | null>(null);
+
+  useEffect(() => {
+    if (activeRole !== 'PROVIDER') return undefined;
+
+    const poll = async () => {
+      if (appConfig.allowDemoMode) return;
+      const alerts = await fetchUnreadMerchantAlerts(session?.access_token);
+      const next = alerts[0];
+      if (!next) return;
+      setIncomingOrder({
+        id: next.referenceId ?? next.notificationId,
+        amount: next.body.includes('₹') ? next.body.split('·')[1]?.trim() ?? '' : '',
+      });
+      await markAlertRead(next.notificationId, session?.access_token);
+    };
+
+    void poll();
+    const interval = setInterval(() => void poll(), 8000);
+    return () => clearInterval(interval);
+  }, [activeRole, session?.access_token]);
+
+  useEffect(() => {
+    if (activeRole !== 'PROVIDER' || !appConfig.allowDemoMode) return undefined;
+    const timer = setTimeout(() => {
+      setIncomingOrder({ id: 'ord-demo-8842', amount: '₹1,240' });
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [activeRole]);
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
@@ -47,7 +78,7 @@ export default function Index() {
     <ThemedView style={[styles.container, { backgroundColor: colors.background }]}>
       <SafeAreaView style={styles.safeArea}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          <View style={[styles.hero, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
+          <View style={[styles.hero, { backgroundColor: colors.primarySoft, borderColor: colors.border }]}>
             <View style={styles.heroCopy}>
               <ThemedText type="small" style={{ color: colors.textSecondary, fontWeight: '800' }}>
               {activeRole === 'ADMIN'
@@ -70,6 +101,19 @@ export default function Index() {
               </ThemedText>
             </View>
           </View>
+
+          {activeRole === 'PROVIDER' && incomingOrder ? (
+            <OrderIncomingAlert
+              visible
+              orderId={incomingOrder.id}
+              amount={incomingOrder.amount}
+              onAccept={() => {
+                setIncomingOrder(null);
+                router.push('/explore' as never);
+              }}
+              onDismiss={() => setIncomingOrder(null)}
+            />
+          ) : null}
 
           <View style={styles.metricsGrid}>
             {ACTIONS.map((action) => (
@@ -101,9 +145,11 @@ export default function Index() {
           <View style={styles.quickActions}>
             {[
               { label: 'Onboarding', icon: 'store', route: '/onboarding' },
+              { label: 'Health guides', icon: 'shield', route: '/inventory' },
               { label: 'Inventory', icon: 'cart', route: '/inventory' },
               { label: 'Bookings', icon: 'calendar', route: '/explore' },
-              { label: 'Payouts', icon: 'medical', route: '/earnings' },
+              { label: 'Messages', icon: 'message', route: '/explore' },
+              { label: 'Payouts', icon: 'wallet', route: '/earnings' },
               { label: 'Legal', icon: 'shield', route: '/legal' },
               ...(role === 'ADMIN' || appConfig.allowDemoMode
                 ? [{ label: 'Super Admin', icon: 'shield', route: '/admin' }]

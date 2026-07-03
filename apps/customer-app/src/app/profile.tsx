@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -15,6 +15,14 @@ import { useRouter } from 'expo-router';
 import { AppIcon } from '@/components/app-icon';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { LANGUAGES, type LanguageId } from '@/constants/content';
+import {
+  fetchLocale,
+  fetchVaccinationReminders,
+  setVaccinationReminderEnabled,
+  updateLocale,
+  type VaccinationReminder,
+} from '@/services/preferences';
 import { Colors, Radius, Shadows, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { appConfig } from '@/utils/app-config';
@@ -77,7 +85,14 @@ export default function ProfileScreen() {
     pincode: '560038',
   });
   const [remindersEnabled, setRemindersEnabled] = useState(true);
+  const [vaccinationReminders, setVaccinationReminders] = useState<VaccinationReminder[]>([]);
+  const [language, setLanguage] = useState<LanguageId>('en');
   const [savingAddress, setSavingAddress] = useState(false);
+
+  useEffect(() => {
+    void fetchLocale(session?.access_token).then(setLanguage).catch(() => undefined);
+    void fetchVaccinationReminders(session?.access_token).then(setVaccinationReminders).catch(() => undefined);
+  }, [session?.access_token]);
 
   const initials = useMemo(() => {
     const email = user?.email ?? 'customer@example.com';
@@ -241,6 +256,60 @@ export default function ProfileScreen() {
                 </View>
               </View>
             ))}
+          </Section>
+
+          <Section title="Vaccination Reminders">
+            {vaccinationReminders.map((reminder) => (
+              <View key={reminder.reminderId} style={[styles.listRow, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={[styles.cardTitle, { color: colors.text }]}>
+                    {reminder.vaccineName}
+                  </ThemedText>
+                  <ThemedText type="small" style={{ color: colors.textSecondary }}>
+                    Due {reminder.dueDate}
+                    {reminder.clinicName ? ` · ${reminder.clinicName}` : ''}
+                  </ThemedText>
+                </View>
+                <Switch
+                  value={reminder.enabled}
+                  onValueChange={(enabled) => {
+                    setVaccinationReminders((current) =>
+                      current.map((item) => (item.reminderId === reminder.reminderId ? { ...item, enabled } : item)),
+                    );
+                    void setVaccinationReminderEnabled(reminder.reminderId, enabled, session?.access_token);
+                  }}
+                />
+              </View>
+            ))}
+          </Section>
+
+          <Section title="Language">
+            <ThemedText type="small" style={{ color: colors.textSecondary }}>
+              Suggested from your location. You can override anytime.
+            </ThemedText>
+            <View style={[styles.policyGrid, { borderColor: colors.border }]}>
+              {LANGUAGES.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[
+                    styles.policyButton,
+                    {
+                      borderColor: language === item.id ? colors.primary : colors.border,
+                      backgroundColor: language === item.id ? colors.primarySoft : colors.backgroundElement,
+                    },
+                  ]}
+                  onPress={() => {
+                    setLanguage(item.id);
+                    void updateLocale(item.id, session?.access_token);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select ${item.label}`}
+                >
+                  <ThemedText type="small" style={{ color: colors.text, fontWeight: '800' }}>{item.label}</ThemedText>
+                  <ThemedText type="small" style={{ color: colors.textSecondary, fontSize: 10 }}>{item.region}</ThemedText>
+                </TouchableOpacity>
+              ))}
+            </View>
           </Section>
 
           <Section title="Preferences">

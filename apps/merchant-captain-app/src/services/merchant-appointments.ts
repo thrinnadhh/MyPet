@@ -11,12 +11,14 @@ export interface MerchantProvider {
 
 export interface MerchantBooking {
   id: string;
+  customerId: string;
   customerName: string;
   petName: string;
   serviceName: string;
   slotStartsAt: string;
   status: MerchantAppointmentStatus;
   providerId: string;
+  providerType: string;
   offeringId: string;
   slotId: string;
   visitNotes?: string | null;
@@ -119,12 +121,14 @@ export async function fetchMerchantBookings(ownerUserId: string, accessToken: st
           const slotStart = await fetchSlotStart(appointment.slotId, accessToken);
           return {
             id,
+            customerId: appointment.customerId,
             customerName: `Customer ${compactId(appointment.customerId)}`,
             petName: `Pet ${compactId(appointment.petId)}`,
             serviceName: offerings.get(appointment.offeringId) ?? provider.name,
             slotStartsAt: slotStart ?? appointment.bookedAt ?? new Date().toISOString(),
             status: appointment.status,
             providerId: appointment.providerId,
+            providerType: provider.providerType,
             offeringId: appointment.offeringId,
             slotId: appointment.slotId,
             visitNotes: appointment.visitNotes,
@@ -157,12 +161,14 @@ export async function completeMerchantBooking(
 
   return {
     id,
+    customerId: updated.customerId,
     customerName: `Customer ${compactId(updated.customerId)}`,
     petName: `Pet ${compactId(updated.petId)}`,
     serviceName: updated.offeringId,
     slotStartsAt: updated.bookedAt ?? new Date().toISOString(),
     status: updated.status,
     providerId: updated.providerId,
+    providerType: 'VET_HOSPITAL',
     offeringId: updated.offeringId,
     slotId: updated.slotId,
     visitNotes: updated.visitNotes,

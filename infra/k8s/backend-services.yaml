@@ -1,0 +1,175 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pawsnearme-backend-config
+data:
+  DB_POOL_MAX_SIZE: "5"
+  KAFKA_LISTENER_CONCURRENCY: "3"
+  GATEWAY_TRUST_ENABLED: "true"
+  GATEWAY_RATE_LIMIT_REPLENISH_RATE: "100"
+  GATEWAY_RATE_LIMIT_BURST_CAPACITY: "200"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pawsnearme-backend-secrets
+type: Opaque
+stringData:
+  SUPAVISOR_DB_URL: "jdbc:postgresql://aws-0-region.pooler.supabase.com:6543/postgres?sslmode=require"
+  DB_USERNAME: "postgres.project-ref"
+  DB_PASSWORD: "replace-me"
+  GATEWAY_SECRET: "replace-me"
+  KAFKA_BOOTSTRAP_SERVERS: "replace-me:9092"
+  REDIS_HOST: "replace-me"
+  REDIS_PORT: "6379"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: ghcr.io/your-org/pawsnearme-api-gateway:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: pawsnearme-backend-config
+            - secretRef:
+                name: pawsnearme-backend-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+spec:
+  selector:
+    app: api-gateway
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: discovery-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: discovery-service
+  template:
+    metadata:
+      labels:
+        app: discovery-service
+    spec:
+      containers:
+        - name: discovery-service
+          image: ghcr.io/your-org/pawsnearme-discovery-service:latest
+          ports:
+            - containerPort: 8083
+          envFrom:
+            - configMapRef:
+                name: pawsnearme-backend-config
+            - secretRef:
+                name: pawsnearme-backend-secrets
+          env:
+            - name: SERVER_PORT
+              value: "8083"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: discovery-service
+spec:
+  selector:
+    app: discovery-service
+  ports:
+    - port: 8083
+      targetPort: 8083
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: catalog-service
+  template:
+    metadata:
+      labels:
+        app: catalog-service
+    spec:
+      containers:
+        - name: catalog-service
+          image: ghcr.io/your-org/pawsnearme-catalog-service:latest
+          ports:
+            - containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: pawsnearme-backend-config
+            - secretRef:
+                name: pawsnearme-backend-secrets
+          env:
+            - name: SERVER_PORT
+              value: "8082"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog-service
+spec:
+  selector:
+    app: catalog-service
+  ports:
+    - port: 8082
+      targetPort: 8082
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appointment-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: appointment-service
+  template:
+    metadata:
+      labels:
+        app: appointment-service
+    spec:
+      containers:
+        - name: appointment-service
+          image: ghcr.io/your-org/pawsnearme-appointment-service:latest
+          ports:
+            - containerPort: 8085
+          envFrom:
+            - configMapRef:
+                name: pawsnearme-backend-config
+            - secretRef:
+                name: pawsnearme-backend-secrets
+          env:
+            - name: SERVER_PORT
+              value: "8085"
+            - name: CATALOG_SERVICE_URL
+              value: "http://catalog-service:8082"

@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.RestTemplate
 import java.math.BigDecimal
 import java.time.Instant
@@ -36,6 +35,7 @@ data class OrderPlacedEvent(
     val actorId: UUID,
     val customerId: UUID,
     val providerId: UUID,
+    val merchantOwnerUserId: UUID? = null,
     val totalAmount: BigDecimal,
     val occurredAt: Instant = Instant.now()
 )
@@ -50,7 +50,27 @@ data class OrderStatusChangedEvent(
     val totalAmount: BigDecimal,
     val deliveryFee: BigDecimal,
     val captainId: UUID? = null,
+    val providerId: UUID? = null,
+    val merchantOwnerUserId: UUID? = null,
     val occurredAt: Instant = Instant.now()
+)
+
+data class CustomerOrderSummary(
+    val orderId: UUID,
+    val providerId: UUID,
+    val status: OrderStatus,
+    val flowStep: String,
+    val totalAmount: BigDecimal,
+    val placedAt: Instant,
+    val items: List<String>,
+    val statusHistory: List<OrderStatusHistoryEntry>,
+)
+
+data class OrderStatusHistoryEntry(
+    val fromStatus: OrderStatus?,
+    val toStatus: OrderStatus,
+    val changedAt: Instant,
+    val note: String?,
 )
 
 data class SupportCaseEvent(
@@ -64,7 +84,6 @@ data class SupportCaseEvent(
 )
 
 @Service
-@Transactional
 class OrderService(
     private val orderRepository: OrderRepository,
     private val orderItemRepository: OrderItemRepository,
@@ -79,6 +98,8 @@ class OrderService(
     private val catalogServiceUrl: String,
     @Value("\${PAYMENT_SERVICE_URL:http://localhost:8090}")
     private val paymentServiceUrl: String,
+    @Value("\${PROVIDER_SERVICE_URL:http://localhost:8081}")
+    private val providerServiceUrl: String,
     @Value("\${gateway.trust.secret:}")
     private val gatewayTrustSecret: String = "",
     private val restTemplate: RestTemplate = RestTemplate()
@@ -127,6 +148,7 @@ class OrderService(
                 actorId = savedOrder.customerId,
                 customerId = savedOrder.customerId,
                 providerId = savedOrder.providerId,
+                merchantOwnerUserId = fetchProviderOwnerUserId(savedOrder.providerId),
                 totalAmount = savedOrder.totalAmount
             )
             outboxService.saveEvent(
@@ -144,7 +166,6 @@ class OrderService(
         }
     }
 
-    @Transactional
     fun confirmOrder(orderId: UUID, paymentId: UUID?): Order {
         val order = orderRepository.findById(orderId)
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
@@ -198,7 +219,9 @@ class OrderService(
             toStatus = OrderStatus.ACCEPTED.name,
             totalAmount = saved.totalAmount,
             deliveryFee = saved.deliveryFee,
-            captainId = saved.captainId
+            captainId = saved.captainId,
+            providerId = saved.providerId,
+            merchantOwnerUserId = fetchProviderOwnerUserId(saved.providerId),
         )
         outboxService.saveEvent(
             eventId = event.eventId,
@@ -230,6 +253,7 @@ class OrderService(
                 order.deliveredAt = Instant.now()
                 generateInvoiceForOrder(order)
             }
+            OrderStatus.COMPLETED -> { /* terminal state */ }
             OrderStatus.CANCELLED -> {
                 order.cancelledAt = Instant.now()
                 order.cancellationReason = note
@@ -251,7 +275,9 @@ class OrderService(
             toStatus = newStatus.name,
             totalAmount = updatedOrder.totalAmount,
             deliveryFee = updatedOrder.deliveryFee,
-            captainId = updatedOrder.captainId
+            captainId = updatedOrder.captainId,
+            providerId = updatedOrder.providerId,
+            merchantOwnerUserId = fetchProviderOwnerUserId(updatedOrder.providerId),
         )
         outboxService.saveEvent(
             eventId = event.eventId,
@@ -522,6 +548,48 @@ class OrderService(
             invoiceRepository.save(invoice)
             logger.info("Invoicing: Generated invoice $invoiceNumber for order ${order.orderId}")
         }
+    }
+
+    fun getCustomerOrderSummaries(customerId: UUID): List<CustomerOrderSummary> {
+        return orderRepository.findByCustomerId(customerId).map { order ->
+            val items = orderItemRepository.findByOrderId(order.orderId!!)
+            val history = orderStatusHistoryRepository.findByOrderId(order.orderId!!)
+            CustomerOrderSummary(
+                orderId = order.orderId!!,
+                providerId = order.providerId,
+                status = order.status,
+                flowStep = mapFlowStep(order.status),
+                totalAmount = order.totalAmount,
+                placedAt = order.placedAt,
+                items = items.map { it.offeringNameSnapshot },
+                statusHistory = history.map {
+                    OrderStatusHistoryEntry(it.fromStatus, it.toStatus, it.changedAt, it.note)
+                },
+            )
+        }.sortedByDescending { it.placedAt }
+    }
+
+    private fun fetchProviderOwnerUserId(providerId: UUID): UUID? {
+        return try {
+            val url = "$providerServiceUrl/api/v1/providers/$providerId"
+            val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
+            val response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, Map::class.java)
+            val owner = response.body?.get("ownerUserId") as? String ?: return null
+            UUID.fromString(owner)
+        } catch (e: Exception) {
+            logger.warn("Could not resolve provider owner for {}: {}", providerId, e.message)
+            null
+        }
+    }
+
+    private fun mapFlowStep(status: OrderStatus): String = when (status) {
+        OrderStatus.PLACED, OrderStatus.ACCEPTED -> "placed"
+        OrderStatus.ASSIGNED, OrderStatus.REASSIGNED -> "assigned"
+        OrderStatus.PREPARING, OrderStatus.READY_FOR_PICKUP -> "packed"
+        OrderStatus.PICKED_UP -> "picked"
+        OrderStatus.DELIVERED -> "delivered"
+        OrderStatus.COMPLETED -> "completed"
+        else -> "placed"
     }
 
     private fun internalHeaders(): org.springframework.http.HttpHeaders {

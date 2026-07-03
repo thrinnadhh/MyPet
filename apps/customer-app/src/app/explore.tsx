@@ -12,11 +12,15 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
+import { AppIcon } from '@/components/app-icon';
+import { OrderFlowTracker } from '@/components/order-flow-tracker';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { AppIcon } from '@/components/app-icon';
 import { BottomTabInset, Spacing } from '@/constants/theme';
+import type { OrderFlowStepId } from '@/constants/content';
+import { fetchCustomerOrders } from '@/services/customer-orders';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/context/AuthContext';
 import { appConfig } from '@/utils/app-config';
@@ -41,6 +45,7 @@ interface OrderRecord {
   total: string;
   orderedAt: string;
   hasReview: boolean;
+  flowStep: OrderFlowStepId;
 }
 
 // ─── Mock data ───────────────────────────────────────────────────────────────
@@ -86,6 +91,7 @@ const MOCK_ORDERS: OrderRecord[] = [
     total: '₹1,240',
     orderedAt: new Date(Date.now() - 5 * 86400_000).toISOString(),
     hasReview: false,
+    flowStep: 'delivered',
   },
   {
     id: 'o2',
@@ -94,6 +100,7 @@ const MOCK_ORDERS: OrderRecord[] = [
     total: '₹680',
     orderedAt: new Date(Date.now() - 12 * 86400_000).toISOString(),
     hasReview: true,
+    flowStep: 'completed',
   },
 ];
 
@@ -231,10 +238,11 @@ const STATUS_COLORS: Record<AppointmentStatus, string> = {
 interface ApptCardProps {
   item: AppointmentRecord;
   onReview: (target: ReviewTarget) => void;
+  onMessage: (item: AppointmentRecord) => void;
   theme: ReturnType<typeof useTheme>;
 }
 
-const AppointmentCard = React.memo(function AppointmentCard({ item, onReview, theme }: ApptCardProps) {
+const AppointmentCard = React.memo(function AppointmentCard({ item, onReview, onMessage, theme }: ApptCardProps) {
   const date = new Date(item.slotStartsAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
   const time = new Date(item.slotStartsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -259,6 +267,16 @@ const AppointmentCard = React.memo(function AppointmentCard({ item, onReview, th
         <AppIcon name="calendar" color={theme.textSecondary} size={14} />
         <ThemedText type="small" themeColor="textSecondary">{date} · {time}</ThemedText>
       </View>
+
+      <TouchableOpacity
+        style={[styles.reviewBtn, { borderColor: theme.cta }]}
+        onPress={() => onMessage(item)}
+        accessibilityLabel={`Message ${item.providerName}`}
+        accessibilityRole="button"
+      >
+        <AppIcon name="support" color={theme.cta} size={16} />
+        <ThemedText style={{ color: theme.cta, fontWeight: '600' }}>Message</ThemedText>
+      </TouchableOpacity>
 
       {item.status === 'COMPLETED' && !item.hasReview && (
         <TouchableOpacity
@@ -303,6 +321,8 @@ const OrderCard = React.memo(function OrderCard({ item, onReview, theme }: Order
         <ThemedText type="small" themeColor="textSecondary">{date}</ThemedText>
       </View>
 
+      <OrderFlowTracker currentStep={item.flowStep} />
+
       {!item.hasReview && (
         <TouchableOpacity
           style={[styles.reviewBtn, { borderColor: theme.primary }]}
@@ -325,6 +345,7 @@ const OrderCard = React.memo(function OrderCard({ item, onReview, theme }: Order
 
 export default function HistoryScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const safeAreaInsets = useSafeAreaInsets();
   const { user, session } = useAuth();
   const userId = user?.id;
@@ -367,8 +388,9 @@ export default function HistoryScreen() {
     setLoadingAppointments(true);
     try {
       const liveAppointments = await fetchCustomerAppointments(userId, accessToken);
+      const liveOrders = await fetchCustomerOrders(userId, accessToken).catch(() => [] as OrderRecord[]);
       setAppointments(liveAppointments);
-      setOrders([]);
+      setOrders(liveOrders.length > 0 ? liveOrders : []);
       setLoadError(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not load appointment history.';
@@ -388,6 +410,18 @@ export default function HistoryScreen() {
     setReviewTarget(target);
     setModalVisible(true);
   }, []);
+
+  const handleMessage = useCallback((item: AppointmentRecord) => {
+    router.push({
+      pathname: '/chat',
+      params: {
+        contextType: 'APPOINTMENT',
+        contextId: item.id,
+        providerId: item.providerId,
+        title: item.providerName,
+      },
+    } as never);
+  }, [router]);
 
   const handleSubmitReview = useCallback(async (targetId: string, rating: number, comment: string) => {
     if (!reviewTarget) return;
@@ -426,9 +460,9 @@ export default function HistoryScreen() {
 
   const renderAppointment = useCallback(
     ({ item }: { item: AppointmentRecord }) => (
-      <AppointmentCard item={item} onReview={handleReview} theme={theme} />
+      <AppointmentCard item={item} onReview={handleReview} onMessage={handleMessage} theme={theme} />
     ),
-    [handleReview, theme]
+    [handleMessage, handleReview, theme]
   );
 
   const renderOrder = useCallback(

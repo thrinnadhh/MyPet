@@ -4,12 +4,22 @@ server:
 spring:
   application:
     name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6380}
   cloud:
     gateway:
       # Stamp every proxied request with the gateway secret so downstream services
       # can verify the request originated from the gateway (not a direct port hit).
       default-filters:
         - AddRequestHeader=X-Internal-Gateway-Secret, ${GATEWAY_SECRET:dev-secret-change-in-production}
+        - name: RequestRateLimiter
+          args:
+            redis-rate-limiter.replenishRate: ${GATEWAY_RATE_LIMIT_REPLENISH_RATE:100}
+            redis-rate-limiter.burstCapacity: ${GATEWAY_RATE_LIMIT_BURST_CAPACITY:200}
+            redis-rate-limiter.requestedTokens: 1
+            key-resolver: "#{@clientIpKeyResolver}"
       routes:
         - id: provider-approval-admin
           uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
@@ -134,6 +144,49 @@ spring:
           uri: ${PAYMENT_SERVICE_URL:http://localhost:8090}
           predicates:
             - Path=/api/v1/payments/**
+        - id: chat-service-privacy
+          uri: ${CHAT_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/v1/chat/conversations/*/privacy
+            - Method=PATCH
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
+        - id: chat-service
+          uri: ${CHAT_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/v1/chat/**
+        - id: content-service-admin
+          uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
+          predicates:
+            - Path=/api/v1/content/banners, /api/v1/content/guides, /api/v1/content/guides/**
+            - Method=POST,DELETE
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN,MERCHANT
+        - id: content-service
+          uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
+          predicates:
+            - Path=/api/v1/content/**
+        - id: captain-approval-admin
+          uri: ${CAPTAIN_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/api/v1/captains/pending, /api/v1/captains/*/approve, /api/v1/captains/*/reject
+            - Method=GET,POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: vaccination-reminders
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/vaccination-reminders/**
+        - id: profile-locale
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/profiles/me/locale
   security:
     oauth2:
       resourceserver:

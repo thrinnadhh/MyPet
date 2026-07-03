@@ -24,6 +24,9 @@ class Profile(
     @Column(name = "avatar_url")
     var avatarUrl: String? = null,
 
+    @Column(name = "preferred_locale", nullable = false)
+    var preferredLocale: String = "en",
+
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now(),
 

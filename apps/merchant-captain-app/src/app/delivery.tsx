@@ -13,6 +13,7 @@ import {
   Linking
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { AppIcon } from '@/components/app-icon';
@@ -48,6 +49,7 @@ export default function DeliveryScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
   const { user, session } = useAuth();
+  const router = useRouter();
 
   const [isOnline, setIsOnline] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -323,6 +325,21 @@ export default function DeliveryScreen() {
             </ThemedText>
           </View>
 
+          <TouchableOpacity
+            style={[styles.onboardCard, { backgroundColor: colors.muted, borderColor: colors.border }]}
+            onPress={() => router.push('/captain-onboarding' as never)}
+            accessibilityRole="button"
+            accessibilityLabel="Complete captain onboarding"
+          >
+            <AppIcon name="truck" color={colors.cta} size={22} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <ThemedText style={{ fontWeight: '900' }}>Complete captain onboarding</ThemedText>
+              <ThemedText type="small" style={{ color: colors.textSecondary }}>
+                Upload Aadhar, license, RC, selfie, and bank details for approval.
+              </ThemedText>
+            </View>
+          </TouchableOpacity>
+
           {/* Stepper View if Active Delivery exists */}
           {activeDelivery ? (
             <View style={[styles.card, { backgroundColor: colors.backgroundElement }]}>
@@ -563,6 +580,15 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: Spacing.four,
+  },
+  onboardCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    borderWidth: 1,
+    borderRadius: Spacing.two,
+    padding: Spacing.three,
+    marginBottom: Spacing.three,
   },
   idleContainer: {
     gap: Spacing.three,

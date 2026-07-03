@@ -10,15 +10,20 @@ notification:
     APPOINTMENT_T1H: "Your appointment is in 1 hour! Ref: {referenceId}"
     ORDER_DELIVERED: "Your order has been delivered! Order: {referenceId}"
     ORDER_PLACED: "Your order has been placed successfully! Order: {referenceId}"
+    MERCHANT_ORDER_ALERT: "New order received! Order: {referenceId}"
+    VACCINATION_DUE: "Vaccination reminder for your pet. Ref: {referenceId}"
+    CHAT_MESSAGE: "New message: {referenceId}"
 
 spring:
   application:
     name: notification-service
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=notifications,appointments,catalog,public&stringtype=unspecified}
+    url: ${SUPAVISOR_DB_URL:${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=notifications,appointments,catalog,public&stringtype=unspecified}}
     username: ${DB_USERNAME:notification_service_role}
     password: ${DB_PASSWORD:notification_service_pass}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
   flyway:
     enabled: true
     baseline-on-migrate: true
@@ -37,6 +42,8 @@ spring:
     show-sql: ${JPA_SHOW_SQL:false}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    listener:
+      concurrency: ${KAFKA_LISTENER_CONCURRENCY:3}
     consumer:
       group-id: notification-service
       auto-offset-reset: earliest

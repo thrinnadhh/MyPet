@@ -1,0 +1,31 @@
+server:
+  port: ${SERVER_PORT:8092}
+
+spring:
+  application:
+    name: content-service
+  datasource:
+    url: ${SUPAVISOR_DB_URL:${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=content,public&stringtype=unspecified}}
+    username: ${DB_USERNAME:content_service_role}
+    password: ${DB_PASSWORD:content_service_pass}
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    default-schema: content
+    schemas: content
+    create-schemas: true
+    user: ${FLYWAY_DB_USERNAME:postgres}
+    password: ${FLYWAY_DB_PASSWORD:postgres}
+  jpa:
+    properties:
+      hibernate:
+        default_schema: content
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: none
+
+gateway:
+  trust:
+    enabled: ${GATEWAY_TRUST_ENABLED:false}
+    secret: ${GATEWAY_SECRET:dev-secret-change-in-production}

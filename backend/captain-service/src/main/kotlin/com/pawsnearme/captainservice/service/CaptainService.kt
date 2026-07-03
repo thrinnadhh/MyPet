@@ -21,6 +21,7 @@ import java.util.UUID
 class CaptainService(
     private val profileRepository: CaptainProfileRepository,
     private val earningRepository: CaptainEarningRepository,
+    private val documentRepository: CaptainDocumentRepository,
     private val redisTemplate: StringRedisTemplate
 ) {
 
@@ -31,16 +32,55 @@ class CaptainService(
 
     // --- Onboarding & Profile ---
     
-    fun onboardCaptain(captainId: UUID, vehicleType: VehicleType, vehicleNumber: String?, licenseDocUrl: String?): CaptainProfile {
-        val profile = CaptainProfile(
+    fun onboardCaptain(
+        captainId: UUID,
+        vehicleType: VehicleType,
+        vehicleNumber: String?,
+        licenseDocUrl: String?,
+        bankAccount: String?,
+        bankIfsc: String?,
+        selfieDocUrl: String?,
+        documents: List<Pair<String, String>>,
+    ): CaptainProfile {
+        val existing = profileRepository.findById(captainId).orElse(null)
+        val profile = existing ?: CaptainProfile(
             captainId = captainId,
-            status = CaptainStatus.ACTIVE, // Auto-approve in development
+            status = CaptainStatus.PENDING_APPROVAL,
             vehicleType = vehicleType,
-            vehicleNumber = vehicleNumber,
-            licenseDocUrl = licenseDocUrl
         )
+        profile.status = CaptainStatus.PENDING_APPROVAL
+        profile.vehicleType = vehicleType
+        profile.vehicleNumber = vehicleNumber
+        profile.licenseDocUrl = licenseDocUrl
+        profile.bankAccount = bankAccount
+        profile.bankIfsc = bankIfsc
+        profile.selfieDocUrl = selfieDocUrl
+        val saved = profileRepository.save(profile)
+        documents.forEach { (type, url) ->
+            documentRepository.save(
+                CaptainDocument(captainId = captainId, docType = type, docUrl = url)
+            )
+        }
+        return saved
+    }
+
+    fun listPendingCaptains(): List<CaptainProfile> =
+        profileRepository.findAll().filter { it.status == CaptainStatus.PENDING_APPROVAL }
+
+    fun approveCaptain(captainId: UUID): CaptainProfile {
+        val profile = getProfile(captainId)
+        profile.status = CaptainStatus.ACTIVE
         return profileRepository.save(profile)
     }
+
+    fun rejectCaptain(captainId: UUID): CaptainProfile {
+        val profile = getProfile(captainId)
+        profile.status = CaptainStatus.REJECTED
+        return profileRepository.save(profile)
+    }
+
+    fun getDocuments(captainId: UUID): List<CaptainDocument> =
+        documentRepository.findByCaptainId(captainId)
 
     @Transactional(readOnly = true)
     fun getProfile(captainId: UUID): CaptainProfile {

@@ -5,10 +5,12 @@ spring:
   application:
     name: dispatch-service
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=dispatch,orders,providers,public&stringtype=unspecified}
+    url: ${SUPAVISOR_DB_URL:${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=dispatch,orders,providers,public&stringtype=unspecified}}
     username: ${DB_USERNAME:dispatch_service_role}
     password: ${DB_PASSWORD:dispatch_service_pass}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
     baseline-on-migrate: true
@@ -28,6 +30,8 @@ spring:
       port: ${REDIS_PORT:6380}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    listener:
+      concurrency: ${KAFKA_LISTENER_CONCURRENCY:3}
     consumer:
       group-id: dispatch-service-group-v2
       auto-offset-reset: earliest
