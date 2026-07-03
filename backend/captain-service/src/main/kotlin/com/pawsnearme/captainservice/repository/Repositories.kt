@@ -1,5 +1,6 @@
 package com.pawsnearme.captainservice.repository
 
+import com.pawsnearme.captainservice.model.CaptainDocument
 import com.pawsnearme.captainservice.model.CaptainProfile
 import com.pawsnearme.captainservice.model.CaptainEarning
 import org.springframework.data.jpa.repository.JpaRepository
@@ -9,4 +10,8 @@ interface CaptainProfileRepository : JpaRepository<CaptainProfile, UUID>
 
 interface CaptainEarningRepository : JpaRepository<CaptainEarning, UUID> {
     fun findByCaptainId(captainId: UUID): List<CaptainEarning>
+}
+
+interface CaptainDocumentRepository : JpaRepository<CaptainDocument, UUID> {
+    fun findByCaptainId(captainId: UUID): List<CaptainDocument>
 }

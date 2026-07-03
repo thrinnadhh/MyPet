@@ -4,6 +4,7 @@ import { Text, type StyleProp, type ViewStyle } from 'react-native';
 export type AppIconName =
   | 'cart'
   | 'calendar'
+  | 'check'
   | 'clock'
   | 'location'
   | 'paw'
@@ -11,7 +12,12 @@ export type AppIconName =
   | 'medical'
   | 'sparkle'
   | 'star'
-  | 'history';
+  | 'history'
+  | 'message'
+  | 'support'
+  | 'shield'
+  | 'groom'
+  | 'card';
 
 const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: string }> = {
   cart: { ios: 'cart.fill', android: 'shopping_cart', fallback: 'C' },
@@ -24,6 +30,12 @@ const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: str
   sparkle: { ios: 'sparkles', android: 'auto_awesome', fallback: '*' },
   star: { ios: 'star.fill', android: 'star', fallback: 'R' },
   history: { ios: 'clock.arrow.circlepath', android: 'history', fallback: 'H' },
+  message: { ios: 'message.fill', android: 'chat', fallback: 'M' },
+  support: { ios: 'headphones', android: 'support_agent', fallback: 'A' },
+  shield: { ios: 'shield.lefthalf.filled', android: 'verified_user', fallback: 'S' },
+  groom: { ios: 'scissors', android: 'content_cut', fallback: 'G' },
+  check: { ios: 'checkmark.circle.fill', android: 'check_circle', fallback: '✓' },
+  card: { ios: 'creditcard.fill', android: 'credit_card', fallback: '$' },
 };
 
 export function AppIcon({

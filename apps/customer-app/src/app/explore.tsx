@@ -14,10 +14,13 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
+import { AppIcon } from '@/components/app-icon';
+import { OrderFlowTracker } from '@/components/order-flow-tracker';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { AppIcon } from '@/components/app-icon';
 import { BottomTabInset, Spacing } from '@/constants/theme';
+import type { OrderFlowStepId } from '@/constants/content';
+import { fetchCustomerOrders } from '@/services/customer-orders';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/context/AuthContext';
 import { appConfig } from '@/utils/app-config';
@@ -42,6 +45,7 @@ interface OrderRecord {
   total: string;
   orderedAt: string;
   hasReview: boolean;
+  flowStep: OrderFlowStepId;
 }
 
 // ─── Mock data ───────────────────────────────────────────────────────────────
@@ -87,6 +91,7 @@ const MOCK_ORDERS: OrderRecord[] = [
     total: '₹1,240',
     orderedAt: new Date(Date.now() - 5 * 86400_000).toISOString(),
     hasReview: false,
+    flowStep: 'delivered',
   },
   {
     id: 'o2',
@@ -95,6 +100,7 @@ const MOCK_ORDERS: OrderRecord[] = [
     total: '₹680',
     orderedAt: new Date(Date.now() - 12 * 86400_000).toISOString(),
     hasReview: true,
+    flowStep: 'completed',
   },
 ];
 
@@ -315,6 +321,8 @@ const OrderCard = React.memo(function OrderCard({ item, onReview, theme }: Order
         <ThemedText type="small" themeColor="textSecondary">{date}</ThemedText>
       </View>
 
+      <OrderFlowTracker currentStep={item.flowStep} />
+
       {!item.hasReview && (
         <TouchableOpacity
           style={[styles.reviewBtn, { borderColor: theme.primary }]}
@@ -380,8 +388,9 @@ export default function HistoryScreen() {
     setLoadingAppointments(true);
     try {
       const liveAppointments = await fetchCustomerAppointments(userId, accessToken);
+      const liveOrders = await fetchCustomerOrders(userId, accessToken).catch(() => [] as OrderRecord[]);
       setAppointments(liveAppointments);
-      setOrders([]);
+      setOrders(liveOrders.length > 0 ? liveOrders : []);
       setLoadError(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not load appointment history.';

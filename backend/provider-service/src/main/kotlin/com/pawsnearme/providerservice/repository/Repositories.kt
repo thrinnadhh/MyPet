@@ -26,3 +26,13 @@ interface ProviderDocumentRepository : JpaRepository<ProviderDocument, UUID> {
 
 @Repository
 interface UserRoleJoinRepository : JpaRepository<UserRoleJoin, com.pawsnearme.providerservice.model.UserRoleKey>
+
+@Repository
+interface PetRepository : JpaRepository<Pet, UUID> {
+    fun findByOwnerId(ownerId: UUID): List<Pet>
+}
+
+@Repository
+interface VaccinationReminderRepository : JpaRepository<VaccinationReminder, UUID> {
+    fun findByOwnerId(ownerId: UUID): List<VaccinationReminder>
+}

@@ -11,6 +11,14 @@ spring:
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    default-schema: captains
+    schemas: captains
+    create-schemas: true
+    user: ${FLYWAY_DB_USERNAME:postgres}
+    password: ${FLYWAY_DB_PASSWORD:postgres}
   jpa:
     properties:
       hibernate:

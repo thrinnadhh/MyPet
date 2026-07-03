@@ -21,7 +21,9 @@ type AppIconName =
   | 'truck'
   | 'wallet'
   | 'inventory'
-  | 'xmark';
+  | 'xmark'
+  | 'message'
+  | 'groom';
 
 const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: string }> = {
   cart: { ios: 'cart.fill', android: 'shopping_cart', fallback: 'C' },
@@ -44,6 +46,8 @@ const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: str
   wallet: { ios: 'wallet.pass.fill', android: 'account_balance_wallet', fallback: 'W' },
   inventory: { ios: 'shippingbox.fill', android: 'inventory_2', fallback: 'I' },
   xmark: { ios: 'xmark.circle.fill', android: 'cancel', fallback: 'N' },
+  message: { ios: 'message.fill', android: 'chat', fallback: 'M' },
+  groom: { ios: 'scissors', android: 'content_cut', fallback: 'G' },
 };
 
 export function AppIcon({

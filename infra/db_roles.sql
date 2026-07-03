@@ -159,3 +159,15 @@ GRANT USAGE ON SCHEMA identity TO chat_service_role;
 GRANT SELECT ON identity.profiles TO chat_service_role;
 GRANT USAGE ON SCHEMA providers TO chat_service_role;
 GRANT SELECT ON providers.providers TO chat_service_role;
+
+-- Scoping for Content Service
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'content_service_role') THEN
+        CREATE ROLE content_service_role WITH LOGIN PASSWORD 'content_service_pass';
+    END IF;
+END$$;
+GRANT CONNECT ON DATABASE pawsnearme TO content_service_role;
+GRANT USAGE ON SCHEMA content TO content_service_role;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA content TO content_service_role;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA content TO content_service_role;

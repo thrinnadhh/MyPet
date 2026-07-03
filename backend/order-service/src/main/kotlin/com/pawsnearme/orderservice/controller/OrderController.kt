@@ -4,6 +4,7 @@ import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
 import com.pawsnearme.orderservice.service.CreateOrderRequest
+import com.pawsnearme.orderservice.service.CustomerOrderSummary
 import com.pawsnearme.orderservice.service.OrderService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
@@ -44,6 +45,10 @@ class OrderController(
         val orders = orderRepository.findByCustomerId(customerId)
         return ResponseEntity.ok(orders)
     }
+
+    @GetMapping("/customer/{customerId}/tracking")
+    fun getCustomerOrderTracking(@PathVariable customerId: UUID): ResponseEntity<List<CustomerOrderSummary>> =
+        ResponseEntity.ok(orderService.getCustomerOrderSummaries(customerId))
 
     @GetMapping("/provider/{providerId}")
     fun getOrdersByProvider(@PathVariable providerId: UUID): ResponseEntity<List<Order>> {

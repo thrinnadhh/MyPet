@@ -273,11 +273,38 @@ export default function OnboardingScreen() {
           {providerType === 'PET_STORE' && (
             <>
               <ThemedText style={styles.sectionLabel}>
-                Tax details
+                Tax & shop proof
               </ThemedText>
               <TextInput
                 placeholder="GSTIN Number (Optional)"
                 placeholderTextColor="#888"
+                style={[styles.input, { backgroundColor: colors.backgroundElement, color: colors.text }]}
+              />
+              <TouchableOpacity
+                style={[styles.uploadButton, { backgroundColor: colors.backgroundElement }]}
+                onPress={handleDocUpload}
+                activeOpacity={0.7}
+              >
+                <ThemedText type="small">Upload electricity bill or rental agreement</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.uploadButton, { backgroundColor: colors.backgroundElement }]}
+                onPress={handleDocUpload}
+                activeOpacity={0.7}
+              >
+                <ThemedText type="small">Upload shopfront photo</ThemedText>
+              </TouchableOpacity>
+              <ThemedText style={styles.sectionLabel}>Banking details</ThemedText>
+              <TextInput
+                placeholder="Account number"
+                placeholderTextColor="#888"
+                keyboardType="number-pad"
+                style={[styles.input, { backgroundColor: colors.backgroundElement, color: colors.text }]}
+              />
+              <TextInput
+                placeholder="IFSC"
+                placeholderTextColor="#888"
+                autoCapitalize="characters"
                 style={[styles.input, { backgroundColor: colors.backgroundElement, color: colors.text }]}
               />
             </>

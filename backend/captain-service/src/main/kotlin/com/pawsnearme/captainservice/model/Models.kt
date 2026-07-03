@@ -34,6 +34,15 @@ class CaptainProfile(
     @Column(name = "license_doc_url")
     var licenseDocUrl: String? = null,
 
+    @Column(name = "bank_account")
+    var bankAccount: String? = null,
+
+    @Column(name = "bank_ifsc")
+    var bankIfsc: String? = null,
+
+    @Column(name = "selfie_doc_url")
+    var selfieDocUrl: String? = null,
+
     @Column(name = "rating_avg", precision = 3, scale = 2)
     var ratingAvg: BigDecimal = BigDecimal("0.00"),
 
@@ -69,4 +78,25 @@ class CaptainEarning(
 
     @Column(name = "payout_id")
     var payoutId: UUID? = null
+)
+
+@Entity
+@Table(name = "captain_documents", schema = "captains")
+class CaptainDocument(
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    @Column(name = "document_id")
+    var documentId: UUID? = null,
+
+    @Column(name = "captain_id", nullable = false)
+    var captainId: UUID,
+
+    @Column(name = "doc_type", nullable = false)
+    var docType: String,
+
+    @Column(name = "doc_url", nullable = false)
+    var docUrl: String,
+
+    @Column(name = "uploaded_at", nullable = false)
+    var uploadedAt: Instant = Instant.now()
 )

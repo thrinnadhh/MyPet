@@ -157,6 +157,36 @@ spring:
           uri: ${CHAT_SERVICE_URL:http://localhost:8091}
           predicates:
             - Path=/api/v1/chat/**
+        - id: content-service-admin
+          uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
+          predicates:
+            - Path=/api/v1/content/banners, /api/v1/content/guides, /api/v1/content/guides/**
+            - Method=POST,DELETE
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN,MERCHANT
+        - id: content-service
+          uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
+          predicates:
+            - Path=/api/v1/content/**
+        - id: captain-approval-admin
+          uri: ${CAPTAIN_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/api/v1/captains/pending, /api/v1/captains/*/approve, /api/v1/captains/*/reject
+            - Method=GET,POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: vaccination-reminders
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/vaccination-reminders/**
+        - id: profile-locale
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/profiles/me/locale
   security:
     oauth2:
       resourceserver:

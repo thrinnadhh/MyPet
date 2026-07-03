@@ -18,8 +18,10 @@ import { ThemedView } from '@/components/themed-view';
 import { Colors, Radius, Shadows, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { appConfig } from '@/utils/app-config';
+import { approveCaptain, fetchPendingCaptains } from '@/services/captain-onboarding';
+import { fetchBanners, fetchGuideWriters, revokeGuideWriter } from '@/services/content-admin';
 
-type Section = 'approvals' | 'disputes' | 'commission' | 'support';
+type Section = 'approvals' | 'captains' | 'disputes' | 'commission' | 'banners' | 'guides' | 'promocodes' | 'support';
 
 type ProviderStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'ACTIVE' | 'INFO_REQUESTED';
 
@@ -74,10 +76,35 @@ type SupportCase = {
 };
 
 const SECTIONS: { id: Section; label: string; icon: React.ComponentProps<typeof AppIcon>['name'] }[] = [
-  { id: 'approvals', label: 'Approvals', icon: 'shield' },
+  { id: 'approvals', label: 'Merchants', icon: 'shield' },
+  { id: 'captains', label: 'Captains', icon: 'truck' },
+  { id: 'banners', label: 'Banners', icon: 'sparkle' },
+  { id: 'guides', label: 'Guides', icon: 'medical' },
+  { id: 'promocodes', label: 'Promos', icon: 'percent' },
   { id: 'disputes', label: 'Disputes', icon: 'dispute' },
   { id: 'commission', label: 'Rates', icon: 'percent' },
   { id: 'support', label: 'Support', icon: 'support' },
+];
+
+const DEMO_CAPTAINS = [
+  { id: 'cap-001', name: 'Ravi Kumar', vehicle: 'KA 01 AB 1234', status: 'PENDING_APPROVAL' },
+  { id: 'cap-002', name: 'Suresh Naidu', vehicle: 'TS 09 CD 5678', status: 'PENDING_APPROVAL' },
+];
+
+const DEMO_BANNERS = [
+  { id: 'b1', title: 'Free delivery today', durationSec: 5, active: true },
+  { id: 'b2', title: 'Grooming week', durationSec: 4, active: true },
+  { id: 'b3', title: 'Vet checkup drive', durationSec: 3, active: false },
+];
+
+const DEMO_GUIDE_WRITERS = [
+  { id: 'gw-1', email: 'dr.anita@carevet.com', access: 'ACTIVE' },
+  { id: 'gw-2', email: 'groom.lead@petspa.com', access: 'ACTIVE' },
+];
+
+const DEMO_PROMOCODES = [
+  { id: 'pc-1', code: 'PAWS10', discount: '10% off', scope: 'Platform' },
+  { id: 'pc-2', code: 'FIRST50', discount: '₹50 off', scope: 'New users' },
 ];
 
 const DEMO_PROVIDERS: ProviderApproval[] = [
@@ -205,6 +232,9 @@ export default function SuperAdminScreen() {
   const [commissionReason, setCommissionReason] = useState('');
   const [commissionAudits, setCommissionAudits] = useState<CommissionAudit[]>([]);
   const [supportCases, setSupportCases] = useState<SupportCase[]>([]);
+  const [pendingCaptains, setPendingCaptains] = useState(DEMO_CAPTAINS);
+  const [guideWriters, setGuideWriters] = useState(DEMO_GUIDE_WRITERS);
+  const [liveBanners, setLiveBanners] = useState(DEMO_BANNERS);
 
   const isAdmin = role === 'ADMIN';
   const canUseDemo = appConfig.allowDemoMode;
@@ -261,15 +291,101 @@ export default function SuperAdminScreen() {
     }
   }, [canUseDemo, request]);
 
+  const loadContentSections = useCallback(async () => {
+    try {
+      const token = session?.access_token;
+      const [captains, banners, writers] = await Promise.all([
+        fetchPendingCaptains(token),
+        fetchBanners(token),
+        fetchGuideWriters(token),
+      ]);
+      setPendingCaptains(
+        (captains as Array<{ captainId: string; vehicleNumber?: string; status: string }>).map((c) => ({
+          id: c.captainId,
+          name: `Captain ${c.captainId.slice(0, 8)}`,
+          vehicle: c.vehicleNumber ?? '—',
+          status: c.status,
+        })),
+      );
+      setLiveBanners(
+        (banners as Array<{ id: string; title: string; durationSec: number; active: boolean }>).map((b) => ({
+          id: b.id,
+          title: b.title,
+          durationSec: b.durationSec,
+          active: b.active,
+        })),
+      );
+      setGuideWriters(
+        (writers as Array<{ writerId: string; email: string; accessStatus: string }>).map((w) => ({
+          id: w.writerId,
+          email: w.email,
+          access: w.accessStatus,
+        })),
+      );
+    } catch {
+      if (canUseDemo) {
+        setPendingCaptains(DEMO_CAPTAINS);
+        setLiveBanners(DEMO_BANNERS);
+        setGuideWriters(DEMO_GUIDE_WRITERS);
+      }
+    }
+  }, [canUseDemo, session?.access_token]);
+
   useEffect(() => {
     loadAdminData().finally(() => setLoading(false));
   }, [loadAdminData]);
 
+  useEffect(() => {
+    if (section === 'captains' || section === 'banners' || section === 'guides') {
+      loadContentSections();
+    }
+  }, [section, loadContentSections]);
+
   const refresh = useCallback(async () => {
     setRefreshing(true);
-    await loadAdminData();
+    await Promise.all([loadAdminData(), loadContentSections()]);
     setRefreshing(false);
-  }, [loadAdminData]);
+  }, [loadAdminData, loadContentSections]);
+
+  const approveCaptainProfile = useCallback(
+    async (captainId: string) => {
+      setBusyId(captainId);
+      try {
+        await approveCaptain(captainId, session?.access_token);
+        setPendingCaptains((current) => current.filter((captain) => captain.id !== captainId));
+        Alert.alert('Approved', 'Captain is now active.');
+      } catch (error) {
+        if (canUseDemo) {
+          setPendingCaptains((current) => current.filter((captain) => captain.id !== captainId));
+          Alert.alert('Demo approval', 'Captain removed from the local demo queue.');
+          return;
+        }
+        Alert.alert('Approval failed', error instanceof Error ? error.message : 'Unable to approve captain.');
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [canUseDemo, session?.access_token],
+  );
+
+  const revokeWriter = useCallback(
+    async (writerId: string) => {
+      setBusyId(writerId);
+      try {
+        await revokeGuideWriter(writerId, session?.access_token);
+        setGuideWriters((current) => current.filter((writer) => writer.id !== writerId));
+      } catch (error) {
+        if (canUseDemo) {
+          setGuideWriters((current) => current.filter((writer) => writer.id !== writerId));
+          return;
+        }
+        Alert.alert('Revoke failed', error instanceof Error ? error.message : 'Unable to revoke writer.');
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [canUseDemo, session?.access_token],
+  );
 
   const approveProvider = useCallback(
     async (providerId: string) => {
@@ -541,7 +657,7 @@ export default function SuperAdminScreen() {
             ))}
           </View>
 
-          <View style={[styles.segmented, { backgroundColor: colors.muted }]}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.segmented, { backgroundColor: colors.muted }]}>
             {SECTIONS.map((item) => {
               const selected = section === item.id;
               return (
@@ -563,7 +679,7 @@ export default function SuperAdminScreen() {
                 </TouchableOpacity>
               );
             })}
-          </View>
+          </ScrollView>
 
           {loading ? (
             <View style={[styles.loadingPanel, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
@@ -627,6 +743,93 @@ export default function SuperAdminScreen() {
                   </View>
                 ))
               )}
+            </View>
+          ) : null}
+
+          {!loading && section === 'captains' ? (
+            <View style={styles.sectionStack}>
+              {pendingCaptains.map((captain) => (
+                <View key={captain.id} style={[styles.card, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.flex}>
+                      <ThemedText style={[styles.cardTitle, { color: colors.text }]}>{captain.name}</ThemedText>
+                      <ThemedText type="small" style={{ color: colors.textSecondary }}>Vehicle {captain.vehicle}</ThemedText>
+                    </View>
+                    <StatusPill label={captain.status} color={colors.warning} />
+                  </View>
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity
+                      style={[styles.primaryButton, { backgroundColor: colors.success }]}
+                      activeOpacity={0.78}
+                      disabled={busyId === captain.id}
+                      onPress={() => approveCaptainProfile(captain.id)}
+                    >
+                      <AppIcon name="check" color="#FFFFFF" size={18} />
+                      <ThemedText type="small" style={styles.buttonText}>Approve captain</ThemedText>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {!loading && section === 'banners' ? (
+            <View style={styles.sectionStack}>
+              <View style={[styles.card, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
+                <ThemedText style={[styles.cardTitle, { color: colors.text }]}>Banner auction rotation</ThemedText>
+                <ThemedText type="small" style={{ color: colors.textSecondary }}>
+                  Slot timing: 5s → 4s → 3s → 2s → 1s spotlight on customer home.
+                </ThemedText>
+              </View>
+              {liveBanners.map((banner) => (
+                <View key={banner.id} style={[styles.compactCard, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
+                  <View style={styles.flex}>
+                    <ThemedText style={{ color: colors.text, fontWeight: '900' }}>{banner.title}</ThemedText>
+                    <ThemedText type="small" style={{ color: colors.textSecondary }}>{banner.durationSec}s slot</ThemedText>
+                  </View>
+                  <StatusPill label={banner.active ? 'LIVE' : 'PAUSED'} color={banner.active ? colors.success : colors.textSecondary} />
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {!loading && section === 'guides' ? (
+            <View style={styles.sectionStack}>
+              <View style={[styles.card, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
+                <ThemedText style={[styles.cardTitle, { color: colors.text }]}>Guide writer access</ThemedText>
+                <ThemedText type="small" style={{ color: colors.textSecondary }}>
+                  Grant username/password access for trusted vets and groomers to publish health guides.
+                </ThemedText>
+              </View>
+              {guideWriters.map((writer) => (
+                <View key={writer.id} style={[styles.compactCard, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
+                  <View style={styles.flex}>
+                    <ThemedText style={{ color: colors.text, fontWeight: '900' }}>{writer.email}</ThemedText>
+                    <ThemedText type="small" style={{ color: colors.textSecondary }}>Guides-only login</ThemedText>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.secondaryButton, { borderColor: colors.danger }]}
+                    disabled={busyId === writer.id}
+                    onPress={() => revokeWriter(writer.id)}
+                  >
+                    <ThemedText type="small" style={{ color: colors.danger, fontWeight: '900' }}>Revoke</ThemedText>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {!loading && section === 'promocodes' ? (
+            <View style={styles.sectionStack}>
+              {DEMO_PROMOCODES.map((promo) => (
+                <View key={promo.id} style={[styles.compactCard, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
+                  <View style={styles.flex}>
+                    <ThemedText style={{ color: colors.text, fontWeight: '900' }}>{promo.code}</ThemedText>
+                    <ThemedText type="small" style={{ color: colors.textSecondary }}>{promo.discount} · {promo.scope}</ThemedText>
+                  </View>
+                  <StatusPill label="ACTIVE" color={colors.cta} />
+                </View>
+              ))}
             </View>
           ) : null}
 
@@ -1041,12 +1244,13 @@ const styles = StyleSheet.create({
     gap: Spacing.one,
   },
   segment: {
-    flex: 1,
+    minWidth: 88,
     minHeight: 48,
     borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.half,
+    paddingHorizontal: Spacing.two,
   },
   loadingPanel: {
     minHeight: 120,

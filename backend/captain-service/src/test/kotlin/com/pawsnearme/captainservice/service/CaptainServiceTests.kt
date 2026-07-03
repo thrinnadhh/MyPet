@@ -23,7 +23,8 @@ class CaptainServiceTests {
         on { opsForZSet() } doReturn zsetOps
     }
 
-    private val service = CaptainService(profileRepository, earningRepository, redisTemplate)
+    private val documentRepository: CaptainDocumentRepository = mock()
+    private val service = CaptainService(profileRepository, earningRepository, documentRepository, redisTemplate)
 
     private val captainId = UUID.randomUUID()
 
@@ -93,10 +94,12 @@ class CaptainServiceTests {
     // ── onboardCaptain ────────────────────────────────────────────────────────
 
     @Test
-    fun `onboardCaptain - saves and returns profile with ACTIVE status`() {
+    fun `onboardCaptain - saves and returns profile with PENDING_APPROVAL status`() {
+        whenever(profileRepository.findById(captainId)).thenReturn(Optional.empty())
         whenever(profileRepository.save(any())).thenAnswer { it.getArgument<CaptainProfile>(0) }
+        whenever(documentRepository.save(any())).thenAnswer { it.getArgument<CaptainDocument>(0) }
 
-        val result = service.onboardCaptain(captainId, VehicleType.BIKE, "KA01AB1234", null)
-        assertEquals(CaptainStatus.ACTIVE, result.status)
+        val result = service.onboardCaptain(captainId, VehicleType.BIKE, "KA01AB1234", null, null, null, null, emptyList())
+        assertEquals(CaptainStatus.PENDING_APPROVAL, result.status)
     }
 }

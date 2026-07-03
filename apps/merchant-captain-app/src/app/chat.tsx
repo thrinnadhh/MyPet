@@ -16,10 +16,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 
+import { AppIcon } from '@/components/app-icon';
+import { PrimaryButton } from '@/components/ui/primary-button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Colors, Radius, Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { useTheme } from '@/hooks/use-theme';
 import { appConfig } from '@/utils/app-config';
 import {
   fetchConversation,
@@ -60,7 +63,7 @@ export default function MerchantChatScreen() {
   const [showPrivacy, setShowPrivacy] = useState(false);
   const listRef = useRef<FlatList<ChatMessage>>(null);
 
-  const colors = Colors.light;
+  const theme = useTheme();
   const isVet = (params.providerType ?? conversation?.providerType) === 'VET_HOSPITAL';
 
   const loadChat = useCallback(async () => {
@@ -198,9 +201,9 @@ export default function MerchantChatScreen() {
       const isMine = item.senderRole === 'MERCHANT';
       return (
         <View style={[styles.bubbleRow, isMine ? styles.bubbleRowMine : styles.bubbleRowOther]}>
-          <View style={[styles.bubble, { backgroundColor: isMine ? colors.cta : colors.backgroundElement }]}>
+          <View style={[styles.bubble, { backgroundColor: isMine ? theme.cta : theme.backgroundElement, borderColor: theme.border, borderWidth: isMine ? 0 : 1 }]}>
             {!isMine ? (
-              <ThemedText type="small" style={{ color: colors.textSecondary, fontWeight: '700' }}>
+              <ThemedText type="small" style={{ color: theme.textSecondary, fontWeight: '700' }}>
                 {item.senderName}
               </ThemedText>
             ) : null}
@@ -208,19 +211,19 @@ export default function MerchantChatScreen() {
               <Image source={{ uri: item.imageUrl }} style={styles.imagePreview} resizeMode="cover" />
             ) : null}
             {item.body ? (
-              <ThemedText style={{ color: isMine ? '#ffffff' : colors.text }}>{item.body}</ThemedText>
+              <ThemedText style={{ color: isMine ? '#ffffff' : theme.text }}>{item.body}</ThemedText>
             ) : null}
           </View>
         </View>
       );
     },
-    [colors.backgroundElement, colors.cta, colors.text, colors.textSecondary],
+    [theme.backgroundElement, theme.cta, theme.text, theme.textSecondary],
   );
 
   if (loading) {
     return (
       <ThemedView style={styles.centered}>
-        <ActivityIndicator size="large" color={colors.cta} />
+        <ActivityIndicator size="large" color={theme.cta} />
       </ThemedView>
     );
   }
@@ -228,8 +231,8 @@ export default function MerchantChatScreen() {
   if (error || !conversation) {
     return (
       <ThemedView style={styles.centered}>
-        <ThemedText style={{ color: colors.danger }}>{error ?? 'Chat unavailable'}</ThemedText>
-        <TouchableOpacity onPress={() => router.back()} style={[styles.backButton, { borderColor: colors.border }]}>
+        <ThemedText style={{ color: theme.danger }}>{error ?? 'Chat unavailable'}</ThemedText>
+        <TouchableOpacity onPress={() => router.back()} style={[styles.backButton, { borderColor: theme.border }]}>
           <ThemedText style={{ fontWeight: '800' }}>Back</ThemedText>
         </TouchableOpacity>
       </ThemedView>
@@ -239,29 +242,29 @@ export default function MerchantChatScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+        <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.backgroundElement }]}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <ThemedText style={{ fontWeight: '900' }}>Back</ThemedText>
           </TouchableOpacity>
           <View style={styles.headerCopy}>
             <ThemedText style={styles.headerTitle}>{headerTitle}</ThemedText>
-            <ThemedText type="small" style={{ color: colors.textSecondary }}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
               {conversation.customer.phoneHidden
                 ? 'Customer phone hidden'
                 : conversation.customer.phoneNumber ?? 'Customer phone hidden'}
             </ThemedText>
           </View>
-          <TouchableOpacity onPress={() => setShowPrivacy((current) => !current)} style={[styles.privacyButton, { borderColor: colors.border }]}>
+          <TouchableOpacity onPress={() => setShowPrivacy((current) => !current)} style={[styles.privacyButton, { borderColor: theme.border }]}>
             <ThemedText style={{ fontWeight: '800' }}>Privacy</ThemedText>
           </TouchableOpacity>
         </View>
 
         {showPrivacy ? (
-          <View style={[styles.privacyPanel, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
+          <View style={[styles.privacyPanel, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
             <View style={styles.privacyRow}>
               <View style={styles.privacyCopy}>
                 <ThemedText style={{ fontWeight: '800' }}>Show customer phone</ThemedText>
-                <ThemedText type="small" style={{ color: colors.textSecondary }}>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
                   Reveal customer number to your team in this chat.
                 </ThemedText>
               </View>
@@ -275,7 +278,7 @@ export default function MerchantChatScreen() {
               <View style={styles.privacyRow}>
                 <View style={styles.privacyCopy}>
                   <ThemedText style={{ fontWeight: '800' }}>Show doctor phone to customer</ThemedText>
-                  <ThemedText type="small" style={{ color: colors.textSecondary }}>
+                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
                     Let the customer see the assigned doctor&apos;s contact number.
                   </ThemedText>
                 </View>
@@ -299,30 +302,30 @@ export default function MerchantChatScreen() {
         />
 
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View style={[styles.composer, { borderTopColor: colors.border, backgroundColor: colors.background }]}>
+          <View style={[styles.composer, { borderTopColor: theme.border, backgroundColor: theme.background }]}>
             <TouchableOpacity
               onPress={() => void handlePickImage()}
               disabled={sending}
-              style={[styles.attachButton, { borderColor: colors.border }]}
+              style={[styles.attachButton, { borderColor: theme.border, backgroundColor: theme.muted }]}
               accessibilityLabel="Attach image"
             >
-              <ThemedText style={{ fontWeight: '900' }}>IMG</ThemedText>
+              <AppIcon name="sparkle" color={theme.primary} size={18} />
             </TouchableOpacity>
             <TextInput
               value={draft}
               onChangeText={setDraft}
               placeholder="Reply to customer"
-              placeholderTextColor={colors.textSecondary}
-              style={[styles.input, { color: colors.text, borderColor: colors.border }]}
+              placeholderTextColor={theme.textSecondary}
+              style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundElement }]}
               multiline
             />
-            <TouchableOpacity
+            <PrimaryButton
+              label="Send"
               onPress={() => void handleSend()}
               disabled={sending || !draft.trim()}
-              style={[styles.sendButton, { backgroundColor: colors.cta, opacity: sending || !draft.trim() ? 0.5 : 1 }]}
-            >
-              <ThemedText style={styles.sendLabel}>Send</ThemedText>
-            </TouchableOpacity>
+              loading={sending}
+              style={styles.sendButton}
+            />
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -412,11 +415,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
   },
   sendButton: {
+    minWidth: 88,
     minHeight: 44,
-    borderRadius: Radius.md,
-    paddingHorizontal: Spacing.three,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  sendLabel: { color: '#ffffff', fontWeight: '800' },
 });
