@@ -17,4 +17,5 @@ interface GuideArticleRepository : JpaRepository<GuideArticle, UUID> {
 
 interface GuideWriterRepository : JpaRepository<GuideWriter, UUID> {
     fun findByAccessStatus(accessStatus: String): List<GuideWriter>
+    fun findByUserId(userId: UUID): GuideWriter?
 }

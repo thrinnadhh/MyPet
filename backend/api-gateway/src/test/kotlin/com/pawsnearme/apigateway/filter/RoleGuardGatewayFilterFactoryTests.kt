@@ -67,4 +67,42 @@ class RoleGuardGatewayFilterFactoryTests {
         assertEquals(false, wasCalled.get())
         assertEquals(HttpStatus.FORBIDDEN, exchange.response.statusCode)
     }
+
+    @Test
+    fun `rejects MERCHANT role from banner writes`() {
+        val exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/v1/content/banners")
+                .header("X-User-Role", "MERCHANT")
+        )
+        val wasCalled = AtomicBoolean(false)
+        val chain = GatewayFilterChain {
+            wasCalled.set(true)
+            Mono.empty()
+        }
+        val filter = factory.apply(RoleGuardGatewayFilterFactory.Config("ADMIN"))
+
+        filter.filter(exchange, chain).block()
+
+        assertEquals(false, wasCalled.get())
+        assertEquals(HttpStatus.FORBIDDEN, exchange.response.statusCode)
+    }
+
+    @Test
+    fun `rejects MERCHANT role from guide writer grant`() {
+        val exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/v1/content/guides/writers")
+                .header("X-User-Role", "MERCHANT")
+        )
+        val wasCalled = AtomicBoolean(false)
+        val chain = GatewayFilterChain {
+            wasCalled.set(true)
+            Mono.empty()
+        }
+        val filter = factory.apply(RoleGuardGatewayFilterFactory.Config("ADMIN"))
+
+        filter.filter(exchange, chain).block()
+
+        assertEquals(false, wasCalled.get())
+        assertEquals(HttpStatus.FORBIDDEN, exchange.response.statusCode)
+    }
 }

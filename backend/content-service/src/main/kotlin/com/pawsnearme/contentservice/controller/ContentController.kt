@@ -91,6 +91,7 @@ class ContentController(private val contentService: ContentService) {
     @PostMapping("/guides")
     fun createGuide(
         @RequestHeader(value = "X-User-Id", required = false) userId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) userRole: String?,
         @RequestBody request: UpsertGuideRequest,
     ): ResponseEntity<GuideDto> {
         val saved = contentService.upsertGuide(
@@ -102,7 +103,8 @@ class ContentController(private val contentService: ContentService) {
                 readMinutes = request.readMinutes,
                 published = request.published,
                 authorUserId = userId?.let(UUID::fromString),
-            )
+            ),
+            callerRole = userRole,
         )
         return ResponseEntity.ok(saved.toDto())
     }

@@ -11,6 +11,8 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 import java.util.UUID
 
+class ContentAccessDeniedException(message: String) : RuntimeException(message)
+
 @Service
 @Transactional
 class ContentService(
@@ -31,7 +33,16 @@ class ContentService(
         return bannerRepo.save(banner)
     }
 
-    fun upsertGuide(article: GuideArticle): GuideArticle {
+    fun upsertGuide(article: GuideArticle, callerRole: String?): GuideArticle {
+        val authorId = article.authorUserId
+            ?: throw IllegalArgumentException("Author is required to publish a guide.")
+        if (callerRole?.uppercase() != "ADMIN") {
+            val writer = writerRepo.findByUserId(authorId)
+                ?: throw ContentAccessDeniedException("Guide writer access has not been granted.")
+            if (writer.accessStatus != "ACTIVE") {
+                throw ContentAccessDeniedException("Guide writer access is not active.")
+            }
+        }
         article.updatedAt = Instant.now()
         return guideRepo.save(article)
     }

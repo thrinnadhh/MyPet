@@ -125,7 +125,7 @@ class AppointmentServiceTests {
 
     @Test
     fun `confirmAppointment - books held slot clears hold key and publishes event contracts`() {
-        val appointment = appointment(status = AppointmentStatus.SLOT_HELD)
+        val appointment = appointment(status = AppointmentStatus.SLOT_HELD, payAtClinic = true)
         whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appointment))
         whenever(redisTemplate.hasKey("hold:slots:$slotId")).thenReturn(true)
         whenever(appointmentRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Appointment>(0) }
@@ -142,7 +142,7 @@ class AppointmentServiceTests {
             eq(Void::class.java)
         )).thenReturn(org.springframework.http.ResponseEntity.ok().build())
 
-        val saved = service.confirmAppointment(appointmentId)
+        val saved = service.confirmAppointment(appointmentId, null, customerId, "CUSTOMER")
 
         assertEquals(AppointmentStatus.CONFIRMED, saved.status)
         verify(redisTemplate).delete("hold:slots:$slotId")
@@ -170,12 +170,15 @@ class AppointmentServiceTests {
     fun `confirmAppointment - expired hold releases slot and clears redis hold key`() {
         val appointment = appointment(
             status = AppointmentStatus.SLOT_HELD,
-            bookedAt = Instant.now().minusSeconds(301)
+            bookedAt = Instant.now().minusSeconds(301),
+            payAtClinic = true,
         )
         whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appointment))
         whenever(appointmentRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Appointment>(0) }
 
-        val ex = assertThrows<IllegalStateException> { service.confirmAppointment(appointmentId) }
+        val ex = assertThrows<IllegalStateException> {
+            service.confirmAppointment(appointmentId, null, customerId, "CUSTOMER")
+        }
 
         assertTrue(ex.message!!.contains("expired"))
         assertEquals(AppointmentStatus.EXPIRED, appointment.status)
@@ -264,7 +267,8 @@ class AppointmentServiceTests {
 
     private fun appointment(
         status: AppointmentStatus,
-        bookedAt: Instant = Instant.now()
+        bookedAt: Instant = Instant.now(),
+        payAtClinic: Boolean = false,
     ) = Appointment(
         appointmentId = appointmentId,
         customerId = customerId,
@@ -274,6 +278,7 @@ class AppointmentServiceTests {
         petId = petId,
         status = status,
         priceAmount = BigDecimal("500.00"),
-        bookedAt = bookedAt
+        bookedAt = bookedAt,
+        payAtClinic = payAtClinic,
     )
 }

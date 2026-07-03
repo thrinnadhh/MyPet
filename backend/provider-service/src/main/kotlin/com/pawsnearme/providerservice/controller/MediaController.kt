@@ -1,59 +1,58 @@
 package com.pawsnearme.providerservice.controller
 
-import org.springframework.beans.factory.annotation.Value
+import com.pawsnearme.providerservice.service.MediaUploadAccessDeniedException
+import com.pawsnearme.providerservice.service.MediaUploadService
+import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
-import java.io.File
-import java.nio.file.Files
-import java.nio.file.Paths
 import java.util.UUID
 
 @RestController
 @RequestMapping("/api/v1/providers")
 class MediaController(
-    @Value("\${provider.public-base-url:http://localhost:8081}")
-    private val publicBaseUrl: String,
+    private val mediaUploadService: MediaUploadService,
 ) {
-
-    private val uploadDir = "./uploads"
-
-    init {
-        val dir = File(uploadDir)
-        if (!dir.exists()) {
-            dir.mkdirs()
-        }
-    }
-
     @PostMapping("/upload-url")
     fun getUploadUrl(
-        @RequestParam filename: String,
-    ): ResponseEntity<Map<String, String>> {
-        val uniqueName = "${UUID.randomUUID()}_$filename"
-        val base = publicBaseUrl.trimEnd('/')
-        val uploadUrl = "$base/api/v1/providers/upload-file?filename=$uniqueName"
-        val fileUrl = "$base/uploads/$uniqueName"
-
+        @RequestHeader("X-User-Id", required = false) userId: String?,
+    ): ResponseEntity<Any> {
+        if (userId.isNullOrBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Missing authenticated user context."))
+        }
+        val reservation = mediaUploadService.reserveUpload(UUID.fromString(userId))
         return ResponseEntity.ok(
             mapOf(
-                "uploadUrl" to uploadUrl,
-                "fileUrl" to fileUrl,
+                "uploadToken" to reservation.uploadToken,
+                "uploadUrl" to reservation.uploadUrl,
             ),
         )
     }
 
     @PostMapping("/upload-file")
     fun uploadFile(
-        @RequestParam filename: String,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
+        @RequestParam uploadToken: String,
         @RequestParam("file") file: MultipartFile,
-    ): ResponseEntity<Map<String, String>> {
-        val destinationPath = Paths.get(uploadDir, filename)
-        Files.write(destinationPath, file.bytes)
-        return ResponseEntity.ok(
-            mapOf(
-                "status" to "SUCCESS",
-                "filename" to filename,
-            ),
-        )
+    ): ResponseEntity<Any> {
+        if (userId.isNullOrBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Missing authenticated user context."))
+        }
+        return try {
+            val stored = mediaUploadService.storeUpload(UUID.fromString(userId), uploadToken, file)
+            ResponseEntity.ok(
+                mapOf(
+                    "status" to "SUCCESS",
+                    "fileUrl" to stored.fileUrl,
+                    "filename" to stored.storedFilename,
+                ),
+            )
+        } catch (ex: MediaUploadAccessDeniedException) {
+            ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to ex.message))
+        } catch (ex: IllegalArgumentException) {
+            ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapOf("error" to ex.message))
+        }
     }
 }
