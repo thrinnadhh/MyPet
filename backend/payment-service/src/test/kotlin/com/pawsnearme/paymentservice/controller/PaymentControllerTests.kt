@@ -65,4 +65,29 @@ class PaymentControllerTests {
             controller.getTransaction(txId, UUID.randomUUID().toString(), "CUSTOMER")
         }
     }
+
+    @Test
+    fun `refundPayment - non-admin role - throws PaymentAccessDeniedException`() {
+        assertThrows<PaymentAccessDeniedException> {
+            controller.refundPayment(referenceId, "CUSTOMER")
+        }
+    }
+
+    @Test
+    fun `refundPayment - admin role - succeeds`() {
+        val tx = Transaction(
+            transactionId = UUID.randomUUID(),
+            userId = userId,
+            transactionType = "ORDER_PAYMENT",
+            referenceId = referenceId,
+            amount = BigDecimal("500.00"),
+            status = "REFUNDED"
+        )
+        whenever(paymentService.refundPayment(referenceId)).thenReturn(tx)
+
+        val response = controller.refundPayment(referenceId, "ADMIN")
+
+        assertEquals(HttpStatus.OK, response.statusCode)
+        assertEquals(tx, response.body)
+    }
 }

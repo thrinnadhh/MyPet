@@ -187,14 +187,24 @@ class OrderServiceTests {
         whenever(orderRepository.findById(order.orderId!!)).thenReturn(java.util.Optional.of(order))
         whenever(orderRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Order>(0) }
         whenever(orderItemRepository.findByOrderId(order.orderId!!)).thenReturn(items)
-        whenever(restTemplate.postForObject(any<String>(), anyOrNull(), eq(String::class.java))).thenReturn("SUCCESS")
+        whenever(restTemplate.exchange(
+            any<String>(),
+            eq(org.springframework.http.HttpMethod.PUT),
+            anyOrNull(),
+            eq(Map::class.java)
+        )).thenReturn(org.springframework.http.ResponseEntity.ok(emptyMap<String, Any>()))
 
         val result = service.updateOrderStatus(order.orderId!!, OrderStatus.CANCELLED, customerId, "customer request")
 
         assertEquals(OrderStatus.CANCELLED, result.status)
         assertNotNull(result.cancelledAt)
         assertEquals("customer request", result.cancellationReason)
-        verify(restTemplate).postForObject(eq("http://localhost:8082/api/v1/catalog/offerings/${items[0].offeringId}/increment?qty=2"), anyOrNull(), eq(String::class.java))
+        verify(restTemplate).exchange(
+            eq("http://localhost:8082/api/v1/catalog/offerings/${items[0].offeringId}/restore-stock?quantity=2"),
+            eq(org.springframework.http.HttpMethod.PUT),
+            anyOrNull(),
+            eq(Map::class.java)
+        )
     }
 
     // ── support cases ─────────────────────────────────────────────────────────

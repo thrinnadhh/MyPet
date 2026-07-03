@@ -100,7 +100,8 @@ class PaymentServiceTests {
             amount = request.amount,
             status = "PENDING"
         )
-        whenever(transactionRepository.findByReferenceId(referenceId)).thenReturn(transaction)
+        whenever(transactionRepository.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(referenceId, listOf("PENDING", "SUCCESS")))
+            .thenReturn(transaction)
 
         val event = service.recordPaymentResult(request)
 
@@ -129,7 +130,8 @@ class PaymentServiceTests {
             amount = request.amount,
             status = "PENDING"
         )
-        whenever(transactionRepository.findByReferenceId(referenceId)).thenReturn(transaction)
+        whenever(transactionRepository.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(referenceId, listOf("PENDING", "SUCCESS")))
+            .thenReturn(transaction)
 
         val event = service.recordPaymentResult(request)
 

@@ -78,10 +78,12 @@ class AppointmentAuthTests {
         
         // Mock provider owner lookup
         val merchantId = UUID.randomUUID()
-        whenever(restOperations.getForObject(
+        whenever(restOperations.exchange(
             eq("http://localhost:8081/api/v1/providers/$providerId"),
+            eq(org.springframework.http.HttpMethod.GET),
+            any<org.springframework.http.HttpEntity<Any>>(),
             eq(Map::class.java)
-        )).thenReturn(mapOf("ownerUserId" to merchantId.toString()))
+        )).thenReturn(org.springframework.http.ResponseEntity.ok(mapOf("ownerUserId" to merchantId.toString())))
 
         val result = service.getAppointment(appointmentId, merchantId, "MERCHANT")
         assertEquals(appt.appointmentId, result.appointmentId)
@@ -93,10 +95,12 @@ class AppointmentAuthTests {
         whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appt))
         
         // Mock provider owner lookup
-        whenever(restOperations.getForObject(
+        whenever(restOperations.exchange(
             eq("http://localhost:8081/api/v1/providers/$providerId"),
+            eq(org.springframework.http.HttpMethod.GET),
+            any<org.springframework.http.HttpEntity<Any>>(),
             eq(Map::class.java)
-        )).thenReturn(mapOf("ownerUserId" to UUID.randomUUID().toString()))
+        )).thenReturn(org.springframework.http.ResponseEntity.ok(mapOf("ownerUserId" to UUID.randomUUID().toString())))
 
         assertThrows<AppointmentAccessDeniedException> {
             service.getAppointment(appointmentId, UUID.randomUUID(), "MERCHANT")
@@ -125,10 +129,12 @@ class AppointmentAuthTests {
         whenever(appointmentRepository.findByProviderId(providerId)).thenReturn(list)
 
         val merchantId = UUID.randomUUID()
-        whenever(restOperations.getForObject(
+        whenever(restOperations.exchange(
             eq("http://localhost:8081/api/v1/providers/$providerId"),
+            eq(org.springframework.http.HttpMethod.GET),
+            any<org.springframework.http.HttpEntity<Any>>(),
             eq(Map::class.java)
-        )).thenReturn(mapOf("ownerUserId" to merchantId.toString()))
+        )).thenReturn(org.springframework.http.ResponseEntity.ok(mapOf("ownerUserId" to merchantId.toString())))
 
         val result = service.getAppointmentsByProvider(providerId, merchantId, "MERCHANT")
         assertEquals(1, result.size)
@@ -139,10 +145,12 @@ class AppointmentAuthTests {
         val appt = appointment()
         whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appt))
 
-        whenever(restOperations.getForObject(
+        whenever(restOperations.exchange(
             eq("http://localhost:8081/api/v1/providers/$providerId"),
+            eq(org.springframework.http.HttpMethod.GET),
+            any<org.springframework.http.HttpEntity<Any>>(),
             eq(Map::class.java)
-        )).thenReturn(mapOf("ownerUserId" to UUID.randomUUID().toString()))
+        )).thenReturn(org.springframework.http.ResponseEntity.ok(mapOf("ownerUserId" to UUID.randomUUID().toString())))
 
         assertThrows<AppointmentAccessDeniedException> {
             service.updateAppointmentStatus(

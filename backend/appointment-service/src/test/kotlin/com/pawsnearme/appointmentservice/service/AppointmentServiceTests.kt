@@ -129,15 +129,29 @@ class AppointmentServiceTests {
         whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appointment))
         whenever(redisTemplate.hasKey("hold:slots:$slotId")).thenReturn(true)
         whenever(appointmentRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Appointment>(0) }
-        whenever(restOperations.getForObject("http://localhost:8082/api/v1/catalog/slots/$slotId", CatalogSlotSnapshot::class.java)).thenReturn(
-            CatalogSlotSnapshot(slotId = slotId, slotStart = Instant.parse("2026-07-05T10:00:00Z"))
-        )
+        whenever(restOperations.exchange(
+            eq("http://localhost:8082/api/v1/catalog/slots/$slotId"),
+            eq(org.springframework.http.HttpMethod.GET),
+            any<org.springframework.http.HttpEntity<Any>>(),
+            eq(CatalogSlotSnapshot::class.java)
+        )).thenReturn(org.springframework.http.ResponseEntity.ok(CatalogSlotSnapshot(slotId = slotId, slotStart = Instant.parse("2026-07-05T10:00:00Z"))))
+        whenever(restOperations.exchange(
+            eq("http://localhost:8082/api/v1/catalog/slots/$slotId/status?status=BOOKED"),
+            eq(org.springframework.http.HttpMethod.PUT),
+            any<org.springframework.http.HttpEntity<Any>>(),
+            eq(Void::class.java)
+        )).thenReturn(org.springframework.http.ResponseEntity.ok().build())
 
         val saved = service.confirmAppointment(appointmentId)
 
         assertEquals(AppointmentStatus.CONFIRMED, saved.status)
         verify(redisTemplate).delete("hold:slots:$slotId")
-        verify(restOperations).put("http://localhost:8082/api/v1/catalog/slots/$slotId/status?status=BOOKED", null)
+        verify(restOperations).exchange(
+            eq("http://localhost:8082/api/v1/catalog/slots/$slotId/status?status=BOOKED"),
+            eq(org.springframework.http.HttpMethod.PUT),
+            any<org.springframework.http.HttpEntity<Any>>(),
+            eq(Void::class.java)
+        )
         verify(outboxService, atLeastOnce()).saveEvent(
             eventId = any(),
             aggregateType = eq("APPOINTMENT"),
@@ -166,7 +180,12 @@ class AppointmentServiceTests {
         assertTrue(ex.message!!.contains("expired"))
         assertEquals(AppointmentStatus.EXPIRED, appointment.status)
         verify(redisTemplate).delete("hold:slots:$slotId")
-        verify(restOperations).put("http://localhost:8082/api/v1/catalog/slots/$slotId/status?status=AVAILABLE", null)
+        verify(restOperations).exchange(
+            eq("http://localhost:8082/api/v1/catalog/slots/$slotId/status?status=AVAILABLE"),
+            eq(org.springframework.http.HttpMethod.PUT),
+            any<org.springframework.http.HttpEntity<Any>>(),
+            eq(Void::class.java)
+        )
     }
 
     // ── updateAppointmentStatus ───────────────────────────────────────────────

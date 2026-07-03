@@ -79,6 +79,8 @@ class OrderService(
     private val catalogServiceUrl: String,
     @Value("\${PAYMENT_SERVICE_URL:http://localhost:8090}")
     private val paymentServiceUrl: String,
+    @Value("\${gateway.trust.secret:}")
+    private val gatewayTrustSecret: String = "",
     private val restTemplate: RestTemplate = RestTemplate()
 ) {
     fun createOrder(request: CreateOrderRequest): Order {
@@ -160,7 +162,7 @@ class OrderService(
 
         try {
             val url = "$paymentServiceUrl/api/v1/payments/transactions/$paymentIdToUse"
-            val headers = org.springframework.http.HttpHeaders()
+            val headers = internalHeaders()
             headers.set("X-User-Role", "ADMIN")
             val entity = org.springframework.http.HttpEntity<Any>(headers)
             val response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, Map::class.java)
@@ -276,9 +278,17 @@ class OrderService(
     @CircuitBreaker(name = "catalogService", fallbackMethod = "decrementCatalogStockFallback")
     @Retry(name = "catalogService")
     private fun decrementCatalogStock(offeringId: UUID, quantity: Int, baseUrl: String): OrderItem {
-        val url = "$baseUrl/api/v1/catalog/offerings/$offeringId/decrement?qty=$quantity"
-        val response = restTemplate.postForObject(url, null, Map::class.java)
-            ?: throw IllegalStateException("Catalog service returned empty response")
+        if (quantity <= 0) {
+            throw IllegalArgumentException("Quantity must be greater than zero")
+        }
+        val url = "$baseUrl/api/v1/catalog/offerings/$offeringId/decrement-stock?quantity=$quantity"
+        val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
+        val response = restTemplate.exchange(
+            url,
+            org.springframework.http.HttpMethod.PUT,
+            entity,
+            Map::class.java
+        ).body ?: throw IllegalStateException("Catalog service returned empty response")
 
         val price = parseCatalogPrice(response["price"])
         val name = response["name"] as? String ?: "Pet Product"
@@ -299,10 +309,16 @@ class OrderService(
     }
 
     private fun restoreReservedCatalogStock(items: List<OrderItemRequest>) {
-        for (item in items) {
+        for (item in items.asReversed()) {
             try {
-                val url = "$catalogServiceUrl/api/v1/catalog/offerings/${item.offeringId}/increment?qty=${item.quantity}"
-                restTemplate.postForObject(url, null, String::class.java)
+                val url = "$catalogServiceUrl/api/v1/catalog/offerings/${item.offeringId}/restore-stock?quantity=${item.quantity}"
+                val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
+                restTemplate.exchange(
+                    url,
+                    org.springframework.http.HttpMethod.PUT,
+                    entity,
+                    Map::class.java
+                )
             } catch (e: Exception) {
                 logger.error("WARNING: Failed to restore catalog stock for offering ${item.offeringId}: ${e.message}")
             }
@@ -475,7 +491,10 @@ class OrderService(
     private fun triggerPaymentRefund(orderId: UUID) {
         try {
             val url = "$paymentServiceUrl/api/v1/payments/refund?orderId=$orderId"
-            restTemplate.postForEntity(url, null, String::class.java)
+            val headers = internalHeaders()
+            headers.set("X-User-Role", "ADMIN")
+            val entity = org.springframework.http.HttpEntity<Any>(headers)
+            restTemplate.postForEntity(url, entity, String::class.java)
             logger.info("Dispute System: Triggered automated refund for order $orderId")
         } catch (e: Exception) {
             logger.error("WARNING: Failed to call payment-service refund endpoint: ${e.message}")
@@ -503,6 +522,14 @@ class OrderService(
             invoiceRepository.save(invoice)
             logger.info("Invoicing: Generated invoice $invoiceNumber for order ${order.orderId}")
         }
+    }
+
+    private fun internalHeaders(): org.springframework.http.HttpHeaders {
+        val headers = org.springframework.http.HttpHeaders()
+        if (gatewayTrustSecret.isNotBlank()) {
+            headers.set("X-Internal-Gateway-Secret", gatewayTrustSecret)
+        }
+        return headers
     }
 
     companion object {

@@ -43,6 +43,8 @@ class DispatchService(
     private val idempotencyService: IdempotencyService,
     @Value("\${ORDER_SERVICE_URL:http://localhost:8084}")
     private val orderServiceBaseUrl: String = "http://localhost:8084",
+    @Value("\${gateway.trust.secret:}")
+    private val gatewayTrustSecret: String = "",
     private val restTemplate: RestOperations = RestTemplate()
 ) {
 
@@ -312,7 +314,7 @@ class DispatchService(
     }
 
     private fun updateOrderStatus(orderId: UUID, status: String, captainId: UUID, note: String) {
-        val headers = org.springframework.http.HttpHeaders()
+        val headers = internalHeaders()
         headers.set("X-User-Id", captainId.toString())
         val entity = org.springframework.http.HttpEntity<Any>(headers)
         val encodedNote = URLEncoder.encode(note, StandardCharsets.UTF_8)
@@ -322,6 +324,14 @@ class DispatchService(
             entity,
             Any::class.java
         )
+    }
+
+    private fun internalHeaders(): org.springframework.http.HttpHeaders {
+        val headers = org.springframework.http.HttpHeaders()
+        if (gatewayTrustSecret.isNotBlank()) {
+            headers.set("X-Internal-Gateway-Secret", gatewayTrustSecret)
+        }
+        return headers
     }
 
     private fun publishDispatchEvent(

@@ -96,7 +96,9 @@ class AppointmentService(
     @Value("\${appointment.hold-duration-seconds:300}")
     private val holdDurationSeconds: Long,
     @Value("\${PROVIDER_SERVICE_URL:http://localhost:8081}")
-    private val providerServiceUrl: String = "http://localhost:8081"
+    private val providerServiceUrl: String = "http://localhost:8081",
+    @Value("\${gateway.trust.secret:}")
+    private val gatewayTrustSecret: String = ""
 ) {
     private val logger = LoggerFactory.getLogger(AppointmentService::class.java)
     private val objectMapper = ObjectMapper()
@@ -119,13 +121,23 @@ class AppointmentService(
 
     private fun updateCatalogSlotStatus(slotId: UUID, status: String) {
         val url = "$catalogServiceUrl/api/v1/catalog/slots/$slotId/status?status=$status"
-        restTemplate.put(url, null)
+        restTemplate.exchange(
+            url,
+            org.springframework.http.HttpMethod.PUT,
+            org.springframework.http.HttpEntity<Any>(internalHeaders()),
+            Void::class.java
+        )
     }
 
     private fun fetchCatalogSlotStart(slotId: UUID): String? {
         return try {
             val url = "$catalogServiceUrl/api/v1/catalog/slots/$slotId"
-            restTemplate.getForObject(url, CatalogSlotSnapshot::class.java)?.slotStart?.toString()
+            restTemplate.exchange(
+                url,
+                org.springframework.http.HttpMethod.GET,
+                org.springframework.http.HttpEntity<Any>(internalHeaders()),
+                CatalogSlotSnapshot::class.java
+            ).body?.slotStart?.toString()
         } catch (e: Exception) {
             logger.warn("Failed to read slot start from Catalog Service: {}", e.message, e)
             null
@@ -351,7 +363,12 @@ class AppointmentService(
     fun fetchProviderOwnerUserId(providerId: UUID): UUID? {
         return try {
             val url = "$providerServiceUrl/api/v1/providers/$providerId"
-            val response = restTemplate.getForObject(url, Map::class.java)
+            val response = restTemplate.exchange(
+                url,
+                org.springframework.http.HttpMethod.GET,
+                org.springframework.http.HttpEntity<Any>(internalHeaders()),
+                Map::class.java
+            ).body
             val ownerIdStr = response?.get("ownerUserId") as? String
             ownerIdStr?.let { UUID.fromString(it) }
         } catch (e: Exception) {
@@ -475,6 +492,14 @@ class AppointmentService(
             note = note
         )
         appointmentStatusHistoryRepository.save(history)
+    }
+
+    private fun internalHeaders(): org.springframework.http.HttpHeaders {
+        val headers = org.springframework.http.HttpHeaders()
+        if (gatewayTrustSecret.isNotBlank()) {
+            headers.set("X-Internal-Gateway-Secret", gatewayTrustSecret)
+        }
+        return headers
     }
 
     private fun generateInvoiceForAppointment(appointment: Appointment) {

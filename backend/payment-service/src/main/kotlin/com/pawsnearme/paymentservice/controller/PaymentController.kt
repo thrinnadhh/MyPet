@@ -140,7 +140,13 @@ class PaymentController(private val paymentService: PaymentService) {
     }
 
     @PostMapping("/refund")
-    fun refundPayment(@RequestParam orderId: UUID): ResponseEntity<Any> {
+    fun refundPayment(
+        @RequestParam orderId: UUID,
+        @RequestHeader("X-User-Role", required = false) role: String?
+    ): ResponseEntity<Any> {
+        if (role != "ADMIN") {
+            throw PaymentAccessDeniedException("Access denied: refund requires ADMIN role")
+        }
         val tx = paymentService.refundPayment(orderId)
         return ResponseEntity.ok(tx)
     }

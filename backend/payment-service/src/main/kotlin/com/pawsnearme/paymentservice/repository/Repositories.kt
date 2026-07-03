@@ -11,7 +11,8 @@ import java.util.UUID
 
 @Repository
 interface TransactionRepository : JpaRepository<Transaction, UUID> {
-    fun findByReferenceId(referenceId: UUID): Transaction?
+    fun findFirstByReferenceIdOrderByCreatedAtDesc(referenceId: UUID): Transaction?
+    fun findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(referenceId: UUID, statuses: Collection<String>): Transaction?
     fun findByGatewayTransactionId(gatewayTransactionId: String): Transaction?
 }
 

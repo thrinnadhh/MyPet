@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.RestTemplate
 import org.springframework.web.client.RestOperations
 import java.math.BigDecimal
+import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -77,7 +78,10 @@ class PaymentService(
             mac.init(secretKey)
             val computedHash = mac.doFinal(payload.toByteArray())
             val computedSignature = computedHash.joinToString("") { "%02x".format(it) }
-            computedSignature.equals(signature, ignoreCase = true)
+            MessageDigest.isEqual(
+                computedSignature.toByteArray(Charsets.UTF_8),
+                signature.lowercase().toByteArray(Charsets.UTF_8)
+            )
         } catch (e: Exception) {
             false
         }
@@ -90,6 +94,31 @@ class PaymentService(
         amount: BigDecimal,
         transactionType: String
     ): RazorpayOrderResponse {
+        val existingPending = transactionRepository.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(
+            referenceId,
+            listOf("PENDING")
+        )
+        if (existingPending != null && existingPending.gatewayTransactionId != null) {
+            return RazorpayOrderResponse(
+                keyId = razorpayKeyId.ifBlank { "rzp_test_mockkey" },
+                orderId = existingPending.gatewayTransactionId!!,
+                amount = existingPending.amount,
+                currency = existingPending.currency,
+                transactionId = existingPending.transactionId
+                    ?: throw IllegalStateException("Existing transaction did not have an id")
+            )
+        }
+        if (existingPending != null) {
+            throw IllegalStateException("Payment order creation is already in progress for reference ID $referenceId")
+        }
+        val existingSuccess = transactionRepository.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(
+            referenceId,
+            listOf("SUCCESS")
+        )
+        if (existingSuccess != null) {
+            throw IllegalStateException("Payment is already completed for reference ID $referenceId")
+        }
+
         val transaction = transactionRepository.save(
             Transaction(
                 userId = userId,
@@ -149,7 +178,10 @@ class PaymentService(
 
     @Transactional
     fun recordPaymentResult(request: PaymentResultRequest): PaymentResultEvent {
-        val transaction = transactionRepository.findByReferenceId(request.referenceId)
+        val transaction = transactionRepository.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(
+            request.referenceId,
+            listOf("PENDING", "SUCCESS")
+        ) ?: transactionRepository.findFirstByReferenceIdOrderByCreatedAtDesc(request.referenceId)
             ?: throw IllegalArgumentException("Transaction not found for reference ID ${request.referenceId}")
 
         if (transaction.status == "SUCCESS") {
@@ -439,7 +471,10 @@ class PaymentService(
 
     @Transactional
     fun refundPayment(referenceId: UUID): Transaction {
-        val transaction = transactionRepository.findByReferenceId(referenceId)
+        val transaction = transactionRepository.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(
+            referenceId,
+            listOf("SUCCESS", "REFUNDED")
+        )
             ?: throw IllegalArgumentException("Transaction not found for reference ID $referenceId")
 
         if (transaction.status == "REFUNDED") {
