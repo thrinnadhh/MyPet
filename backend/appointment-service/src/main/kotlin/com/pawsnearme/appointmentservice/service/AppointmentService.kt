@@ -189,10 +189,28 @@ class AppointmentService(
                 priceAmount = request.priceAmount,
                 payAtClinic = request.payAtClinic
             )
-            val saved = appointmentRepository.save(appointment)
+            val saved = try {
+                appointmentRepository.save(appointment)
+            } catch (e: Exception) {
+                try {
+                    updateCatalogSlotStatus(request.slotId, "AVAILABLE")
+                } catch (rollbackEx: Exception) {
+                    println("WARNING: Failed to revert slot status to AVAILABLE after database failure: ${rollbackEx.message}")
+                }
+                throw e
+            }
 
-            logStatusChange(saved.appointmentId!!, null, AppointmentStatus.CONFIRMED, saved.customerId, "Appointment booked and confirmed")
-            publishAppointmentBooked(saved)
+            try {
+                logStatusChange(saved.appointmentId!!, null, AppointmentStatus.CONFIRMED, saved.customerId, "Appointment booked and confirmed")
+                publishAppointmentBooked(saved)
+            } catch (e: Exception) {
+                try {
+                    updateCatalogSlotStatus(request.slotId, "AVAILABLE")
+                } catch (rollbackEx: Exception) {
+                    println("WARNING: Failed to revert slot status to AVAILABLE after status logging failure: ${rollbackEx.message}")
+                }
+                throw e
+            }
 
             return saved
         } finally {
@@ -228,10 +246,28 @@ class AppointmentService(
                 priceAmount = request.priceAmount,
                 payAtClinic = request.payAtClinic
             )
-            val saved = appointmentRepository.save(appointment)
+            val saved = try {
+                appointmentRepository.save(appointment)
+            } catch (e: Exception) {
+                try {
+                    updateCatalogSlotStatus(request.slotId, "AVAILABLE")
+                } catch (rollbackEx: Exception) {
+                    println("WARNING: Failed to revert slot status to AVAILABLE after database failure: ${rollbackEx.message}")
+                }
+                throw e
+            }
 
-            logStatusChange(saved.appointmentId!!, null, AppointmentStatus.SLOT_HELD, saved.customerId, "Slot held for customer")
-            redisTemplate.opsForValue().set(holdKey(saved.slotId), saved.appointmentId.toString(), holdDuration)
+            try {
+                logStatusChange(saved.appointmentId!!, null, AppointmentStatus.SLOT_HELD, saved.customerId, "Slot held for customer")
+                redisTemplate.opsForValue().set(holdKey(saved.slotId), saved.appointmentId.toString(), holdDuration)
+            } catch (e: Exception) {
+                try {
+                    updateCatalogSlotStatus(request.slotId, "AVAILABLE")
+                } catch (rollbackEx: Exception) {
+                    println("WARNING: Failed to revert slot status to AVAILABLE after status logging failure: ${rollbackEx.message}")
+                }
+                throw e
+            }
 
             return saved
         } finally {

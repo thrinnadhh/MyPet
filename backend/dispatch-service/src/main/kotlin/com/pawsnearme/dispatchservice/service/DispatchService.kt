@@ -232,7 +232,7 @@ class DispatchService(
     // --- Expiry / Timeout Scheduler (Task 4) ---
     @Scheduled(fixedDelay = 5000)
     fun checkOfferTimeouts() {
-        val activeJobs = jobRepository.findAll().filter { it.status == JobStatus.OFFERED }
+        val activeJobs = jobRepository.findByStatus(JobStatus.OFFERED)
         for (job in activeJobs) {
             val pendingOffer = offerRepository.findByJobIdAndResponseIsNull(job.jobId!!)
             if (pendingOffer != null) {

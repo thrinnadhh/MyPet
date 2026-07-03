@@ -141,7 +141,7 @@ class AuthenticationHeaderFilterTests {
             mapOf(
                 "sub" to "provider-user",
                 "role" to "authenticated",
-                "user_metadata" to mapOf("role" to "PROVIDER")
+                "app_metadata" to mapOf("role" to "PROVIDER")
             )
         )
         val authentication = TestingAuthenticationToken(jwt, null)
