@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
 import { AppIcon } from '@/components/app-icon';
 import { ThemedText } from '@/components/themed-text';
@@ -66,6 +67,7 @@ export default function ProfileScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
   const { user, session, signOut } = useAuth();
+  const router = useRouter();
 
   const [pets, setPets] = useState(DEFAULT_PETS);
   const [address, setAddress] = useState<AddressDraft>({
@@ -251,7 +253,13 @@ export default function ProfileScreen() {
             </View>
             <View style={[styles.policyGrid, { borderColor: colors.border }]}>
               {['Terms', 'Privacy', 'Refunds', 'Disputes'].map((item) => (
-                <TouchableOpacity key={item} style={[styles.policyButton, { borderColor: colors.border }]}>
+                <TouchableOpacity
+                  key={item}
+                  style={[styles.policyButton, { borderColor: colors.border }]}
+                  onPress={() => router.push('/legal' as never)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${item} policy`}
+                >
                   <ThemedText type="small" style={{ color: colors.text, fontWeight: '800' }}>{item}</ThemedText>
                 </TouchableOpacity>
               ))}

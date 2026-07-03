@@ -12,8 +12,10 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.RestOperations
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
 import java.util.UUID
 
 data class BookAppointmentRequest(
@@ -80,6 +82,7 @@ data class AppointmentStatusChangedEvent(
 class AppointmentService(
     private val appointmentRepository: AppointmentRepository,
     private val appointmentStatusHistoryRepository: AppointmentStatusHistoryRepository,
+    private val appointmentInvoiceRepository: AppointmentInvoiceRepository,
     private val redisTemplate: StringRedisTemplate,
     private val kafkaTemplate: KafkaTemplate<String, Any>,
     private val restTemplate: RestOperations,
@@ -329,9 +332,17 @@ class AppointmentService(
 
         val updated = appointmentRepository.save(appointment)
         logStatusChange(appointmentId, oldStatus, newStatus, changedBy, note)
+        if (newStatus == AppointmentStatus.COMPLETED) {
+            generateInvoiceForAppointment(updated)
+        }
         publishAppointmentStatusChanged(updated, oldStatus, newStatus, changedBy)
 
         return updated
+    }
+
+    fun getInvoiceByAppointmentId(appointmentId: UUID): AppointmentInvoice {
+        return appointmentInvoiceRepository.findByAppointmentId(appointmentId)
+            .orElseThrow { NoSuchElementException("Invoice not found for appointment $appointmentId") }
     }
 
     private fun logStatusChange(appointmentId: UUID, from: AppointmentStatus?, to: AppointmentStatus, by: UUID, note: String?) {
@@ -343,5 +354,27 @@ class AppointmentService(
             note = note
         )
         appointmentStatusHistoryRepository.save(history)
+    }
+
+    private fun generateInvoiceForAppointment(appointment: Appointment) {
+        val appointmentId = appointment.appointmentId ?: return
+        if (appointmentInvoiceRepository.findByAppointmentId(appointmentId).isPresent) {
+            return
+        }
+
+        val subtotal = appointment.priceAmount.setScale(2, RoundingMode.HALF_UP)
+        val tax = subtotal.multiply(BigDecimal("0.18")).setScale(2, RoundingMode.HALF_UP)
+        val total = subtotal.add(tax).setScale(2, RoundingMode.HALF_UP)
+        val invoiceNumber = "APT-INV-${LocalDate.now().year}-${appointmentId.toString().take(8).uppercase()}"
+
+        appointmentInvoiceRepository.save(
+            AppointmentInvoice(
+                appointmentId = appointmentId,
+                invoiceNumber = invoiceNumber,
+                subtotalAmount = subtotal,
+                taxAmount = tax,
+                totalAmount = total
+            )
+        )
     }
 }

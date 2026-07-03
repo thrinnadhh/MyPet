@@ -1,6 +1,7 @@
 package com.pawsnearme.appointmentservice.controller
 
 import com.pawsnearme.appointmentservice.model.Appointment
+import com.pawsnearme.appointmentservice.model.AppointmentInvoice
 import com.pawsnearme.appointmentservice.model.AppointmentStatus
 import com.pawsnearme.appointmentservice.repository.AppointmentRepository
 import com.pawsnearme.appointmentservice.service.BookAppointmentRequest
@@ -74,6 +75,15 @@ class AppointmentController(
         return if (appointment.isPresent) {
             ResponseEntity.ok(appointment.get())
         } else {
+            ResponseEntity.notFound().build()
+        }
+    }
+
+    @GetMapping("/{id}/invoice")
+    fun getAppointmentInvoice(@PathVariable id: UUID): ResponseEntity<AppointmentInvoice> {
+        return try {
+            ResponseEntity.ok(appointmentService.getInvoiceByAppointmentId(id))
+        } catch (e: NoSuchElementException) {
             ResponseEntity.notFound().build()
         }
     }

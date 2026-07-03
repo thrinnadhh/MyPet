@@ -19,6 +19,7 @@ class AppointmentServiceTests {
 
     private val appointmentRepository: AppointmentRepository = mock()
     private val statusHistoryRepository: AppointmentStatusHistoryRepository = mock()
+    private val invoiceRepository: AppointmentInvoiceRepository = mock()
     private val valueOps: ValueOperations<String, String> = mock()
     private val redisTemplate: StringRedisTemplate = mock {
         on { opsForValue() } doReturn valueOps
@@ -27,7 +28,7 @@ class AppointmentServiceTests {
     private val restOperations: RestOperations = mock()
 
     private val service = AppointmentService(
-        appointmentRepository, statusHistoryRepository,
+        appointmentRepository, statusHistoryRepository, invoiceRepository,
         redisTemplate, kafkaTemplate, restOperations,
         "http://localhost:8082", 300L
     )
@@ -180,6 +181,7 @@ class AppointmentServiceTests {
         val appointment = appointment(status = AppointmentStatus.CONFIRMED)
         whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appointment))
         whenever(appointmentRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Appointment>(0) }
+        whenever(invoiceRepository.findByAppointmentId(appointmentId)).thenReturn(java.util.Optional.empty())
 
         service.updateAppointmentStatus(appointmentId, AppointmentStatus.COMPLETED, customerId, "visit done", "https://example.com/rx.pdf")
 
@@ -189,6 +191,46 @@ class AppointmentServiceTests {
             assertTrue(it.contains("\"from_status\":\"CONFIRMED\""))
             assertTrue(it.contains("\"to_status\":\"COMPLETED\""))
         })
+    }
+
+    @Test
+    fun `updateAppointmentStatus - COMPLETED - generates appointment GST invoice`() {
+        val appointment = appointment(status = AppointmentStatus.CONFIRMED)
+        whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appointment))
+        whenever(appointmentRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Appointment>(0) }
+        whenever(invoiceRepository.findByAppointmentId(appointmentId)).thenReturn(java.util.Optional.empty())
+
+        service.updateAppointmentStatus(appointmentId, AppointmentStatus.COMPLETED, customerId)
+
+        verify(invoiceRepository).save(check<AppointmentInvoice> {
+            assertEquals(appointmentId, it.appointmentId)
+            assertEquals(BigDecimal("500.00"), it.subtotalAmount)
+            assertEquals(BigDecimal("90.00"), it.taxAmount)
+            assertEquals(BigDecimal("590.00"), it.totalAmount)
+            assertTrue(it.invoiceNumber.startsWith("APT-INV-"))
+        })
+    }
+
+    @Test
+    fun `updateAppointmentStatus - COMPLETED - does not duplicate appointment invoice`() {
+        val appointment = appointment(status = AppointmentStatus.CONFIRMED)
+        whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appointment))
+        whenever(appointmentRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Appointment>(0) }
+        whenever(invoiceRepository.findByAppointmentId(appointmentId)).thenReturn(
+            java.util.Optional.of(
+                AppointmentInvoice(
+                    appointmentId = appointmentId,
+                    invoiceNumber = "APT-INV-2026-EXISTING",
+                    subtotalAmount = BigDecimal("500.00"),
+                    taxAmount = BigDecimal("90.00"),
+                    totalAmount = BigDecimal("590.00")
+                )
+            )
+        )
+
+        service.updateAppointmentStatus(appointmentId, AppointmentStatus.COMPLETED, customerId)
+
+        verify(invoiceRepository, never()).save(any())
     }
 
     private fun appointment(
