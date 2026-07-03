@@ -29,6 +29,12 @@ class DispatchJob(
     @Column(name = "max_attempts", nullable = false)
     var maxAttempts: Int = 3,
 
+    @Column(name = "pickup_otp")
+    var pickupOtp: String? = null,
+
+    @Column(name = "delivery_otp")
+    var deliveryOtp: String? = null,
+
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant = Instant.now(),
 

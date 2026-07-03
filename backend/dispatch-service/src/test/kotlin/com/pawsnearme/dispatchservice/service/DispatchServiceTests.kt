@@ -24,8 +24,12 @@ class DispatchServiceTests {
     private val kafkaTemplate: KafkaTemplate<String, Any> = mock()
     private val entityManager: EntityManager = mock()
 
+    private val outboxService: com.pawsnearme.common.outbox.OutboxService = mock()
+    private val idempotencyService: com.pawsnearme.common.idempotency.IdempotencyService = mock()
+
     private val service = DispatchService(
-        jobRepository, offerRepository, redisTemplate, kafkaTemplate, entityManager
+        jobRepository, offerRepository, redisTemplate, kafkaTemplate, entityManager,
+        outboxService, idempotencyService
     )
 
     // ── startDispatchProcess ──────────────────────────────────────────────────
@@ -51,7 +55,7 @@ class DispatchServiceTests {
         val offerId = UUID.randomUUID()
         whenever(offerRepository.findById(offerId)).thenReturn(Optional.empty())
 
-        assertThrows<NoSuchElementException> { service.respondToOffer(offerId, "ACCEPTED") }
+        assertThrows<NoSuchElementException> { service.respondToOffer(offerId, "ACCEPTED", UUID.randomUUID()) }
     }
 
     @Test
@@ -68,7 +72,7 @@ class DispatchServiceTests {
 
         whenever(offerRepository.findById(offerId)).thenReturn(Optional.of(offer))
 
-        val ex = assertThrows<IllegalStateException> { service.respondToOffer(offerId, "REJECTED") }
+        val ex = assertThrows<IllegalStateException> { service.respondToOffer(offerId, "REJECTED", offer.captainId) }
         assertTrue(ex.message!!.contains("already responded"))
     }
 
@@ -99,6 +103,8 @@ class DispatchServiceTests {
             redisTemplate,
             kafkaTemplate,
             entityManager,
+            outboxService,
+            idempotencyService,
             restTemplate = restTemplate
         )
         val jobId = UUID.randomUUID()
@@ -122,10 +128,12 @@ class DispatchServiceTests {
             any(),
             eq(Any::class.java)
         )
-        verify(kafkaTemplate).send(
-            eq("dispatch.events"),
-            eq(jobId.toString()),
-            argThat<String> { contains("DispatchJobPickedUp") }
+        verify(outboxService).saveEvent(
+            eventId = any(),
+            aggregateType = eq("DISPATCH"),
+            aggregateId = eq(jobId),
+            eventType = eq("DispatchJobPickedUp"),
+            eventPayload = any()
         )
     }
 
@@ -138,6 +146,8 @@ class DispatchServiceTests {
             redisTemplate,
             kafkaTemplate,
             entityManager,
+            outboxService,
+            idempotencyService,
             restTemplate = restTemplate
         )
         val jobId = UUID.randomUUID()
@@ -162,10 +172,12 @@ class DispatchServiceTests {
             any(),
             eq(Any::class.java)
         )
-        verify(kafkaTemplate).send(
-            eq("dispatch.events"),
-            eq(jobId.toString()),
-            argThat<String> { contains("DispatchJobDelivered") }
+        verify(outboxService).saveEvent(
+            eventId = any(),
+            aggregateType = eq("DISPATCH"),
+            aggregateId = eq(jobId),
+            eventType = eq("DispatchJobDelivered"),
+            eventPayload = any()
         )
     }
 
@@ -187,10 +199,12 @@ class DispatchServiceTests {
 
         assertEquals(JobStatus.FAILED, job.status)
         verify(jobRepository).save(job)
-        verify(kafkaTemplate).send(
-            eq("dispatch.events"),
-            eq(jobId.toString()),
-            argThat<String> { contains("DispatchJobFailed") }
+        verify(outboxService).saveEvent(
+            eventId = any(),
+            aggregateType = eq("DISPATCH"),
+            aggregateId = eq(jobId),
+            eventType = eq("DispatchJobFailed"),
+            eventPayload = any()
         )
     }
 }

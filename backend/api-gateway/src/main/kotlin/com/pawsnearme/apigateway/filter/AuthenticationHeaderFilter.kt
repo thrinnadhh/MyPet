@@ -63,11 +63,6 @@ class AuthenticationHeaderFilter : GlobalFilter, Ordered {
         val nestedAppRole = appMetadata?.get("role") as? String
         if (!nestedAppRole.isNullOrBlank()) return normalizeRole(nestedAppRole)
 
-        // Legacy/dev fallback only. Do not rely on user_metadata for production
-        // authorization decisions because users can edit it.
-        val userMetadata = jwt.claims["user_metadata"] as? Map<*, *>
-        val nestedUserRole = userMetadata?.get("role") as? String
-        if (!nestedUserRole.isNullOrBlank()) return normalizeRole(nestedUserRole)
 
         val directRole = jwt.claims["role"] as? String
         if (!directRole.isNullOrBlank()) {

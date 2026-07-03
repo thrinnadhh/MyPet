@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   FlatList,
   Modal,
@@ -18,21 +18,21 @@ import { ThemedView } from '@/components/themed-view';
 import { AppIcon } from '@/components/app-icon';
 import { BottomTabInset, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useAuth } from '@/context/AuthContext';
+import { appConfig } from '@/utils/app-config';
+import {
+  fetchCustomerAppointments,
+  submitAppointmentReview,
+  type CustomerAppointmentRecord,
+  type HistoryAppointmentStatus,
+} from '@/services/customer-history';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type HistoryTab = 'APPOINTMENTS' | 'ORDERS';
-type AppointmentStatus = 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+type AppointmentStatus = HistoryAppointmentStatus;
 
-interface AppointmentRecord {
-  id: string;
-  providerName: string;
-  serviceName: string;
-  petName: string;
-  slotStartsAt: string;
-  status: AppointmentStatus;
-  hasReview: boolean;
-}
+type AppointmentRecord = CustomerAppointmentRecord;
 
 interface OrderRecord {
   id: string;
@@ -54,6 +54,7 @@ const MOCK_APPOINTMENTS: AppointmentRecord[] = [
     slotStartsAt: new Date(Date.now() - 3 * 86400_000).toISOString(),
     status: 'COMPLETED',
     hasReview: false,
+    providerId: 'demo-provider-1',
   },
   {
     id: 'a2',
@@ -63,6 +64,7 @@ const MOCK_APPOINTMENTS: AppointmentRecord[] = [
     slotStartsAt: new Date(Date.now() + 2 * 86400_000).toISOString(),
     status: 'CONFIRMED',
     hasReview: false,
+    providerId: 'demo-provider-2',
   },
   {
     id: 'a3',
@@ -72,6 +74,7 @@ const MOCK_APPOINTMENTS: AppointmentRecord[] = [
     slotStartsAt: new Date(Date.now() - 10 * 86400_000).toISOString(),
     status: 'COMPLETED',
     hasReview: true,
+    providerId: 'demo-provider-3',
   },
 ];
 
@@ -129,7 +132,7 @@ interface ReviewModalProps {
   target: ReviewTarget | null;
   visible: boolean;
   onClose: () => void;
-  onSubmit: (targetId: string, rating: number, comment: string) => void;
+  onSubmit: (targetId: string, rating: number, comment: string) => Promise<void>;
 }
 
 function ReviewModal({ target, visible, onClose, onSubmit }: ReviewModalProps) {
@@ -145,11 +148,14 @@ function ReviewModal({ target, visible, onClose, onSubmit }: ReviewModalProps) {
     }
     setLoading(true);
     await new Promise(r => setTimeout(r, 600));
-    onSubmit(target.id, rating, comment);
-    setRating(0);
-    setComment('');
-    setLoading(false);
-    onClose();
+    try {
+      await onSubmit(target.id, rating, comment);
+      setRating(0);
+      setComment('');
+      onClose();
+    } finally {
+      setLoading(false);
+    }
   }, [target, rating, comment, onSubmit, onClose]);
 
   if (!target) return null;
@@ -214,10 +220,12 @@ function ReviewModal({ target, visible, onClose, onSubmit }: ReviewModalProps) {
 // ─── Appointment Card ────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<AppointmentStatus, string> = {
+  SLOT_HELD: '#a855f7',
   CONFIRMED:  '#22c55e',
   COMPLETED:  '#3b82f6',
   CANCELLED:  '#ef4444',
   NO_SHOW:    '#f97316',
+  EXPIRED: '#64748b',
 };
 
 interface ApptCardProps {
@@ -255,7 +263,7 @@ const AppointmentCard = React.memo(function AppointmentCard({ item, onReview, th
       {item.status === 'COMPLETED' && !item.hasReview && (
         <TouchableOpacity
           style={[styles.reviewBtn, { borderColor: theme.primary }]}
-          onPress={() => onReview({ id: item.id, type: 'APPOINTMENT', providerName: item.providerName, providerId: 'mock-provider-id' })}
+          onPress={() => onReview({ id: item.id, type: 'APPOINTMENT', providerName: item.providerName, providerId: item.providerId })}
           accessibilityLabel={`Review ${item.providerName}`}
           accessibilityRole="button"
         >
@@ -318,11 +326,16 @@ const OrderCard = React.memo(function OrderCard({ item, onReview, theme }: Order
 export default function HistoryScreen() {
   const theme = useTheme();
   const safeAreaInsets = useSafeAreaInsets();
+  const { user, session } = useAuth();
+  const userId = user?.id;
+  const accessToken = session?.access_token;
   const [activeTab, setActiveTab] = useState<HistoryTab>('APPOINTMENTS');
-  const [appointments, setAppointments] = useState(MOCK_APPOINTMENTS);
-  const [orders, setOrders] = useState(MOCK_ORDERS);
+  const [appointments, setAppointments] = useState<AppointmentRecord[]>(appConfig.allowDemoMode ? MOCK_APPOINTMENTS : []);
+  const [orders, setOrders] = useState<OrderRecord[]>(appConfig.allowDemoMode ? MOCK_ORDERS : []);
   const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [loadingAppointments, setLoadingAppointments] = useState(!appConfig.allowDemoMode);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const insets = {
     ...safeAreaInsets,
@@ -334,19 +347,82 @@ export default function HistoryScreen() {
     web: { paddingTop: Spacing.six },
   });
 
+  const loadAppointments = useCallback(async () => {
+    if (appConfig.allowDemoMode) {
+      setAppointments(MOCK_APPOINTMENTS);
+      setOrders(MOCK_ORDERS);
+      setLoadError(null);
+      setLoadingAppointments(false);
+      return;
+    }
+
+    if (!userId) {
+      setAppointments([]);
+      setOrders([]);
+      setLoadError('Sign in to view appointment history.');
+      setLoadingAppointments(false);
+      return;
+    }
+
+    setLoadingAppointments(true);
+    try {
+      const liveAppointments = await fetchCustomerAppointments(userId, accessToken);
+      setAppointments(liveAppointments);
+      setOrders([]);
+      setLoadError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not load appointment history.';
+      setAppointments([]);
+      setOrders([]);
+      setLoadError(message);
+    } finally {
+      setLoadingAppointments(false);
+    }
+  }, [accessToken, userId]);
+
+  useEffect(() => {
+    void loadAppointments();
+  }, [loadAppointments]);
+
   const handleReview = useCallback((target: ReviewTarget) => {
     setReviewTarget(target);
     setModalVisible(true);
   }, []);
 
-  const handleSubmitReview = useCallback((targetId: string, rating: number, comment: string) => {
-    if (reviewTarget?.type === 'APPOINTMENT') {
-      setAppointments(prev => prev.map(a => a.id === targetId ? { ...a, hasReview: true } : a));
-    } else {
-      setOrders(prev => prev.map(o => o.id === targetId ? { ...o, hasReview: true } : o));
+  const handleSubmitReview = useCallback(async (targetId: string, rating: number, comment: string) => {
+    if (!reviewTarget) return;
+
+    try {
+      if (appConfig.allowDemoMode) {
+        if (reviewTarget.type === 'APPOINTMENT') {
+          setAppointments(prev => prev.map(a => a.id === targetId ? { ...a, hasReview: true } : a));
+        } else {
+          setOrders(prev => prev.map(o => o.id === targetId ? { ...o, hasReview: true } : o));
+        }
+      } else {
+        if (!userId) throw new Error('Please sign in before reviewing.');
+        if (reviewTarget.type !== 'APPOINTMENT') throw new Error('Order reviews are not available yet.');
+        const result = await submitAppointmentReview({
+          customerId: userId,
+          providerId: reviewTarget.providerId,
+          targetId,
+          rating,
+          comment,
+          accessToken,
+        });
+        setAppointments(prev => prev.map(a => a.id === targetId ? { ...a, hasReview: true } : a));
+        if (result === 'duplicate') {
+          Alert.alert('Already Reviewed', 'This appointment already has a review.');
+          return;
+        }
+      }
+      Alert.alert('Thank you!', 'Your review has been submitted.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Review was not submitted.';
+      Alert.alert('Could Not Submit Review', message);
+      throw error;
     }
-    Alert.alert('Thank you!', 'Your review has been submitted.');
-  }, [reviewTarget]);
+  }, [accessToken, reviewTarget, userId]);
 
   const renderAppointment = useCallback(
     ({ item }: { item: AppointmentRecord }) => (
@@ -391,7 +467,24 @@ export default function HistoryScreen() {
       </ThemedView>
 
       {activeTab === 'APPOINTMENTS' ? (
-        appointments.length === 0 ? (
+        loadingAppointments ? (
+          <View style={styles.centred}>
+            <ActivityIndicator size="large" color={theme.primary} />
+          </View>
+        ) : loadError ? (
+          <View style={styles.centred}>
+            <AppIcon name="paw" color={theme.primary} size={34} />
+            <ThemedText themeColor="textSecondary">{loadError}</ThemedText>
+            <TouchableOpacity
+              style={[styles.reviewBtn, { borderColor: theme.primary, paddingHorizontal: Spacing.four }]}
+              onPress={() => void loadAppointments()}
+              accessibilityLabel="Retry loading appointment history"
+              accessibilityRole="button"
+            >
+              <ThemedText style={{ color: theme.primary, fontWeight: '600' }}>Retry</ThemedText>
+            </TouchableOpacity>
+          </View>
+        ) : appointments.length === 0 ? (
           <View style={styles.centred}>
             <AppIcon name="paw" color={theme.primary} size={34} />
             <ThemedText themeColor="textSecondary">No appointments yet</ThemedText>

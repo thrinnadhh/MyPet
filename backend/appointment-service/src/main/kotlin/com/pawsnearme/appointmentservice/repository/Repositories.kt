@@ -1,6 +1,7 @@
 package com.pawsnearme.appointmentservice.repository
 
 import com.pawsnearme.appointmentservice.model.Appointment
+import com.pawsnearme.appointmentservice.model.AppointmentInvoice
 import com.pawsnearme.appointmentservice.model.AppointmentStatus
 import com.pawsnearme.appointmentservice.model.AppointmentStatusHistory
 import org.springframework.data.jpa.repository.JpaRepository
@@ -19,4 +20,9 @@ interface AppointmentRepository : JpaRepository<Appointment, UUID> {
 @Repository
 interface AppointmentStatusHistoryRepository : JpaRepository<AppointmentStatusHistory, UUID> {
     fun findByAppointmentId(appointmentId: UUID): List<AppointmentStatusHistory>
+}
+
+@Repository
+interface AppointmentInvoiceRepository : JpaRepository<AppointmentInvoice, UUID> {
+    fun findByAppointmentId(appointmentId: UUID): java.util.Optional<AppointmentInvoice>
 }

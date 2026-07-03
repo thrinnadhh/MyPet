@@ -104,6 +104,7 @@ export default function Index() {
               { label: 'Inventory', icon: 'cart', route: '/inventory' },
               { label: 'Bookings', icon: 'calendar', route: '/explore' },
               { label: 'Payouts', icon: 'medical', route: '/earnings' },
+              { label: 'Legal', icon: 'shield', route: '/legal' },
               ...(role === 'ADMIN' || appConfig.allowDemoMode
                 ? [{ label: 'Super Admin', icon: 'shield', route: '/admin' }]
                 : []),

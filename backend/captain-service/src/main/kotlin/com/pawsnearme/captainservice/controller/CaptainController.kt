@@ -36,7 +36,7 @@ class CaptainController(private val captainService: CaptainService) {
         @RequestBody request: OnboardRequest
     ): ResponseEntity<CaptainProfile> {
         val captainId = xUserId?.let { UUID.fromString(it) } ?: request.captainId
-            ?: return ResponseEntity.badRequest().build()
+            ?: throw IllegalArgumentException("Missing captain context / ID")
         val profile = captainService.onboardCaptain(
             captainId,
             request.vehicleType,
@@ -48,11 +48,8 @@ class CaptainController(private val captainService: CaptainService) {
 
     @GetMapping("/profiles/{id}")
     fun getProfile(@PathVariable id: UUID): ResponseEntity<CaptainProfile> {
-        return try {
-            ResponseEntity.ok(captainService.getProfile(id))
-        } catch (e: NoSuchElementException) {
-            ResponseEntity.notFound().build()
-        }
+        val profile = captainService.getProfile(id)
+        return ResponseEntity.ok(profile)
     }
 
     @PutMapping("/status")
@@ -61,13 +58,9 @@ class CaptainController(private val captainService: CaptainService) {
         @RequestBody request: StatusRequest
     ): ResponseEntity<Map<String, String>> {
         val captainId = xUserId?.let { UUID.fromString(it) } ?: request.captainId
-            ?: return ResponseEntity.badRequest().build()
-        return try {
-            val status = captainService.toggleOnlineStatus(captainId, request.online, request.longitude, request.latitude)
-            ResponseEntity.ok(mapOf("status" to status))
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to (e.message ?: "Failed to update online status.")))
-        }
+            ?: throw IllegalArgumentException("Missing captain context / ID")
+        val status = captainService.toggleOnlineStatus(captainId, request.online, request.longitude, request.latitude)
+        return ResponseEntity.ok(mapOf("status" to status))
     }
 
     @PutMapping("/location")
@@ -76,13 +69,9 @@ class CaptainController(private val captainService: CaptainService) {
         @RequestBody request: LocationRequest
     ): ResponseEntity<Map<String, String>> {
         val captainId = xUserId?.let { UUID.fromString(it) } ?: request.captainId
-            ?: return ResponseEntity.badRequest().build()
-        return try {
-            captainService.updateLocation(captainId, request.longitude, request.latitude)
-            ResponseEntity.ok(mapOf("status" to "SUCCESS"))
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to (e.message ?: "Failed to update location.")))
-        }
+            ?: throw IllegalArgumentException("Missing captain context / ID")
+        captainService.updateLocation(captainId, request.longitude, request.latitude)
+        return ResponseEntity.ok(mapOf("status" to "SUCCESS"))
     }
 
     @GetMapping("/{id}/earnings")

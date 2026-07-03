@@ -25,6 +25,7 @@ class NotificationController(
         val all     = reminderRepo.findAll()
         val pending = all.count { !it.fired }
         val fired   = all.count { it.fired }
-        return ResponseEntity.ok(mapOf("pending" to pending, "fired" to fired, "status" to "UP"))
+        val byStatus = all.groupingBy { it.deliveryStatus.name }.eachCount()
+        return ResponseEntity.ok(mapOf("pending" to pending, "fired" to fired, "deliveryStatus" to byStatus, "status" to "UP"))
     }
 }

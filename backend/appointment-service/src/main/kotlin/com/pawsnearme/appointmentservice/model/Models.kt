@@ -92,3 +92,30 @@ class AppointmentStatusHistory(
     @Column(name = "note")
     var note: String? = null
 )
+
+@Entity
+@Table(name = "appointment_invoices", schema = "appointments")
+class AppointmentInvoice(
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    @Column(name = "invoice_id")
+    var invoiceId: UUID? = null,
+
+    @Column(name = "appointment_id", nullable = false, unique = true)
+    var appointmentId: UUID,
+
+    @Column(name = "invoice_number", nullable = false, unique = true)
+    var invoiceNumber: String,
+
+    @Column(name = "subtotal_amount", nullable = false)
+    var subtotalAmount: BigDecimal,
+
+    @Column(name = "tax_amount", nullable = false)
+    var taxAmount: BigDecimal,
+
+    @Column(name = "total_amount", nullable = false)
+    var totalAmount: BigDecimal,
+
+    @Column(name = "generated_at", nullable = false)
+    var generatedAt: Instant = Instant.now()
+)

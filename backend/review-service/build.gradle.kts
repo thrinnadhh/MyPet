@@ -10,6 +10,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":common"))
     implementation(platform("org.springframework.boot:spring-boot-dependencies:3.2.3"))
 
     implementation("org.springframework.boot:spring-boot-starter-web")
@@ -20,9 +21,11 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.springframework.kafka:spring-kafka")
+    implementation("org.flywaydb:flyway-core:10.1.0")
 
     // PostgreSQL
     runtimeOnly("org.postgresql:postgresql")
+    runtimeOnly("org.flywaydb:flyway-database-postgresql:10.1.0")
 
     // Test dependencies
     testImplementation("com.h2database:h2")

@@ -1,6 +1,7 @@
 package com.pawsnearme.notificationservice.repository
 
 import com.pawsnearme.notificationservice.model.ScheduledReminder
+import com.pawsnearme.notificationservice.model.ReminderDeliveryStatus
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
@@ -19,6 +20,14 @@ interface ScheduledReminderRepository : JpaRepository<ScheduledReminder, UUID> {
     fun existsByReferenceIdAndTemplateCode(referenceId: UUID, templateCode: String): Boolean
 
     @Modifying
-    @Query("UPDATE ScheduledReminder r SET r.fired = true WHERE r.id = :id")
-    fun markFired(id: UUID): Int
+    @Query("UPDATE ScheduledReminder r SET r.deliveryStatus = :status, r.attemptCount = r.attemptCount + 1, r.lastAttemptAt = :attemptedAt, r.failureReason = null, r.retryableFailure = false WHERE r.id = :id")
+    fun markAttempted(id: UUID, status: ReminderDeliveryStatus, attemptedAt: Instant): Int
+
+    @Modifying
+    @Query("UPDATE ScheduledReminder r SET r.fired = true, r.deliveryStatus = :status, r.provider = :provider, r.deliveredAt = :deliveredAt, r.failureReason = null, r.retryableFailure = false WHERE r.id = :id")
+    fun markDelivered(id: UUID, status: ReminderDeliveryStatus, provider: String, deliveredAt: Instant): Int
+
+    @Modifying
+    @Query("UPDATE ScheduledReminder r SET r.deliveryStatus = :status, r.provider = :provider, r.retryableFailure = :retryable, r.failureReason = :failureReason WHERE r.id = :id")
+    fun markFailed(id: UUID, status: ReminderDeliveryStatus, provider: String, retryable: Boolean, failureReason: String?): Int
 }

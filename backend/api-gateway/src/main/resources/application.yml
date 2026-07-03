@@ -6,6 +6,10 @@ spring:
     name: api-gateway
   cloud:
     gateway:
+      # Stamp every proxied request with the gateway secret so downstream services
+      # can verify the request originated from the gateway (not a direct port hit).
+      default-filters:
+        - AddRequestHeader=X-Internal-Gateway-Secret, ${GATEWAY_SECRET:dev-secret-change-in-production}
       routes:
         - id: provider-approval-admin
           uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
@@ -70,6 +74,15 @@ spring:
           uri: ${ORDER_SERVICE_URL:http://localhost:8084}
           predicates:
             - Path=/api/v1/orders/**
+        - id: appointment-service-writes
+          uri: ${APPOINTMENT_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/appointments/*/status
+            - Method=PUT
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
         - id: appointment-service
           uri: ${APPOINTMENT_SERVICE_URL:http://localhost:8085}
           predicates:

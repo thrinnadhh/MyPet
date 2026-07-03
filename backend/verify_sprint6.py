@@ -21,6 +21,7 @@ Usage:
 
 import sys
 import uuid
+from pathlib import Path
 import psycopg2
 import requests
 
@@ -38,6 +39,7 @@ SKIP = "\033[93m⊘ SKIP\033[0m"
 passed = 0
 failed = 0
 skipped = 0
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test(name: str, condition: bool, details: str = ""):
@@ -60,6 +62,37 @@ def section(title: str):
     print(f"\n{'─'*60}")
     print(f"  {title}")
     print(f"{'─'*60}")
+
+
+def has_text(path: str, *needles: str) -> bool:
+    text = (ROOT / path).read_text()
+    return all(needle in text for needle in needles)
+
+
+# ─── 0. Source Contract Tests ─────────────────────────────────────────────────
+
+section("0. Source Contract Validation")
+
+test(
+    "merchant bookings screen uses live appointment service",
+    has_text("apps/merchant-captain-app/src/app/explore.tsx", "fetchMerchantBookings", "completeMerchantBooking", "appConfig.allowDemoMode"),
+)
+test(
+    "customer history screen submits live appointment reviews",
+    has_text("apps/customer-app/src/app/explore.tsx", "fetchCustomerAppointments", "submitAppointmentReview", "appConfig.allowDemoMode"),
+)
+test(
+    "appointment events include slot_start for reminder scheduling",
+    has_text("backend/appointment-service/src/main/kotlin/com/pawsnearme/appointmentservice/service/AppointmentService.kt", "slot_start", "fetchCatalogSlotStart"),
+)
+test(
+    "notification worker records attempted delivered and failed statuses",
+    has_text("backend/notification-service/src/main/kotlin/com/pawsnearme/notificationservice/service/ReminderDispatchWorker.kt", "markAttempted", "markDelivered", "markFailed"),
+)
+test(
+    "prescription upload is not faked in merchant completion UI",
+    not has_text("apps/merchant-captain-app/src/app/explore.tsx", "Document upload available in full app build"),
+)
 
 
 # ─── 1. DB Schema Tests ────────────────────────────────────────────────────────
@@ -87,6 +120,20 @@ try:
     col_count = cur.fetchone()[0]
     test("scheduled_reminders table has columns", col_count >= 7,
          f"found {col_count} columns, expected ≥7")
+
+    cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'notifications'
+          AND table_name = 'scheduled_reminders'
+          AND column_name IN ('delivery_status', 'attempt_count', 'last_attempt_at', 'delivered_at', 'retryable_failure', 'failure_reason')
+    """)
+    reminder_status_cols = {row[0] for row in cur.fetchall()}
+    expected_reminder_status_cols = {
+        'delivery_status', 'attempt_count', 'last_attempt_at', 'delivered_at', 'retryable_failure', 'failure_reason'
+    }
+    test("scheduled_reminders has auditable delivery status columns",
+         expected_reminder_status_cols.issubset(reminder_status_cols),
+         f"found {sorted(reminder_status_cols)}")
 
     # Check reminders index
     cur.execute("""
@@ -160,6 +207,7 @@ else:
     test("health response has 'status' field", "status" in body)
     test("health response has 'pending' count", "pending" in body)
     test("health response has 'fired' count", "fired" in body)
+    test("health response has deliveryStatus counts", "deliveryStatus" in body)
     test("health status is UP", body.get("status") == "UP")
 
 

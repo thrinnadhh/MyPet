@@ -5,11 +5,13 @@ import com.pawsnearme.providerservice.repository.*
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import org.mockito.Mockito.*
-import org.mockito.kotlin.argThat
+import org.mockito.kotlin.never
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
+import org.mockito.kotlin.eq
+import org.mockito.kotlin.argThat
 import org.springframework.kafka.core.KafkaTemplate
 import org.locationtech.jts.geom.Coordinate
 import org.locationtech.jts.geom.GeometryFactory
@@ -26,12 +28,15 @@ class ProviderServiceTests {
     private val userRoleJoinRepository: UserRoleJoinRepository = mock()
     private val kafkaTemplate: KafkaTemplate<String, Any> = mock()
 
+    private val outboxService: com.pawsnearme.common.outbox.OutboxService = mock()
+
     private val providerService = ProviderService(
         providerRepository,
         providerDocumentRepository,
         profileRepository,
         userRoleJoinRepository,
-        kafkaTemplate
+        kafkaTemplate,
+        outboxService
     )
 
     private val geometryFactory = GeometryFactory(PrecisionModel(), 4326)
@@ -149,7 +154,13 @@ class ProviderServiceTests {
 
         assertEquals(BigDecimal("18.46"), result.commissionPct)
         verify(providerRepository).save(provider)
-        verify(kafkaTemplate).send(eq("providers.events"), eq(providerId.toString()), any())
+        verify(outboxService).saveEvent(
+            eventId = any(),
+            aggregateType = eq("PROVIDER"),
+            aggregateId = eq(providerId),
+            eventType = eq("ProviderCommissionUpdated"),
+            eventPayload = any()
+        )
     }
 
     @Test

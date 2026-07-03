@@ -19,6 +19,7 @@ class AppointmentServiceTests {
 
     private val appointmentRepository: AppointmentRepository = mock()
     private val statusHistoryRepository: AppointmentStatusHistoryRepository = mock()
+    private val invoiceRepository: AppointmentInvoiceRepository = mock()
     private val valueOps: ValueOperations<String, String> = mock()
     private val redisTemplate: StringRedisTemplate = mock {
         on { opsForValue() } doReturn valueOps
@@ -26,9 +27,11 @@ class AppointmentServiceTests {
     private val kafkaTemplate: KafkaTemplate<String, Any> = mock()
     private val restOperations: RestOperations = mock()
 
+    private val outboxService: com.pawsnearme.common.outbox.OutboxService = mock()
+
     private val service = AppointmentService(
-        appointmentRepository, statusHistoryRepository,
-        redisTemplate, kafkaTemplate, restOperations,
+        appointmentRepository, statusHistoryRepository, invoiceRepository,
+        redisTemplate, kafkaTemplate, restOperations, outboxService,
         "http://localhost:8082", 300L
     )
 
@@ -126,19 +129,41 @@ class AppointmentServiceTests {
         whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appointment))
         whenever(redisTemplate.hasKey("hold:slots:$slotId")).thenReturn(true)
         whenever(appointmentRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Appointment>(0) }
+        whenever(restOperations.exchange(
+            eq("http://localhost:8082/api/v1/catalog/slots/$slotId"),
+            eq(org.springframework.http.HttpMethod.GET),
+            any<org.springframework.http.HttpEntity<Any>>(),
+            eq(CatalogSlotSnapshot::class.java)
+        )).thenReturn(org.springframework.http.ResponseEntity.ok(CatalogSlotSnapshot(slotId = slotId, slotStart = Instant.parse("2026-07-05T10:00:00Z"))))
+        whenever(restOperations.exchange(
+            eq("http://localhost:8082/api/v1/catalog/slots/$slotId/status?status=BOOKED"),
+            eq(org.springframework.http.HttpMethod.PUT),
+            any<org.springframework.http.HttpEntity<Any>>(),
+            eq(Void::class.java)
+        )).thenReturn(org.springframework.http.ResponseEntity.ok().build())
 
         val saved = service.confirmAppointment(appointmentId)
 
         assertEquals(AppointmentStatus.CONFIRMED, saved.status)
         verify(redisTemplate).delete("hold:slots:$slotId")
-        verify(restOperations).put("http://localhost:8082/api/v1/catalog/slots/$slotId/status?status=BOOKED", null)
-        verify(kafkaTemplate, atLeastOnce()).send(eq("appointments.events"), eq(appointmentId.toString()), check<String> {
-            assertTrue(it.contains("\"event_id\""))
-            assertTrue(it.contains("\"occurred_at\""))
-            assertTrue(it.contains("\"actor_id\""))
-            assertTrue(it.contains("\"appointment_id\""))
-            assertTrue(it.contains("\"slot_id\""))
-        })
+        verify(restOperations).exchange(
+            eq("http://localhost:8082/api/v1/catalog/slots/$slotId/status?status=BOOKED"),
+            eq(org.springframework.http.HttpMethod.PUT),
+            any<org.springframework.http.HttpEntity<Any>>(),
+            eq(Void::class.java)
+        )
+        verify(outboxService, atLeastOnce()).saveEvent(
+            eventId = any(),
+            aggregateType = eq("APPOINTMENT"),
+            aggregateId = eq(appointmentId),
+            eventType = eq("AppointmentBooked"),
+            eventPayload = check<AppointmentBookedEvent> {
+                assertEquals(customerId, it.actorId)
+                assertEquals(appointmentId, it.appointmentId)
+                assertEquals(slotId, it.slotId)
+                assertEquals("2026-07-05T10:00:00Z", it.slotStart)
+            }
+        )
     }
 
     @Test
@@ -155,7 +180,12 @@ class AppointmentServiceTests {
         assertTrue(ex.message!!.contains("expired"))
         assertEquals(AppointmentStatus.EXPIRED, appointment.status)
         verify(redisTemplate).delete("hold:slots:$slotId")
-        verify(restOperations).put("http://localhost:8082/api/v1/catalog/slots/$slotId/status?status=AVAILABLE", null)
+        verify(restOperations).exchange(
+            eq("http://localhost:8082/api/v1/catalog/slots/$slotId/status?status=AVAILABLE"),
+            eq(org.springframework.http.HttpMethod.PUT),
+            any<org.springframework.http.HttpEntity<Any>>(),
+            eq(Void::class.java)
+        )
     }
 
     // ── updateAppointmentStatus ───────────────────────────────────────────────
@@ -176,15 +206,60 @@ class AppointmentServiceTests {
         val appointment = appointment(status = AppointmentStatus.CONFIRMED)
         whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appointment))
         whenever(appointmentRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Appointment>(0) }
+        whenever(invoiceRepository.findByAppointmentId(appointmentId)).thenReturn(java.util.Optional.empty())
 
         service.updateAppointmentStatus(appointmentId, AppointmentStatus.COMPLETED, customerId, "visit done", "https://example.com/rx.pdf")
 
-        verify(kafkaTemplate).send(eq("appointments.events"), eq(appointmentId.toString()), check<String> {
-            assertTrue(it.contains("\"event_id\""))
-            assertTrue(it.contains("\"event_type\":\"AppointmentStatusChanged\""))
-            assertTrue(it.contains("\"from_status\":\"CONFIRMED\""))
-            assertTrue(it.contains("\"to_status\":\"COMPLETED\""))
+        verify(outboxService).saveEvent(
+            eventId = any(),
+            aggregateType = eq("APPOINTMENT"),
+            aggregateId = eq(appointmentId),
+            eventType = eq("AppointmentStatusChanged"),
+            eventPayload = check<AppointmentStatusChangedEvent> {
+                assertEquals("CONFIRMED", it.fromStatus)
+                assertEquals("COMPLETED", it.toStatus)
+            }
+        )
+    }
+
+    @Test
+    fun `updateAppointmentStatus - COMPLETED - generates appointment GST invoice`() {
+        val appointment = appointment(status = AppointmentStatus.CONFIRMED)
+        whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appointment))
+        whenever(appointmentRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Appointment>(0) }
+        whenever(invoiceRepository.findByAppointmentId(appointmentId)).thenReturn(java.util.Optional.empty())
+
+        service.updateAppointmentStatus(appointmentId, AppointmentStatus.COMPLETED, customerId)
+
+        verify(invoiceRepository).save(check<AppointmentInvoice> {
+            assertEquals(appointmentId, it.appointmentId)
+            assertEquals(BigDecimal("500.00"), it.subtotalAmount)
+            assertEquals(BigDecimal("90.00"), it.taxAmount)
+            assertEquals(BigDecimal("590.00"), it.totalAmount)
+            assertTrue(it.invoiceNumber.startsWith("APT-INV-"))
         })
+    }
+
+    @Test
+    fun `updateAppointmentStatus - COMPLETED - does not duplicate appointment invoice`() {
+        val appointment = appointment(status = AppointmentStatus.CONFIRMED)
+        whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appointment))
+        whenever(appointmentRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Appointment>(0) }
+        whenever(invoiceRepository.findByAppointmentId(appointmentId)).thenReturn(
+            java.util.Optional.of(
+                AppointmentInvoice(
+                    appointmentId = appointmentId,
+                    invoiceNumber = "APT-INV-2026-EXISTING",
+                    subtotalAmount = BigDecimal("500.00"),
+                    taxAmount = BigDecimal("90.00"),
+                    totalAmount = BigDecimal("590.00")
+                )
+            )
+        )
+
+        service.updateAppointmentStatus(appointmentId, AppointmentStatus.COMPLETED, customerId)
+
+        verify(invoiceRepository, never()).save(any())
     }
 
     private fun appointment(

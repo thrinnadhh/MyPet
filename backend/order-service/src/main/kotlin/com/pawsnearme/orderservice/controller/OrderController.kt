@@ -23,28 +23,20 @@ class OrderController(
         @Valid @RequestBody request: CreateOrderRequest,
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?
     ): ResponseEntity<Any> {
-        return try {
-            // Verify that the customerId matches the authenticated user ID (or fallback in dev)
-            val finalRequest = if (authenticatedUserId != null) {
-                request.copy(customerId = UUID.fromString(authenticatedUserId))
-            } else {
-                request
-            }
-            val order = orderService.createOrder(finalRequest)
-            ResponseEntity.status(HttpStatus.CREATED).body(order)
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
+        val finalRequest = if (authenticatedUserId != null) {
+            request.copy(customerId = UUID.fromString(authenticatedUserId))
+        } else {
+            request
         }
+        val order = orderService.createOrder(finalRequest)
+        return ResponseEntity.status(HttpStatus.CREATED).body(order)
     }
 
     @GetMapping("/{id}")
     fun getOrder(@PathVariable id: UUID): ResponseEntity<Order> {
         val order = orderRepository.findById(id)
-        return if (order.isPresent) {
-            ResponseEntity.ok(order.get())
-        } else {
-            ResponseEntity.notFound().build()
-        }
+            .orElseThrow { NoSuchElementException("Order with ID $id not found") }
+        return ResponseEntity.ok(order)
     }
 
     @GetMapping("/customer/{customerId}")
@@ -66,16 +58,21 @@ class OrderController(
         @RequestParam(required = false) note: String?,
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?
     ): ResponseEntity<Any> {
-        return try {
-            val changerId = if (authenticatedUserId != null) {
-                UUID.fromString(authenticatedUserId)
-            } else {
-                UUID.randomUUID() // fallback if no auth header
-            }
-            val updated = orderService.updateOrderStatus(id, status, changerId, note)
-            ResponseEntity.ok(updated)
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
+        val changerId = if (authenticatedUserId != null) {
+            UUID.fromString(authenticatedUserId)
+        } else {
+            UUID.randomUUID() // fallback if no auth header
         }
+        val updated = orderService.updateOrderStatus(id, status, changerId, note)
+        return ResponseEntity.ok(updated)
+    }
+
+    @PostMapping("/{id}/confirm")
+    fun confirmOrder(
+        @PathVariable id: UUID,
+        @RequestParam(required = false) paymentId: UUID?
+    ): ResponseEntity<Any> {
+        val order = orderService.confirmOrder(id, paymentId)
+        return ResponseEntity.ok(order)
     }
 }

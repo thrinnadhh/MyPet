@@ -26,11 +26,8 @@ class ReviewController(private val reviewService: ReviewService) {
      */
     @PostMapping
     fun submitReview(@Valid @RequestBody review: Review): ResponseEntity<Review> {
-        return try {
-            ResponseEntity.status(HttpStatus.CREATED).body(reviewService.submitReview(review))
-        } catch (e: IllegalStateException) {
-            ResponseEntity.status(HttpStatus.CONFLICT).build()
-        }
+        val created = reviewService.submitReview(review)
+        return ResponseEntity.status(HttpStatus.CREATED).body(created)
     }
 
     /** Get all reviews + average rating for a provider. */

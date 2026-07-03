@@ -10,12 +10,12 @@ kotlin {
 }
 
 dependencies {
-    // Import Spring Boot BOM for dependency version management
+    implementation(project(":common"))
     implementation(platform("org.springframework.boot:spring-boot-dependencies:3.2.3"))
-
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-validation")
+    implementation("org.springframework.kafka:spring-kafka")
     
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
@@ -27,7 +27,6 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 
-    
     // Flyway DB Migrations
     implementation("org.flywaydb:flyway-core:10.1.0")
     runtimeOnly("org.flywaydb:flyway-database-postgresql:10.1.0")

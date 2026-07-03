@@ -12,6 +12,7 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
 import java.util.UUID
+import com.pawsnearme.common.outbox.OutboxService
 
 @Service
 class ProviderService(
@@ -19,7 +20,8 @@ class ProviderService(
     private val providerDocumentRepository: ProviderDocumentRepository,
     private val profileRepository: ProfileRepository,
     private val userRoleJoinRepository: UserRoleJoinRepository,
-    private val kafkaTemplate: KafkaTemplate<String, Any>
+    private val kafkaTemplate: KafkaTemplate<String, Any>,
+    private val outboxService: OutboxService
 ) {
     private val geometryFactory = GeometryFactory(PrecisionModel(), 4326)
 
@@ -184,16 +186,23 @@ class ProviderService(
         provider.status = ProviderStatus.ACTIVE
         val approvedProvider = providerRepository.save(provider)
 
-        // Publish ProviderApproved event to Kafka
+        // Publish ProviderApproved event to transactional outbox
+        val eventId = UUID.randomUUID()
         val event = mapOf(
-            "event_id" to UUID.randomUUID().toString(),
+            "event_id" to eventId.toString(),
             "event_type" to "ProviderApproved",
             "occurred_at" to Instant.now().toString(),
             "provider_id" to approvedProvider.providerId.toString(),
             "provider_type" to approvedProvider.providerType.name
         )
         
-        kafkaTemplate.send("providers.events", approvedProvider.providerId.toString(), event)
+        outboxService.saveEvent(
+            eventId = eventId,
+            aggregateType = "PROVIDER",
+            aggregateId = approvedProvider.providerId!!,
+            eventType = "ProviderApproved",
+            eventPayload = event
+        )
 
         return approvedProvider
     }
@@ -211,8 +220,9 @@ class ProviderService(
         provider.commissionPct = commissionPct.setScale(2, RoundingMode.HALF_UP)
         val updatedProvider = providerRepository.save(provider)
 
+        val eventId = UUID.randomUUID()
         val event = mapOf(
-            "event_id" to UUID.randomUUID().toString(),
+            "event_id" to eventId.toString(),
             "event_type" to "ProviderCommissionUpdated",
             "occurred_at" to Instant.now().toString(),
             "actor_id" to actorUserId?.toString(),
@@ -222,7 +232,13 @@ class ProviderService(
             "reason" to reason
         )
 
-        kafkaTemplate.send("providers.events", updatedProvider.providerId.toString(), event)
+        outboxService.saveEvent(
+            eventId = eventId,
+            aggregateType = "PROVIDER",
+            aggregateId = updatedProvider.providerId!!,
+            eventType = "ProviderCommissionUpdated",
+            eventPayload = event
+        )
 
         return updatedProvider
     }

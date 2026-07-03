@@ -10,6 +10,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":common"))
     implementation(platform("org.springframework.boot:spring-boot-dependencies:3.2.3"))
 
     implementation("org.springframework.boot:spring-boot-starter-web")
@@ -17,6 +18,10 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation("org.springframework.kafka:spring-kafka")
+    
+    // Flyway DB Migrations
+    implementation("org.flywaydb:flyway-core:10.1.0")
+    runtimeOnly("org.flywaydb:flyway-database-postgresql:10.1.0")
     
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib")

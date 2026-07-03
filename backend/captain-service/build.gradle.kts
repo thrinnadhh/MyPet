@@ -20,6 +20,7 @@ dependencies {
     
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
+    implementation(project(":common"))
     
     runtimeOnly("org.postgresql:postgresql")
     

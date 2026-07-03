@@ -1,5 +1,6 @@
 package com.pawsnearme.appointmentservice.service
 
+import org.slf4j.LoggerFactory
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.pawsnearme.appointmentservice.model.*
@@ -12,9 +13,14 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.RestOperations
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
 import java.util.UUID
+import com.pawsnearme.common.outbox.OutboxService
+
+class AppointmentAccessDeniedException(message: String) : RuntimeException(message)
 
 data class BookAppointmentRequest(
     val customerId: UUID,
@@ -43,8 +49,17 @@ data class AppointmentBookedEvent(
     val providerId: UUID,
     @get:JsonProperty("slot_id")
     val slotId: UUID,
+    @get:JsonProperty("slot_start")
+    val slotStart: String? = null,
     @get:JsonProperty("price_amount")
     val priceAmount: BigDecimal
+)
+
+data class CatalogSlotSnapshot(
+    val slotId: UUID? = null,
+    val slotStart: Instant? = null,
+    val slotEnd: Instant? = null,
+    val status: String? = null
 )
 
 data class AppointmentStatusChangedEvent(
@@ -71,14 +86,21 @@ data class AppointmentStatusChangedEvent(
 class AppointmentService(
     private val appointmentRepository: AppointmentRepository,
     private val appointmentStatusHistoryRepository: AppointmentStatusHistoryRepository,
+    private val appointmentInvoiceRepository: AppointmentInvoiceRepository,
     private val redisTemplate: StringRedisTemplate,
     private val kafkaTemplate: KafkaTemplate<String, Any>,
     private val restTemplate: RestOperations,
+    private val outboxService: OutboxService,
     @Value("\${CATALOG_SERVICE_URL:http://localhost:8082}")
     private val catalogServiceUrl: String,
     @Value("\${appointment.hold-duration-seconds:300}")
-    private val holdDurationSeconds: Long
+    private val holdDurationSeconds: Long,
+    @Value("\${PROVIDER_SERVICE_URL:http://localhost:8081}")
+    private val providerServiceUrl: String = "http://localhost:8081",
+    @Value("\${gateway.trust.secret:}")
+    private val gatewayTrustSecret: String = ""
 ) {
+    private val logger = LoggerFactory.getLogger(AppointmentService::class.java)
     private val objectMapper = ObjectMapper()
     private val writeLockDuration = Duration.ofSeconds(10)
     private val holdDuration: Duration
@@ -99,23 +121,48 @@ class AppointmentService(
 
     private fun updateCatalogSlotStatus(slotId: UUID, status: String) {
         val url = "$catalogServiceUrl/api/v1/catalog/slots/$slotId/status?status=$status"
-        restTemplate.put(url, null)
+        restTemplate.exchange(
+            url,
+            org.springframework.http.HttpMethod.PUT,
+            org.springframework.http.HttpEntity<Any>(internalHeaders()),
+            Void::class.java
+        )
+    }
+
+    private fun fetchCatalogSlotStart(slotId: UUID): String? {
+        return try {
+            val url = "$catalogServiceUrl/api/v1/catalog/slots/$slotId"
+            restTemplate.exchange(
+                url,
+                org.springframework.http.HttpMethod.GET,
+                org.springframework.http.HttpEntity<Any>(internalHeaders()),
+                CatalogSlotSnapshot::class.java
+            ).body?.slotStart?.toString()
+        } catch (e: Exception) {
+            logger.warn("Failed to read slot start from Catalog Service: {}", e.message, e)
+            null
+        }
     }
 
     private fun publishAppointmentBooked(saved: Appointment) {
-        try {
-            val event = AppointmentBookedEvent(
-                actorId = saved.customerId,
-                appointmentId = saved.appointmentId!!,
-                customerId = saved.customerId,
-                providerId = saved.providerId,
-                slotId = saved.slotId,
-                priceAmount = saved.priceAmount
-            )
-            kafkaTemplate.send("appointments.events", saved.appointmentId.toString(), objectMapper.writeValueAsString(event))
-        } catch (e: Exception) {
-            println("WARNING: Failed to publish Kafka AppointmentBooked event: ${e.message}")
-        }
+        val eventId = UUID.randomUUID()
+        val event = AppointmentBookedEvent(
+            eventId = eventId,
+            actorId = saved.customerId,
+            appointmentId = saved.appointmentId!!,
+            customerId = saved.customerId,
+            providerId = saved.providerId,
+            slotId = saved.slotId,
+            slotStart = fetchCatalogSlotStart(saved.slotId),
+            priceAmount = saved.priceAmount
+        )
+        outboxService.saveEvent(
+            eventId = eventId,
+            aggregateType = "APPOINTMENT",
+            aggregateId = saved.appointmentId!!,
+            eventType = "AppointmentBooked",
+            eventPayload = event
+        )
     }
 
     private fun publishAppointmentStatusChanged(
@@ -124,36 +171,38 @@ class AppointmentService(
         toStatus: AppointmentStatus,
         actorId: UUID
     ) {
-        try {
-            val event = AppointmentStatusChangedEvent(
-                actorId = actorId,
-                appointmentId = appointment.appointmentId!!,
-                slotId = appointment.slotId,
-                fromStatus = fromStatus.name,
-                toStatus = toStatus.name
-            )
-            kafkaTemplate.send("appointments.events", appointment.appointmentId.toString(), objectMapper.writeValueAsString(event))
-        } catch (e: Exception) {
-            println("WARNING: Failed to publish Kafka AppointmentStatusChanged event: ${e.message}")
-        }
+        val eventId = UUID.randomUUID()
+        val event = AppointmentStatusChangedEvent(
+            eventId = eventId,
+            actorId = actorId,
+            appointmentId = appointment.appointmentId!!,
+            slotId = appointment.slotId,
+            fromStatus = fromStatus.name,
+            toStatus = toStatus.name
+        )
+        outboxService.saveEvent(
+            eventId = eventId,
+            aggregateType = "APPOINTMENT",
+            aggregateId = appointment.appointmentId!!,
+            eventType = "AppointmentStatusChanged",
+            eventPayload = event
+        )
     }
 
-    // --- Direct Booking (original single-stage method kept for backward compatibility) ---
     fun bookAppointment(request: BookAppointmentRequest): Appointment {
         val lockKey = writeLockKey(request.slotId)
         if (!acquireWriteLock(request.slotId)) {
-            throw IllegalStateException("Slot is currently being booked by another customer. Please try again.")
+            throw IllegalStateException("Failed to acquire slot lock. Slot is currently being booked by another customer. Try again.")
         }
-
         try {
             if (activeAppointmentExists(request.slotId)) {
-                throw IllegalStateException("Slot is already booked or held by another customer.")
+                throw IllegalStateException("Slot is already booked or held.")
             }
 
             try {
                 updateCatalogSlotStatus(request.slotId, "BOOKED")
             } catch (e: Exception) {
-                throw IllegalStateException("Failed to book slot in Catalog Service: ${e.message}", e)
+                throw IllegalStateException("Failed to update slot status in Catalog Service: ${e.message}", e)
             }
 
             val appointment = Appointment(
@@ -162,14 +211,31 @@ class AppointmentService(
                 offeringId = request.offeringId,
                 slotId = request.slotId,
                 petId = request.petId,
-                status = AppointmentStatus.CONFIRMED,
                 priceAmount = request.priceAmount,
-                payAtClinic = request.payAtClinic
+                status = AppointmentStatus.CONFIRMED
             )
-            val saved = appointmentRepository.save(appointment)
+            val saved = try {
+                appointmentRepository.save(appointment)
+            } catch (e: Exception) {
+                try {
+                    updateCatalogSlotStatus(request.slotId, "AVAILABLE")
+                } catch (rollbackEx: Exception) {
+                    logger.error("Failed to revert slot status to AVAILABLE after database failure: {}", rollbackEx.message, rollbackEx)
+                }
+                throw e
+            }
 
-            logStatusChange(saved.appointmentId!!, null, AppointmentStatus.CONFIRMED, saved.customerId, "Appointment booked and confirmed")
-            publishAppointmentBooked(saved)
+            try {
+                logStatusChange(saved.appointmentId!!, null, AppointmentStatus.CONFIRMED, saved.customerId, "Direct appointment booking")
+                publishAppointmentBooked(saved)
+            } catch (e: Exception) {
+                try {
+                    updateCatalogSlotStatus(request.slotId, "AVAILABLE")
+                } catch (rollbackEx: Exception) {
+                    logger.error("Failed to revert slot status to AVAILABLE after booking event logging failure: {}", rollbackEx.message, rollbackEx)
+                }
+                throw e
+            }
 
             return saved
         } finally {
@@ -177,22 +243,20 @@ class AppointmentService(
         }
     }
 
-    // --- Two-stage Checkout: Hold Slot (Task 2) ---
     fun holdAppointment(request: BookAppointmentRequest): Appointment {
         val lockKey = writeLockKey(request.slotId)
         if (!acquireWriteLock(request.slotId)) {
-            throw IllegalStateException("Slot is currently being booked by another customer. Please try again.")
+            throw IllegalStateException("Failed to acquire slot lock. Slot is currently being booked by another customer. Try again.")
         }
-
         try {
-            if (activeAppointmentExists(request.slotId) || redisTemplate.hasKey(holdKey(request.slotId)) == true) {
-                throw IllegalStateException("Slot is already booked or held by another customer.")
+            if (activeAppointmentExists(request.slotId)) {
+                throw IllegalStateException("Slot is already booked or held.")
             }
 
             try {
                 updateCatalogSlotStatus(request.slotId, "HELD")
             } catch (e: Exception) {
-                throw IllegalStateException("Failed to hold slot in Catalog Service: ${e.message}", e)
+                throw IllegalStateException("Failed to update slot status in Catalog Service: ${e.message}", e)
             }
 
             val appointment = Appointment(
@@ -201,14 +265,31 @@ class AppointmentService(
                 offeringId = request.offeringId,
                 slotId = request.slotId,
                 petId = request.petId,
-                status = AppointmentStatus.SLOT_HELD,
                 priceAmount = request.priceAmount,
-                payAtClinic = request.payAtClinic
+                status = AppointmentStatus.SLOT_HELD
             )
-            val saved = appointmentRepository.save(appointment)
+            val saved = try {
+                appointmentRepository.save(appointment)
+            } catch (e: Exception) {
+                try {
+                    updateCatalogSlotStatus(request.slotId, "AVAILABLE")
+                } catch (rollbackEx: Exception) {
+                    logger.error("Failed to revert slot status to AVAILABLE after database failure: {}", rollbackEx.message, rollbackEx)
+                }
+                throw e
+            }
 
-            logStatusChange(saved.appointmentId!!, null, AppointmentStatus.SLOT_HELD, saved.customerId, "Slot held for customer")
-            redisTemplate.opsForValue().set(holdKey(saved.slotId), saved.appointmentId.toString(), holdDuration)
+            try {
+                logStatusChange(saved.appointmentId!!, null, AppointmentStatus.SLOT_HELD, saved.customerId, "Slot held for customer")
+                redisTemplate.opsForValue().set(holdKey(saved.slotId), saved.appointmentId.toString(), holdDuration)
+            } catch (e: Exception) {
+                try {
+                    updateCatalogSlotStatus(request.slotId, "AVAILABLE")
+                } catch (rollbackEx: Exception) {
+                    logger.error("Failed to revert slot status to AVAILABLE after status logging failure: {}", rollbackEx.message, rollbackEx)
+                }
+                throw e
+            }
 
             return saved
         } finally {
@@ -235,7 +316,7 @@ class AppointmentService(
             try {
                 updateCatalogSlotStatus(appointment.slotId, "AVAILABLE")
             } catch (e: Exception) {
-                println("WARNING: Failed to set slot back to AVAILABLE in Catalog Service: ${e.message}")
+                logger.warn("Failed to set slot back to AVAILABLE in Catalog Service: {}", e.message, e)
             }
             throw IllegalStateException("Slot hold has expired. Please select the slot and try again.")
         }
@@ -272,16 +353,96 @@ class AppointmentService(
                 redisTemplate.delete(holdKey(appointment.slotId))
 
                 updateCatalogSlotStatus(appointment.slotId, "AVAILABLE")
-                println("AppointmentService: Slot hold expired for appointment ${appointment.appointmentId}, slot ${appointment.slotId} is now AVAILABLE.")
+                logger.info("Slot hold expired for appointment {}, slot {} is now AVAILABLE.", appointment.appointmentId, appointment.slotId)
             } catch (e: Exception) {
-                println("WARNING: Failed to expire slot hold for appointment ${appointment.appointmentId}: ${e.message}")
+                logger.error("Failed to expire slot hold for appointment {}: {}", appointment.appointmentId, e.message, e)
             }
         }
     }
 
-    fun updateAppointmentStatus(appointmentId: UUID, newStatus: AppointmentStatus, changedBy: UUID, note: String? = null, prescriptionDocUrl: String? = null): Appointment {
+    fun fetchProviderOwnerUserId(providerId: UUID): UUID? {
+        return try {
+            val url = "$providerServiceUrl/api/v1/providers/$providerId"
+            val response = restTemplate.exchange(
+                url,
+                org.springframework.http.HttpMethod.GET,
+                org.springframework.http.HttpEntity<Any>(internalHeaders()),
+                Map::class.java
+            ).body
+            val ownerIdStr = response?.get("ownerUserId") as? String
+            ownerIdStr?.let { UUID.fromString(it) }
+        } catch (e: Exception) {
+            logger.warn("Failed to fetch provider owner from Provider Service: {}", e.message, e)
+            null
+        }
+    }
+
+    fun getAppointment(appointmentId: UUID, callerId: UUID, callerRole: String?): Appointment {
         val appointment = appointmentRepository.findById(appointmentId)
             .orElseThrow { NoSuchElementException("Appointment with ID $appointmentId not found") }
+
+        val isAdmin = callerRole?.uppercase() == "ADMIN"
+        val isCustomer = appointment.customerId == callerId
+        val isProviderStaff = if (callerRole?.uppercase() == "MERCHANT") {
+            val ownerId = fetchProviderOwnerUserId(appointment.providerId)
+            ownerId == callerId
+        } else {
+            false
+        }
+
+        if (!isAdmin && !isCustomer && !isProviderStaff) {
+            throw AppointmentAccessDeniedException("Access denied to appointment data.")
+        }
+        return appointment
+    }
+
+    fun getAppointmentsByCustomer(targetCustomerId: UUID, callerId: UUID, callerRole: String?): List<Appointment> {
+        val isAdmin = callerRole?.uppercase() == "ADMIN"
+        val isCustomer = targetCustomerId == callerId
+
+        if (!isAdmin && !isCustomer) {
+            throw AppointmentAccessDeniedException("Access denied to customer appointment history.")
+        }
+        return appointmentRepository.findByCustomerId(targetCustomerId)
+    }
+
+    fun getAppointmentsByProvider(providerId: UUID, callerId: UUID, callerRole: String?): List<Appointment> {
+        val isAdmin = callerRole?.uppercase() == "ADMIN"
+        val isProviderStaff = if (callerRole?.uppercase() == "MERCHANT") {
+            val ownerId = fetchProviderOwnerUserId(providerId)
+            ownerId == callerId
+        } else {
+            false
+        }
+
+        if (!isAdmin && !isProviderStaff) {
+            throw AppointmentAccessDeniedException("Access denied to provider appointments.")
+        }
+        return appointmentRepository.findByProviderId(providerId)
+    }
+
+    fun updateAppointmentStatus(
+        appointmentId: UUID,
+        newStatus: AppointmentStatus,
+        changedBy: UUID,
+        note: String? = null,
+        prescriptionDocUrl: String? = null,
+        callerRole: String? = "ADMIN"
+    ): Appointment {
+        val appointment = appointmentRepository.findById(appointmentId)
+            .orElseThrow { NoSuchElementException("Appointment with ID $appointmentId not found") }
+
+        val isAdmin = callerRole?.uppercase() == "ADMIN"
+        val isProviderStaff = if (callerRole?.uppercase() == "MERCHANT") {
+            val ownerId = fetchProviderOwnerUserId(appointment.providerId)
+            ownerId == changedBy
+        } else {
+            false
+        }
+
+        if (!isAdmin && !isProviderStaff) {
+            throw AppointmentAccessDeniedException("Access denied to change appointment status.")
+        }
 
         val oldStatus = appointment.status
         appointment.status = newStatus
@@ -301,7 +462,7 @@ class AppointmentService(
                     updateCatalogSlotStatus(appointment.slotId, "AVAILABLE")
                     redisTemplate.delete(holdKey(appointment.slotId))
                 } catch (e: Exception) {
-                    println("WARNING: Failed to set slot back to AVAILABLE in Catalog Service: ${e.message}")
+                    logger.warn("Failed to set slot back to AVAILABLE in Catalog Service: {}", e.message, e)
                 }
             }
             else -> {}
@@ -309,9 +470,17 @@ class AppointmentService(
 
         val updated = appointmentRepository.save(appointment)
         logStatusChange(appointmentId, oldStatus, newStatus, changedBy, note)
+        if (newStatus == AppointmentStatus.COMPLETED) {
+            generateInvoiceForAppointment(updated)
+        }
         publishAppointmentStatusChanged(updated, oldStatus, newStatus, changedBy)
 
         return updated
+    }
+
+    fun getInvoiceByAppointmentId(appointmentId: UUID): AppointmentInvoice {
+        return appointmentInvoiceRepository.findByAppointmentId(appointmentId)
+            .orElseThrow { NoSuchElementException("Invoice not found for appointment $appointmentId") }
     }
 
     private fun logStatusChange(appointmentId: UUID, from: AppointmentStatus?, to: AppointmentStatus, by: UUID, note: String?) {
@@ -323,5 +492,35 @@ class AppointmentService(
             note = note
         )
         appointmentStatusHistoryRepository.save(history)
+    }
+
+    private fun internalHeaders(): org.springframework.http.HttpHeaders {
+        val headers = org.springframework.http.HttpHeaders()
+        if (gatewayTrustSecret.isNotBlank()) {
+            headers.set("X-Internal-Gateway-Secret", gatewayTrustSecret)
+        }
+        return headers
+    }
+
+    private fun generateInvoiceForAppointment(appointment: Appointment) {
+        val appointmentId = appointment.appointmentId ?: return
+        if (appointmentInvoiceRepository.findByAppointmentId(appointmentId).isPresent) {
+            return
+        }
+
+        val subtotal = appointment.priceAmount.setScale(2, RoundingMode.HALF_UP)
+        val tax = subtotal.multiply(BigDecimal("0.18")).setScale(2, RoundingMode.HALF_UP)
+        val total = subtotal.add(tax).setScale(2, RoundingMode.HALF_UP)
+        val invoiceNumber = "APT-INV-${LocalDate.now().year}-${appointmentId.toString().take(8).uppercase()}"
+
+        appointmentInvoiceRepository.save(
+            AppointmentInvoice(
+                appointmentId = appointmentId,
+                invoiceNumber = invoiceNumber,
+                subtotalAmount = subtotal,
+                taxAmount = tax,
+                totalAmount = total
+            )
+        )
     }
 }
