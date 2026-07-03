@@ -95,7 +95,7 @@ export default function CaptainOnboardingScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [bankAccount, docs, ifsc, router, session?.access_token, vehicleNumber]);
+  }, [bankAccount, docs, ifsc, router, session, vehicleNumber]);
 
   return (
     <ThemedView style={styles.container}>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Animated, Pressable, StyleSheet, Vibration, View } from 'react-native';
 
 import { AppIcon } from '@/components/app-icon';
@@ -20,7 +20,7 @@ export function OrderIncomingAlert({
   onDismiss: () => void;
 }) {
   const theme = useTheme();
-  const pulse = useRef(new Animated.Value(1)).current;
+  const pulse = useMemo(() => new Animated.Value(1), []);
 
   useEffect(() => {
     if (!visible) return undefined;

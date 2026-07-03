@@ -342,7 +342,7 @@ export default function SuperAdminScreen() {
         setPlatformPromos(DEMO_PROMOCODES);
       }
     }
-  }, [canUseDemo, session?.access_token]);
+  }, [canUseDemo, session]);
 
   useEffect(() => {
     loadAdminData().finally(() => setLoading(false));
@@ -378,7 +378,7 @@ export default function SuperAdminScreen() {
         setBusyId(null);
       }
     },
-    [canUseDemo, session?.access_token],
+    [canUseDemo, session],
   );
 
   const revokeWriter = useCallback(
@@ -397,7 +397,7 @@ export default function SuperAdminScreen() {
         setBusyId(null);
       }
     },
-    [canUseDemo, session?.access_token],
+    [canUseDemo, session],
   );
 
   const approveProvider = useCallback(
