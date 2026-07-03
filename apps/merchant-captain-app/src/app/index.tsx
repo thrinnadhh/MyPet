@@ -11,6 +11,7 @@ import { Colors, Radius, Shadows, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { appConfig } from '@/utils/app-config';
 import { fetchUnreadMerchantAlerts, markAlertRead } from '@/services/notifications';
+import { playMerchantOrderAlertSound } from '@/hooks/usePushNotifications';
 
 const ACTIONS = [
   { id: 'approval', label: 'Provider approval', value: 'Pending proof', tone: 'warning' },
@@ -45,6 +46,7 @@ export default function Index() {
         id: next.referenceId ?? next.notificationId,
         amount: next.body.includes('₹') ? next.body.split('·')[1]?.trim() ?? '' : '',
       });
+      void playMerchantOrderAlertSound();
       await markAlertRead(next.notificationId, session?.access_token);
     };
 

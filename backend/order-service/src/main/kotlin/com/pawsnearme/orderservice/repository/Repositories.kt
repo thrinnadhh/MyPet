@@ -2,6 +2,7 @@ package com.pawsnearme.orderservice.repository
 
 import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderItem
+import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.model.OrderStatusHistory
 import com.pawsnearme.orderservice.model.SystemConfig
 import com.pawsnearme.orderservice.model.Dispute
@@ -15,6 +16,7 @@ import java.util.UUID
 interface OrderRepository : JpaRepository<Order, UUID> {
     fun findByCustomerId(customerId: UUID): List<Order>
     fun findByProviderId(providerId: UUID): List<Order>
+    fun findByStatusAndDeliveredAtBefore(status: OrderStatus, deliveredBefore: java.time.Instant): List<Order>
 }
 
 @Repository

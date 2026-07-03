@@ -19,6 +19,8 @@ interface ScheduledReminderRepository : JpaRepository<ScheduledReminder, UUID> {
     /** Guard against duplicate scheduling for same reference + template. */
     fun existsByReferenceIdAndTemplateCode(referenceId: UUID, templateCode: String): Boolean
 
+    fun deleteByReferenceIdAndReferenceType(referenceId: UUID, referenceType: String): Int
+
     @Modifying
     @Query("UPDATE ScheduledReminder r SET r.deliveryStatus = :status, r.attemptCount = r.attemptCount + 1, r.lastAttemptAt = :attemptedAt, r.failureReason = null, r.retryableFailure = false WHERE r.id = :id")
     fun markAttempted(id: UUID, status: ReminderDeliveryStatus, attemptedAt: Instant): Int

@@ -20,6 +20,7 @@ import { useAuth } from '@/context/AuthContext';
 import { appConfig } from '@/utils/app-config';
 import { approveCaptain, fetchPendingCaptains } from '@/services/captain-onboarding';
 import { fetchBanners, fetchGuideWriters, revokeGuideWriter } from '@/services/content-admin';
+import { fetchPromotions, formatPromotionLabel, formatPromotionScope } from '@/services/promotions';
 
 type Section = 'approvals' | 'captains' | 'disputes' | 'commission' | 'banners' | 'guides' | 'promocodes' | 'support';
 
@@ -235,6 +236,7 @@ export default function SuperAdminScreen() {
   const [pendingCaptains, setPendingCaptains] = useState(DEMO_CAPTAINS);
   const [guideWriters, setGuideWriters] = useState(DEMO_GUIDE_WRITERS);
   const [liveBanners, setLiveBanners] = useState(DEMO_BANNERS);
+  const [platformPromos, setPlatformPromos] = useState(DEMO_PROMOCODES);
 
   const isAdmin = role === 'ADMIN';
   const canUseDemo = appConfig.allowDemoMode;
@@ -294,10 +296,11 @@ export default function SuperAdminScreen() {
   const loadContentSections = useCallback(async () => {
     try {
       const token = session?.access_token;
-      const [captains, banners, writers] = await Promise.all([
+      const [captains, banners, writers, promos] = await Promise.all([
         fetchPendingCaptains(token),
         fetchBanners(token),
         fetchGuideWriters(token),
+        fetchPromotions(null, token),
       ]);
       setPendingCaptains(
         (captains as Array<{ captainId: string; vehicleNumber?: string; status: string }>).map((c) => ({
@@ -322,11 +325,21 @@ export default function SuperAdminScreen() {
           access: w.accessStatus,
         })),
       );
+      setPlatformPromos(
+        (promos as Array<{ promotionId?: string; code: string; discountType: string; discountValue: number; providerId: string | null; applicableCategory: string | null; isActive: boolean }>).map((promo) => ({
+          id: promo.promotionId ?? promo.code,
+          code: promo.code,
+          discount: formatPromotionLabel(promo as Parameters<typeof formatPromotionLabel>[0]),
+          scope: formatPromotionScope(promo as Parameters<typeof formatPromotionScope>[0]),
+          active: promo.isActive,
+        })),
+      );
     } catch {
       if (canUseDemo) {
         setPendingCaptains(DEMO_CAPTAINS);
         setLiveBanners(DEMO_BANNERS);
         setGuideWriters(DEMO_GUIDE_WRITERS);
+        setPlatformPromos(DEMO_PROMOCODES);
       }
     }
   }, [canUseDemo, session?.access_token]);
@@ -336,7 +349,7 @@ export default function SuperAdminScreen() {
   }, [loadAdminData]);
 
   useEffect(() => {
-    if (section === 'captains' || section === 'banners' || section === 'guides') {
+    if (section === 'captains' || section === 'banners' || section === 'guides' || section === 'promocodes') {
       loadContentSections();
     }
   }, [section, loadContentSections]);
@@ -821,13 +834,13 @@ export default function SuperAdminScreen() {
 
           {!loading && section === 'promocodes' ? (
             <View style={styles.sectionStack}>
-              {DEMO_PROMOCODES.map((promo) => (
+              {platformPromos.map((promo) => (
                 <View key={promo.id} style={[styles.compactCard, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
                   <View style={styles.flex}>
                     <ThemedText style={{ color: colors.text, fontWeight: '900' }}>{promo.code}</ThemedText>
                     <ThemedText type="small" style={{ color: colors.textSecondary }}>{promo.discount} · {promo.scope}</ThemedText>
                   </View>
-                  <StatusPill label="ACTIVE" color={colors.cta} />
+                  <StatusPill label={'active' in promo && promo.active === false ? 'PAUSED' : 'ACTIVE'} color={colors.cta} />
                 </View>
               ))}
             </View>

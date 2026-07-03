@@ -20,6 +20,7 @@ class OrderEventListener(
     private val notificationRepo: InAppNotificationRepository,
     private val objectMapper: ObjectMapper,
     private val idempotencyService: IdempotencyService,
+    private val pushNotificationService: PushNotificationService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -70,6 +71,7 @@ class OrderEventListener(
                 priority = "HIGH",
             )
         )
+        pushNotificationService.sendMerchantOrderAlert(merchantUserId, orderId, amount)
         log.info("Created merchant order alert for user {} order {}", merchantUserId, orderId)
     }
 }
