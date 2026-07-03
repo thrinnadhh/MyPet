@@ -1,0 +1,48 @@
+server:
+  port: ${SERVER_PORT:8091}
+
+spring:
+  application:
+    name: chat-service
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+  datasource:
+    url: ${SUPAVISOR_DB_URL:${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=chat,identity,providers,public&stringtype=unspecified}}
+    username: ${DB_USERNAME:chat_service_role}
+    password: ${DB_PASSWORD:chat_service_pass}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    default-schema: chat
+    schemas: chat
+    create-schemas: true
+    user: ${FLYWAY_DB_USERNAME:postgres}
+    password: ${FLYWAY_DB_PASSWORD:postgres}
+  jpa:
+    properties:
+      hibernate:
+        default_schema: chat
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: none
+    show-sql: ${JPA_SHOW_SQL:false}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+chat:
+  uploads:
+    dir: ${CHAT_UPLOAD_DIR:./uploads/chat}
+  public-base-url: ${CHAT_PUBLIC_BASE_URL:http://localhost:8091}
+
+gateway:
+  trust:
+    enabled: ${GATEWAY_TRUST_ENABLED:false}
+    secret: ${GATEWAY_SECRET:dev-secret-change-in-production}

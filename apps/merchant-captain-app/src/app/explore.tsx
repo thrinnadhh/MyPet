@@ -13,6 +13,7 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -38,34 +39,40 @@ type Booking = MerchantBooking;
 const MOCK_BOOKINGS: Booking[] = [
   {
     id: '1',
+    customerId: 'demo-customer-1',
     customerName: 'Priya Sharma',
     petName: 'Bruno',
     serviceName: 'Full Grooming',
     slotStartsAt: new Date(Date.now() + 2 * 3600_000).toISOString(),
     status: 'CONFIRMED',
     providerId: 'demo-provider-1',
+    providerType: 'GROOMING_CENTER',
     offeringId: 'demo-offering-1',
     slotId: 'demo-slot-1',
   },
   {
     id: '2',
+    customerId: 'demo-customer-2',
     customerName: 'Raj Kumar',
     petName: 'Milo',
     serviceName: 'Vet Checkup',
     slotStartsAt: new Date(Date.now() + 5 * 3600_000).toISOString(),
     status: 'CONFIRMED',
     providerId: 'demo-provider-2',
+    providerType: 'VET_HOSPITAL',
     offeringId: 'demo-offering-2',
     slotId: 'demo-slot-2',
   },
   {
     id: '3',
+    customerId: 'demo-customer-3',
     customerName: 'Anita Reddy',
     petName: 'Biscuit',
     serviceName: 'Vaccination',
     slotStartsAt: new Date(Date.now() - 1 * 3600_000).toISOString(),
     status: 'COMPLETED',
     providerId: 'demo-provider-3',
+    providerType: 'VET_HOSPITAL',
     offeringId: 'demo-offering-3',
     slotId: 'demo-slot-3',
   },
@@ -185,10 +192,11 @@ function CompleteModal({ booking, visible, onClose, onSubmit }: CompleteModalPro
 interface BookingCardProps {
   item: Booking;
   onComplete: (booking: Booking) => void;
+  onMessage: (booking: Booking) => void;
   theme: ReturnType<typeof useTheme>;
 }
 
-const BookingCard = React.memo(function BookingCard({ item, onComplete, theme }: BookingCardProps) {
+const BookingCard = React.memo(function BookingCard({ item, onComplete, onMessage, theme }: BookingCardProps) {
   const time = new Date(item.slotStartsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const date = new Date(item.slotStartsAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 
@@ -213,6 +221,15 @@ const BookingCard = React.memo(function BookingCard({ item, onComplete, theme }:
         </View>
       </View>
 
+      <TouchableOpacity
+        style={[styles.messageBtn, { borderColor: theme.cta }]}
+        onPress={() => onMessage(item)}
+        accessibilityLabel={`Message ${item.customerName}`}
+        accessibilityRole="button"
+      >
+        <ThemedText style={{ color: theme.cta, fontWeight: '600' }}>Message customer</ThemedText>
+      </TouchableOpacity>
+
       {item.status === 'CONFIRMED' && (
         <TouchableOpacity
           style={[styles.completeBtn, { borderColor: theme.primary }]}
@@ -236,6 +253,7 @@ type FilterType = 'ALL' | 'CONFIRMED' | 'COMPLETED';
 
 export default function BookingsScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const safeAreaInsets = useSafeAreaInsets();
   const { user, session } = useAuth();
   const userId = user?.id;
@@ -298,6 +316,20 @@ export default function BookingsScreen() {
     setModalVisible(true);
   }, []);
 
+  const handleMessage = useCallback((booking: Booking) => {
+    router.push({
+      pathname: '/chat',
+      params: {
+        contextType: 'APPOINTMENT',
+        contextId: booking.id,
+        providerId: booking.providerId,
+        customerId: booking.customerId,
+        providerType: booking.providerType,
+        title: booking.customerName,
+      },
+    } as never);
+  }, [router]);
+
   const handleSubmitComplete = useCallback(async (bookingId: string, notes: string) => {
     try {
       if (appConfig.allowDemoMode) {
@@ -318,9 +350,9 @@ export default function BookingsScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: Booking }) => (
-      <BookingCard item={item} onComplete={handleComplete} theme={theme} />
+      <BookingCard item={item} onComplete={handleComplete} onMessage={handleMessage} theme={theme} />
     ),
-    [handleComplete, theme]
+    [handleComplete, handleMessage, theme]
   );
 
   const keyExtractor = useCallback((item: Booking) => item.id, []);
@@ -461,6 +493,15 @@ const styles = StyleSheet.create({
   },
 
   completeBtn: {
+    marginTop: Spacing.two,
+    paddingVertical: Spacing.two,
+    borderRadius: Spacing.two,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  messageBtn: {
     marginTop: Spacing.two,
     paddingVertical: Spacing.two,
     borderRadius: Spacing.two,

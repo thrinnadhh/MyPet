@@ -149,6 +149,18 @@ services:
       <<: *backend-env
       SERVER_PORT: 8090
 
+  chat-service:
+    <<: *backend-common
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: chat-service
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8091
+      CHAT_PUBLIC_BASE_URL: http://localhost:8091
+
   api-gateway:
     build:
       context: ..
@@ -175,6 +187,7 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:8088
       REVIEW_SERVICE_URL: http://review-service:8089
       PAYMENT_SERVICE_URL: http://payment-service:8090
+      CHAT_SERVICE_URL: http://chat-service:8091
     depends_on:
       redis:
         condition: service_healthy

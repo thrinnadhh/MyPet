@@ -34,6 +34,9 @@ BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'payment_service_role') THEN
         CREATE ROLE payment_service_role WITH LOGIN PASSWORD 'payment_service_pass';
     END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'chat_service_role') THEN
+        CREATE ROLE chat_service_role WITH LOGIN PASSWORD 'chat_service_pass';
+    END IF;
 END
 $$;
 
@@ -49,6 +52,7 @@ GRANT CONNECT ON DATABASE pawsnearme TO captain_service_role;
 GRANT CONNECT ON DATABASE pawsnearme TO notification_service_role;
 GRANT CONNECT ON DATABASE pawsnearme TO review_service_role;
 GRANT CONNECT ON DATABASE pawsnearme TO payment_service_role;
+GRANT CONNECT ON DATABASE pawsnearme TO chat_service_role;
 
 -- Scoping for Identity Service
 GRANT USAGE ON SCHEMA identity TO identity_service_role;
@@ -146,3 +150,12 @@ GRANT SELECT ON captains.captain_earnings TO payment_service_role;
 
 GRANT USAGE ON SCHEMA providers TO payment_service_role;
 GRANT SELECT ON providers.providers TO payment_service_role;
+
+-- Scoping for Chat Service
+GRANT USAGE ON SCHEMA chat TO chat_service_role;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA chat TO chat_service_role;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA chat TO chat_service_role;
+GRANT USAGE ON SCHEMA identity TO chat_service_role;
+GRANT SELECT ON identity.profiles TO chat_service_role;
+GRANT USAGE ON SCHEMA providers TO chat_service_role;
+GRANT SELECT ON providers.providers TO chat_service_role;

@@ -10,6 +10,7 @@ notification:
     APPOINTMENT_T1H: "Your appointment is in 1 hour! Ref: {referenceId}"
     ORDER_DELIVERED: "Your order has been delivered! Order: {referenceId}"
     ORDER_PLACED: "Your order has been placed successfully! Order: {referenceId}"
+    CHAT_MESSAGE: "New message: {referenceId}"
 
 spring:
   application:

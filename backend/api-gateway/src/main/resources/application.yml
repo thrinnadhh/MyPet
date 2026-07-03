@@ -144,6 +144,19 @@ spring:
           uri: ${PAYMENT_SERVICE_URL:http://localhost:8090}
           predicates:
             - Path=/api/v1/payments/**
+        - id: chat-service-privacy
+          uri: ${CHAT_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/v1/chat/conversations/*/privacy
+            - Method=PATCH
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
+        - id: chat-service
+          uri: ${CHAT_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/v1/chat/**
   security:
     oauth2:
       resourceserver:

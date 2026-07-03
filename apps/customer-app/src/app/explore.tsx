@@ -12,6 +12,7 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -231,10 +232,11 @@ const STATUS_COLORS: Record<AppointmentStatus, string> = {
 interface ApptCardProps {
   item: AppointmentRecord;
   onReview: (target: ReviewTarget) => void;
+  onMessage: (item: AppointmentRecord) => void;
   theme: ReturnType<typeof useTheme>;
 }
 
-const AppointmentCard = React.memo(function AppointmentCard({ item, onReview, theme }: ApptCardProps) {
+const AppointmentCard = React.memo(function AppointmentCard({ item, onReview, onMessage, theme }: ApptCardProps) {
   const date = new Date(item.slotStartsAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
   const time = new Date(item.slotStartsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -259,6 +261,16 @@ const AppointmentCard = React.memo(function AppointmentCard({ item, onReview, th
         <AppIcon name="calendar" color={theme.textSecondary} size={14} />
         <ThemedText type="small" themeColor="textSecondary">{date} · {time}</ThemedText>
       </View>
+
+      <TouchableOpacity
+        style={[styles.reviewBtn, { borderColor: theme.cta }]}
+        onPress={() => onMessage(item)}
+        accessibilityLabel={`Message ${item.providerName}`}
+        accessibilityRole="button"
+      >
+        <AppIcon name="support" color={theme.cta} size={16} />
+        <ThemedText style={{ color: theme.cta, fontWeight: '600' }}>Message</ThemedText>
+      </TouchableOpacity>
 
       {item.status === 'COMPLETED' && !item.hasReview && (
         <TouchableOpacity
@@ -325,6 +337,7 @@ const OrderCard = React.memo(function OrderCard({ item, onReview, theme }: Order
 
 export default function HistoryScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const safeAreaInsets = useSafeAreaInsets();
   const { user, session } = useAuth();
   const userId = user?.id;
@@ -389,6 +402,18 @@ export default function HistoryScreen() {
     setModalVisible(true);
   }, []);
 
+  const handleMessage = useCallback((item: AppointmentRecord) => {
+    router.push({
+      pathname: '/chat',
+      params: {
+        contextType: 'APPOINTMENT',
+        contextId: item.id,
+        providerId: item.providerId,
+        title: item.providerName,
+      },
+    } as never);
+  }, [router]);
+
   const handleSubmitReview = useCallback(async (targetId: string, rating: number, comment: string) => {
     if (!reviewTarget) return;
 
@@ -426,9 +451,9 @@ export default function HistoryScreen() {
 
   const renderAppointment = useCallback(
     ({ item }: { item: AppointmentRecord }) => (
-      <AppointmentCard item={item} onReview={handleReview} theme={theme} />
+      <AppointmentCard item={item} onReview={handleReview} onMessage={handleMessage} theme={theme} />
     ),
-    [handleReview, theme]
+    [handleMessage, handleReview, theme]
   );
 
   const renderOrder = useCallback(
