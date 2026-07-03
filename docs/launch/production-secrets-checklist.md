@@ -12,6 +12,10 @@ Do not commit real secret values. Store production values only in the approved d
 - Razorpay webhook secret
 - Expo access token
 - FCM service account or sender configuration
+- `NOTIFICATION_DELIVERY_MODE=EXPO_FCM` on notification-service
+- `INTERNAL_API_SECRET` shared by provider-service and notification-service
+- `PROVIDER_PUBLIC_BASE_URL` pointing at the public API gateway host
+- `ORDER_AUTO_COMPLETE_HOURS` for order-service auto-completion window
 - APNs key/team/bundle configuration if iOS launch is included
 - Kafka broker credentials or managed cluster connection string
 - Redis URL and credentials

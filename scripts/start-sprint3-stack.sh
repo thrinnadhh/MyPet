@@ -134,11 +134,23 @@ start_service() {
     ) > "$LOG_DIR/$service.log" 2>&1 &
   elif [[ "$service" == "provider-service" ]]; then
     (
+      if [[ -f "$ROOT_DIR/.env" ]]; then
+        set -a
+        # shellcheck source=/dev/null
+        source "$ROOT_DIR/.env"
+        set +a
+      fi
       cd "$BACKEND_DIR"
       exec ./gradlew ":$service:bootRun" --args='--spring.flyway.validate-on-migrate=false'
     ) > "$LOG_DIR/$service.log" 2>&1 &
   else
     (
+      if [[ -f "$ROOT_DIR/.env" ]]; then
+        set -a
+        # shellcheck source=/dev/null
+        source "$ROOT_DIR/.env"
+        set +a
+      fi
       cd "$BACKEND_DIR"
       exec ./gradlew ":$service:bootRun"
     ) > "$LOG_DIR/$service.log" 2>&1 &

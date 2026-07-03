@@ -43,6 +43,10 @@ spring:
           uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/v1/providers/**, /api/v1/profiles/**, /api/v1/pets/**, /api/v1/addresses/**
+        - id: provider-uploads
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/uploads/**
         - id: provider-service-grpc
           uri: ${PROVIDER_SERVICE_GRPC_URL:grpc://localhost:9091}
           predicates:
