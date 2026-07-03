@@ -29,6 +29,17 @@ interface OfferingRepository : JpaRepository<Offering, UUID> {
         """
     )
     fun decrementStockIfAvailable(offeringId: UUID, providerId: UUID, quantity: Int): Int
+
+    @Modifying
+    @Query(
+        """
+        UPDATE Offering o
+           SET o.stockQuantity = o.stockQuantity + :quantity
+         WHERE o.offeringId = :offeringId
+           AND o.stockQuantity IS NOT NULL
+        """
+    )
+    fun incrementStockIfTracked(offeringId: UUID, quantity: Int): Int
 }
 
 @Repository

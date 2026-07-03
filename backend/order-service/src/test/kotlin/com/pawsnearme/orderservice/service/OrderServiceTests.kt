@@ -115,6 +115,7 @@ class OrderServiceTests {
     fun `updateOrderStatus - publishes event id and actor id`() {
         val order = savedOrder(OrderStatus.PLACED)
         whenever(orderRepository.findById(order.orderId!!)).thenReturn(java.util.Optional.of(order))
+        whenever(orderItemRepository.findByOrderId(order.orderId!!)).thenReturn(emptyList())
         whenever(kafkaTemplate.send(any<String>(), any(), any())).thenReturn(mock())
 
         service.updateOrderStatus(order.orderId!!, OrderStatus.CANCELLED, customerId, "customer request")
@@ -127,6 +128,19 @@ class OrderServiceTests {
             assertEquals(customerId, event.actorId)
             assertEquals(order.orderId, event.orderId)
         }
+        verify(orderItemRepository).findByOrderId(order.orderId!!)
+    }
+
+    @Test
+    fun `updateOrderStatus - non releasing transition does not restore stock`() {
+        val order = savedOrder(OrderStatus.PLACED)
+        whenever(orderRepository.findById(order.orderId!!)).thenReturn(java.util.Optional.of(order))
+        whenever(kafkaTemplate.send(any<String>(), any(), any())).thenReturn(mock())
+
+        service.updateOrderStatus(order.orderId!!, OrderStatus.PREPARING, customerId)
+
+        assertEquals(OrderStatus.PREPARING, order.status)
+        verify(orderItemRepository, never()).findByOrderId(order.orderId!!)
     }
 
     @Test

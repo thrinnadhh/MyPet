@@ -37,6 +37,9 @@ class AuthenticationHeaderFilterTests {
         val headers = capturedExchange.get().request.headers
         assertNull(headers.getFirst("X-User-Id"))
         assertNull(headers.getFirst("X-User-Role"))
+        assertNull(headers.getFirst("X-User-Email"))
+        assertNull(headers.getFirst("X-User-Full-Name"))
+        assertNull(headers.getFirst("X-User-Phone"))
         assertNull(headers.getFirst("X-Admin-Api-Key"))
     }
 
@@ -46,6 +49,9 @@ class AuthenticationHeaderFilterTests {
             MockServerHttpRequest.get("/api/v1/orders")
                 .header("X-User-Id", "spoofed-user")
                 .header("X-User-Role", "ADMIN")
+                .header("X-User-Email", "spoof@example.com")
+                .header("X-User-Full-Name", "Spoof Name")
+                .header("X-User-Phone", "+910000000000")
                 .header("X-Admin-Api-Key", "legacy-key")
         )
         val capturedExchange = AtomicReference<org.springframework.web.server.ServerWebExchange>()
@@ -58,7 +64,15 @@ class AuthenticationHeaderFilterTests {
             Instant.now(),
             Instant.now().plusSeconds(3600),
             mapOf("alg" to "none"),
-            mapOf("sub" to "real-user", "role" to "merchant")
+            mapOf(
+                "sub" to "real-user",
+                "role" to "merchant",
+                "email" to "real@example.com",
+                "user_metadata" to mapOf(
+                    "full_name" to "Real User",
+                    "phone" to "+919999111111"
+                )
+            )
         )
         val authentication = TestingAuthenticationToken(jwt, null)
         val securityContext = SecurityContextImpl(authentication)
@@ -70,6 +84,9 @@ class AuthenticationHeaderFilterTests {
         val headers = capturedExchange.get().request.headers
         assertEquals("real-user", headers.getFirst("X-User-Id"))
         assertEquals("MERCHANT", headers.getFirst("X-User-Role"))
+        assertEquals("real@example.com", headers.getFirst("X-User-Email"))
+        assertEquals("Real User", headers.getFirst("X-User-Full-Name"))
+        assertEquals("+919999111111", headers.getFirst("X-User-Phone"))
         assertNull(headers.getFirst("X-Admin-Api-Key"))
     }
 
@@ -104,5 +121,38 @@ class AuthenticationHeaderFilterTests {
         val headers = capturedExchange.get().request.headers
         assertEquals("admin-user", headers.getFirst("X-User-Id"))
         assertEquals("ADMIN", headers.getFirst("X-User-Role"))
+    }
+
+    @Test
+    fun `normalizes legacy provider role to merchant`() {
+        val exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.get("/api/v1/providers")
+        )
+        val capturedExchange = AtomicReference<org.springframework.web.server.ServerWebExchange>()
+        val chain = GatewayFilterChain {
+            capturedExchange.set(it)
+            Mono.empty()
+        }
+        val jwt = Jwt(
+            "token",
+            Instant.now(),
+            Instant.now().plusSeconds(3600),
+            mapOf("alg" to "none"),
+            mapOf(
+                "sub" to "provider-user",
+                "role" to "authenticated",
+                "user_metadata" to mapOf("role" to "PROVIDER")
+            )
+        )
+        val authentication = TestingAuthenticationToken(jwt, null)
+        val securityContext = SecurityContextImpl(authentication)
+
+        filter.filter(exchange, chain)
+            .contextWrite(ReactiveSecurityContextHolder.withSecurityContext(Mono.just(securityContext)))
+            .block()
+
+        val headers = capturedExchange.get().request.headers
+        assertEquals("provider-user", headers.getFirst("X-User-Id"))
+        assertEquals("MERCHANT", headers.getFirst("X-User-Role"))
     }
 }

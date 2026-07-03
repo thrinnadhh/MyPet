@@ -95,6 +95,9 @@ class CatalogService(
 
     @Transactional
     fun decrementStock(offeringId: UUID, quantity: Int): Offering {
+        if (quantity <= 0) {
+            throw IllegalArgumentException("Quantity must be greater than zero")
+        }
         val offering = offeringRepository.findById(offeringId)
             .orElseThrow { NoSuchElementException("Offering with ID $offeringId not found") }
         if (offering.stockQuantity == null) {
@@ -103,8 +106,30 @@ class CatalogService(
         if (offering.stockQuantity!! < quantity) {
             throw IllegalArgumentException("Insufficient stock quantity for offering $offeringId")
         }
+        val updatedRows = offeringRepository.decrementStockIfAvailable(offeringId, offering.providerId, quantity)
+        if (updatedRows != 1) {
+            throw IllegalArgumentException("Insufficient stock quantity for offering $offeringId")
+        }
         offering.stockQuantity = offering.stockQuantity!! - quantity
-        return offeringRepository.save(offering)
+        return offering
+    }
+
+    @Transactional
+    fun restoreStock(offeringId: UUID, quantity: Int): Offering {
+        if (quantity <= 0) {
+            throw IllegalArgumentException("Quantity must be greater than zero")
+        }
+        val offering = offeringRepository.findById(offeringId)
+            .orElseThrow { NoSuchElementException("Offering with ID $offeringId not found") }
+        if (offering.stockQuantity == null) {
+            throw IllegalArgumentException("Offering does not support stock tracking")
+        }
+        val updatedRows = offeringRepository.incrementStockIfTracked(offeringId, quantity)
+        if (updatedRows != 1) {
+            throw IllegalStateException("Unable to restore stock for offering $offeringId")
+        }
+        offering.stockQuantity = offering.stockQuantity!! + quantity
+        return offering
     }
 
     // --- Slot Operations ---

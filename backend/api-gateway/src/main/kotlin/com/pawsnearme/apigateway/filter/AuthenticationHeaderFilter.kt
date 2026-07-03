@@ -19,6 +19,9 @@ class AuthenticationHeaderFilter : GlobalFilter, Ordered {
                     .headers {
                         it.remove("X-User-Id")
                         it.remove("X-User-Role")
+                        it.remove("X-User-Email")
+                        it.remove("X-User-Full-Name")
+                        it.remove("X-User-Phone")
                         it.remove("X-Admin-Api-Key")
                     }
                     .build()
@@ -32,12 +35,18 @@ class AuthenticationHeaderFilter : GlobalFilter, Ordered {
                 if (principal is Jwt) {
                     val userId = principal.subject
                     val role = extractRole(principal)
+                    val email = extractStringClaim(principal, "email")
+                    val fullName = extractFullName(principal)
+                    val phone = extractPhone(principal)
 
-                    val mutatedRequest = sanitizedExchange.request.mutate()
+                    val requestBuilder = sanitizedExchange.request.mutate()
                         .header("X-User-Id", userId)
                         .header("X-User-Role", role)
-                        .build()
+                    if (!email.isNullOrBlank()) requestBuilder.header("X-User-Email", email)
+                    if (!fullName.isNullOrBlank()) requestBuilder.header("X-User-Full-Name", fullName)
+                    if (!phone.isNullOrBlank()) requestBuilder.header("X-User-Phone", phone)
 
+                    val mutatedRequest = requestBuilder.build()
                     Mono.just(sanitizedExchange.mutate().request(mutatedRequest).build())
                 } else {
                     Mono.just(sanitizedExchange)
@@ -52,23 +61,47 @@ class AuthenticationHeaderFilter : GlobalFilter, Ordered {
         // (`authenticated`/`anon`). Prefer app_metadata for app authorization.
         val appMetadata = jwt.claims["app_metadata"] as? Map<*, *>
         val nestedAppRole = appMetadata?.get("role") as? String
-        if (!nestedAppRole.isNullOrBlank()) return nestedAppRole.uppercase()
+        if (!nestedAppRole.isNullOrBlank()) return normalizeRole(nestedAppRole)
 
         // Legacy/dev fallback only. Do not rely on user_metadata for production
         // authorization decisions because users can edit it.
         val userMetadata = jwt.claims["user_metadata"] as? Map<*, *>
         val nestedUserRole = userMetadata?.get("role") as? String
-        if (!nestedUserRole.isNullOrBlank()) return nestedUserRole.uppercase()
+        if (!nestedUserRole.isNullOrBlank()) return normalizeRole(nestedUserRole)
 
         val directRole = jwt.claims["role"] as? String
         if (!directRole.isNullOrBlank()) {
-            val normalized = directRole.uppercase()
+            val normalized = normalizeRole(directRole)
             if (normalized !in setOf("AUTHENTICATED", "ANON", "SERVICE_ROLE")) {
                 return normalized
             }
         }
 
         return "CUSTOMER" // Default role
+    }
+
+    private fun normalizeRole(role: String): String {
+        val normalized = role.uppercase()
+        return if (normalized == "PROVIDER") "MERCHANT" else normalized
+    }
+
+    private fun extractStringClaim(jwt: Jwt, claim: String): String? {
+        return jwt.claims[claim] as? String
+    }
+
+    private fun extractFullName(jwt: Jwt): String? {
+        val userMetadata = jwt.claims["user_metadata"] as? Map<*, *>
+        return (userMetadata?.get("full_name") as? String)
+            ?: (userMetadata?.get("name") as? String)
+            ?: extractStringClaim(jwt, "name")
+    }
+
+    private fun extractPhone(jwt: Jwt): String? {
+        val userMetadata = jwt.claims["user_metadata"] as? Map<*, *>
+        return (userMetadata?.get("phone") as? String)
+            ?: (userMetadata?.get("phone_number") as? String)
+            ?: extractStringClaim(jwt, "phone")
+            ?: extractStringClaim(jwt, "phone_number")
     }
 
     override fun getOrder(): Int {

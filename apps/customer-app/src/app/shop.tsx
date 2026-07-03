@@ -63,6 +63,15 @@ interface Address {
   pincode: string;
 }
 
+interface OrderPayload {
+  orderId: string;
+  totalAmount: number | string;
+}
+
+interface ApiErrorPayload {
+  error?: string;
+}
+
 const DEMO_DELIVERY_ADDRESS_ID = '11111111-1111-4111-8111-111111111111';
 
 const StoreCard = React.memo(({ item, colors, isSelected, onPress }: { item: Store, colors: any, isSelected: boolean, onPress: () => void }) => {
@@ -263,6 +272,31 @@ export default function ShopScreen() {
     return response.json();
   };
 
+  const readApiError = async (response: Response): Promise<string | undefined> => {
+    try {
+      const payload = await response.json() as ApiErrorPayload;
+      return payload.error;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const messageFromError = (error: unknown): string => {
+    return error instanceof Error ? error.message : 'Please try again.';
+  };
+
+  const cancelOrderAfterPaymentFailure = async (orderId: string) => {
+    const note = encodeURIComponent('Sandbox payment failed; reserved stock restored.');
+    const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders/${orderId}/status?status=CANCELLED&note=${note}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+    });
+    if (!response.ok) {
+      const message = await readApiError(response);
+      throw new Error(message || 'Payment failure was recorded, but order cancellation failed.');
+    }
+  };
+
   const checkout = async (success: boolean) => {
     if (!user || !selectedStore || selectedItems.length === 0 || checkoutState !== 'idle') return;
 
@@ -284,7 +318,7 @@ export default function ShopScreen() {
           })),
         }),
       });
-      const orderPayload = await orderResponse.json();
+      const orderPayload = await orderResponse.json() as OrderPayload & ApiErrorPayload;
       if (!orderResponse.ok) {
         throw new Error(orderPayload?.error || 'Order creation failed.');
       }
@@ -301,9 +335,13 @@ export default function ShopScreen() {
           success,
         }),
       });
-      const paymentPayload = await paymentResponse.json();
+      const paymentPayload = await paymentResponse.json() as ApiErrorPayload;
       if (!paymentResponse.ok) {
         throw new Error(paymentPayload?.error || 'Payment verification failed.');
+      }
+
+      if (!success) {
+        await cancelOrderAfterPaymentFailure(orderPayload.orderId);
       }
 
       setCart({});
@@ -311,10 +349,10 @@ export default function ShopScreen() {
         success ? 'Payment captured' : 'Payment failed',
         success
           ? `Order ${String(orderPayload.orderId).slice(0, 8)} is placed.`
-          : `Failure event recorded for order ${String(orderPayload.orderId).slice(0, 8)}.`
+          : `Failure event recorded and stock restored for order ${String(orderPayload.orderId).slice(0, 8)}.`
       );
-    } catch (error: any) {
-      Alert.alert('Checkout unavailable', error?.message || 'Please try again.');
+    } catch (error: unknown) {
+      Alert.alert('Checkout unavailable', messageFromError(error));
     } finally {
       setCheckoutState('idle');
     }

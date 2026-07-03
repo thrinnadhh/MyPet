@@ -76,64 +76,71 @@ class OrderService(
     @Value("\${CATALOG_SERVICE_URL:http://localhost:8082}")
     private val catalogServiceUrl: String,
     @Value("\${PAYMENT_SERVICE_URL:http://localhost:8090}")
-    private val paymentServiceUrl: String
+    private val paymentServiceUrl: String,
+    private val restTemplate: RestTemplate = RestTemplate()
 ) {
-    private val restTemplate = RestTemplate()
-
     fun createOrder(request: CreateOrderRequest): Order {
         if (request.items.isEmpty()) {
             throw IllegalArgumentException("Order must contain at least one item")
         }
 
-        var subtotal = BigDecimal.ZERO
-        val orderItemsToSave = mutableListOf<OrderItem>()
+        val reservedItems = mutableListOf<OrderItemRequest>()
 
-        // 1. Validate offerings and decrement stock in Catalog Service (guarded by circuit breaker)
-        for (item in request.items) {
-            val cartEntry = decrementCatalogStock(item.offeringId, item.quantity, catalogServiceUrl)
-            subtotal = subtotal.add(cartEntry.lineTotal)
-            orderItemsToSave.add(cartEntry)
-        }
-
-        val total = subtotal.add(request.deliveryFee).subtract(request.discountAmount)
-
-        // 2. Create and Save the Order
-        val order = Order(
-            customerId = request.customerId,
-            providerId = request.providerId,
-            deliveryAddressId = request.deliveryAddressId,
-            status = OrderStatus.PLACED,
-            subtotalAmount = subtotal,
-            deliveryFee = request.deliveryFee,
-            discountAmount = request.discountAmount,
-            totalAmount = total
-        )
-        val savedOrder = orderRepository.save(order)
-
-        // 3. Save Order Items with the persistent Order ID
-        for (item in orderItemsToSave) {
-            item.orderId = savedOrder.orderId!!
-            orderItemRepository.save(item)
-        }
-
-        // 4. Log initial history
-        logStatusChange(savedOrder.orderId!!, null, OrderStatus.PLACED, savedOrder.customerId, "Order placed successfully")
-
-        // 5. Publish Order Placed Event to Kafka
         try {
-            val event = OrderPlacedEvent(
-                orderId = savedOrder.orderId!!,
-                actorId = savedOrder.customerId,
-                customerId = savedOrder.customerId,
-                providerId = savedOrder.providerId,
-                totalAmount = savedOrder.totalAmount
-            )
-            kafkaTemplate.send("orders.events", savedOrder.orderId.toString(), event)
-        } catch (e: Exception) {
-            println("WARNING: Failed to publish Kafka OrderPlaced event: ${e.message}")
-        }
+            var subtotal = BigDecimal.ZERO
+            val orderItemsToSave = mutableListOf<OrderItem>()
 
-        return savedOrder
+            // 1. Validate live offering price/stock and reserve stock in Catalog Service.
+            for (item in request.items) {
+                val cartEntry = decrementCatalogStock(item.offeringId, item.quantity, catalogServiceUrl)
+                reservedItems.add(item)
+                subtotal = subtotal.add(cartEntry.lineTotal)
+                orderItemsToSave.add(cartEntry)
+            }
+
+            val total = subtotal.add(request.deliveryFee).subtract(request.discountAmount)
+
+            // 2. Create and Save the Order
+            val order = Order(
+                customerId = request.customerId,
+                providerId = request.providerId,
+                deliveryAddressId = request.deliveryAddressId,
+                status = OrderStatus.PLACED,
+                subtotalAmount = subtotal,
+                deliveryFee = request.deliveryFee,
+                discountAmount = request.discountAmount,
+                totalAmount = total
+            )
+            val savedOrder = orderRepository.save(order)
+
+            // 3. Save Order Items with the persistent Order ID
+            for (item in orderItemsToSave) {
+                item.orderId = savedOrder.orderId!!
+                orderItemRepository.save(item)
+            }
+
+            // 4. Log initial history
+            logStatusChange(savedOrder.orderId!!, null, OrderStatus.PLACED, savedOrder.customerId, "Order placed successfully")
+
+            // 5. Publish Order Placed Event to Kafka
+            try {
+                val event = OrderPlacedEvent(
+                    orderId = savedOrder.orderId!!,
+                    actorId = savedOrder.customerId,
+                    customerId = savedOrder.customerId,
+                    providerId = savedOrder.providerId,
+                    totalAmount = savedOrder.totalAmount
+                )
+                kafkaTemplate.send("orders.events", savedOrder.orderId.toString(), event)
+            } catch (e: Exception) {
+                println("WARNING: Failed to publish Kafka OrderPlaced event: ${e.message}")
+            }
+
+            return savedOrder
+        } catch (e: Exception) {
+            restoreReservedCatalogStock(reservedItems)
+            throw e
+        }
     }
 
     fun updateOrderStatus(orderId: UUID, newStatus: OrderStatus, changedBy: UUID, note: String? = null): Order {
@@ -141,6 +148,9 @@ class OrderService(
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
         
         val oldStatus = order.status
+        if (shouldRestoreReservedStock(oldStatus, newStatus)) {
+            restoreOrderCatalogStock(orderId)
+        }
         order.status = newStatus
         
         when (newStatus) {
@@ -201,6 +211,9 @@ class OrderService(
     @CircuitBreaker(name = "catalog-service", fallbackMethod = "decrementCatalogStockFallback")
     @Retry(name = "catalog-service")
     fun decrementCatalogStock(offeringId: UUID, quantity: Int, baseUrl: String): OrderItem {
+        if (quantity <= 0) {
+            throw IllegalArgumentException("Quantity must be greater than zero")
+        }
         val url = "$baseUrl/api/v1/catalog/offerings/$offeringId/decrement-stock?quantity=$quantity"
         val offering = restTemplate.exchange(
             url,
@@ -209,8 +222,7 @@ class OrderService(
             Map::class.java
         ).body ?: throw IllegalStateException("Catalog service: offering $offeringId not found")
 
-        val priceDouble = offering["price"] as? Double ?: 0.0
-        val unitPrice = BigDecimal.valueOf(priceDouble)
+        val unitPrice = parseCatalogPrice(offering["price"])
         val name = offering["name"] as? String ?: "Pet Product"
         val lineTotal = unitPrice.multiply(BigDecimal.valueOf(quantity.toLong()))
         return OrderItem(
@@ -226,6 +238,48 @@ class OrderService(
     fun decrementCatalogStockFallback(offeringId: UUID, quantity: Int, baseUrl: String, ex: Throwable): OrderItem {
         logger.error("Catalog circuit breaker OPEN for offering $offeringId — ${ex.message}")
         throw IllegalStateException("Catalog service unavailable. Please retry in a moment. (circuit open)")
+    }
+
+    fun restoreCatalogStock(offeringId: UUID, quantity: Int, baseUrl: String) {
+        if (quantity <= 0) {
+            throw IllegalArgumentException("Quantity must be greater than zero")
+        }
+        val url = "$baseUrl/api/v1/catalog/offerings/$offeringId/restore-stock?quantity=$quantity"
+        restTemplate.exchange(
+            url,
+            org.springframework.http.HttpMethod.PUT,
+            null,
+            Map::class.java
+        )
+    }
+
+    private fun restoreReservedCatalogStock(items: List<OrderItemRequest>) {
+        for (item in items.asReversed()) {
+            try {
+                restoreCatalogStock(item.offeringId, item.quantity, catalogServiceUrl)
+            } catch (restoreError: Exception) {
+                logger.error("WARNING: Failed to restore catalog stock for offering ${item.offeringId}: ${restoreError.message}")
+            }
+        }
+    }
+
+    private fun restoreOrderCatalogStock(orderId: UUID) {
+        val orderItems = orderItemRepository.findByOrderId(orderId)
+        restoreReservedCatalogStock(orderItems.map { OrderItemRequest(it.offeringId, it.quantity) })
+    }
+
+    private fun shouldRestoreReservedStock(oldStatus: OrderStatus, newStatus: OrderStatus): Boolean {
+        val releasingStatuses = setOf(OrderStatus.CANCELLED, OrderStatus.REJECTED)
+        return newStatus in releasingStatuses && oldStatus !in releasingStatuses
+    }
+
+    private fun parseCatalogPrice(value: Any?): BigDecimal {
+        return when (value) {
+            is BigDecimal -> value
+            is Number -> BigDecimal.valueOf(value.toDouble())
+            is String -> value.toBigDecimal()
+            else -> throw IllegalStateException("Catalog service returned invalid offering price")
+        }
     }
 
     // --- Admin Config Methods ---

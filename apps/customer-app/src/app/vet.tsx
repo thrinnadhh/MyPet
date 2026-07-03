@@ -9,10 +9,17 @@ import { ThemedView } from '@/components/themed-view';
 import { AppIcon } from '@/components/app-icon';
 import { Spacing, Colors, Radius, Shadows } from '@/constants/theme';
 import { appConfig } from '@/utils/app-config';
+import { useAuth } from '@/context/AuthContext';
+import {
+  confirmAppointmentHold,
+  fetchAvailableAppointmentSlots,
+  holdAppointmentSlot,
+  type AppointmentSlotOption,
+} from '@/services/appointment-booking';
 
 const HOLD_DURATION_SECONDS = 300; // 5 minutes — matches backend TTL
-const MOCK_PET_ID = 'pet-001';
-const MOCK_CUSTOMER_ID = 'customer-001';
+const DEMO_PROVIDER_ID = '11111111-1111-1111-1111-111111111111';
+const DEMO_OFFERING_ID = '22222222-2222-2222-2222-222222222222';
 
 const BACKUP_HOSPITALS: Hospital[] = [
   { id: 'h-001', name: 'Apollo Vet Hospital (Demo)', speciality: 'General Surgery, Vaccinations', nextSlot: 'Today, 4:30 PM', distance: '1.2 km', rating: '4.8', ratingCount: '240' },
@@ -20,20 +27,15 @@ const BACKUP_HOSPITALS: Hospital[] = [
 ];
 
 const BACKUP_SLOTS: Slot[] = [
-  { id: 's-001', startTime: 'Today, 4:30 PM', endTime: 'Today, 5:00 PM', price: 499 },
-  { id: 's-002', startTime: 'Today, 5:00 PM', endTime: 'Today, 5:30 PM', price: 499 },
-  { id: 's-003', startTime: 'Today, 6:00 PM', endTime: 'Today, 6:30 PM', price: 599 },
-  { id: 's-004', startTime: 'Tomorrow, 10:00 AM', endTime: 'Tomorrow, 10:30 AM', price: 499 },
+  { id: '33333333-3333-3333-3333-333333333331', providerId: DEMO_PROVIDER_ID, offeringId: DEMO_OFFERING_ID, serviceName: 'Vet consultation', startTime: 'Today, 4:30 PM', endTime: 'Today, 5:00 PM', price: 499 },
+  { id: '33333333-3333-3333-3333-333333333332', providerId: DEMO_PROVIDER_ID, offeringId: DEMO_OFFERING_ID, serviceName: 'Vet consultation', startTime: 'Today, 5:00 PM', endTime: 'Today, 5:30 PM', price: 499 },
+  { id: '33333333-3333-3333-3333-333333333333', providerId: DEMO_PROVIDER_ID, offeringId: DEMO_OFFERING_ID, serviceName: 'Emergency consult', startTime: 'Today, 6:00 PM', endTime: 'Today, 6:30 PM', price: 599 },
+  { id: '33333333-3333-3333-3333-333333333334', providerId: DEMO_PROVIDER_ID, offeringId: DEMO_OFFERING_ID, serviceName: 'Vet consultation', startTime: 'Tomorrow, 10:00 AM', endTime: 'Tomorrow, 10:30 AM', price: 499 },
 ];
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface Slot {
-  id: string;
-  startTime: string;
-  endTime: string;
-  price: number;
-}
+type Slot = AppointmentSlotOption;
 
 type BookingPhase = 'idle' | 'selecting' | 'holding' | 'checkout' | 'confirming' | 'success';
 
@@ -211,6 +213,7 @@ const CheckoutOverlay = ({
           {/* Booking summary */}
           <View style={[styles.summaryBox, { backgroundColor: colors.background, borderColor: colors.backgroundSelected }]}>
             <SummaryRow label="Clinic" value={hospital?.name ?? ''} colors={colors} />
+            <SummaryRow label="Service" value={slot?.serviceName ?? ''} colors={colors} />
             <SummaryRow label="Slot" value={slot?.startTime ?? ''} colors={colors} />
             <SummaryRow label="Duration" value={`until ${slot?.endTime ?? ''}`} colors={colors} />
             <SummaryRow label="Amount" value={`₹${slot?.price ?? 0}`} colors={colors} bold />
@@ -264,6 +267,7 @@ const CheckoutOverlay = ({
 export default function VetScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
+  const { user, session } = useAuth();
 
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -348,18 +352,7 @@ export default function VetScreen() {
   const fetchSlots = async (providerId: string) => {
     setLoadingSlots(true);
     try {
-      const res = await fetch(
-        `${appConfig.apiBaseUrl}/api/v1/catalog/providers/${providerId}/slots?status=AVAILABLE`,
-        { headers: { Accept: 'application/json' } },
-      );
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      const mapped: Slot[] = data.map((s: any) => ({
-        id: s.slotId,
-        startTime: new Date(s.startTime).toLocaleString('en-IN', { weekday: 'short', hour: '2-digit', minute: '2-digit' }),
-        endTime: new Date(s.endTime).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-        price: s.price ?? 499,
-      }));
+      const mapped = await fetchAvailableAppointmentSlots(providerId);
       setSlots(mapped.length > 0 ? mapped : appConfig.allowDemoMode ? BACKUP_SLOTS : []);
     } catch {
       setSlots(appConfig.allowDemoMode ? BACKUP_SLOTS : []);
@@ -379,55 +372,41 @@ export default function VetScreen() {
     setSelectedSlot(slot);
     setPhase('holding');
     try {
-      const res = await fetch(`${appConfig.apiBaseUrl}/api/v1/appointments/hold`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          slotId: slot.id,
-          petId: MOCK_PET_ID,
-          customerId: MOCK_CUSTOMER_ID,
-          notes: 'Booked via PawsNearMe',
-        }),
+      const appointmentId = await holdAppointmentSlot({
+        slot,
+        userId: user?.id,
+        accessToken: session?.access_token,
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        Alert.alert('Slot Unavailable', err.message ?? 'This slot was just taken. Please choose another.');
-        setPhase('selecting');
-        return;
-      }
-      const data = await res.json();
-      setHeldAppointmentId(data.appointmentId ?? data.id);
+      setHeldAppointmentId(appointmentId);
       setPhase('checkout');
-    } catch {
+    } catch (error) {
       if (appConfig.allowDemoMode) {
         setHeldAppointmentId('demo-appointment-001');
         setPhase('checkout');
       } else {
-        Alert.alert('Booking Unavailable', 'Could not hold this slot. Please try again when the service is reachable.');
+        const message = error instanceof Error ? error.message : 'Could not hold this slot. Please try again when the service is reachable.';
+        Alert.alert('Booking Unavailable', message);
         setPhase('selecting');
       }
     }
-  }, []);
+  }, [session, user]);
 
   const handleConfirmPayment = useCallback(async () => {
+    if (!heldAppointmentId) return;
     setPhase('confirming');
     try {
-      const res = await fetch(`${appConfig.apiBaseUrl}/api/v1/appointments/${heldAppointmentId}/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentId: `pay_${Date.now()}` }),
-      });
-      if (!res.ok) throw new Error();
-    } catch {
+      await confirmAppointmentHold(heldAppointmentId, session?.access_token);
+    } catch (error) {
       if (!appConfig.allowDemoMode) {
-        Alert.alert('Payment Confirmation Failed', 'The appointment was not confirmed. Please retry.');
+        const message = error instanceof Error ? error.message : 'The appointment was not confirmed. Please retry.';
+        Alert.alert('Payment Confirmation Failed', message);
         setPhase('checkout');
         return;
       }
     }
     setPhase('success');
     setTimeout(() => setPhase('idle'), 2500);
-  }, [heldAppointmentId]);
+  }, [heldAppointmentId, session]);
 
   const handleCancelSlots = useCallback(() => setPhase('idle'), []);
 

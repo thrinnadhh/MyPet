@@ -35,19 +35,19 @@ interface ActiveDelivery {
   orderId: string;
   storeName: string;
   storeAddress: string;
-  storeLat: number;
-  storeLng: number;
+  storeLat: number | null;
+  storeLng: number | null;
   customerName: string;
   customerAddress: string;
-  customerLat: number;
-  customerLng: number;
-  deliveryFee: number;
+  customerLat: number | null;
+  customerLng: number | null;
+  deliveryFee: number | null;
 }
 
 export default function DeliveryScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
-  const { user } = useAuth();
+  const { user, session } = useAuth();
 
   const [isOnline, setIsOnline] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -61,6 +61,36 @@ export default function DeliveryScreen() {
   const [deliveryOtp, setDeliveryOtp] = useState('');
   const [verifyingOtp, setVerifyingOtp] = useState(false);
 
+  const authHeaders = useCallback((contentType = false) => {
+    const headers: Record<string, string> = {};
+    if (contentType) {
+      headers['Content-Type'] = 'application/json';
+    }
+    if (user?.id) {
+      headers['X-User-Id'] = user.id;
+    }
+    if (session?.access_token) {
+      headers.Authorization = `Bearer ${session.access_token}`;
+    }
+    return headers;
+  }, [session, user]);
+
+  const shortOrderId = (orderId: string) => orderId.slice(0, 8).toUpperCase();
+
+  const buildActiveDelivery = (offer: DispatchOffer): ActiveDelivery => ({
+    jobId: offer.jobId,
+    orderId: offer.orderId,
+    storeName: `Pickup for order ${shortOrderId(offer.orderId)}`,
+    storeAddress: 'Pickup details are linked to the accepted order.',
+    storeLat: null,
+    storeLng: null,
+    customerName: `Customer order ${shortOrderId(offer.orderId)}`,
+    customerAddress: 'Customer address is managed by the order workflow.',
+    customerLat: null,
+    customerLng: null,
+    deliveryFee: null
+  });
+
   // --- Toggle Online/Offline ---
   const toggleOnline = useCallback(async () => {
     if (!user) return;
@@ -73,10 +103,7 @@ export default function DeliveryScreen() {
 
       const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/captains/status`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.id
-        },
+        headers: authHeaders(true),
         body: JSON.stringify({
           online: nextOnline,
           longitude: lng,
@@ -94,12 +121,15 @@ export default function DeliveryScreen() {
       }
     } catch (err) {
       console.warn("Online status toggle error:", err);
-      // Fallback for offline local testing
-      setIsOnline(!isOnline);
+      if (appConfig.allowDemoMode) {
+        setIsOnline(!isOnline);
+      } else {
+        Alert.alert('Status Change Failed', 'Could not reach captain service. Please retry when the service is available.');
+      }
     } finally {
       setLoading(false);
     }
-  }, [isOnline, user]);
+  }, [authHeaders, isOnline, user]);
 
   // --- Periodically Poll Location Coordinate Updates ---
   useEffect(() => {
@@ -114,10 +144,7 @@ export default function DeliveryScreen() {
 
         await fetch(`${appConfig.apiBaseUrl}/api/v1/captains/location`, {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': user.id
-          },
+          headers: authHeaders(true),
           body: JSON.stringify({
             longitude: lng,
             latitude: lat
@@ -129,7 +156,7 @@ export default function DeliveryScreen() {
     }, 20000);
 
     return () => clearInterval(interval);
-  }, [isOnline, user]);
+  }, [authHeaders, isOnline, user]);
 
   // --- Periodically Check for Incoming Job Offers ---
   useEffect(() => {
@@ -138,7 +165,7 @@ export default function DeliveryScreen() {
     const offerPoll = setInterval(async () => {
       try {
         const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/dispatch/offers`, {
-          headers: { 'X-User-Id': user.id }
+          headers: authHeaders()
         });
         const data: DispatchOffer[] = await response.json();
         if (response.ok && data.length > 0) {
@@ -152,7 +179,7 @@ export default function DeliveryScreen() {
     }, 4000);
 
     return () => clearInterval(offerPoll);
-  }, [isOnline, user, activeDelivery, activeOffer]);
+  }, [authHeaders, isOnline, user, activeDelivery, activeOffer]);
 
   // --- Job Offer Countdown Timer ---
   useEffect(() => {
@@ -178,24 +205,12 @@ export default function DeliveryScreen() {
     setLoading(true);
     try {
       const res = await fetch(`${appConfig.apiBaseUrl}/api/v1/dispatch/offers/${activeOffer.offerId}/respond?response=${responseType}`, {
-        method: 'POST'
+        method: 'POST',
+        headers: authHeaders()
       });
       if (res.ok) {
         if (responseType === 'ACCEPTED') {
-          // Scaffold Active Delivery View (Mock coordinates around Delhi)
-          setActiveDelivery({
-            jobId: activeOffer.jobId,
-            orderId: activeOffer.orderId,
-            storeName: "Paws & Tails Groomers",
-            storeAddress: "A-54, Connaught Place, New Delhi",
-            storeLat: 28.6304,
-            storeLng: 77.2177,
-            customerName: "Ananya Sharma",
-            customerAddress: "Flat 12B, Sector 4, R.K. Puram, New Delhi",
-            customerLat: 28.5684,
-            customerLng: 77.1703,
-            deliveryFee: 150.00
-          });
+          setActiveDelivery(buildActiveDelivery(activeOffer));
           setDeliveryStep(1);
         }
         setActiveOffer(null);
@@ -206,19 +221,7 @@ export default function DeliveryScreen() {
     } catch (err) {
       console.warn("Response failed:", err);
       if (responseType === 'ACCEPTED' && appConfig.allowDemoMode) {
-        setActiveDelivery({
-          jobId: activeOffer.jobId,
-          orderId: activeOffer.orderId,
-          storeName: "Paws & Tails Groomers",
-          storeAddress: "A-54, Connaught Place, New Delhi",
-          storeLat: 28.6304,
-          storeLng: 77.2177,
-          customerName: "Ananya Sharma",
-          customerAddress: "Flat 12B, Sector 4, R.K. Puram, New Delhi",
-          customerLat: 28.5684,
-          customerLng: 77.1703,
-          deliveryFee: 150.00
-        });
+        setActiveDelivery(buildActiveDelivery(activeOffer));
         setDeliveryStep(1);
       } else if (!appConfig.allowDemoMode) {
         Alert.alert('Response Failed', 'Could not reach dispatch. Please retry when the service is available.');
@@ -227,7 +230,7 @@ export default function DeliveryScreen() {
     } finally {
       setLoading(false);
     }
-  }, [activeOffer]);
+  }, [activeOffer, authHeaders]);
 
   // --- Map Deep Linking Navigator ---
   const handleNavigate = useCallback((lat: number, lng: number, label: string) => {
@@ -243,16 +246,17 @@ export default function DeliveryScreen() {
 
   // --- Verify Store Pickup ---
   const handleVerifyPickup = useCallback(async () => {
+    if (!activeDelivery) return;
     if (pickupOtp !== '1234') {
       Alert.alert('Verification Error', 'Invalid pickup verification OTP.');
       return;
     }
     setVerifyingOtp(true);
     try {
-      // Update order status to PICKED_UP
-      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders/${activeDelivery?.orderId}/status?status=PICKED_UP`, {
-        method: 'PUT',
-        headers: { 'X-User-Id': user?.id || '' }
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/dispatch/jobs/${activeDelivery.jobId}/pickup`, {
+        method: 'POST',
+        headers: authHeaders(true),
+        body: JSON.stringify({ proofCode: pickupOtp })
       });
       if (response.ok) {
         setDeliveryStep(3);
@@ -260,12 +264,15 @@ export default function DeliveryScreen() {
         Alert.alert('Error', 'Failed to update order status to Picked Up.');
       }
     } catch (err) {
-      // Fallback
-      setDeliveryStep(3);
+      if (appConfig.allowDemoMode) {
+        setDeliveryStep(3);
+      } else {
+        Alert.alert('Error', 'Could not confirm pickup. Please retry when the service is available.');
+      }
     } finally {
       setVerifyingOtp(false);
     }
-  }, [pickupOtp, activeDelivery, user]);
+  }, [activeDelivery, authHeaders, pickupOtp]);
 
   // --- Confirm Customer Arrival ---
   const handleArriveAtCustomer = useCallback(() => {
@@ -274,16 +281,17 @@ export default function DeliveryScreen() {
 
   // --- Verify Handover and Complete Delivery ---
   const handleCompleteDelivery = useCallback(async () => {
+    if (!activeDelivery) return;
     if (deliveryOtp !== '5678') {
       Alert.alert('Verification Error', 'Invalid handover verification OTP.');
       return;
     }
     setVerifyingOtp(true);
     try {
-      // Update order status to DELIVERED
-      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders/${activeDelivery?.orderId}/status?status=DELIVERED`, {
-        method: 'PUT',
-        headers: { 'X-User-Id': user?.id || '' }
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/dispatch/jobs/${activeDelivery.jobId}/deliver`, {
+        method: 'POST',
+        headers: authHeaders(true),
+        body: JSON.stringify({ proofCode: deliveryOtp })
       });
       if (response.ok) {
         Alert.alert('Success', 'Order delivered successfully! Earnings added.');
@@ -292,13 +300,16 @@ export default function DeliveryScreen() {
         Alert.alert('Error', 'Failed to finalize delivery.');
       }
     } catch (err) {
-      // Fallback
-      Alert.alert('Success', 'Offline Sandbox: Order delivered successfully!');
-      setActiveDelivery(null);
+      if (appConfig.allowDemoMode) {
+        Alert.alert('Success', 'Offline Sandbox: Order delivered successfully!');
+        setActiveDelivery(null);
+      } else {
+        Alert.alert('Error', 'Could not finalize delivery. Please retry when the service is available.');
+      }
     } finally {
       setVerifyingOtp(false);
     }
-  }, [deliveryOtp, activeDelivery, user]);
+  }, [activeDelivery, authHeaders, deliveryOtp]);
 
   return (
     <ThemedView style={styles.container}>
@@ -315,9 +326,11 @@ export default function DeliveryScreen() {
           {/* Stepper View if Active Delivery exists */}
           {activeDelivery ? (
             <View style={[styles.card, { backgroundColor: colors.backgroundElement }]}>
-              <View style={styles.cardHeader}>
-                <ThemedText style={{ fontWeight: '700', fontSize: 16 }}>Active Delivery Job</ThemedText>
-                <ThemedText style={{ color: colors.cta, fontWeight: '700' }}>₹{activeDelivery.deliveryFee.toFixed(2)}</ThemedText>
+                <View style={styles.cardHeader}>
+                  <ThemedText style={{ fontWeight: '700', fontSize: 16 }}>Active Delivery Job</ThemedText>
+                <ThemedText style={{ color: colors.cta, fontWeight: '700' }}>
+                  {activeDelivery.deliveryFee === null ? 'Earning pending' : `₹${activeDelivery.deliveryFee.toFixed(2)}`}
+                </ThemedText>
               </View>
 
               <View style={{ marginVertical: Spacing.two, gap: Spacing.two }}>
@@ -339,7 +352,12 @@ export default function DeliveryScreen() {
                     <View style={styles.actionRow}>
                       <TouchableOpacity 
                         style={[styles.btnSecondary, { borderColor: colors.primary }]}
-                        onPress={() => handleNavigate(activeDelivery.storeLat, activeDelivery.storeLng, activeDelivery.storeName)}
+                        onPress={() => {
+                          if (activeDelivery.storeLat !== null && activeDelivery.storeLng !== null) {
+                            handleNavigate(activeDelivery.storeLat, activeDelivery.storeLng, activeDelivery.storeName);
+                          }
+                        }}
+                        disabled={activeDelivery.storeLat === null || activeDelivery.storeLng === null}
                       >
                         <View style={styles.navButtonContent}>
                           <AppIcon name="location" color={colors.primary} size={15} />
@@ -393,7 +411,12 @@ export default function DeliveryScreen() {
                     <View style={styles.actionRow}>
                       <TouchableOpacity 
                         style={[styles.btnSecondary, { borderColor: colors.primary }]}
-                        onPress={() => handleNavigate(activeDelivery.customerLat, activeDelivery.customerLng, activeDelivery.customerName)}
+                        onPress={() => {
+                          if (activeDelivery.customerLat !== null && activeDelivery.customerLng !== null) {
+                            handleNavigate(activeDelivery.customerLat, activeDelivery.customerLng, activeDelivery.customerName);
+                          }
+                        }}
+                        disabled={activeDelivery.customerLat === null || activeDelivery.customerLng === null}
                       >
                         <View style={styles.navButtonContent}>
                           <AppIcon name="location" color={colors.primary} size={15} />
@@ -494,9 +517,11 @@ export default function DeliveryScreen() {
             </View>
             
             <View style={{ marginVertical: Spacing.three, gap: Spacing.two }}>
-              <ThemedText style={{ fontWeight: '600' }}>Pick Up: Paws & Tails Groomers</ThemedText>
-              <ThemedText type="small" style={{ color: colors.textSecondary }}>Connaught Place, New Delhi</ThemedText>
-              <ThemedText style={{ fontWeight: '600', marginTop: Spacing.one }}>Payout Earning: ₹150.00</ThemedText>
+              <ThemedText style={{ fontWeight: '600' }}>
+                Order: {activeOffer ? shortOrderId(activeOffer.orderId) : 'Pending'}
+              </ThemedText>
+              <ThemedText type="small" style={{ color: colors.textSecondary }}>Pickup and delivery details unlock after accepting.</ThemedText>
+              <ThemedText style={{ fontWeight: '600', marginTop: Spacing.one }}>Earning records after delivery completion</ThemedText>
             </View>
 
             <View style={styles.offerProgressBar}>

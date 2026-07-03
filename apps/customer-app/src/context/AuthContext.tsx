@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../utils/supabase';
 import { Session, User } from '@supabase/supabase-js';
 import { appConfig } from '../utils/app-config';
+import { syncAuthenticatedProfile } from '../utils/profile-sync';
 
 interface AuthContextType {
   user: User | null;
@@ -52,19 +53,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return;
     }
 
+    const applySession = async (nextSession: Session | null) => {
+      setSession(nextSession);
+      setUser(nextSession?.user ?? null);
+      setRole((nextSession?.user?.app_metadata?.role as string) || 'CUSTOMER');
+      if (nextSession) {
+        try {
+          await syncAuthenticatedProfile(nextSession, 'CUSTOMER');
+        } catch (error) {
+          console.warn('Profile sync failed', error);
+        }
+      }
+      setLoading(false);
+    };
+
     // Standard Supabase Session listener
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setRole((session?.user?.app_metadata?.role as string) || 'CUSTOMER');
-      setLoading(false);
+      void applySession(session);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setRole((session?.user?.app_metadata?.role as string) || 'CUSTOMER');
-      setLoading(false);
+      void applySession(session);
     });
 
     return () => {

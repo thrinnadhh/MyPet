@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../utils/supabase';
 import { Session, User } from '@supabase/supabase-js';
 import { appConfig } from '../utils/app-config';
+import { syncAuthenticatedProfile } from '../utils/profile-sync';
 
 interface AuthContextType {
   user: User | null;
@@ -36,7 +37,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const mockUser = {
         id: 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e', // Merchant ID
         email: 'merchant@pawsnearme.com',
-        app_metadata: { role: 'PROVIDER' },
+        app_metadata: { role: 'MERCHANT' },
         user_metadata: {},
         aud: 'authenticated',
         created_at: new Date().toISOString()
@@ -52,29 +53,46 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       setSession(mockSession);
       setUser(mockUser);
-      setRole('PROVIDER');
+      setRole('MERCHANT');
       setActiveRole('PROVIDER');
       setLoading(false);
       return;
     }
 
+    const normalizeBackendRole = (rawRole: string | undefined) => {
+      const roleValue = rawRole?.toUpperCase();
+      return roleValue === 'PROVIDER' ? 'MERCHANT' : roleValue || 'MERCHANT';
+    };
+
+    const resolveActiveRole = (backendRole: string) => {
+      if (backendRole === 'ADMIN') return 'ADMIN';
+      if (backendRole === 'CAPTAIN') return 'CAPTAIN';
+      return 'PROVIDER';
+    };
+
+    const applySession = async (nextSession: Session | null) => {
+      setSession(nextSession);
+      setUser(nextSession?.user ?? null);
+      const backendRole = normalizeBackendRole(nextSession?.user?.app_metadata?.role as string | undefined);
+      setRole(backendRole);
+      setActiveRole(resolveActiveRole(backendRole));
+      if (nextSession) {
+        try {
+          await syncAuthenticatedProfile(nextSession, backendRole as 'MERCHANT' | 'CAPTAIN' | 'ADMIN');
+        } catch (error) {
+          console.warn('Profile sync failed', error);
+        }
+      }
+      setLoading(false);
+    };
+
     // Standard Supabase Session listener
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      const userRole = (session?.user?.app_metadata?.role as string) || 'PROVIDER';
-      setRole(userRole);
-      setActiveRole(userRole);
-      setLoading(false);
+      void applySession(session);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      const userRole = (session?.user?.app_metadata?.role as string) || 'PROVIDER';
-      setRole(userRole);
-      setActiveRole(userRole);
-      setLoading(false);
+      void applySession(session);
     });
 
     return () => {
