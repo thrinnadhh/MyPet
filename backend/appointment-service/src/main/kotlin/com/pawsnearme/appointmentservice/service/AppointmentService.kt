@@ -18,6 +18,8 @@ import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
 
+class AppointmentAccessDeniedException(message: String) : RuntimeException(message)
+
 data class BookAppointmentRequest(
     val customerId: UUID,
     val providerId: UUID,
@@ -89,7 +91,9 @@ class AppointmentService(
     @Value("\${CATALOG_SERVICE_URL:http://localhost:8082}")
     private val catalogServiceUrl: String,
     @Value("\${appointment.hold-duration-seconds:300}")
-    private val holdDurationSeconds: Long
+    private val holdDurationSeconds: Long,
+    @Value("\${PROVIDER_SERVICE_URL:http://localhost:8081}")
+    private val providerServiceUrl: String = "http://localhost:8081"
 ) {
     private val objectMapper = ObjectMapper()
     private val writeLockDuration = Duration.ofSeconds(10)
@@ -161,22 +165,20 @@ class AppointmentService(
         }
     }
 
-    // --- Direct Booking (original single-stage method kept for backward compatibility) ---
     fun bookAppointment(request: BookAppointmentRequest): Appointment {
         val lockKey = writeLockKey(request.slotId)
         if (!acquireWriteLock(request.slotId)) {
-            throw IllegalStateException("Slot is currently being booked by another customer. Please try again.")
+            throw IllegalStateException("Failed to acquire slot lock. Slot is currently being booked by another customer. Try again.")
         }
-
         try {
             if (activeAppointmentExists(request.slotId)) {
-                throw IllegalStateException("Slot is already booked or held by another customer.")
+                throw IllegalStateException("Slot is already booked or held.")
             }
 
             try {
                 updateCatalogSlotStatus(request.slotId, "BOOKED")
             } catch (e: Exception) {
-                throw IllegalStateException("Failed to book slot in Catalog Service: ${e.message}", e)
+                throw IllegalStateException("Failed to update slot status in Catalog Service: ${e.message}", e)
             }
 
             val appointment = Appointment(
@@ -185,9 +187,8 @@ class AppointmentService(
                 offeringId = request.offeringId,
                 slotId = request.slotId,
                 petId = request.petId,
-                status = AppointmentStatus.CONFIRMED,
                 priceAmount = request.priceAmount,
-                payAtClinic = request.payAtClinic
+                status = AppointmentStatus.CONFIRMED
             )
             val saved = try {
                 appointmentRepository.save(appointment)
@@ -201,13 +202,13 @@ class AppointmentService(
             }
 
             try {
-                logStatusChange(saved.appointmentId!!, null, AppointmentStatus.CONFIRMED, saved.customerId, "Appointment booked and confirmed")
+                logStatusChange(saved.appointmentId!!, null, AppointmentStatus.CONFIRMED, saved.customerId, "Direct appointment booking")
                 publishAppointmentBooked(saved)
             } catch (e: Exception) {
                 try {
                     updateCatalogSlotStatus(request.slotId, "AVAILABLE")
                 } catch (rollbackEx: Exception) {
-                    println("WARNING: Failed to revert slot status to AVAILABLE after status logging failure: ${rollbackEx.message}")
+                    println("WARNING: Failed to revert slot status to AVAILABLE after booking event logging failure: ${rollbackEx.message}")
                 }
                 throw e
             }
@@ -218,22 +219,20 @@ class AppointmentService(
         }
     }
 
-    // --- Two-stage Checkout: Hold Slot (Task 2) ---
     fun holdAppointment(request: BookAppointmentRequest): Appointment {
         val lockKey = writeLockKey(request.slotId)
         if (!acquireWriteLock(request.slotId)) {
-            throw IllegalStateException("Slot is currently being booked by another customer. Please try again.")
+            throw IllegalStateException("Failed to acquire slot lock. Slot is currently being booked by another customer. Try again.")
         }
-
         try {
-            if (activeAppointmentExists(request.slotId) || redisTemplate.hasKey(holdKey(request.slotId)) == true) {
-                throw IllegalStateException("Slot is already booked or held by another customer.")
+            if (activeAppointmentExists(request.slotId)) {
+                throw IllegalStateException("Slot is already booked or held.")
             }
 
             try {
                 updateCatalogSlotStatus(request.slotId, "HELD")
             } catch (e: Exception) {
-                throw IllegalStateException("Failed to hold slot in Catalog Service: ${e.message}", e)
+                throw IllegalStateException("Failed to update slot status in Catalog Service: ${e.message}", e)
             }
 
             val appointment = Appointment(
@@ -242,9 +241,8 @@ class AppointmentService(
                 offeringId = request.offeringId,
                 slotId = request.slotId,
                 petId = request.petId,
-                status = AppointmentStatus.SLOT_HELD,
                 priceAmount = request.priceAmount,
-                payAtClinic = request.payAtClinic
+                status = AppointmentStatus.SLOT_HELD
             )
             val saved = try {
                 appointmentRepository.save(appointment)
@@ -338,9 +336,84 @@ class AppointmentService(
         }
     }
 
-    fun updateAppointmentStatus(appointmentId: UUID, newStatus: AppointmentStatus, changedBy: UUID, note: String? = null, prescriptionDocUrl: String? = null): Appointment {
+    fun fetchProviderOwnerUserId(providerId: UUID): UUID? {
+        return try {
+            val url = "$providerServiceUrl/api/v1/providers/$providerId"
+            val response = restTemplate.getForObject(url, Map::class.java)
+            val ownerIdStr = response?.get("ownerUserId") as? String
+            ownerIdStr?.let { UUID.fromString(it) }
+        } catch (e: Exception) {
+            println("WARNING: Failed to fetch provider owner from Provider Service: ${e.message}")
+            null
+        }
+    }
+
+    fun getAppointment(appointmentId: UUID, callerId: UUID, callerRole: String?): Appointment {
         val appointment = appointmentRepository.findById(appointmentId)
             .orElseThrow { NoSuchElementException("Appointment with ID $appointmentId not found") }
+
+        val isAdmin = callerRole?.uppercase() == "ADMIN"
+        val isCustomer = appointment.customerId == callerId
+        val isProviderStaff = if (callerRole?.uppercase() == "MERCHANT") {
+            val ownerId = fetchProviderOwnerUserId(appointment.providerId)
+            ownerId == callerId
+        } else {
+            false
+        }
+
+        if (!isAdmin && !isCustomer && !isProviderStaff) {
+            throw AppointmentAccessDeniedException("Access denied to appointment data.")
+        }
+        return appointment
+    }
+
+    fun getAppointmentsByCustomer(targetCustomerId: UUID, callerId: UUID, callerRole: String?): List<Appointment> {
+        val isAdmin = callerRole?.uppercase() == "ADMIN"
+        val isCustomer = targetCustomerId == callerId
+
+        if (!isAdmin && !isCustomer) {
+            throw AppointmentAccessDeniedException("Access denied to customer appointment history.")
+        }
+        return appointmentRepository.findByCustomerId(targetCustomerId)
+    }
+
+    fun getAppointmentsByProvider(providerId: UUID, callerId: UUID, callerRole: String?): List<Appointment> {
+        val isAdmin = callerRole?.uppercase() == "ADMIN"
+        val isProviderStaff = if (callerRole?.uppercase() == "MERCHANT") {
+            val ownerId = fetchProviderOwnerUserId(providerId)
+            ownerId == callerId
+        } else {
+            false
+        }
+
+        if (!isAdmin && !isProviderStaff) {
+            throw AppointmentAccessDeniedException("Access denied to provider appointments.")
+        }
+        return appointmentRepository.findByProviderId(providerId)
+    }
+
+    fun updateAppointmentStatus(
+        appointmentId: UUID,
+        newStatus: AppointmentStatus,
+        changedBy: UUID,
+        note: String? = null,
+        prescriptionDocUrl: String? = null,
+        callerRole: String? = "ADMIN"
+    ): Appointment {
+        val appointment = appointmentRepository.findById(appointmentId)
+            .orElseThrow { NoSuchElementException("Appointment with ID $appointmentId not found") }
+
+        val isAdmin = callerRole?.uppercase() == "ADMIN"
+        val isProviderStaff = if (callerRole?.uppercase() == "MERCHANT") {
+            val ownerId = fetchProviderOwnerUserId(appointment.providerId)
+            ownerId == changedBy
+        } else {
+            false
+        }
+
+        if (!isAdmin && !isProviderStaff) {
+            throw AppointmentAccessDeniedException("Access denied to change appointment status.")
+        }
 
         val oldStatus = appointment.status
         appointment.status = newStatus

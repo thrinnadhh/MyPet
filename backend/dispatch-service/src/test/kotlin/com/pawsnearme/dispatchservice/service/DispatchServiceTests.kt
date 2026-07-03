@@ -51,7 +51,7 @@ class DispatchServiceTests {
         val offerId = UUID.randomUUID()
         whenever(offerRepository.findById(offerId)).thenReturn(Optional.empty())
 
-        assertThrows<NoSuchElementException> { service.respondToOffer(offerId, "ACCEPTED") }
+        assertThrows<NoSuchElementException> { service.respondToOffer(offerId, "ACCEPTED", UUID.randomUUID()) }
     }
 
     @Test
@@ -68,7 +68,7 @@ class DispatchServiceTests {
 
         whenever(offerRepository.findById(offerId)).thenReturn(Optional.of(offer))
 
-        val ex = assertThrows<IllegalStateException> { service.respondToOffer(offerId, "REJECTED") }
+        val ex = assertThrows<IllegalStateException> { service.respondToOffer(offerId, "REJECTED", offer.captainId) }
         assertTrue(ex.message!!.contains("already responded"))
     }
 

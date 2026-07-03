@@ -70,6 +70,15 @@ spring:
           uri: ${ORDER_SERVICE_URL:http://localhost:8084}
           predicates:
             - Path=/api/v1/orders/**
+        - id: appointment-service-writes
+          uri: ${APPOINTMENT_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/appointments/*/status
+            - Method=PUT
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
         - id: appointment-service
           uri: ${APPOINTMENT_SERVICE_URL:http://localhost:8085}
           predicates:

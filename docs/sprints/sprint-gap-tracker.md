@@ -1,6 +1,6 @@
 # PawsNearMe Sprint Gap Tracker
 
-This tracker reflects the current repo state after Sprint 0-9 checklist files and verification entrypoints were added. A sprint is complete only when code checks pass and live/manual proof is captured without hidden production mock success paths.
+This tracker reflects the current repo state after Sprint 0-10 checklist files and verification entrypoints were added. A sprint is complete only when code checks pass and live/manual proof is captured without hidden production mock success paths.
 
 ## Current Status
 
@@ -16,6 +16,7 @@ This tracker reflects the current repo state after Sprint 0-9 checklist files an
 | 7 | Reviews, Payouts, Discount Controls | Live verifier green | Manual merchant/captain Earnings UI proof with demo mode off |
 | 8 | Hardening, Admin Console, Billing | Complete for sprint scope | Re-run load smoke during full release regression and archive p95 results |
 | 9 | Legal, Store Submission, Launch | Repo artifacts implemented | Store-console submission, real production secret configuration, and rollback drill evidence outside git |
+| 10 | Authorization Hardening | Complete for sprint scope | Re-run Gateway filter checks and verify dispatch OTP flow with mobile apps |
 
 ## Verification Commands
 

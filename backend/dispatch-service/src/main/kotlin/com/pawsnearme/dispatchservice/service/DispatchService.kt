@@ -12,13 +12,14 @@ import org.springframework.data.geo.Point as RedisPoint
 import org.springframework.data.redis.connection.RedisGeoCommands
 import org.springframework.data.redis.domain.geo.GeoReference
 import org.springframework.data.redis.core.StringRedisTemplate
-import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.RestTemplate
+import org.springframework.web.client.RestOperations
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Instant
@@ -34,7 +35,7 @@ class DispatchService(
     private val entityManager: EntityManager,
     @Value("\${ORDER_SERVICE_URL:http://localhost:8084}")
     private val orderServiceBaseUrl: String = "http://localhost:8084",
-    private val restTemplate: RestTemplate = RestTemplate()
+    private val restTemplate: RestOperations = RestTemplate()
 ) {
 
     private val objectMapper = ObjectMapper()
@@ -72,7 +73,9 @@ class DispatchService(
         val job = DispatchJob(
             orderId = orderId,
             status = JobStatus.PENDING_ASSIGNMENT,
-            attemptCount = 0
+            attemptCount = 0,
+            pickupOtp = (1000..9999).random().toString(),
+            deliveryOtp = (1000..9999).random().toString()
         )
         val savedJob = jobRepository.save(job)
         triggerNextOffer(savedJob)
@@ -163,11 +166,11 @@ class DispatchService(
         }
     }
 
-    fun respondToOffer(offerId: UUID, response: String, captainId: UUID? = null): DispatchOffer {
+    fun respondToOffer(offerId: UUID, response: String, captainId: UUID): DispatchOffer {
         val offer = offerRepository.findById(offerId)
             .orElseThrow { NoSuchElementException("Dispatch offer not found for ID $offerId") }
 
-        if (captainId != null && offer.captainId != captainId) {
+        if (offer.captainId != captainId) {
             throw IllegalStateException("Offer does not belong to authenticated captain")
         }
 
@@ -209,6 +212,9 @@ class DispatchService(
         if (proofCode.isNullOrBlank()) {
             throw IllegalArgumentException("Pickup proof code is required")
         }
+        if (job.pickupOtp != null && job.pickupOtp != proofCode) {
+            throw IllegalArgumentException("Invalid pickup verification OTP")
+        }
 
         updateOrderStatus(job.orderId, "PICKED_UP", captainId, "Pickup proof verified by captain app")
         publishDispatchEvent("DispatchJobPickedUp", job, captainId, mapOf("proof_status" to "VERIFIED"))
@@ -219,6 +225,9 @@ class DispatchService(
         val job = loadAcceptedJobForCaptain(jobId, captainId)
         if (proofCode.isNullOrBlank()) {
             throw IllegalArgumentException("Delivery proof code is required")
+        }
+        if (job.deliveryOtp != null && job.deliveryOtp != proofCode) {
+            throw IllegalArgumentException("Invalid handover verification OTP")
         }
 
         updateOrderStatus(job.orderId, "DELIVERED", captainId, "Delivery proof verified by captain app")
