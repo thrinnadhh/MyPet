@@ -4,12 +4,22 @@ server:
 spring:
   application:
     name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6380}
   cloud:
     gateway:
       # Stamp every proxied request with the gateway secret so downstream services
       # can verify the request originated from the gateway (not a direct port hit).
       default-filters:
         - AddRequestHeader=X-Internal-Gateway-Secret, ${GATEWAY_SECRET:dev-secret-change-in-production}
+        - name: RequestRateLimiter
+          args:
+            redis-rate-limiter.replenishRate: ${GATEWAY_RATE_LIMIT_REPLENISH_RATE:100}
+            redis-rate-limiter.burstCapacity: ${GATEWAY_RATE_LIMIT_BURST_CAPACITY:200}
+            redis-rate-limiter.requestedTokens: 1
+            key-resolver: "#{@clientIpKeyResolver}"
       routes:
         - id: provider-approval-admin
           uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}

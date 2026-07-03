@@ -10,7 +10,6 @@ import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.RestOperations
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -82,7 +81,6 @@ data class AppointmentStatusChangedEvent(
 )
 
 @Service
-@Transactional
 class AppointmentService(
     private val appointmentRepository: AppointmentRepository,
     private val appointmentStatusHistoryRepository: AppointmentStatusHistoryRepository,

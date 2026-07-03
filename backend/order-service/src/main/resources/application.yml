@@ -5,10 +5,12 @@ spring:
   application:
     name: order-service
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=orders,providers,catalog,public&stringtype=unspecified}
+    url: ${SUPAVISOR_DB_URL:${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=orders,providers,catalog,public&stringtype=unspecified}}
     username: ${DB_USERNAME:order_service_role}
     password: ${DB_PASSWORD:order_service_pass}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
     baseline-on-migrate: true

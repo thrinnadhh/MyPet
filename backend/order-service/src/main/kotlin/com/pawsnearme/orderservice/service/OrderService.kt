@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.RestTemplate
 import java.math.BigDecimal
 import java.time.Instant
@@ -64,7 +63,6 @@ data class SupportCaseEvent(
 )
 
 @Service
-@Transactional
 class OrderService(
     private val orderRepository: OrderRepository,
     private val orderItemRepository: OrderItemRepository,
@@ -144,7 +142,6 @@ class OrderService(
         }
     }
 
-    @Transactional
     fun confirmOrder(orderId: UUID, paymentId: UUID?): Order {
         val order = orderRepository.findById(orderId)
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }

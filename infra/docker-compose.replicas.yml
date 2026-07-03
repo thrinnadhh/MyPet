@@ -1,0 +1,194 @@
+x-backend-common: &backend-common
+  build:
+    context: ..
+    dockerfile: backend/Dockerfile
+  environment: &backend-env
+    SPRING_PROFILES_ACTIVE: docker
+    DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?stringtype=unspecified
+    DB_USERNAME: postgres
+    DB_PASSWORD: postgres
+    DB_POOL_MAX_SIZE: 5
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    KAFKA_LISTENER_CONCURRENCY: 3
+    GATEWAY_SECRET: dev-secret-change-in-production
+    GATEWAY_TRUST_ENABLED: "true"
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    kafka:
+      condition: service_healthy
+    kafka-init-topics:
+      condition: service_completed_successfully
+  deploy:
+    replicas: 2
+    resources:
+      limits:
+        cpus: "1.0"
+        memory: 768M
+      reservations:
+        cpus: "0.25"
+        memory: 384M
+
+services:
+  provider-service:
+    <<: *backend-common
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: provider-service
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8081
+
+  catalog-service:
+    <<: *backend-common
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: catalog-service
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8082
+
+  discovery-service:
+    <<: *backend-common
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: discovery-service
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8083
+
+  order-service:
+    <<: *backend-common
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: order-service
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8084
+      CATALOG_SERVICE_URL: http://catalog-service:8082
+      PAYMENT_SERVICE_URL: http://payment-service:8090
+
+  appointment-service:
+    <<: *backend-common
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: appointment-service
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8085
+      CATALOG_SERVICE_URL: http://catalog-service:8082
+      PROVIDER_SERVICE_URL: http://provider-service:8081
+
+  dispatch-service:
+    <<: *backend-common
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: dispatch-service
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8086
+      ORDER_SERVICE_URL: http://order-service:8084
+
+  captain-service:
+    <<: *backend-common
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: captain-service
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8087
+
+  notification-service:
+    <<: *backend-common
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: notification-service
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8088
+
+  review-service:
+    <<: *backend-common
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: review-service
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8089
+
+  payment-service:
+    <<: *backend-common
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: payment-service
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8090
+
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: 8080
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      GATEWAY_SECRET: dev-secret-change-in-production
+      GATEWAY_RATE_LIMIT_REPLENISH_RATE: 100
+      GATEWAY_RATE_LIMIT_BURST_CAPACITY: 200
+      ALLOW_UNSIGNED_JWT: "true"
+      PROVIDER_SERVICE_URL: http://provider-service:8081
+      CATALOG_SERVICE_URL: http://catalog-service:8082
+      DISCOVERY_SERVICE_URL: http://discovery-service:8083
+      ORDER_SERVICE_URL: http://order-service:8084
+      APPOINTMENT_SERVICE_URL: http://appointment-service:8085
+      DISPATCH_SERVICE_URL: http://dispatch-service:8086
+      CAPTAIN_SERVICE_URL: http://captain-service:8087
+      NOTIFICATION_SERVICE_URL: http://notification-service:8088
+      REVIEW_SERVICE_URL: http://review-service:8089
+      PAYMENT_SERVICE_URL: http://payment-service:8090
+    depends_on:
+      redis:
+        condition: service_healthy
+      provider-service:
+        condition: service_started
+      catalog-service:
+        condition: service_started
+      discovery-service:
+        condition: service_started
+      appointment-service:
+        condition: service_started
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M

@@ -5,10 +5,12 @@ spring:
   application:
     name: payment-service
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=payments,orders,appointments,captains,providers,public&stringtype=unspecified}
+    url: ${SUPAVISOR_DB_URL:${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=payments,orders,appointments,captains,providers,public&stringtype=unspecified}}
     username: ${DB_USERNAME:payment_service_role}
     password: ${DB_PASSWORD:payment_service_pass}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
   flyway:
     enabled: true
     baseline-on-migrate: true
