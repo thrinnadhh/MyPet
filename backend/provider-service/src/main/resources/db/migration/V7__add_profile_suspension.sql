@@ -1,0 +1,1 @@
+ALTER TABLE identity.profiles ADD COLUMN suspended BOOLEAN NOT NULL DEFAULT FALSE;

@@ -27,6 +27,9 @@ class Profile(
     @Column(name = "preferred_locale", nullable = false)
     var preferredLocale: String = "en",
 
+    @Column(name = "suspended", nullable = false)
+    var suspended: Boolean = false,
+
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now(),
 

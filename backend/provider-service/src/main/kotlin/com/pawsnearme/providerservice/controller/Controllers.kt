@@ -31,7 +31,8 @@ data class ProfileResponse(
     val role: UserRole,
     val fullName: String,
     val phoneNumber: String,
-    val avatarUrl: String?
+    val avatarUrl: String?,
+    val suspended: Boolean = false
 )
 
 data class CreateAddressRequest(
@@ -133,7 +134,8 @@ class ProfileController(
                 savedProfile.role,
                 savedProfile.fullName,
                 savedProfile.phoneNumber,
-                savedProfile.avatarUrl
+                savedProfile.avatarUrl,
+                savedProfile.suspended
             )
         )
     }
@@ -158,13 +160,17 @@ class ProfileController(
             phoneNumber = xUserPhone,
             avatarUrl = null
         )
+        if (savedProfile.suspended) {
+            throw ProviderAccessDeniedException("Access Denied: User access has been revoked.")
+        }
         return ResponseEntity.ok(
             ProfileResponse(
                 savedProfile.userId,
                 savedProfile.role,
                 savedProfile.fullName,
                 savedProfile.phoneNumber,
-                savedProfile.avatarUrl
+                savedProfile.avatarUrl,
+                savedProfile.suspended
             )
         )
     }
@@ -173,7 +179,51 @@ class ProfileController(
     fun getProfile(@PathVariable id: UUID): ResponseEntity<ProfileResponse> {
         val p = profileRepository.findById(id)
             .orElseThrow { NoSuchElementException("Profile with ID $id not found") }
-        return ResponseEntity.ok(ProfileResponse(p.userId, p.role, p.fullName, p.phoneNumber, p.avatarUrl))
+        if (p.suspended) {
+            throw ProviderAccessDeniedException("Access Denied: User access has been revoked.")
+        }
+        return ResponseEntity.ok(ProfileResponse(p.userId, p.role, p.fullName, p.phoneNumber, p.avatarUrl, p.suspended))
+    }
+
+    @GetMapping
+    fun getAllProfiles(
+        @RequestHeader("X-User-Role", required = false) userRole: String?
+    ): ResponseEntity<List<ProfileResponse>> {
+        if (userRole != "ADMIN") {
+            throw ProviderAccessDeniedException("Access Denied: Only administrators can view all profiles.")
+        }
+        val profiles = profileRepository.findAll()
+        return ResponseEntity.ok(profiles.map { ProfileResponse(it.userId, it.role, it.fullName, it.phoneNumber, it.avatarUrl, it.suspended) })
+    }
+
+    @PostMapping("/{id}/revoke")
+    fun revokeAccess(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Role", required = false) userRole: String?
+    ): ResponseEntity<Any> {
+        if (userRole != "ADMIN") {
+            throw ProviderAccessDeniedException("Access Denied: Only administrators can revoke user access.")
+        }
+        val p = profileRepository.findById(id)
+            .orElseThrow { NoSuchElementException("Profile with ID $id not found") }
+        p.suspended = true
+        profileRepository.save(p)
+        return ResponseEntity.ok(mapOf("status" to "SUCCESS", "message" to "Access revoked for user ${p.fullName}"))
+    }
+
+    @PostMapping("/{id}/restore")
+    fun restoreAccess(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Role", required = false) userRole: String?
+    ): ResponseEntity<Any> {
+        if (userRole != "ADMIN") {
+            throw ProviderAccessDeniedException("Access Denied: Only administrators can restore user access.")
+        }
+        val p = profileRepository.findById(id)
+            .orElseThrow { NoSuchElementException("Profile with ID $id not found") }
+        p.suspended = false
+        profileRepository.save(p)
+        return ResponseEntity.ok(mapOf("status" to "SUCCESS", "message" to "Access restored for user ${p.fullName}"))
     }
 }
 
