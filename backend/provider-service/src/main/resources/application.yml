@@ -58,3 +58,10 @@ gateway:
   trust:
     enabled: ${GATEWAY_TRUST_ENABLED:false}
     secret: ${GATEWAY_SECRET:dev-secret-change-in-production}
+
+provider:
+  public-base-url: ${PROVIDER_PUBLIC_BASE_URL:http://localhost:8081}
+
+internal:
+  api:
+    secret: ${INTERNAL_API_SECRET:dev-internal-secret}

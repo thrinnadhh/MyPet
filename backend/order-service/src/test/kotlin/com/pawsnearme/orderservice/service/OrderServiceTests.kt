@@ -55,6 +55,7 @@ class OrderServiceTests {
             outboxService = outboxService,
             catalogServiceUrl = "http://localhost:8082",
             paymentServiceUrl = "http://localhost:8090",
+            providerServiceUrl = "http://localhost:8081",
             restTemplate = restTemplate
         )
     }

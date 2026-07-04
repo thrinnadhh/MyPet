@@ -1,6 +1,10 @@
 server:
   port: ${SERVER_PORT:8084}
 
+order:
+  auto-complete:
+    hours-after-delivery: ${ORDER_AUTO_COMPLETE_HOURS:1}
+
 spring:
   application:
     name: order-service

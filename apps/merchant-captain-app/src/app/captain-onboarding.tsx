@@ -15,6 +15,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { appConfig } from '@/utils/app-config';
 import { submitCaptainOnboarding } from '@/services/captain-onboarding';
 import { useAuth } from '@/context/AuthContext';
+import { uploadFileFromUri } from '@/utils/upload-file';
 
 type DocKey = 'aadharFront' | 'aadharBack' | 'license' | 'rc' | 'selfie';
 
@@ -60,7 +61,18 @@ export default function CaptainOnboardingScreen() {
 
     setSubmitting(true);
     try {
-      const documentEntries = Object.entries(docs).map(([key, url]) => ({
+      const uploaded: Partial<Record<DocKey, string>> = {};
+      for (const field of DOC_FIELDS) {
+        const localUri = docs[field.key];
+        if (!localUri) continue;
+        uploaded[field.key] = await uploadFileFromUri(
+          localUri,
+          `${field.key}.jpg`,
+          session?.access_token,
+        );
+      }
+
+      const documentEntries = Object.entries(uploaded).map(([key, url]) => ({
         docType: key,
         docUrl: url,
       }));
@@ -70,8 +82,8 @@ export default function CaptainOnboardingScreen() {
           vehicleNumber: vehicleNumber.trim(),
           bankAccount: bankAccount.trim(),
           bankIfsc: ifsc.trim(),
-          licenseDocUrl: docs.license,
-          selfieDocUrl: docs.selfie,
+          licenseDocUrl: uploaded.license,
+          selfieDocUrl: uploaded.selfie,
           documents: documentEntries,
         },
         session?.access_token,
@@ -83,7 +95,7 @@ export default function CaptainOnboardingScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [bankAccount, docs, ifsc, router, vehicleNumber]);
+  }, [bankAccount, docs, ifsc, router, session, vehicleNumber]);
 
   return (
     <ThemedView style={styles.container}>

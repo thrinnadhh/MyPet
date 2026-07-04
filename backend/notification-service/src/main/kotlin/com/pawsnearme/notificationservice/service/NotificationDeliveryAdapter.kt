@@ -1,5 +1,6 @@
 package com.pawsnearme.notificationservice.service
 
+import com.pawsnearme.notificationservice.repository.DevicePushTokenRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
@@ -10,14 +11,15 @@ data class NotificationDeliveryRequest(
     val referenceId: UUID,
     val referenceType: String,
     val templateCode: String,
-    val message: String
+    val message: String,
+    val title: String? = null,
 )
 
 data class NotificationDeliveryResult(
     val delivered: Boolean,
     val provider: String,
     val retryable: Boolean = false,
-    val failureReason: String? = null
+    val failureReason: String? = null,
 )
 
 interface NotificationDeliveryAdapter {
@@ -27,17 +29,33 @@ interface NotificationDeliveryAdapter {
 @Component
 class ConfiguredNotificationDeliveryAdapter(
     @Value("\${notification.delivery.mode:LOGGED_DEV}")
-    private val deliveryMode: String
+    private val deliveryMode: String,
+    private val pushTokenRepository: DevicePushTokenRepository,
+    private val pushNotificationService: PushNotificationService,
 ) : NotificationDeliveryAdapter {
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun deliver(request: NotificationDeliveryRequest): NotificationDeliveryResult {
-        if (deliveryMode.equals("EXPO_FCM", ignoreCase = true)) {
+        val tokens = pushTokenRepository.findByUserId(request.userId)
+        if (tokens.isNotEmpty()) {
+            val title = request.title ?: titleForTemplate(request.templateCode)
+            val pushResult = pushNotificationService.sendToUser(
+                userId = request.userId,
+                title = title,
+                body = request.message,
+                templateCode = request.templateCode,
+                referenceId = request.referenceId,
+            )
+            if (pushResult.delivered) return pushResult
+            if (deliveryMode.equals("EXPO_FCM", ignoreCase = true)) {
+                return pushResult
+            }
+        } else if (deliveryMode.equals("EXPO_FCM", ignoreCase = true)) {
             return NotificationDeliveryResult(
                 delivered = false,
                 provider = "EXPO_FCM",
-                retryable = false,
-                failureReason = "Expo/FCM push token registration is not configured for this user."
+                retryable = true,
+                failureReason = "Expo/FCM push token registration is not configured for this user.",
             )
         }
 
@@ -46,7 +64,7 @@ class ConfiguredNotificationDeliveryAdapter(
                 delivered = false,
                 provider = deliveryMode,
                 retryable = false,
-                failureReason = "Unsupported notification delivery mode: $deliveryMode"
+                failureReason = "Unsupported notification delivery mode: $deliveryMode",
             )
         }
 
@@ -55,8 +73,15 @@ class ConfiguredNotificationDeliveryAdapter(
             request.userId,
             request.referenceId,
             request.templateCode,
-            request.message
+            request.message,
         )
         return NotificationDeliveryResult(delivered = true, provider = "LOGGED_DEV")
+    }
+
+    private fun titleForTemplate(templateCode: String): String = when (templateCode) {
+        "VACCINATION_DUE", "VACCINATION_DUE_7D", "VACCINATION_DUE_1D" -> "Vaccination reminder"
+        "APPOINTMENT_T24H", "APPOINTMENT_T1H" -> "Appointment reminder"
+        "MERCHANT_ORDER_ALERT" -> "New order received!"
+        else -> "PawsNearMe"
     }
 }

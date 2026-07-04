@@ -35,4 +35,5 @@ interface PetRepository : JpaRepository<Pet, UUID> {
 @Repository
 interface VaccinationReminderRepository : JpaRepository<VaccinationReminder, UUID> {
     fun findByOwnerId(ownerId: UUID): List<VaccinationReminder>
+    fun findByEnabledTrue(): List<VaccinationReminder>
 }

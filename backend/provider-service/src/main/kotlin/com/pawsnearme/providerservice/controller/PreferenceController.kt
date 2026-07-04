@@ -3,6 +3,7 @@ package com.pawsnearme.providerservice.controller
 import com.pawsnearme.providerservice.model.VaccinationReminder
 import com.pawsnearme.providerservice.repository.ProfileRepository
 import com.pawsnearme.providerservice.repository.VaccinationReminderRepository
+import com.pawsnearme.providerservice.service.VaccinationReminderPublisher
 import jakarta.validation.constraints.NotBlank
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
@@ -34,6 +35,7 @@ data class UpsertVaccinationReminderRequest(
 class PreferenceController(
     private val profileRepository: ProfileRepository,
     private val vaccinationReminderRepository: VaccinationReminderRepository,
+    private val vaccinationReminderPublisher: VaccinationReminderPublisher,
 ) {
     @PatchMapping("/profiles/me/locale")
     fun updateLocale(
@@ -78,6 +80,7 @@ class PreferenceController(
                 enabled = request.enabled,
             )
         )
+        vaccinationReminderPublisher.publish(saved, "VaccinationReminderCreated")
         return ResponseEntity.ok(saved.toDto())
     }
 
@@ -92,7 +95,9 @@ class PreferenceController(
         if (reminder.ownerId.toString() != userId) throw ProviderAccessDeniedException("Access denied")
         if (request.containsKey("enabled")) reminder.enabled = request["enabled"] as Boolean
         reminder.updatedAt = Instant.now()
-        return ResponseEntity.ok(vaccinationReminderRepository.save(reminder).toDto())
+        val saved = vaccinationReminderRepository.save(reminder)
+        vaccinationReminderPublisher.publish(saved, "VaccinationReminderUpdated")
+        return ResponseEntity.ok(saved.toDto())
     }
 
     private fun VaccinationReminder.toDto() = VaccinationReminderDto(

@@ -12,7 +12,11 @@ notification:
     ORDER_PLACED: "Your order has been placed successfully! Order: {referenceId}"
     MERCHANT_ORDER_ALERT: "New order received! Order: {referenceId}"
     VACCINATION_DUE: "Vaccination reminder for your pet. Ref: {referenceId}"
+    VACCINATION_DUE_7D: "Vaccination due in 7 days. Ref: {referenceId}"
+    VACCINATION_DUE_1D: "Vaccination due tomorrow. Ref: {referenceId}"
     CHAT_MESSAGE: "New message: {referenceId}"
+  delivery:
+    mode: ${NOTIFICATION_DELIVERY_MODE:LOGGED_DEV}
 
 spring:
   application:
@@ -69,3 +73,11 @@ gateway:
   trust:
     enabled: ${GATEWAY_TRUST_ENABLED:false}
     secret: ${GATEWAY_SECRET:dev-secret-change-in-production}
+
+provider:
+  service:
+    url: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+
+internal:
+  api:
+    secret: ${INTERNAL_API_SECRET:dev-internal-secret}
