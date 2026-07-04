@@ -10,6 +10,9 @@ kotlin {
 }
 
 dependencies {
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("io.micrometer:micrometer-registry-prometheus")
+
     implementation(project(":common"))
     // Import Spring Boot BOM for dependency version management
     implementation(platform("org.springframework.boot:spring-boot-dependencies:3.2.3"))

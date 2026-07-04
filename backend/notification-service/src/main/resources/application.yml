@@ -27,9 +27,10 @@ spring:
     password: ${DB_PASSWORD:notification_service_pass}
     driver-class-name: org.postgresql.Driver
     hikari:
+      connection-timeout: 3000
+      leak-detection-threshold: 10000
       maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
       minimum-idle: ${DB_POOL_MIN_IDLE:2}
-      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:5000}
   flyway:
     enabled: true
     baseline-on-migrate: true
@@ -61,6 +62,26 @@ eureka:
     service-url:
       defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
 
+
+gateway:
+  trust:
+    enabled: ${GATEWAY_TRUST_ENABLED:false}
+    secret: ${GATEWAY_SECRET:dev-secret-change-in-production}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  health:
+    readinessstate:
+      enabled: true
+    livenessstate:
+      enabled: true
 ---
 spring:
   config:
@@ -71,10 +92,7 @@ spring:
 
 # Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway
 # Enable in staging/production; leave disabled in local dev
-gateway:
-  trust:
-    enabled: ${GATEWAY_TRUST_ENABLED:false}
-    secret: ${GATEWAY_SECRET:dev-secret-change-in-production}
+
 
 provider:
   service:
@@ -83,3 +101,5 @@ provider:
 internal:
   api:
     secret: ${INTERNAL_API_SECRET:dev-internal-secret}
+
+

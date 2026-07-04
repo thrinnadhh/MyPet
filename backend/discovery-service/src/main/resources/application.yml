@@ -10,9 +10,10 @@ spring:
     password: ${DB_PASSWORD:discovery_service_pass}
     driver-class-name: org.postgresql.Driver
     hikari:
+      connection-timeout: 3000
+      leak-detection-threshold: 10000
       maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
       minimum-idle: ${DB_POOL_MIN_IDLE:2}
-      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:5000}
   jpa:
     properties:
       hibernate:
@@ -37,6 +38,26 @@ spring:
       properties:
         spring.json.trusted.packages: "com.pawsnearme.discoveryservice.model.*,com.pawsnearme.providerservice.event.*,java.util.*,java.lang.*"
 
+
+gateway:
+  trust:
+    enabled: ${GATEWAY_TRUST_ENABLED:false}
+    secret: ${GATEWAY_SECRET:dev-secret-change-in-production}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  health:
+    readinessstate:
+      enabled: true
+    livenessstate:
+      enabled: true
 ---
 # Dev profile: enable SQL logging
 spring:
@@ -49,7 +70,6 @@ spring:
 
 # Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway
 # Enable in staging/production; leave disabled in local dev
-gateway:
-  trust:
-    enabled: ${GATEWAY_TRUST_ENABLED:false}
-    secret: ${GATEWAY_SECRET:dev-secret-change-in-production}
+
+
+

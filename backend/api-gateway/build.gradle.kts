@@ -9,6 +9,8 @@ kotlin {
 }
 
 dependencies {
+    implementation("io.micrometer:micrometer-registry-prometheus")
+
     // Import BOMs for dependency version management
     implementation(platform("org.springframework.boot:spring-boot-dependencies:3.2.3"))
     implementation(platform("org.springframework.cloud:spring-cloud-dependencies:2023.0.0"))

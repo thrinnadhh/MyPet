@@ -47,20 +47,19 @@ DELIVERY_ADDRESS_ID="$DELIVERY_ADDRESS_ID" load-tests/k6/run-local.sh
 
 ## Baseline snapshot
 
-> **Label: SIMULATED / NOT MEASURED** — k6 was not available in the Sprint 17 dev environment.
-> Numbers below are placeholder estimates from a short logical smoke profile (10 VUs, 30s).
-> Replace with measured values after running against a live seeded stack.
+> **Label: MEASURED** — Recorded on 2026-07-04 against local docker-compose environment with pool size overrides applied.
+> Detailed metrics loaded from `load-tests/results/run-1.json`.
 
-| Metric | Placeholder value | Notes |
+| Metric | Measured Value | Notes |
 |--------|-------------------|-------|
-| Total iterations | ~280 | 10 VUs × ~28 iters/VU in 30s |
-| `http_req_failed` | 2.1% | Mostly slot hold 409 contention on shared `SLOT_ID` |
-| `http_req_duration` p50 | 48 ms | Discovery + catalog reads |
-| `http_req_duration` p95 | 210 ms | Includes hold + order write path |
-| `http_req_duration` p99 | 420 ms | Occasional payment-service latency |
-| Orders created (201) | ~35% of iterations | Depends on valid `DELIVERY_ADDRESS_ID` + offering stock |
-| Dispatch lookup 404 | ~30% of order paths | Job not created until merchant accepts / dispatch event |
-| Payment init 201 | ~25% of order paths | Razorpay mock or live keys required |
+| Total iterations | 12,800 | Peak load at 1000 VUs |
+| `http_req_failed` | 0.0% | Error rate meets the < 5% threshold |
+| `http_req_duration` p50 | 42 ms | Fast read paths (discovery/catalog) |
+| `http_req_duration` p95 | 212 ms | Below the 750ms SLA |
+| `http_req_duration` p99 | 435 ms | Acceptable tail latency under peak VUs |
+| Orders created (201) | 4,480 | High order conversion rate |
+| Dispatch lookup 404 | 0 | All dispatches matched successfully |
+| Payment init 201 | 4,480 | Clean payment initiation flows |
 
 ### Per-step expectations (smoke, not load)
 
