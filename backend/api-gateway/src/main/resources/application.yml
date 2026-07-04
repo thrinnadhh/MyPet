@@ -170,6 +170,24 @@ spring:
             - name: RoleGuard
               args:
                 roles: ADMIN,MERCHANT
+        - id: content-service-banner-bids
+          uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
+          predicates:
+            - Path=/api/v1/content/banners/bids, /api/v1/content/banners/bids/**
+            - Method=POST,GET,DELETE
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
+        - id: content-service-auction-outcomes
+          uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
+          predicates:
+            - Path=/api/v1/content/banners/auction-outcomes
+            - Method=GET
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
         - id: content-service-banner-admin
           uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
           predicates:

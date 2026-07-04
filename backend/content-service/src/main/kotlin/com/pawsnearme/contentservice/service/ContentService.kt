@@ -21,7 +21,8 @@ class ContentService(
     private val writerRepo: GuideWriterRepository,
 ) {
     @Transactional(readOnly = true)
-    fun listActiveBanners(): List<PromoBanner> = bannerRepo.findByActiveTrueOrderBySortOrderAsc()
+    fun listActiveBanners(): List<PromoBanner> =
+        bannerRepo.findByActiveTrueOrderBySortOrderAsc().filter { it.status == "ACTIVE" }
 
     @Transactional(readOnly = true)
     fun listGuides(category: String?): List<GuideArticle> =

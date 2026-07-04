@@ -25,6 +25,8 @@ function switchTab(tabId) {
         fetchPendingProviders();
     } else if (tabId === 'disputes') {
         fetchDisputes();
+    } else if (tabId === 'banner-auction') {
+        fetchBannerAuctionOutcomes();
     }
 }
 
@@ -309,4 +311,68 @@ async function viewInvoice(orderId) {
 
 function AlertInvoiceInfo(inv) {
     alert(`📄 INVOICE DETAIL\n\nNumber: ${inv.invoiceNumber}\nSubtotal: ₹${inv.subtotalAmount.toFixed(2)}\nGST (18%): ₹${inv.taxAmount.toFixed(2)}\nGrand Total: ₹${inv.totalAmount.toFixed(2)}\nGenerated At: ${new Date(inv.generatedAt).toLocaleString()}`);
+}
+
+// ─── Banner Auction Outcomes ────────────────────────────────────────────────
+
+async function fetchBannerAuctionOutcomes() {
+    const container = document.getElementById('banner-auction-list');
+    container.innerHTML = `
+        <div class="empty-state">
+            <span class="empty-icon">⏳</span>
+            <p>Loading auction outcomes...</p>
+        </div>
+    `;
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/content/banners/auction-outcomes`, {
+            headers: { 'X-User-Role': 'ADMIN' }
+        });
+        if (!res.ok) throw new Error(`Failed to fetch auction outcomes (${res.status})`);
+
+        const outcomes = await res.json();
+        if (!outcomes.length) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <span class="empty-icon">📭</span>
+                    <p>No active banner slots with auction outcomes yet.</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = '';
+        outcomes.forEach(slot => {
+            const item = document.createElement('div');
+            item.className = 'list-item';
+
+            const hasWinner = slot.providerId != null;
+            const badgeClass = slot.active ? 'badge-success' : 'badge-pending';
+            const bidText = slot.bidAmount != null ? `₹${Number(slot.bidAmount).toFixed(2)}` : '—';
+            const providerText = hasWinner ? slot.providerId : 'Unassigned';
+
+            item.innerHTML = `
+                <div class="item-header">
+                    <div>
+                        <h3 class="item-title">Slot ${slot.slotOrder}: ${slot.title || 'Banner'}</h3>
+                        <p class="item-subtitle">Duration: ${slot.durationSec || '—'}s</p>
+                    </div>
+                    <span class="badge ${badgeClass}">${slot.status || 'UNKNOWN'}</span>
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 0.25rem;">
+                    <div><strong>Winning provider:</strong> ${providerText}</div>
+                    <div><strong>Winning bid:</strong> ${bidText}</div>
+                    <div><strong>Active:</strong> ${slot.active ? 'Yes' : 'No'}</div>
+                </div>
+            `;
+            container.appendChild(item);
+        });
+    } catch (e) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <span class="empty-icon">❌</span>
+                <p>Failed to load auction outcomes: ${e.message}</p>
+            </div>
+        `;
+    }
 }

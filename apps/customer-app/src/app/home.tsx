@@ -12,29 +12,25 @@ import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, Radius, Shadows, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/i18n';
 import { appConfig } from '@/utils/app-config';
 import { fetchBanners, type PromoBanner } from '@/services/content';
 import { PROMO_BANNERS } from '@/constants/content';
-
-const HIGHLIGHTS = [
-  { id: '1', title: 'Same-day pet store delivery', subtitle: 'Hyderabad pilot stores' },
-  { id: '2', title: 'Vet visits with private chat', subtitle: 'Share records securely' },
-  { id: '3', title: 'Grooming slots near you', subtitle: 'Book in a few taps' },
-];
 
 export default function HomeScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { user } = useAuth();
+  const { t } = useTranslation();
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
-  }, []);
+    if (hour < 12) return t('home.greetingMorning');
+    if (hour < 17) return t('home.greetingAfternoon');
+    return t('home.greetingEvening');
+  }, [t]);
 
-  const firstName = user?.user_metadata?.full_name?.split(' ')?.[0] ?? 'pet parent';
+  const firstName = user?.user_metadata?.full_name?.split(' ')?.[0] ?? t('common.petParent');
   const [banners, setBanners] = useState<PromoBanner[]>(
     appConfig.allowDemoMode
       ? PROMO_BANNERS.map((b) => ({ id: b.id, title: b.title, subtitle: b.subtitle, accent: b.accent, durationSec: b.durationSec }))
@@ -44,6 +40,15 @@ export default function HomeScreen() {
   useEffect(() => {
     void fetchBanners().then(setBanners).catch(() => undefined);
   }, []);
+
+  const highlights = useMemo(
+    () => [
+      { id: '1', title: t('home.highlight1Title'), subtitle: t('home.highlight1Subtitle') },
+      { id: '2', title: t('home.highlight2Title'), subtitle: t('home.highlight2Subtitle') },
+      { id: '3', title: t('home.highlight3Title'), subtitle: t('home.highlight3Subtitle') },
+    ],
+    [t],
+  );
 
   return (
     <ThemedView style={styles.container}>
@@ -56,57 +61,57 @@ export default function HomeScreen() {
             <View style={styles.heroTop}>
               <View style={[styles.brandBadge, { backgroundColor: theme.primary }]}>
                 <AppIcon name="paw" color="#FFFFFF" size={18} />
-                <ThemedText style={styles.brandText}>PawsNearMe</ThemedText>
+                <ThemedText style={styles.brandText}>{t('common.brand')}</ThemedText>
               </View>
               <View style={[styles.livePill, { backgroundColor: theme.backgroundElement }]}>
                 <View style={[styles.liveDot, { backgroundColor: appConfig.allowDemoMode ? theme.warning : theme.success }]} />
                 <ThemedText type="small" style={{ fontWeight: '800' }}>
-                  {appConfig.allowDemoMode ? 'Demo' : 'Hyderabad'}
+                  {appConfig.allowDemoMode ? t('common.demo') : t('home.locationLive')}
                 </ThemedText>
               </View>
             </View>
-            <ThemedText style={styles.heroTitle}>{greeting}, {firstName}</ThemedText>
+            <ThemedText style={styles.heroTitle}>{t('home.greeting', { greeting, name: firstName })}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              Shop, book vets, groom your pets, read guides, and message merchants — all in one place.
+              {t('home.heroSubtitle')}
             </ThemedText>
           </View>
 
           <BannerCarousel banners={banners} onPress={() => router.push('/guides' as never)} />
 
           <View>
-            <ThemedText style={styles.sectionTitle}>Services</ThemedText>
+            <ThemedText style={styles.sectionTitle}>{t('home.services')}</ThemedText>
             <View style={styles.serviceGrid}>
               <ServiceTile
-                title="Pet Shop"
-                subtitle="Food, toys, delivery"
+                title={t('home.petShop')}
+                subtitle={t('home.petShopSubtitle')}
                 icon="cart"
                 tone="primary"
                 onPress={() => router.push('/shop' as never)}
               />
               <ServiceTile
-                title="Vet Care"
-                subtitle="Clinics & checkups"
+                title={t('home.vetCare')}
+                subtitle={t('home.vetCareSubtitle')}
                 icon="medical"
                 tone="cta"
                 onPress={() => router.push('/vet' as never)}
               />
               <ServiceTile
-                title="Grooming"
-                subtitle="Baths & styling"
+                title={t('home.grooming')}
+                subtitle={t('home.groomingSubtitle')}
                 icon="groom"
                 tone="accent"
                 onPress={() => router.push('/groom' as never)}
               />
               <ServiceTile
-                title="Guides"
-                subtitle="Health & care tips"
+                title={t('home.guides')}
+                subtitle={t('home.guidesSubtitle')}
                 icon="shield"
                 tone="accent"
                 onPress={() => router.push('/guides' as never)}
               />
               <ServiceTile
-                title="History"
-                subtitle="Visits & orders"
+                title={t('home.history')}
+                subtitle={t('home.historySubtitle')}
                 icon="history"
                 tone="primary"
                 onPress={() => router.push('/explore' as never)}
@@ -120,9 +125,9 @@ export default function HomeScreen() {
                 <AppIcon name="medical" color={theme.cta} size={22} />
               </View>
               <View style={{ flex: 1, gap: 4 }}>
-                <ThemedText style={{ fontWeight: '900' }}>Vaccination reminders</ThemedText>
+                <ThemedText style={{ fontWeight: '900' }}>{t('home.vaccinationReminders')}</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Bruno&apos;s DHPP booster is due in 12 days. Manage reminders in Profile.
+                  {t('home.vaccinationReminderBody')}
                 </ThemedText>
               </View>
             </View>
@@ -130,10 +135,10 @@ export default function HomeScreen() {
 
           <AppCard>
             <View style={styles.cardHeader}>
-              <ThemedText style={styles.sectionTitle}>Why PawsNearMe</ThemedText>
+              <ThemedText style={styles.sectionTitle}>{t('home.whyTitle')}</ThemedText>
               <AppIcon name="shield" color={theme.accent} size={22} />
             </View>
-            {HIGHLIGHTS.map((item, index) => (
+            {highlights.map((item, index) => (
               <View key={item.id} style={[styles.highlightRow, index > 0 && styles.highlightBorder, { borderTopColor: theme.border }]}>
                 <View style={[styles.highlightIndex, { backgroundColor: theme.muted }]}>
                   <ThemedText type="small" style={{ fontWeight: '900' }}>{index + 1}</ThemedText>
@@ -152,9 +157,9 @@ export default function HomeScreen() {
                 <AppIcon name="support" color={theme.cta} size={22} />
               </View>
               <View style={{ flex: 1, gap: 4 }}>
-                <ThemedText style={{ fontWeight: '900' }}>Need help?</ThemedText>
+                <ThemedText style={{ fontWeight: '900' }}>{t('home.needHelp')}</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Message your merchant from appointment history. Phone numbers stay hidden until they choose to share.
+                  {t('home.needHelpBody')}
                 </ThemedText>
               </View>
             </View>

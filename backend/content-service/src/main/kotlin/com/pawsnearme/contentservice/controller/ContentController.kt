@@ -3,10 +3,16 @@ package com.pawsnearme.contentservice.controller
 import com.pawsnearme.contentservice.model.GuideArticle
 import com.pawsnearme.contentservice.model.GuideWriter
 import com.pawsnearme.contentservice.model.PromoBanner
+import com.pawsnearme.contentservice.service.BannerAuctionService
+import com.pawsnearme.contentservice.service.BannerBidAccessDeniedException
 import com.pawsnearme.contentservice.service.ContentService
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.NotNull
+import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
+import java.math.BigDecimal
+import java.time.Instant
 import java.util.UUID
 
 data class BannerDto(
@@ -49,9 +55,28 @@ data class GrantWriterRequest(
     @field:NotBlank val email: String,
 )
 
+data class SubmitBannerBidRequest(
+    @field:NotNull val providerId: UUID,
+    val slotOrder: Int,
+    @field:NotNull val bidAmount: BigDecimal,
+    @field:NotNull val windowEndsAt: Instant,
+)
+
+data class BannerBidDto(
+    val id: String,
+    val providerId: String,
+    val slotOrder: Int,
+    val bidAmount: BigDecimal,
+    val windowEndsAt: String,
+    val status: String,
+)
+
 @RestController
 @RequestMapping("/api/v1/content")
-class ContentController(private val contentService: ContentService) {
+class ContentController(
+    private val contentService: ContentService,
+    private val bannerAuctionService: BannerAuctionService,
+) {
 
     @GetMapping("/banners")
     fun listBanners(): ResponseEntity<List<BannerDto>> =
@@ -122,6 +147,66 @@ class ContentController(private val contentService: ContentService) {
         contentService.revokeWriter(writerId)
         return ResponseEntity.ok(mapOf("status" to "REVOKED"))
     }
+
+    @PostMapping("/banners/bids")
+    fun submitBannerBid(
+        @RequestHeader(value = "X-User-Id", required = false) userId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) userRole: String?,
+        @RequestBody request: SubmitBannerBidRequest,
+    ): ResponseEntity<BannerBidDto> {
+        val callerId = userId?.let(UUID::fromString)
+            ?: throw IllegalArgumentException("X-User-Id header is required.")
+        val saved = bannerAuctionService.submitBid(
+            providerId = request.providerId,
+            slotOrder = request.slotOrder,
+            bidAmount = request.bidAmount,
+            windowEndsAt = request.windowEndsAt,
+            callerId = callerId,
+            callerRole = userRole,
+        )
+        return ResponseEntity.status(HttpStatus.CREATED).body(saved.toBidDto())
+    }
+
+    @GetMapping("/banners/bids")
+    fun listBannerBids(
+        @RequestHeader(value = "X-User-Id", required = false) userId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) userRole: String?,
+    ): ResponseEntity<List<BannerBidDto>> {
+        val callerId = userId?.let(UUID::fromString)
+            ?: throw IllegalArgumentException("X-User-Id header is required.")
+        return ResponseEntity.ok(
+            bannerAuctionService.listBids(callerId, userRole).map { it.toBidDto() }
+        )
+    }
+
+    @DeleteMapping("/banners/bids/{bidId}")
+    fun cancelBannerBid(
+        @PathVariable bidId: UUID,
+        @RequestHeader(value = "X-User-Id", required = false) userId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) userRole: String?,
+    ): ResponseEntity<Map<String, String>> {
+        val callerId = userId?.let(UUID::fromString)
+            ?: throw IllegalArgumentException("X-User-Id header is required.")
+        bannerAuctionService.cancelBid(bidId, callerId, userRole)
+        return ResponseEntity.ok(mapOf("status" to "CANCELLED"))
+    }
+
+    @GetMapping("/banners/auction-outcomes")
+    fun listAuctionOutcomes(): ResponseEntity<List<Map<String, Any?>>> =
+        ResponseEntity.ok(bannerAuctionService.listAuctionOutcomes())
+
+    @ExceptionHandler(BannerBidAccessDeniedException::class)
+    fun handleBidAccessDenied(ex: BannerBidAccessDeniedException): ResponseEntity<Map<String, String>> =
+        ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to ex.message.orEmpty()))
+
+    private fun com.pawsnearme.contentservice.model.BannerBid.toBidDto() = BannerBidDto(
+        id = bidId!!.toString(),
+        providerId = providerId.toString(),
+        slotOrder = slotOrder,
+        bidAmount = bidAmount,
+        windowEndsAt = windowEndsAt.toString(),
+        status = status,
+    )
 
     private fun PromoBanner.toDto() = BannerDto(
         id = bannerId!!.toString(),

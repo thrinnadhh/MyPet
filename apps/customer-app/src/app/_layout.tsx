@@ -3,7 +3,9 @@ import { useColorScheme, ActivityIndicator, View } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
+import '@/i18n';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { LocaleProvider } from '@/context/LocaleContext';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import LoginScreen from './login';
 
@@ -31,7 +33,9 @@ function TabLayoutContent() {
 export default function TabLayout() {
   return (
     <AuthProvider>
-      <TabLayoutContent />
+      <LocaleProvider>
+        <TabLayoutContent />
+      </LocaleProvider>
     </AuthProvider>
   );
 }

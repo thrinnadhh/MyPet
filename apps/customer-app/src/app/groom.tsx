@@ -10,6 +10,7 @@ import { AppIcon } from '@/components/app-icon';
 import { Spacing, Colors, Radius, Shadows } from '@/constants/theme';
 import { appConfig } from '@/utils/app-config';
 import { useAuth } from '@/context/AuthContext';
+import { useTranslation } from '@/i18n';
 import {
   confirmAppointmentHold,
   fetchAvailableAppointmentSlots,
@@ -59,7 +60,9 @@ interface Salon {
 
 const SalonCard = React.memo(({
   item, colors, onBook,
-}: { item: Salon; colors: any; onBook: (s: Salon) => void }) => (
+}: { item: Salon; colors: any; onBook: (s: Salon) => void }) => {
+  const { t } = useTranslation();
+  return (
   <TouchableOpacity
     style={[styles.salonCard, { backgroundColor: colors.backgroundElement, borderColor: colors.textSecondary }]}
     activeOpacity={0.7}
@@ -78,7 +81,7 @@ const SalonCard = React.memo(({
     </View>
 
     <View style={[styles.slotContainer, { backgroundColor: colors.backgroundSelected }]}>
-      <ThemedText type="small" style={{ color: colors.text, fontWeight: '500' }}>Next Available Slot:</ThemedText>
+      <ThemedText type="small" style={{ color: colors.text, fontWeight: '500' }}>{t('groom.nextSlot')}</ThemedText>
       <View style={styles.inlineIconText}>
         <AppIcon name="calendar" color={colors.cta} size={16} />
         <ThemedText style={{ color: colors.cta, fontWeight: '800' }}>{item.nextSlot}</ThemedText>
@@ -88,7 +91,7 @@ const SalonCard = React.memo(({
     <View style={styles.metaRow}>
       <View style={styles.inlineIconText}>
         <AppIcon name="location" color={colors.textSecondary} size={14} />
-        <ThemedText type="small" style={{ color: colors.textSecondary }}>{item.distance} away</ThemedText>
+        <ThemedText type="small" style={{ color: colors.textSecondary }}>{t('common.away', { distance: item.distance })}</ThemedText>
       </View>
       <TouchableOpacity
         id={`book-groom-${item.id}`}
@@ -98,11 +101,12 @@ const SalonCard = React.memo(({
         accessibilityRole="button"
         accessibilityLabel={`Book spa at ${item.name}`}
       >
-        <ThemedText type="small" style={{ color: '#ffffff', fontWeight: '800' }}>Book Spa</ThemedText>
+        <ThemedText type="small" style={{ color: '#ffffff', fontWeight: '800' }}>{t('groom.bookSpa')}</ThemedText>
       </TouchableOpacity>
     </View>
   </TouchableOpacity>
-));
+  );
+});
 SalonCard.displayName = 'SalonCard';
 
 // ─── SlotPickerModal ───────────────────────────────────────────────────────────────────
@@ -117,12 +121,14 @@ const SlotPickerModal = ({
   colors: any;
   onSelect: (s: Slot) => void;
   onClose: () => void;
-}) => (
+}) => {
+  const { t } = useTranslation();
+  return (
   <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
     <View style={styles.modalOverlay}>
       <View style={[styles.bottomSheet, { backgroundColor: colors.backgroundElement }]}>
         <View style={[styles.sheetHandle, { backgroundColor: colors.textSecondary }]} />
-        <ThemedText style={[styles.sheetTitle, { color: colors.text }]}>Pick a Slot</ThemedText>
+        <ThemedText style={[styles.sheetTitle, { color: colors.text }]}>{t('groom.pickSlot')}</ThemedText>
         <ThemedText type="small" style={{ color: colors.textSecondary, marginBottom: Spacing.three }}>
           {salon?.name}
         </ThemedText>
@@ -143,7 +149,7 @@ const SlotPickerModal = ({
               >
                 <View>
                   <ThemedText style={{ color: colors.text, fontWeight: '700' }}>{slot.startTime}</ThemedText>
-                  <ThemedText type="small" style={{ color: colors.textSecondary }}>until {slot.endTime}</ThemedText>
+                  <ThemedText type="small" style={{ color: colors.textSecondary }}>{t('common.until', { time: slot.endTime })}</ThemedText>
                 </View>
                 <View style={[styles.priceBadge, { backgroundColor: colors.cta }]}>
                   <ThemedText type="small" style={{ color: '#fff', fontWeight: '800' }}>₹{slot.price}</ThemedText>
@@ -157,14 +163,15 @@ const SlotPickerModal = ({
           style={[styles.cancelButton, { borderColor: colors.textSecondary }]}
           onPress={onClose}
           accessibilityRole="button"
-          accessibilityLabel="Cancel"
+          accessibilityLabel={t('common.cancel')}
         >
-          <ThemedText style={{ color: colors.textSecondary, fontWeight: '600' }}>Cancel</ThemedText>
+          <ThemedText style={{ color: colors.textSecondary, fontWeight: '600' }}>{t('common.cancel')}</ThemedText>
         </TouchableOpacity>
       </View>
     </View>
   </Modal>
-);
+  );
+};
 
 // ─── SummaryRow + CheckoutOverlay ────────────────────────────────────────────────────────────
 
@@ -189,6 +196,7 @@ const CheckoutOverlay = ({
   onConfirm: () => void;
   onCancel: () => void;
 }) => {
+  const { t } = useTranslation();
   const urgency = countdown < 60;
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -199,20 +207,20 @@ const CheckoutOverlay = ({
               ⏱ {formatCountdown(countdown)}
             </ThemedText>
             <ThemedText type="small" style={{ color: urgency ? '#ffd5d5' : colors.textSecondary, textAlign: 'center' }}>
-              Slot reserved — complete payment before time runs out
+              {t('groom.slotReserved')}
             </ThemedText>
           </View>
 
           <ThemedText style={[styles.sheetTitle, { color: colors.text, marginTop: Spacing.three }]}>
-            Confirm Booking
+            {t('groom.confirmBooking')}
           </ThemedText>
 
           <View style={[styles.summaryBox, { backgroundColor: colors.background, borderColor: colors.backgroundSelected }]}>
-            <SummaryRow label="Salon" value={salon?.name ?? ''} colors={colors} />
-            <SummaryRow label="Service" value={slot?.serviceName ?? ''} colors={colors} />
-            <SummaryRow label="Slot" value={slot?.startTime ?? ''} colors={colors} />
-            <SummaryRow label="Duration" value={`until ${slot?.endTime ?? ''}`} colors={colors} />
-            <SummaryRow label="Amount" value={`₹${slot?.price ?? 0}`} colors={colors} bold />
+            <SummaryRow label={t('groom.salon')} value={salon?.name ?? ''} colors={colors} />
+            <SummaryRow label={t('groom.service')} value={slot?.serviceName ?? ''} colors={colors} />
+            <SummaryRow label={t('groom.slot')} value={slot?.startTime ?? ''} colors={colors} />
+            <SummaryRow label={t('groom.duration')} value={t('common.until', { time: slot?.endTime ?? '' })} colors={colors} />
+            <SummaryRow label={t('groom.amount')} value={`₹${slot?.price ?? 0}`} colors={colors} bold />
           </View>
 
           {phase === 'confirming' ? (
@@ -221,10 +229,10 @@ const CheckoutOverlay = ({
             <View style={styles.successBanner}>
               <ThemedText style={{ fontSize: 40 }}>✅</ThemedText>
               <ThemedText style={{ color: colors.text, fontWeight: '800', fontSize: 16, marginTop: Spacing.one }}>
-                Booking Confirmed!
+                {t('groom.bookingConfirmed')}
               </ThemedText>
               <ThemedText type="small" style={{ color: colors.textSecondary, textAlign: 'center', marginTop: Spacing.half }}>
-                Your grooming appointment is secured.
+                {t('groom.bookingConfirmedBody')}
               </ThemedText>
             </View>
           ) : (
@@ -238,7 +246,7 @@ const CheckoutOverlay = ({
                 accessibilityLabel="Pay and confirm grooming appointment"
               >
                 <ThemedText style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>
-                  💳  Pay ₹{slot?.price ?? 0} &amp; Confirm
+                  {t('groom.payConfirm', { price: slot?.price ?? 0 })}
                 </ThemedText>
               </TouchableOpacity>
               <TouchableOpacity
@@ -247,7 +255,7 @@ const CheckoutOverlay = ({
                 accessibilityRole="button"
                 accessibilityLabel="Cancel booking"
               >
-                <ThemedText style={{ color: colors.textSecondary }}>Cancel</ThemedText>
+                <ThemedText style={{ color: colors.textSecondary }}>{t('common.cancel')}</ThemedText>
               </TouchableOpacity>
             </>
           )}
@@ -263,6 +271,7 @@ export default function GroomScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
   const { user, session } = useAuth();
+  const { t } = useTranslation();
 
   const [salons, setSalons] = useState<Salon[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -284,7 +293,7 @@ export default function GroomScreen() {
         setCountdown(prev => {
           if (prev <= 1) {
             clearInterval(countdownRef.current!);
-            Alert.alert('Time Expired', 'Your slot hold has expired. Please try again.');
+            Alert.alert(t('groom.timeExpired'), t('groom.timeExpiredBody'));
             setPhase('idle');
             return 0;
           }
@@ -295,7 +304,7 @@ export default function GroomScreen() {
       if (countdownRef.current) clearInterval(countdownRef.current);
     }
     return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
-  }, [phase]);
+  }, [phase, t]);
 
   const [coords, setCoords] = useState({ longitude: 77.6404, latitude: 12.9719 });
 
@@ -378,12 +387,12 @@ export default function GroomScreen() {
         setHeldAppointmentId('demo-groom-001');
         setPhase('checkout');
       } else {
-        const message = error instanceof Error ? error.message : 'Could not hold this slot. Please try again when the service is reachable.';
-        Alert.alert('Booking Unavailable', message);
+        const message = error instanceof Error ? error.message : t('groom.holdSlotFailed');
+        Alert.alert(t('groom.bookingUnavailable'), message);
         setPhase('selecting');
       }
     }
-  }, [session, user]);
+  }, [session, user, t]);
 
   const handleConfirmPayment = useCallback(async () => {
     if (!heldAppointmentId) return;
@@ -392,15 +401,15 @@ export default function GroomScreen() {
       await confirmAppointmentHold(heldAppointmentId, session?.access_token);
     } catch (error) {
       if (!appConfig.allowDemoMode) {
-        const message = error instanceof Error ? error.message : 'The appointment was not confirmed. Please retry.';
-        Alert.alert('Payment Confirmation Failed', message);
+        const message = error instanceof Error ? error.message : t('groom.confirmFailed');
+        Alert.alert(t('groom.paymentConfirmationFailed'), message);
         setPhase('checkout');
         return;
       }
     }
     setPhase('success');
     setTimeout(() => setPhase('idle'), 2500);
-  }, [heldAppointmentId, session]);
+  }, [heldAppointmentId, session, t]);
 
   const handleCancelSlots = useCallback(() => setPhase('idle'), []);
 
@@ -424,11 +433,11 @@ export default function GroomScreen() {
       <SafeAreaView style={styles.safeArea}>
         <View style={[styles.header, { borderBottomColor: colors.backgroundSelected }]}>
           <ThemedText type="subtitle" style={{ color: colors.text, fontWeight: '800' }}>
-            Book a Groomer
+            {t('groom.title')}
           </ThemedText>
           <View style={styles.headerSub}>
             <ThemedText type="small" style={{ color: colors.textSecondary, flex: 1 }}>
-              Professional styling, bath, and hygiene treatments
+              {t('groom.subtitle')}
             </ThemedText>
             {isLoading && <ActivityIndicator size="small" color={colors.primary} />}
           </View>

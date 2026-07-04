@@ -21,6 +21,7 @@ import { AppIcon } from '@/components/app-icon';
 import { BottomTabInset, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/context/AuthContext';
+import { useTranslation } from '@/i18n';
 import { appConfig } from '@/utils/app-config';
 import {
   completeMerchantBooking,
@@ -112,6 +113,7 @@ function CompleteModal({ booking, visible, onClose, onSubmit }: CompleteModalPro
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const theme = useTheme();
+  const { t } = useTranslation();
 
   const handleSubmit = useCallback(async () => {
     if (!booking) return;
@@ -141,18 +143,18 @@ function CompleteModal({ booking, visible, onClose, onSubmit }: CompleteModalPro
           <View style={styles.modalHandle} />
 
           <ThemedText type="subtitle" style={styles.modalTitle}>
-            Mark as Completed
+            {t('explore.markCompleted')}
           </ThemedText>
           <ThemedText themeColor="textSecondary" style={styles.modalSubtitle}>
             {booking.customerName} · {booking.petName} · {booking.serviceName}
           </ThemedText>
 
-          <ThemedText style={styles.label}>Visit Notes</ThemedText>
+          <ThemedText style={styles.label}>{t('explore.visitNotes')}</ThemedText>
           <TextInput
             style={[styles.textArea, { borderColor: '#ccc', color: theme.text, backgroundColor: theme.backgroundElement }]}
             multiline
             numberOfLines={4}
-            placeholder="Enter visit notes, observations, or follow-up instructions..."
+            placeholder={t('explore.visitNotesPlaceholder')}
             placeholderTextColor={theme.textSecondary}
             value={notes}
             onChangeText={setNotes}
@@ -169,17 +171,17 @@ function CompleteModal({ booking, visible, onClose, onSubmit }: CompleteModalPro
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <ThemedText style={styles.submitBtnText}>✓ Confirm Completed</ThemedText>
+              <ThemedText style={styles.submitBtnText}>{t('explore.confirmCompleted')}</ThemedText>
             )}
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.cancelBtn}
             onPress={onClose}
-            accessibilityLabel="Cancel"
+            accessibilityLabel={t('common.cancel')}
             accessibilityRole="button"
           >
-            <ThemedText themeColor="textSecondary">Cancel</ThemedText>
+            <ThemedText themeColor="textSecondary">{t('common.cancel')}</ThemedText>
           </TouchableOpacity>
         </Pressable>
       </Pressable>
@@ -197,6 +199,7 @@ interface BookingCardProps {
 }
 
 const BookingCard = React.memo(function BookingCard({ item, onComplete, onMessage, theme }: BookingCardProps) {
+  const { t } = useTranslation();
   const time = new Date(item.slotStartsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const date = new Date(item.slotStartsAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 
@@ -227,7 +230,7 @@ const BookingCard = React.memo(function BookingCard({ item, onComplete, onMessag
         accessibilityLabel={`Message ${item.customerName}`}
         accessibilityRole="button"
       >
-        <ThemedText style={{ color: theme.cta, fontWeight: '600' }}>Message customer</ThemedText>
+        <ThemedText style={{ color: theme.cta, fontWeight: '600' }}>{t('explore.messageCustomer')}</ThemedText>
       </TouchableOpacity>
 
       {item.status === 'CONFIRMED' && (
@@ -239,7 +242,7 @@ const BookingCard = React.memo(function BookingCard({ item, onComplete, onMessag
           activeOpacity={0.7}
         >
           <ThemedText style={{ color: theme.primary, fontWeight: '600' }}>
-            ✓ Mark Completed
+            {t('explore.markCompletedBtn')}
           </ThemedText>
         </TouchableOpacity>
       )}
@@ -254,6 +257,7 @@ type FilterType = 'ALL' | 'CONFIRMED' | 'COMPLETED';
 export default function BookingsScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const { t } = useTranslation();
   const safeAreaInsets = useSafeAreaInsets();
   const { user, session } = useAuth();
   const userId = user?.id;
@@ -286,7 +290,7 @@ export default function BookingsScreen() {
 
     if (!userId) {
       setBookings([]);
-      setLoadError('Sign in to view bookings.');
+      setLoadError(t('explore.signInRequired'));
       setLoading(false);
       return;
     }
@@ -297,13 +301,13 @@ export default function BookingsScreen() {
       setBookings(liveBookings);
       setLoadError(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not load bookings.';
+      const message = error instanceof Error ? error.message : t('explore.loadFailed');
       setBookings([]);
       setLoadError(message);
     } finally {
       setLoading(false);
     }
-  }, [accessToken, userId]);
+  }, [accessToken, userId, t]);
 
   useEffect(() => {
     void loadBookings();
@@ -340,13 +344,13 @@ export default function BookingsScreen() {
         await completeMerchantBooking(bookingId, notes, accessToken);
         await loadBookings();
       }
-      Alert.alert('Done!', 'Appointment marked as completed.');
+      Alert.alert(t('explore.done'), t('explore.appointmentCompleted'));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Appointment was not completed.';
-      Alert.alert('Could Not Complete', message);
+      const message = error instanceof Error ? error.message : t('explore.completeFailed');
+      Alert.alert(t('explore.couldNotComplete'), message);
       throw error;
     }
-  }, [accessToken, loadBookings]);
+  }, [accessToken, loadBookings, t]);
 
   const renderItem = useCallback(
     ({ item }: { item: Booking }) => (
@@ -359,11 +363,17 @@ export default function BookingsScreen() {
 
   const today = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
 
+  const filterLabels: Record<FilterType, string> = {
+    ALL: t('explore.filterAll'),
+    CONFIRMED: t('explore.filterConfirmed'),
+    COMPLETED: t('explore.filterCompleted'),
+  };
+
   return (
     <ThemedView style={[styles.screen, { backgroundColor: theme.background }]}>
       {/* Header */}
       <ThemedView style={[styles.header, contentPlatformStyle]}>
-        <ThemedText type="title">📋 Bookings</ThemedText>
+        <ThemedText type="title">{t('explore.title')}</ThemedText>
         <ThemedText themeColor="textSecondary" type="small">{today}</ThemedText>
 
         {/* Filter Pills */}
@@ -376,13 +386,13 @@ export default function BookingsScreen() {
                 filter === f && { backgroundColor: theme.primary },
               ]}
               onPress={() => setFilter(f)}
-              accessibilityLabel={`Filter: ${f}`}
+              accessibilityLabel={`Filter: ${filterLabels[f]}`}
               accessibilityRole="button"
             >
               <ThemedText
                 style={[styles.filterPillText, filter === f && { color: '#fff' }]}
               >
-                {f}
+                {filterLabels[f]}
               </ThemedText>
             </TouchableOpacity>
           ))}
@@ -401,16 +411,18 @@ export default function BookingsScreen() {
           <TouchableOpacity
             style={[styles.completeBtn, { borderColor: theme.primary, paddingHorizontal: Spacing.four }]}
             onPress={() => void loadBookings()}
-            accessibilityLabel="Retry loading bookings"
+            accessibilityLabel={t('explore.retryLoad')}
             accessibilityRole="button"
           >
-            <ThemedText style={{ color: theme.primary, fontWeight: '600' }}>Retry</ThemedText>
+            <ThemedText style={{ color: theme.primary, fontWeight: '600' }}>{t('common.retry')}</ThemedText>
           </TouchableOpacity>
         </View>
       ) : filtered.length === 0 ? (
         <View style={styles.centred}>
           <AppIcon name="calendar" color={theme.primary} size={34} />
-          <ThemedText themeColor="textSecondary">No {filter !== 'ALL' ? filter.toLowerCase() : ''} bookings</ThemedText>
+          <ThemedText themeColor="textSecondary">
+            {t('explore.noBookings', { filter: filter !== 'ALL' ? filterLabels[filter].toLowerCase() : '' })}
+          </ThemedText>
         </View>
       ) : (
         <FlatList

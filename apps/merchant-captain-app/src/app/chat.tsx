@@ -23,6 +23,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/i18n';
 import { appConfig } from '@/utils/app-config';
 import {
   fetchConversation,
@@ -64,6 +65,7 @@ export default function MerchantChatScreen() {
   const listRef = useRef<FlatList<ChatMessage>>(null);
 
   const theme = useTheme();
+  const { t } = useTranslation();
   const isVet = (params.providerType ?? conversation?.providerType) === 'VET_HOSPITAL';
 
   const loadChat = useCallback(async () => {
@@ -119,8 +121,8 @@ export default function MerchantChatScreen() {
   }, [accessToken, conversation?.conversationId]);
 
   const headerTitle = useMemo(
-    () => params.title ?? conversation?.customer.displayName ?? 'Customer chat',
-    [conversation?.customer.displayName, params.title],
+    () => params.title ?? conversation?.customer.displayName ?? t('chat.title'),
+    [conversation?.customer, params.title, t],
   );
 
   const togglePrivacy = useCallback(
@@ -135,12 +137,12 @@ export default function MerchantChatScreen() {
         );
         setConversation(updated);
       } catch (toggleError) {
-        Alert.alert('Update failed', toggleError instanceof Error ? toggleError.message : 'Could not update privacy.');
+        Alert.alert(t('chat.updateFailed'), toggleError instanceof Error ? toggleError.message : t('chat.updateFailedBody'));
       } finally {
         setPrivacyBusy(false);
       }
     },
-    [accessToken, conversation],
+    [accessToken, conversation, t],
   );
 
   const handleSend = useCallback(async () => {
@@ -153,18 +155,18 @@ export default function MerchantChatScreen() {
       setMessages((current) => [...current, sent]);
       setDraft('');
     } catch (sendError) {
-      Alert.alert('Send failed', sendError instanceof Error ? sendError.message : 'Could not send message.');
+      Alert.alert(t('chat.sendFailed'), sendError instanceof Error ? sendError.message : t('chat.sendFailedBody'));
     } finally {
       setSending(false);
     }
-  }, [accessToken, conversation, draft]);
+  }, [accessToken, conversation, draft, t]);
 
   const handlePickImage = useCallback(async () => {
     if (!conversation) return;
 
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to share images in chat.');
+      Alert.alert(t('chat.permissionNeeded'), t('chat.photoPermission'));
       return;
     }
 
@@ -190,11 +192,11 @@ export default function MerchantChatScreen() {
       );
       setMessages((current) => [...current, sent]);
     } catch (uploadError) {
-      Alert.alert('Upload failed', uploadError instanceof Error ? uploadError.message : 'Could not send image.');
+      Alert.alert(t('chat.uploadFailed'), uploadError instanceof Error ? uploadError.message : t('chat.uploadFailedBody'));
     } finally {
       setSending(false);
     }
-  }, [accessToken, conversation]);
+  }, [accessToken, conversation, t]);
 
   const renderMessage = useCallback(
     ({ item }: { item: ChatMessage }) => {
@@ -231,9 +233,9 @@ export default function MerchantChatScreen() {
   if (error || !conversation) {
     return (
       <ThemedView style={styles.centered}>
-        <ThemedText style={{ color: theme.danger }}>{error ?? 'Chat unavailable'}</ThemedText>
+        <ThemedText style={{ color: theme.danger }}>{error ?? t('chat.unavailable')}</ThemedText>
         <TouchableOpacity onPress={() => router.back()} style={[styles.backButton, { borderColor: theme.border }]}>
-          <ThemedText style={{ fontWeight: '800' }}>Back</ThemedText>
+          <ThemedText style={{ fontWeight: '800' }}>{t('common.back')}</ThemedText>
         </TouchableOpacity>
       </ThemedView>
     );
@@ -244,18 +246,18 @@ export default function MerchantChatScreen() {
       <SafeAreaView style={styles.safeArea}>
         <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.backgroundElement }]}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <ThemedText style={{ fontWeight: '900' }}>Back</ThemedText>
+            <ThemedText style={{ fontWeight: '900' }}>{t('common.back')}</ThemedText>
           </TouchableOpacity>
           <View style={styles.headerCopy}>
             <ThemedText style={styles.headerTitle}>{headerTitle}</ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               {conversation.customer.phoneHidden
-                ? 'Customer phone hidden'
-                : conversation.customer.phoneNumber ?? 'Customer phone hidden'}
+                ? t('chat.customerPhoneHidden')
+                : conversation.customer.phoneNumber ?? t('chat.customerPhoneHidden')}
             </ThemedText>
           </View>
           <TouchableOpacity onPress={() => setShowPrivacy((current) => !current)} style={[styles.privacyButton, { borderColor: theme.border }]}>
-            <ThemedText style={{ fontWeight: '800' }}>Privacy</ThemedText>
+            <ThemedText style={{ fontWeight: '800' }}>{t('chat.privacy')}</ThemedText>
           </TouchableOpacity>
         </View>
 
@@ -263,9 +265,9 @@ export default function MerchantChatScreen() {
           <View style={[styles.privacyPanel, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
             <View style={styles.privacyRow}>
               <View style={styles.privacyCopy}>
-                <ThemedText style={{ fontWeight: '800' }}>Show customer phone</ThemedText>
+                <ThemedText style={{ fontWeight: '800' }}>{t('chat.showCustomerPhone')}</ThemedText>
                 <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  Reveal customer number to your team in this chat.
+                  {t('chat.showCustomerPhoneHint')}
                 </ThemedText>
               </View>
               <Switch
@@ -277,9 +279,9 @@ export default function MerchantChatScreen() {
             {isVet ? (
               <View style={styles.privacyRow}>
                 <View style={styles.privacyCopy}>
-                  <ThemedText style={{ fontWeight: '800' }}>Show doctor phone to customer</ThemedText>
+                  <ThemedText style={{ fontWeight: '800' }}>{t('chat.showDoctorPhone')}</ThemedText>
                   <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                    Let the customer see the assigned doctor&apos;s contact number.
+                    {t('chat.showDoctorPhoneHint')}
                   </ThemedText>
                 </View>
                 <Switch
@@ -314,13 +316,13 @@ export default function MerchantChatScreen() {
             <TextInput
               value={draft}
               onChangeText={setDraft}
-              placeholder="Reply to customer"
+              placeholder={t('chat.replyPlaceholder')}
               placeholderTextColor={theme.textSecondary}
               style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundElement }]}
               multiline
             />
             <PrimaryButton
-              label="Send"
+              label={t('common.send')}
               onPress={() => void handleSend()}
               disabled={sending || !draft.trim()}
               loading={sending}

@@ -10,6 +10,7 @@ import { AppIcon } from '@/components/app-icon';
 import { Spacing, Colors, Radius, Shadows } from '@/constants/theme';
 import { appConfig } from '@/utils/app-config';
 import { useAuth } from '@/context/AuthContext';
+import { useTranslation } from '@/i18n';
 import {
   confirmAppointmentHold,
   fetchAvailableAppointmentSlots,
@@ -59,7 +60,9 @@ interface Hospital {
 
 const HospitalCard = React.memo(({
   item, colors, onBook,
-}: { item: Hospital; colors: any; onBook: (h: Hospital) => void }) => (
+}: { item: Hospital; colors: any; onBook: (h: Hospital) => void }) => {
+  const { t } = useTranslation();
+  return (
   <TouchableOpacity
     style={[styles.hospitalCard, { backgroundColor: colors.backgroundElement, borderColor: colors.textSecondary }]}
     activeOpacity={0.7}
@@ -78,7 +81,7 @@ const HospitalCard = React.memo(({
     </View>
 
     <View style={[styles.slotContainer, { backgroundColor: colors.backgroundSelected }]}>
-      <ThemedText type="small" style={{ color: colors.text, fontWeight: '500' }}>Next Available Slot:</ThemedText>
+      <ThemedText type="small" style={{ color: colors.text, fontWeight: '500' }}>{t('vet.nextSlot')}</ThemedText>
       <View style={styles.inlineIconText}>
         <AppIcon name="calendar" color={colors.cta} size={16} />
         <ThemedText style={{ color: colors.cta, fontWeight: '800' }}>{item.nextSlot}</ThemedText>
@@ -88,7 +91,7 @@ const HospitalCard = React.memo(({
     <View style={styles.metaRow}>
       <View style={styles.inlineIconText}>
         <AppIcon name="location" color={colors.textSecondary} size={14} />
-        <ThemedText type="small" style={{ color: colors.textSecondary }}>{item.distance} away</ThemedText>
+        <ThemedText type="small" style={{ color: colors.textSecondary }}>{t('common.away', { distance: item.distance })}</ThemedText>
       </View>
       <TouchableOpacity
         id={`book-vet-${item.id}`}
@@ -98,11 +101,12 @@ const HospitalCard = React.memo(({
         accessibilityRole="button"
         accessibilityLabel={`Book slot at ${item.name}`}
       >
-        <ThemedText type="small" style={{ color: '#ffffff', fontWeight: '800' }}>Book Slot</ThemedText>
+        <ThemedText type="small" style={{ color: '#ffffff', fontWeight: '800' }}>{t('vet.bookSlot')}</ThemedText>
       </TouchableOpacity>
     </View>
   </TouchableOpacity>
-));
+  );
+});
 HospitalCard.displayName = 'HospitalCard';
 
 // ─── SlotPickerModal ──────────────────────────────────────────────────────────
@@ -117,12 +121,14 @@ const SlotPickerModal = ({
   colors: any;
   onSelect: (s: Slot) => void;
   onClose: () => void;
-}) => (
+}) => {
+  const { t } = useTranslation();
+  return (
   <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
     <View style={styles.modalOverlay}>
       <View style={[styles.bottomSheet, { backgroundColor: colors.backgroundElement }]}>
         <View style={[styles.sheetHandle, { backgroundColor: colors.textSecondary }]} />
-        <ThemedText style={[styles.sheetTitle, { color: colors.text }]}>Pick a Slot</ThemedText>
+        <ThemedText style={[styles.sheetTitle, { color: colors.text }]}>{t('vet.pickSlot')}</ThemedText>
         <ThemedText type="small" style={{ color: colors.textSecondary, marginBottom: Spacing.three }}>
           {hospital?.name}
         </ThemedText>
@@ -143,7 +149,7 @@ const SlotPickerModal = ({
               >
                 <View>
                   <ThemedText style={{ color: colors.text, fontWeight: '700' }}>{slot.startTime}</ThemedText>
-                  <ThemedText type="small" style={{ color: colors.textSecondary }}>until {slot.endTime}</ThemedText>
+                  <ThemedText type="small" style={{ color: colors.textSecondary }}>{t('common.until', { time: slot.endTime })}</ThemedText>
                 </View>
                 <View style={[styles.priceBadge, { backgroundColor: colors.cta }]}>
                   <ThemedText type="small" style={{ color: '#fff', fontWeight: '800' }}>₹{slot.price}</ThemedText>
@@ -157,14 +163,15 @@ const SlotPickerModal = ({
           style={[styles.cancelButton, { borderColor: colors.textSecondary }]}
           onPress={onClose}
           accessibilityRole="button"
-          accessibilityLabel="Cancel"
+          accessibilityLabel={t('common.cancel')}
         >
-          <ThemedText style={{ color: colors.textSecondary, fontWeight: '600' }}>Cancel</ThemedText>
+          <ThemedText style={{ color: colors.textSecondary, fontWeight: '600' }}>{t('common.cancel')}</ThemedText>
         </TouchableOpacity>
       </View>
     </View>
   </Modal>
-);
+  );
+};
 
 // ─── SummaryRow ───────────────────────────────────────────────────────────────
 
@@ -191,6 +198,7 @@ const CheckoutOverlay = ({
   onConfirm: () => void;
   onCancel: () => void;
 }) => {
+  const { t } = useTranslation();
   const urgency = countdown < 60;
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -202,21 +210,21 @@ const CheckoutOverlay = ({
               ⏱ {formatCountdown(countdown)}
             </ThemedText>
             <ThemedText type="small" style={{ color: urgency ? '#ffd5d5' : colors.textSecondary, textAlign: 'center' }}>
-              Slot reserved — complete payment before time runs out
+              {t('vet.slotReserved')}
             </ThemedText>
           </View>
 
           <ThemedText style={[styles.sheetTitle, { color: colors.text, marginTop: Spacing.three }]}>
-            Confirm Booking
+            {t('vet.confirmBooking')}
           </ThemedText>
 
           {/* Booking summary */}
           <View style={[styles.summaryBox, { backgroundColor: colors.background, borderColor: colors.backgroundSelected }]}>
-            <SummaryRow label="Clinic" value={hospital?.name ?? ''} colors={colors} />
-            <SummaryRow label="Service" value={slot?.serviceName ?? ''} colors={colors} />
-            <SummaryRow label="Slot" value={slot?.startTime ?? ''} colors={colors} />
-            <SummaryRow label="Duration" value={`until ${slot?.endTime ?? ''}`} colors={colors} />
-            <SummaryRow label="Amount" value={`₹${slot?.price ?? 0}`} colors={colors} bold />
+            <SummaryRow label={t('vet.clinic')} value={hospital?.name ?? ''} colors={colors} />
+            <SummaryRow label={t('vet.service')} value={slot?.serviceName ?? ''} colors={colors} />
+            <SummaryRow label={t('vet.slot')} value={slot?.startTime ?? ''} colors={colors} />
+            <SummaryRow label={t('vet.duration')} value={t('common.until', { time: slot?.endTime ?? '' })} colors={colors} />
+            <SummaryRow label={t('vet.amount')} value={`₹${slot?.price ?? 0}`} colors={colors} bold />
           </View>
 
           {/* Actions */}
@@ -226,10 +234,10 @@ const CheckoutOverlay = ({
             <View style={styles.successBanner}>
               <ThemedText style={{ fontSize: 40 }}>✅</ThemedText>
               <ThemedText style={{ color: colors.text, fontWeight: '800', fontSize: 16, marginTop: Spacing.one }}>
-                Booking Confirmed!
+                {t('vet.bookingConfirmed')}
               </ThemedText>
               <ThemedText type="small" style={{ color: colors.textSecondary, textAlign: 'center', marginTop: Spacing.half }}>
-                Your appointment is secured. Check My Bookings for details.
+                {t('vet.bookingConfirmedBody')}
               </ThemedText>
             </View>
           ) : (
@@ -243,7 +251,7 @@ const CheckoutOverlay = ({
                 accessibilityLabel="Pay and confirm appointment"
               >
                 <ThemedText style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>
-                  💳  Pay ₹{slot?.price ?? 0} &amp; Confirm
+                  {t('vet.payConfirm', { price: slot?.price ?? 0 })}
                 </ThemedText>
               </TouchableOpacity>
               <TouchableOpacity
@@ -252,7 +260,7 @@ const CheckoutOverlay = ({
                 accessibilityRole="button"
                 accessibilityLabel="Cancel booking"
               >
-                <ThemedText style={{ color: colors.textSecondary }}>Cancel</ThemedText>
+                <ThemedText style={{ color: colors.textSecondary }}>{t('common.cancel')}</ThemedText>
               </TouchableOpacity>
             </>
           )}
@@ -268,6 +276,7 @@ export default function VetScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
   const { user, session } = useAuth();
+  const { t } = useTranslation();
 
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -290,7 +299,7 @@ export default function VetScreen() {
         setCountdown(prev => {
           if (prev <= 1) {
             clearInterval(countdownRef.current!);
-            Alert.alert('Time Expired', 'Your slot hold has expired. Please try again.');
+            Alert.alert(t('vet.timeExpired'), t('vet.timeExpiredBody'));
             setPhase('idle');
             return 0;
           }
@@ -301,7 +310,7 @@ export default function VetScreen() {
       if (countdownRef.current) clearInterval(countdownRef.current);
     }
     return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
-  }, [phase]);
+  }, [phase, t]);
 
   const [coords, setCoords] = useState({ longitude: 77.6404, latitude: 12.9719 });
 
@@ -384,12 +393,12 @@ export default function VetScreen() {
         setHeldAppointmentId('demo-appointment-001');
         setPhase('checkout');
       } else {
-        const message = error instanceof Error ? error.message : 'Could not hold this slot. Please try again when the service is reachable.';
-        Alert.alert('Booking Unavailable', message);
+        const message = error instanceof Error ? error.message : t('vet.holdSlotFailed');
+        Alert.alert(t('vet.bookingUnavailable'), message);
         setPhase('selecting');
       }
     }
-  }, [session, user]);
+  }, [session, user, t]);
 
   const handleConfirmPayment = useCallback(async () => {
     if (!heldAppointmentId) return;
@@ -398,15 +407,15 @@ export default function VetScreen() {
       await confirmAppointmentHold(heldAppointmentId, session?.access_token);
     } catch (error) {
       if (!appConfig.allowDemoMode) {
-        const message = error instanceof Error ? error.message : 'The appointment was not confirmed. Please retry.';
-        Alert.alert('Payment Confirmation Failed', message);
+        const message = error instanceof Error ? error.message : t('vet.confirmFailed');
+        Alert.alert(t('vet.paymentConfirmationFailed'), message);
         setPhase('checkout');
         return;
       }
     }
     setPhase('success');
     setTimeout(() => setPhase('idle'), 2500);
-  }, [heldAppointmentId, session]);
+  }, [heldAppointmentId, session, t]);
 
   const handleCancelSlots = useCallback(() => setPhase('idle'), []);
 
@@ -430,11 +439,11 @@ export default function VetScreen() {
       <SafeAreaView style={styles.safeArea}>
         <View style={[styles.header, { borderBottomColor: colors.backgroundSelected }]}>
           <ThemedText type="subtitle" style={{ color: colors.text, fontWeight: '800' }}>
-            Find a Vet Clinic
+            {t('vet.title')}
           </ThemedText>
           <View style={styles.headerSub}>
             <ThemedText type="small" style={{ color: colors.textSecondary, flex: 1 }}>
-              In-person booking with real-time slot availability
+              {t('vet.subtitle')}
             </ThemedText>
             {isLoading && <ActivityIndicator size="small" color={colors.primary} />}
           </View>

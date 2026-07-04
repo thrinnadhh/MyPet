@@ -22,6 +22,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/i18n';
 import { appConfig } from '@/utils/app-config';
 import {
   fetchConversation,
@@ -98,6 +99,7 @@ export default function ChatScreen() {
   const listRef = useRef<FlatList<ChatMessage>>(null);
 
   const theme = useTheme();
+  const { t } = useTranslation();
 
   const loadChat = useCallback(async () => {
     if (appConfig.allowDemoMode) {
@@ -159,8 +161,8 @@ export default function ChatScreen() {
   }, [accessToken, conversation?.conversationId]);
 
   const headerTitle = useMemo(
-    () => params.title ?? conversation?.providerName ?? 'Chat',
-    [conversation?.providerName, params.title],
+    () => params.title ?? conversation?.providerName ?? t('chat.title'),
+    [conversation?.providerName, params.title, t],
   );
 
   const handleSend = useCallback(async () => {
@@ -194,18 +196,18 @@ export default function ChatScreen() {
       setMessages((current) => [...current, sent]);
       setDraft('');
     } catch (sendError) {
-      Alert.alert('Send failed', sendError instanceof Error ? sendError.message : 'Could not send message.');
+      Alert.alert(t('chat.sendFailed'), sendError instanceof Error ? sendError.message : t('chat.sendFailedBody'));
     } finally {
       setSending(false);
     }
-  }, [accessToken, conversation, draft, user?.id]);
+  }, [accessToken, conversation, draft, user?.id, t]);
 
   const handlePickImage = useCallback(async () => {
     if (!conversation) return;
 
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to share images in chat.');
+      Alert.alert(t('chat.permissionNeeded'), t('chat.photoPermission'));
       return;
     }
 
@@ -251,11 +253,11 @@ export default function ChatScreen() {
       );
       setMessages((current) => [...current, sent]);
     } catch (uploadError) {
-      Alert.alert('Upload failed', uploadError instanceof Error ? uploadError.message : 'Could not send image.');
+      Alert.alert(t('chat.uploadFailed'), uploadError instanceof Error ? uploadError.message : t('chat.uploadFailedBody'));
     } finally {
       setSending(false);
     }
-  }, [accessToken, conversation, user?.id]);
+  }, [accessToken, conversation, user?.id, t]);
 
   const renderMessage = useCallback(
     ({ item }: { item: ChatMessage }) => {
@@ -292,9 +294,9 @@ export default function ChatScreen() {
   if (error || !conversation) {
     return (
       <ThemedView style={styles.centered}>
-        <ThemedText style={{ color: theme.danger }}>{error ?? 'Chat unavailable'}</ThemedText>
+        <ThemedText style={{ color: theme.danger }}>{error ?? t('chat.unavailable')}</ThemedText>
         <TouchableOpacity onPress={() => router.back()} style={[styles.backButton, { borderColor: theme.border }]}>
-          <ThemedText style={{ fontWeight: '800' }}>Back</ThemedText>
+          <ThemedText style={{ fontWeight: '800' }}>{t('common.back')}</ThemedText>
         </TouchableOpacity>
       </ThemedView>
     );
@@ -305,19 +307,19 @@ export default function ChatScreen() {
       <SafeAreaView style={styles.safeArea}>
         <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.backgroundElement }]}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <ThemedText style={{ fontWeight: '900' }}>Back</ThemedText>
+            <ThemedText style={{ fontWeight: '900' }}>{t('common.back')}</ThemedText>
           </TouchableOpacity>
           <View style={styles.headerCopy}>
             <ThemedText style={styles.headerTitle}>{headerTitle}</ThemedText>
             {conversation.doctor ? (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
                 {conversation.doctor.displayName}
-                {conversation.doctor.phoneHidden ? ' · contact hidden' : conversation.doctor.phoneNumber ? ` · ${conversation.doctor.phoneNumber}` : ''}
+                {conversation.doctor.phoneHidden ? t('chat.contactHidden') : conversation.doctor.phoneNumber ? ` · ${conversation.doctor.phoneNumber}` : ''}
               </ThemedText>
             ) : null}
             {conversation.merchant.phoneNumber ? (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Clinic: {conversation.merchant.phoneNumber}
+                {t('chat.clinicPhone', { phone: conversation.merchant.phoneNumber })}
               </ThemedText>
             ) : null}
           </View>
@@ -346,13 +348,13 @@ export default function ChatScreen() {
             <TextInput
               value={draft}
               onChangeText={setDraft}
-              placeholder="Type a message"
+              placeholder={t('chat.typeMessage')}
               placeholderTextColor={theme.textSecondary}
               style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundElement }]}
               multiline
             />
             <PrimaryButton
-              label="Send"
+              label={t('common.send')}
               onPress={() => void handleSend()}
               disabled={sending || !draft.trim()}
               loading={sending}

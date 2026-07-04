@@ -17,8 +17,27 @@ class PromoBanner(
     @Column(name = "duration_sec", nullable = false) var durationSec: Int = 5,
     @Column(name = "sort_order", nullable = false) var sortOrder: Int = 0,
     @Column(name = "active", nullable = false) var active: Boolean = true,
+    @Column(name = "provider_id") var providerId: UUID? = null,
+    @Column(name = "bid_amount") var bidAmount: java.math.BigDecimal? = null,
+    @Column(name = "status", nullable = false) var status: String = "PENDING_BID",
     @Column(name = "created_at", nullable = false) var createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false) var updatedAt: Instant = Instant.now(),
+)
+
+@Entity
+@Table(name = "banner_bids", schema = "content")
+class BannerBid(
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    @Column(name = "bid_id")
+    var bidId: UUID? = null,
+    @Column(name = "provider_id", nullable = false) var providerId: UUID,
+    @Column(name = "owner_user_id", nullable = false) var ownerUserId: UUID,
+    @Column(name = "slot_order", nullable = false) var slotOrder: Int,
+    @Column(name = "bid_amount", nullable = false) var bidAmount: java.math.BigDecimal,
+    @Column(name = "window_ends_at", nullable = false) var windowEndsAt: Instant,
+    @Column(name = "status", nullable = false) var status: String = "PENDING",
+    @Column(name = "created_at", nullable = false) var createdAt: Instant = Instant.now(),
 )
 
 @Entity
