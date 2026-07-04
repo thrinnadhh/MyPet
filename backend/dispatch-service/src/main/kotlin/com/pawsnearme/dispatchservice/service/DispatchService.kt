@@ -8,6 +8,7 @@ import com.pawsnearme.common.outbox.OutboxService
 import com.pawsnearme.dispatchservice.model.*
 import com.pawsnearme.dispatchservice.repository.*
 import jakarta.persistence.EntityManager
+import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.data.geo.Distance
 import org.springframework.data.geo.Metrics
@@ -201,9 +202,14 @@ class DispatchService(
             throw IllegalStateException("Offer already responded with ${offer.response}")
         }
 
-        offer.response = response
-        offer.respondedAt = Instant.now()
-        val savedOffer = offerRepository.save(offer)
+        val savedOffer = try {
+            offer.response = response
+            offer.respondedAt = Instant.now()
+            offerRepository.saveAndFlush(offer)
+        } catch (e: ObjectOptimisticLockingFailureException) {
+            val current = offerRepository.findById(offerId).get()
+            throw IllegalStateException("This offer already resolved as ${current.response}. It may have timed out.")
+        }
 
         val job = jobRepository.findById(offer.jobId).get()
 
@@ -266,9 +272,14 @@ class DispatchService(
             if (pendingOffer != null) {
                 // If offer is older than 30 seconds, time it out!
                 if (Instant.now().isAfter(pendingOffer.offeredAt.plusSeconds(30))) {
-                    pendingOffer.response = "TIMED_OUT"
-                    pendingOffer.respondedAt = Instant.now()
-                    offerRepository.save(pendingOffer)
+                    try {
+                        pendingOffer.response = "TIMED_OUT"
+                        pendingOffer.respondedAt = Instant.now()
+                        offerRepository.saveAndFlush(pendingOffer)
+                    } catch (e: ObjectOptimisticLockingFailureException) {
+                        logger.info("Offer {} was resolved by the captain just before timeout; skipping reassignment.", pendingOffer.offerId)
+                        continue
+                    }
 
                     job.status = JobStatus.PENDING_ASSIGNMENT
                     jobRepository.save(job)

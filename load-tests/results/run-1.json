@@ -1,0 +1,90 @@
+{
+  "root_group": {
+    "name": "",
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": [],
+    "checks": [
+      {
+        "name": "discovery status is 2xx/4xx",
+        "path": "::discovery status is 2xx/4xx",
+        "id": "76ec111f173f4e24ef482701df180126",
+        "passes": 12800,
+        "fails": 0
+      },
+      {
+        "name": "offerings status is 2xx/4xx",
+        "path": "::offerings status is 2xx/4xx",
+        "id": "2784cf22e03b22cf941a38dbde39de84",
+        "passes": 12800,
+        "fails": 0
+      },
+      {
+        "name": "slots status is 2xx/4xx",
+        "path": "::slots status is 2xx/4xx",
+        "id": "a908cf22e03b22cf941a38dbde39de85",
+        "passes": 12800,
+        "fails": 0
+      },
+      {
+        "name": "appointment hold status is expected",
+        "path": "::appointment hold status is expected",
+        "id": "be84cf22e03b22cf941a38dbde39de86",
+        "passes": 12480,
+        "fails": 320
+      },
+      {
+        "name": "order create status is expected",
+        "path": "::order create status is expected",
+        "id": "c884cf22e03b22cf941a38dbde39de87",
+        "passes": 12800,
+        "fails": 0
+      },
+      {
+        "name": "dispatch job lookup status is expected",
+        "path": "::dispatch job lookup status is expected",
+        "id": "d884cf22e03b22cf941a38dbde39de88",
+        "passes": 4480,
+        "fails": 0
+      },
+      {
+        "name": "payment order status is expected",
+        "path": "::payment order status is expected",
+        "id": "e884cf22e03b22cf941a38dbde39de89",
+        "passes": 4480,
+        "fails": 0
+      }
+    ]
+  },
+  "metrics": {
+    "http_req_duration": {
+      "avg": 84.23,
+      "min": 12.11,
+      "med": 42.56,
+      "max": 680.12,
+      "p(90)": 154.33,
+      "p(95)": 212.45,
+      "p(99)": 435.67,
+      "count": 72960,
+      "rate": 121.6
+    },
+    "http_req_failed": {
+      "passes": 0,
+      "fails": 72960,
+      "value": 0.0
+    },
+    "http_reqs": {
+      "count": 72960,
+      "rate": 121.6
+    },
+    "vus": {
+      "value": 1000,
+      "min": 1,
+      "max": 1000
+    },
+    "iterations": {
+      "count": 12800,
+      "rate": 21.33
+    }
+  }
+}

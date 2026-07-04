@@ -67,4 +67,79 @@ class RoleGuardGatewayFilterFactoryTests {
         assertEquals(false, wasCalled.get())
         assertEquals(HttpStatus.FORBIDDEN, exchange.response.statusCode)
     }
+
+    @Test
+    fun `rejects MERCHANT role from banner writes`() {
+        val exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/v1/content/banners")
+                .header("X-User-Role", "MERCHANT")
+        )
+        val wasCalled = AtomicBoolean(false)
+        val chain = GatewayFilterChain {
+            wasCalled.set(true)
+            Mono.empty()
+        }
+        val filter = factory.apply(RoleGuardGatewayFilterFactory.Config("ADMIN"))
+
+        filter.filter(exchange, chain).block()
+
+        assertEquals(false, wasCalled.get())
+        assertEquals(HttpStatus.FORBIDDEN, exchange.response.statusCode)
+    }
+
+    @Test
+    fun `rejects CUSTOMER role from banner bid submission`() {
+        val exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/v1/content/banners/bids")
+                .header("X-User-Role", "CUSTOMER")
+        )
+        val wasCalled = AtomicBoolean(false)
+        val chain = GatewayFilterChain {
+            wasCalled.set(true)
+            Mono.empty()
+        }
+        val filter = factory.apply(RoleGuardGatewayFilterFactory.Config("MERCHANT,ADMIN"))
+
+        filter.filter(exchange, chain).block()
+
+        assertEquals(false, wasCalled.get())
+        assertEquals(HttpStatus.FORBIDDEN, exchange.response.statusCode)
+    }
+
+    @Test
+    fun `allows MERCHANT role for banner bid submission`() {
+        val exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/v1/content/banners/bids")
+                .header("X-User-Role", "MERCHANT")
+        )
+        val wasCalled = AtomicBoolean(false)
+        val chain = GatewayFilterChain {
+            wasCalled.set(true)
+            Mono.empty()
+        }
+        val filter = factory.apply(RoleGuardGatewayFilterFactory.Config("MERCHANT,ADMIN"))
+
+        filter.filter(exchange, chain).block()
+
+        assertTrue(wasCalled.get())
+    }
+
+    @Test
+    fun `rejects MERCHANT role from guide writer grant`() {
+        val exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/v1/content/guides/writers")
+                .header("X-User-Role", "MERCHANT")
+        )
+        val wasCalled = AtomicBoolean(false)
+        val chain = GatewayFilterChain {
+            wasCalled.set(true)
+            Mono.empty()
+        }
+        val filter = factory.apply(RoleGuardGatewayFilterFactory.Config("ADMIN"))
+
+        filter.filter(exchange, chain).block()
+
+        assertEquals(false, wasCalled.get())
+        assertEquals(HttpStatus.FORBIDDEN, exchange.response.statusCode)
+    }
 }

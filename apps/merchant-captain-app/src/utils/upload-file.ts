@@ -18,14 +18,18 @@ export async function uploadFileFromUri(
   filename: string,
   accessToken?: string | null,
 ): Promise<string> {
-  const urlResponse = await fetch(
-    `${appConfig.apiBaseUrl}/api/v1/providers/upload-url?filename=${encodeURIComponent(filename)}`,
-    { method: 'POST', headers: authHeaders(accessToken) },
-  );
+  const urlResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers/upload-url`, {
+    method: 'POST',
+    headers: authHeaders(accessToken),
+  });
   if (!urlResponse.ok) throw new Error('Could not get upload URL');
-  const { uploadUrl, fileUrl } = (await urlResponse.json()) as { uploadUrl: string; fileUrl: string };
+  const { uploadToken, uploadUrl } = (await urlResponse.json()) as {
+    uploadToken: string;
+    uploadUrl: string;
+  };
 
   const formData = new FormData();
+  formData.append('uploadToken', uploadToken);
   formData.append('file', {
     uri: localUri,
     name: filename,
@@ -35,8 +39,9 @@ export async function uploadFileFromUri(
   const uploadResponse = await fetch(uploadUrl, {
     method: 'POST',
     body: formData,
-    headers: { Accept: 'application/json' },
+    headers: authHeaders(accessToken),
   });
   if (!uploadResponse.ok) throw new Error('File upload failed');
-  return fileUrl;
+  const body = (await uploadResponse.json()) as { fileUrl: string };
+  return body.fileUrl;
 }

@@ -123,4 +123,10 @@ class DispatchController(
         val updated = dispatchService.markDelivered(jobId, captainId, request.proofCode)
         return ResponseEntity.ok(updated)
     }
+
+    @PostMapping("/admin/check-timeouts")
+    fun checkTimeouts(): ResponseEntity<Any> {
+        dispatchService.checkOfferTimeouts()
+        return ResponseEntity.ok(mapOf("status" to "success"))
+    }
 }

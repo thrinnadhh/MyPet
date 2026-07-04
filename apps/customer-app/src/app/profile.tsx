@@ -15,16 +15,16 @@ import { useRouter } from 'expo-router';
 import { AppIcon } from '@/components/app-icon';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { LANGUAGES, type LanguageId } from '@/constants/content';
+import { LANGUAGES } from '@/constants/content';
 import {
-  fetchLocale,
   fetchVaccinationReminders,
   setVaccinationReminderEnabled,
-  updateLocale,
   type VaccinationReminder,
 } from '@/services/preferences';
 import { Colors, Radius, Shadows, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { useLocale } from '@/context/LocaleContext';
+import { useTranslation } from '@/i18n';
 import { appConfig } from '@/utils/app-config';
 
 interface PetProfile {
@@ -75,6 +75,8 @@ export default function ProfileScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
   const { user, session, signOut } = useAuth();
+  const { locale: language, changeLocale } = useLocale();
+  const { t } = useTranslation();
   const router = useRouter();
 
   const [pets, setPets] = useState(DEFAULT_PETS);
@@ -86,11 +88,9 @@ export default function ProfileScreen() {
   });
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [vaccinationReminders, setVaccinationReminders] = useState<VaccinationReminder[]>([]);
-  const [language, setLanguage] = useState<LanguageId>('en');
   const [savingAddress, setSavingAddress] = useState(false);
 
   useEffect(() => {
-    void fetchLocale(session?.access_token).then(setLanguage).catch(() => undefined);
     void fetchVaccinationReminders(session?.access_token).then(setVaccinationReminders).catch(() => undefined);
   }, [session?.access_token]);
 
@@ -115,7 +115,7 @@ export default function ProfileScreen() {
 
   const saveAddress = useCallback(async () => {
     if (!address.line1.trim() || !address.city.trim() || !address.pincode.trim()) {
-      Alert.alert('Address incomplete', 'Line 1, city, and pincode are required.');
+      Alert.alert(t('profile.addressIncomplete'), t('profile.addressIncompleteBody'));
       return;
     }
 
@@ -140,13 +140,16 @@ export default function ProfileScreen() {
         throw new Error('Address service is unavailable.');
       }
 
-      Alert.alert('Address saved', appConfig.allowDemoMode ? 'Saved locally for demo mode.' : 'Default delivery address updated.');
+      Alert.alert(
+        t('profile.addressSaved'),
+        appConfig.allowDemoMode ? t('profile.addressSavedDemo') : t('profile.addressSavedLive'),
+      );
     } catch (error: any) {
-      Alert.alert('Could not save address', error?.message ?? 'Please try again.');
+      Alert.alert(t('profile.couldNotSaveAddress'), error?.message ?? t('profile.tryAgain'));
     } finally {
       setSavingAddress(false);
     }
-  }, [address, session]);
+  }, [address, session, t]);
 
   return (
     <ThemedView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -157,22 +160,22 @@ export default function ProfileScreen() {
               <ThemedText style={styles.avatarText}>{initials}</ThemedText>
             </View>
             <View style={styles.heroText}>
-              <ThemedText style={[styles.name, { color: colors.text }]}>Pet parent account</ThemedText>
+              <ThemedText style={[styles.name, { color: colors.text }]}>{t('profile.accountTitle')}</ThemedText>
               <ThemedText type="small" style={{ color: colors.textSecondary }} numberOfLines={1}>
-                {user?.email ?? 'Signed in customer'}
+                {user?.email ?? t('profile.signedInCustomer')}
               </ThemedText>
             </View>
             <TouchableOpacity
               style={[styles.iconButton, { borderColor: colors.border }]}
-              onPress={() => Alert.alert('Support', 'Support workflow opens from the launch support center.')}
+              onPress={() => Alert.alert(t('profile.supportTitle'), t('profile.supportBody'))}
               accessibilityRole="button"
-              accessibilityLabel="Open support"
+              accessibilityLabel={t('profile.openSupport')}
             >
               <AppIcon name="medical" color={colors.cta} size={20} />
             </TouchableOpacity>
           </View>
 
-          <Section title="Pets">
+          <Section title={t('profile.pets')}>
             {pets.map((pet) => (
               <View key={pet.id} style={[styles.card, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
                 <View style={styles.cardHeader}>
@@ -190,25 +193,25 @@ export default function ProfileScreen() {
               style={[styles.secondaryButton, { borderColor: colors.primary }]}
               onPress={addPet}
               accessibilityRole="button"
-              accessibilityLabel="Add pet profile"
+              accessibilityLabel={t('profile.addPetProfile')}
             >
-              <ThemedText style={{ color: colors.primary, fontWeight: '800' }}>Add pet profile</ThemedText>
+              <ThemedText style={{ color: colors.primary, fontWeight: '800' }}>{t('profile.addPetProfile')}</ThemedText>
             </TouchableOpacity>
           </Section>
 
-          <Section title="Default Address">
+          <Section title={t('profile.defaultAddress')}>
             <View style={[styles.formCard, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
               <TextInput
                 value={address.label}
                 onChangeText={(label) => setAddress((current) => ({ ...current, label }))}
-                placeholder="Label"
+                placeholder={t('profile.labelPlaceholder')}
                 placeholderTextColor={colors.textSecondary}
                 style={[styles.input, { color: colors.text, borderColor: colors.border }]}
               />
               <TextInput
                 value={address.line1}
                 onChangeText={(line1) => setAddress((current) => ({ ...current, line1 }))}
-                placeholder="Address line"
+                placeholder={t('profile.addressLinePlaceholder')}
                 placeholderTextColor={colors.textSecondary}
                 style={[styles.input, { color: colors.text, borderColor: colors.border }]}
               />
@@ -216,14 +219,14 @@ export default function ProfileScreen() {
                 <TextInput
                   value={address.city}
                   onChangeText={(city) => setAddress((current) => ({ ...current, city }))}
-                  placeholder="City"
+                  placeholder={t('profile.cityPlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   style={[styles.input, styles.flexInput, { color: colors.text, borderColor: colors.border }]}
                 />
                 <TextInput
                   value={address.pincode}
                   onChangeText={(pincode) => setAddress((current) => ({ ...current, pincode }))}
-                  placeholder="Pincode"
+                  placeholder={t('profile.pincodePlaceholder')}
                   placeholderTextColor={colors.textSecondary}
                   keyboardType="number-pad"
                   style={[styles.input, styles.pinInput, { color: colors.text, borderColor: colors.border }]}
@@ -234,14 +237,14 @@ export default function ProfileScreen() {
                 onPress={saveAddress}
                 disabled={savingAddress}
                 accessibilityRole="button"
-                accessibilityLabel="Save default address"
+                accessibilityLabel={t('profile.saveDefaultAddress')}
               >
-                <ThemedText style={styles.primaryButtonText}>{savingAddress ? 'Saving...' : 'Save default address'}</ThemedText>
+                <ThemedText style={styles.primaryButtonText}>{savingAddress ? t('common.saving') : t('profile.saveDefaultAddress')}</ThemedText>
               </TouchableOpacity>
             </View>
           </Section>
 
-          <Section title="Documents">
+          <Section title={t('profile.documents')}>
             {DOCUMENTS.map((doc) => (
               <View key={doc.id} style={[styles.listRow, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
                 <View style={styles.inlineTitle}>
@@ -258,7 +261,7 @@ export default function ProfileScreen() {
             ))}
           </Section>
 
-          <Section title="Vaccination Reminders">
+          <Section title={t('profile.vaccinationReminders')}>
             {vaccinationReminders.map((reminder) => (
               <View key={reminder.reminderId} style={[styles.listRow, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
                 <View style={{ flex: 1 }}>
@@ -266,7 +269,7 @@ export default function ProfileScreen() {
                     {reminder.vaccineName}
                   </ThemedText>
                   <ThemedText type="small" style={{ color: colors.textSecondary }}>
-                    Due {reminder.dueDate}
+                    {t('common.due', { date: reminder.dueDate })}
                     {reminder.clinicName ? ` · ${reminder.clinicName}` : ''}
                   </ThemedText>
                 </View>
@@ -283,9 +286,9 @@ export default function ProfileScreen() {
             ))}
           </Section>
 
-          <Section title="Language">
+          <Section title={t('profile.language')}>
             <ThemedText type="small" style={{ color: colors.textSecondary }}>
-              Suggested from your location. You can override anytime.
+              {t('profile.languageHint')}
             </ThemedText>
             <View style={[styles.policyGrid, { borderColor: colors.border }]}>
               {LANGUAGES.map((item) => (
@@ -299,11 +302,10 @@ export default function ProfileScreen() {
                     },
                   ]}
                   onPress={() => {
-                    setLanguage(item.id);
-                    void updateLocale(item.id, session?.access_token);
+                    void changeLocale(item.id);
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel={`Select ${item.label}`}
+                  accessibilityLabel={t('profile.selectLanguage', { label: item.label })}
                 >
                   <ThemedText type="small" style={{ color: colors.text, fontWeight: '800' }}>{item.label}</ThemedText>
                   <ThemedText type="small" style={{ color: colors.textSecondary, fontSize: 10 }}>{item.region}</ThemedText>
@@ -312,24 +314,29 @@ export default function ProfileScreen() {
             </View>
           </Section>
 
-          <Section title="Preferences">
+          <Section title={t('profile.preferences')}>
             <View style={[styles.listRow, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
               <View>
-                <ThemedText style={[styles.cardTitle, { color: colors.text }]}>Appointment reminders</ThemedText>
-                <ThemedText type="small" style={{ color: colors.textSecondary }}>Push reminders for visits and deliveries</ThemedText>
+                <ThemedText style={[styles.cardTitle, { color: colors.text }]}>{t('profile.appointmentReminders')}</ThemedText>
+                <ThemedText type="small" style={{ color: colors.textSecondary }}>{t('profile.appointmentRemindersHint')}</ThemedText>
               </View>
               <Switch value={remindersEnabled} onValueChange={setRemindersEnabled} />
             </View>
             <View style={[styles.policyGrid, { borderColor: colors.border }]}>
-              {['Terms', 'Privacy', 'Refunds', 'Disputes'].map((item) => (
+              {[
+                { key: 'terms', label: t('profile.terms') },
+                { key: 'privacy', label: t('profile.privacy') },
+                { key: 'refunds', label: t('profile.refunds') },
+                { key: 'disputes', label: t('profile.disputes') },
+              ].map((item) => (
                 <TouchableOpacity
-                  key={item}
+                  key={item.key}
                   style={[styles.policyButton, { borderColor: colors.border }]}
                   onPress={() => router.push('/legal' as never)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Open ${item} policy`}
+                  accessibilityLabel={t('profile.openPolicy', { item: item.label })}
                 >
-                  <ThemedText type="small" style={{ color: colors.text, fontWeight: '800' }}>{item}</ThemedText>
+                  <ThemedText type="small" style={{ color: colors.text, fontWeight: '800' }}>{item.label}</ThemedText>
                 </TouchableOpacity>
               ))}
             </View>
@@ -339,9 +346,9 @@ export default function ProfileScreen() {
             style={[styles.signOutButton, { borderColor: colors.danger }]}
             onPress={signOut}
             accessibilityRole="button"
-            accessibilityLabel="Sign out"
+            accessibilityLabel={t('profile.signOut')}
           >
-            <ThemedText style={{ color: colors.danger, fontWeight: '800' }}>Sign out</ThemedText>
+            <ThemedText style={{ color: colors.danger, fontWeight: '800' }}>{t('profile.signOut')}</ThemedText>
           </TouchableOpacity>
         </ScrollView>
       </SafeAreaView>

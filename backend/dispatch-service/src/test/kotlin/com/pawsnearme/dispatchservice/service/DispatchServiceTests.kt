@@ -15,6 +15,7 @@ import org.springframework.web.client.RestTemplate
 import java.time.Instant
 import java.util.Optional
 import java.util.UUID
+import org.springframework.orm.ObjectOptimisticLockingFailureException
 
 class DispatchServiceTests {
 
@@ -26,10 +27,11 @@ class DispatchServiceTests {
 
     private val outboxService: com.pawsnearme.common.outbox.OutboxService = mock()
     private val idempotencyService: com.pawsnearme.common.idempotency.IdempotencyService = mock()
+    private val restTemplate: org.springframework.web.client.RestOperations = mock()
 
     private val service = DispatchService(
         jobRepository, offerRepository, redisTemplate, kafkaTemplate, entityManager,
-        outboxService, idempotencyService
+        outboxService, idempotencyService, restTemplate = restTemplate
     )
 
     // ── startDispatchProcess ──────────────────────────────────────────────────
@@ -206,5 +208,125 @@ class DispatchServiceTests {
             eventType = eq("DispatchJobFailed"),
             eventPayload = any()
         )
+    }
+
+    // ── Sprint 19: Optimistic Locking & Race Condition Tests ────────────────
+
+    @Test
+    fun `respondToOffer - optimistic locking conflict - throws clean IllegalStateException`() {
+        val offerId = UUID.randomUUID()
+        val offer = DispatchOffer(
+            offerId = offerId,
+            jobId = UUID.randomUUID(),
+            captainId = UUID.randomUUID(),
+            offeredAt = Instant.now(),
+            offerRank = 1
+        )
+
+        // Simulate concurrent thread has already resolved this offer
+        val resolvedOffer = DispatchOffer(
+            offerId = offerId,
+            jobId = offer.jobId,
+            captainId = offer.captainId,
+            offeredAt = offer.offeredAt,
+            offerRank = offer.offerRank,
+            response = "TIMED_OUT"
+        )
+
+        // First call returns unresolved offer, second call (inside catch block) returns resolved offer
+        whenever(offerRepository.findById(offerId)).thenReturn(Optional.of(offer), Optional.of(resolvedOffer))
+        
+        // Simulate concurrent modification where saveAndFlush throws
+        whenever(offerRepository.saveAndFlush(any())).thenThrow(
+            ObjectOptimisticLockingFailureException(DispatchOffer::class.java, offerId)
+        )
+
+        val ex = assertThrows<IllegalStateException> {
+            service.respondToOffer(offerId, "ACCEPTED", offer.captainId)
+        }
+        assertTrue(ex.message!!.contains("already resolved as TIMED_OUT"))
+    }
+
+    @Test
+    fun `checkOfferTimeouts - optimistic locking conflict - skips timeout and reassignment`() {
+        val jobId = UUID.randomUUID()
+        val job = DispatchJob(
+            orderId = UUID.randomUUID(),
+            status = JobStatus.OFFERED
+        ).also { it.jobId = jobId }
+
+        val offer = DispatchOffer(
+            offerId = UUID.randomUUID(),
+            jobId = jobId,
+            captainId = UUID.randomUUID(),
+            offeredAt = Instant.now().minusSeconds(60), // Expired
+            offerRank = 1
+        )
+
+        whenever(jobRepository.findByStatus(JobStatus.OFFERED)).thenReturn(listOf(job))
+        whenever(offerRepository.findByJobIdAndResponseIsNull(jobId)).thenReturn(offer)
+
+        // Simulate another thread resolved the offer just before timeout check
+        whenever(offerRepository.saveAndFlush(any())).thenThrow(
+            ObjectOptimisticLockingFailureException(DispatchOffer::class.java, offer.offerId)
+        )
+
+        service.checkOfferTimeouts()
+
+        // Job status should remain OFFERED, and no reassignment/timeout transition should occur
+        assertEquals(JobStatus.OFFERED, job.status)
+        verify(jobRepository, never()).save(job)
+    }
+
+    @Test
+    fun `respondToOffer and timeout race - deterministic simulation`() {
+        val jobId = UUID.randomUUID()
+        val offerId = UUID.randomUUID()
+        val captainId = UUID.randomUUID()
+
+        val job = DispatchJob(
+            orderId = UUID.randomUUID(),
+            status = JobStatus.OFFERED
+        ).also { it.jobId = jobId }
+
+        val offer = DispatchOffer(
+            offerId = offerId,
+            jobId = jobId,
+            captainId = captainId,
+            offeredAt = Instant.now().minusSeconds(60),
+            offerRank = 1
+        )
+
+        // Set up mock repository interactions
+        whenever(offerRepository.findById(offerId)).thenReturn(Optional.of(offer))
+        whenever(jobRepository.findById(jobId)).thenReturn(Optional.of(job))
+        whenever(jobRepository.findByStatus(JobStatus.OFFERED)).thenReturn(listOf(job))
+        whenever(offerRepository.findByJobIdAndResponseIsNull(jobId)).thenReturn(offer)
+        whenever(restTemplate.exchange(any<String>(), eq(HttpMethod.PUT), any(), eq(Any::class.java)))
+            .thenReturn(ResponseEntity.ok(Any()))
+
+        // The first call (captain respondToOffer) succeeds, the second call (poller timeout check) fails
+        var callCount = 0
+        whenever(offerRepository.saveAndFlush(any())).thenAnswer {
+            callCount++
+            if (callCount == 1) {
+                val arg = it.arguments[0] as DispatchOffer
+                arg.response = "ACCEPTED"
+                arg
+            } else {
+                throw ObjectOptimisticLockingFailureException(DispatchOffer::class.java, offerId)
+            }
+        }
+
+        // Captain response wins the race
+        val result = service.respondToOffer(offerId, "ACCEPTED", captainId)
+        assertEquals("ACCEPTED", result.response)
+        assertEquals(JobStatus.ACCEPTED, job.status)
+
+        // Timeout check runs concurrently but fails the write race
+        service.checkOfferTimeouts()
+
+        // Assert job remains ACCEPTED by the captain, and is not timed out/reassigned
+        assertEquals(JobStatus.ACCEPTED, job.status)
     }
 }

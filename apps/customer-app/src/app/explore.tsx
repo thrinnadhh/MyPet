@@ -23,6 +23,7 @@ import type { OrderFlowStepId } from '@/constants/content';
 import { fetchCustomerOrders } from '@/services/customer-orders';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/context/AuthContext';
+import { useTranslation } from '@/i18n';
 import { appConfig } from '@/utils/app-config';
 import {
   fetchCustomerAppointments,
@@ -147,10 +148,11 @@ function ReviewModal({ target, visible, onClose, onSubmit }: ReviewModalProps) {
   const [comment, setComment] = useState('');
   const [loading, setLoading] = useState(false);
   const theme = useTheme();
+  const { t } = useTranslation();
 
   const handleSubmit = useCallback(async () => {
     if (!target || rating === 0) {
-      Alert.alert('Please select a rating');
+      Alert.alert(t('explore.selectRating'));
       return;
     }
     setLoading(true);
@@ -163,7 +165,7 @@ function ReviewModal({ target, visible, onClose, onSubmit }: ReviewModalProps) {
     } finally {
       setLoading(false);
     }
-  }, [target, rating, comment, onSubmit, onClose]);
+  }, [target, rating, comment, onSubmit, onClose, t]);
 
   if (!target) return null;
 
@@ -180,21 +182,21 @@ function ReviewModal({ target, visible, onClose, onSubmit }: ReviewModalProps) {
           <View style={styles.modalHandle} />
 
           <ThemedText type="subtitle" style={styles.modalTitle}>
-            Leave a Review
+            {t('explore.reviewTitle')}
           </ThemedText>
           <ThemedText themeColor="textSecondary">
             {target.providerName}
           </ThemedText>
 
-          <ThemedText style={styles.label}>Your Rating</ThemedText>
+          <ThemedText style={styles.label}>{t('explore.yourRating')}</ThemedText>
           <StarRating rating={rating} onRate={setRating} />
 
-          <ThemedText style={styles.label}>Comment (optional)</ThemedText>
+          <ThemedText style={styles.label}>{t('explore.commentOptional')}</ThemedText>
           <TextInput
             style={[styles.textArea, { borderColor: '#ccc', color: theme.text, backgroundColor: theme.backgroundElement }]}
             multiline
             numberOfLines={3}
-            placeholder="Share your experience..."
+            placeholder={t('explore.commentPlaceholder')}
             placeholderTextColor={theme.textSecondary}
             value={comment}
             onChangeText={setComment}
@@ -211,12 +213,12 @@ function ReviewModal({ target, visible, onClose, onSubmit }: ReviewModalProps) {
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <ThemedText style={styles.submitBtnText}>Submit Review</ThemedText>
+              <ThemedText style={styles.submitBtnText}>{t('explore.submitReview')}</ThemedText>
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.cancelBtn} onPress={onClose} accessibilityLabel="Cancel" accessibilityRole="button">
-            <ThemedText themeColor="textSecondary">Cancel</ThemedText>
+          <TouchableOpacity style={styles.cancelBtn} onPress={onClose} accessibilityLabel={t('common.cancel')} accessibilityRole="button">
+            <ThemedText themeColor="textSecondary">{t('common.cancel')}</ThemedText>
           </TouchableOpacity>
         </Pressable>
       </Pressable>
@@ -243,6 +245,7 @@ interface ApptCardProps {
 }
 
 const AppointmentCard = React.memo(function AppointmentCard({ item, onReview, onMessage, theme }: ApptCardProps) {
+  const { t } = useTranslation();
   const date = new Date(item.slotStartsAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
   const time = new Date(item.slotStartsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -275,7 +278,7 @@ const AppointmentCard = React.memo(function AppointmentCard({ item, onReview, on
         accessibilityRole="button"
       >
         <AppIcon name="support" color={theme.cta} size={16} />
-        <ThemedText style={{ color: theme.cta, fontWeight: '600' }}>Message</ThemedText>
+        <ThemedText style={{ color: theme.cta, fontWeight: '600' }}>{t('explore.message')}</ThemedText>
       </TouchableOpacity>
 
       {item.status === 'COMPLETED' && !item.hasReview && (
@@ -286,11 +289,11 @@ const AppointmentCard = React.memo(function AppointmentCard({ item, onReview, on
           accessibilityRole="button"
         >
           <AppIcon name="star" color={theme.primary} size={16} />
-          <ThemedText style={{ color: theme.primary, fontWeight: '600' }}>Leave a Review</ThemedText>
+          <ThemedText style={{ color: theme.primary, fontWeight: '600' }}>{t('explore.leaveReview')}</ThemedText>
         </TouchableOpacity>
       )}
       {item.hasReview && (
-        <ThemedText type="small" themeColor="textSecondary">Reviewed</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">{t('explore.reviewed')}</ThemedText>
       )}
     </ThemedView>
   );
@@ -305,6 +308,7 @@ interface OrderCardProps {
 }
 
 const OrderCard = React.memo(function OrderCard({ item, onReview, theme }: OrderCardProps) {
+  const { t } = useTranslation();
   const date = new Date(item.orderedAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 
   return (
@@ -331,11 +335,11 @@ const OrderCard = React.memo(function OrderCard({ item, onReview, theme }: Order
           accessibilityRole="button"
         >
           <AppIcon name="star" color={theme.primary} size={16} />
-          <ThemedText style={{ color: theme.primary, fontWeight: '600' }}>Leave a Review</ThemedText>
+          <ThemedText style={{ color: theme.primary, fontWeight: '600' }}>{t('explore.leaveReview')}</ThemedText>
         </TouchableOpacity>
       )}
       {item.hasReview && (
-        <ThemedText type="small" themeColor="textSecondary">Reviewed</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">{t('explore.reviewed')}</ThemedText>
       )}
     </ThemedView>
   );
@@ -346,6 +350,7 @@ const OrderCard = React.memo(function OrderCard({ item, onReview, theme }: Order
 export default function HistoryScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const { t } = useTranslation();
   const safeAreaInsets = useSafeAreaInsets();
   const { user, session } = useAuth();
   const userId = user?.id;
@@ -380,7 +385,7 @@ export default function HistoryScreen() {
     if (!userId) {
       setAppointments([]);
       setOrders([]);
-      setLoadError('Sign in to view appointment history.');
+      setLoadError(t('explore.signInRequired'));
       setLoadingAppointments(false);
       return;
     }
@@ -393,14 +398,14 @@ export default function HistoryScreen() {
       setOrders(liveOrders.length > 0 ? liveOrders : []);
       setLoadError(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not load appointment history.';
+      const message = error instanceof Error ? error.message : t('explore.loadFailed');
       setAppointments([]);
       setOrders([]);
       setLoadError(message);
     } finally {
       setLoadingAppointments(false);
     }
-  }, [accessToken, userId]);
+  }, [accessToken, userId, t]);
 
   useEffect(() => {
     void loadAppointments();
@@ -434,8 +439,8 @@ export default function HistoryScreen() {
           setOrders(prev => prev.map(o => o.id === targetId ? { ...o, hasReview: true } : o));
         }
       } else {
-        if (!userId) throw new Error('Please sign in before reviewing.');
-        if (reviewTarget.type !== 'APPOINTMENT') throw new Error('Order reviews are not available yet.');
+        if (!userId) throw new Error(t('explore.signInToReview'));
+        if (reviewTarget.type !== 'APPOINTMENT') throw new Error(t('explore.orderReviewsUnavailable'));
         const result = await submitAppointmentReview({
           customerId: userId,
           providerId: reviewTarget.providerId,
@@ -446,17 +451,17 @@ export default function HistoryScreen() {
         });
         setAppointments(prev => prev.map(a => a.id === targetId ? { ...a, hasReview: true } : a));
         if (result === 'duplicate') {
-          Alert.alert('Already Reviewed', 'This appointment already has a review.');
+          Alert.alert(t('explore.alreadyReviewed'), t('explore.alreadyReviewedBody'));
           return;
         }
       }
-      Alert.alert('Thank you!', 'Your review has been submitted.');
+      Alert.alert(t('explore.thankYou'), t('explore.reviewSubmitted'));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Review was not submitted.';
-      Alert.alert('Could Not Submit Review', message);
+      const message = error instanceof Error ? error.message : t('explore.reviewNotSubmitted');
+      Alert.alert(t('explore.couldNotSubmitReview'), message);
       throw error;
     }
-  }, [accessToken, reviewTarget, userId]);
+  }, [accessToken, reviewTarget, userId, t]);
 
   const renderAppointment = useCallback(
     ({ item }: { item: AppointmentRecord }) => (
@@ -479,8 +484,8 @@ export default function HistoryScreen() {
     <ThemedView style={[styles.screen, { backgroundColor: theme.background }]}>
       {/* Header */}
       <ThemedView style={[styles.header, contentPlatformStyle]}>
-        <ThemedText type="title">History</ThemedText>
-        <ThemedText themeColor="textSecondary" type="small">Your appointments &amp; orders</ThemedText>
+        <ThemedText type="title">{t('explore.title')}</ThemedText>
+        <ThemedText themeColor="textSecondary" type="small">{t('explore.subtitle')}</ThemedText>
 
         {/* Toggle */}
         <View style={[styles.toggle, { backgroundColor: theme.backgroundElement }]}>
@@ -489,11 +494,11 @@ export default function HistoryScreen() {
               key={tab}
               style={[styles.toggleBtn, activeTab === tab && { backgroundColor: theme.primary }]}
               onPress={() => setActiveTab(tab)}
-              accessibilityLabel={tab === 'APPOINTMENTS' ? 'View Appointments' : 'View Orders'}
+              accessibilityLabel={tab === 'APPOINTMENTS' ? t('explore.viewAppointments') : t('explore.viewOrders')}
               accessibilityRole="button"
             >
               <ThemedText style={[styles.toggleBtnText, activeTab === tab && { color: '#fff' }]}>
-                {tab === 'APPOINTMENTS' ? 'Appointments' : 'Orders'}
+                {tab === 'APPOINTMENTS' ? t('explore.appointments') : t('explore.orders')}
               </ThemedText>
             </TouchableOpacity>
           ))}
@@ -512,16 +517,16 @@ export default function HistoryScreen() {
             <TouchableOpacity
               style={[styles.reviewBtn, { borderColor: theme.primary, paddingHorizontal: Spacing.four }]}
               onPress={() => void loadAppointments()}
-              accessibilityLabel="Retry loading appointment history"
+              accessibilityLabel={t('explore.retryLoad')}
               accessibilityRole="button"
             >
-              <ThemedText style={{ color: theme.primary, fontWeight: '600' }}>Retry</ThemedText>
+              <ThemedText style={{ color: theme.primary, fontWeight: '600' }}>{t('common.retry')}</ThemedText>
             </TouchableOpacity>
           </View>
         ) : appointments.length === 0 ? (
           <View style={styles.centred}>
             <AppIcon name="paw" color={theme.primary} size={34} />
-            <ThemedText themeColor="textSecondary">No appointments yet</ThemedText>
+            <ThemedText themeColor="textSecondary">{t('explore.noAppointments')}</ThemedText>
           </View>
         ) : (
           <FlatList
@@ -536,7 +541,7 @@ export default function HistoryScreen() {
         orders.length === 0 ? (
           <View style={styles.centred}>
             <AppIcon name="cart" color={theme.primary} size={34} />
-            <ThemedText themeColor="textSecondary">No orders yet</ThemedText>
+            <ThemedText themeColor="textSecondary">{t('explore.noOrders')}</ThemedText>
           </View>
         ) : (
           <FlatList

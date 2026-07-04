@@ -7,12 +7,13 @@ import { AppIcon, type AppIconName } from '@/components/app-icon';
 import { Spacing, Colors, Radius, Shadows } from '@/constants/theme';
 import { appConfig } from '@/utils/app-config';
 import { useAuth } from '@/context/AuthContext';
+import { useTranslation } from '@/i18n';
 
 const CATEGORIES = [
-  { id: '1', name: 'Food & Nutrition', icon: 'cart' },
-  { id: '2', name: 'Toys & Fun', icon: 'sparkle' },
-  { id: '3', name: 'Pharmacy', icon: 'medical' },
-  { id: '4', name: 'Accessories', icon: 'paw' },
+  { id: 'food', icon: 'cart' },
+  { id: 'toys', icon: 'sparkle' },
+  { id: 'pharmacy', icon: 'medical' },
+  { id: 'accessories', icon: 'paw' },
 ] as const;
 
 const BACKUP_STORES = [
@@ -75,6 +76,7 @@ interface ApiErrorPayload {
 const DEMO_DELIVERY_ADDRESS_ID = '11111111-1111-4111-8111-111111111111';
 
 const StoreCard = React.memo(({ item, colors, isSelected, onPress }: { item: Store, colors: any, isSelected: boolean, onPress: () => void }) => {
+  const { t } = useTranslation();
   return (
     <TouchableOpacity 
       style={[
@@ -94,7 +96,7 @@ const StoreCard = React.memo(({ item, colors, isSelected, onPress }: { item: Sto
           </ThemedText>
           <View style={styles.storeMeta}>
             <ThemedText type="small" style={{ color: colors.textSecondary }}>
-              {item.rating} ({item.ratingCount} reviews)
+              {t('common.reviews', { rating: item.rating, count: item.ratingCount })}
             </ThemedText>
             <ThemedText type="small" style={[styles.metaDivider, { color: colors.textSecondary }]}>•</ThemedText>
             <ThemedText type="small" style={{ color: colors.textSecondary }}>
@@ -126,6 +128,7 @@ export default function ShopScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
   const { user, session } = useAuth();
+  const { t } = useTranslation();
 
   const [coords, setCoords] = useState({ longitude: 77.6404, latitude: 12.9719 });
   const [stores, setStores] = useState<Store[]>([]);
@@ -346,13 +349,13 @@ export default function ShopScreen() {
 
       setCart({});
       Alert.alert(
-        success ? 'Payment captured' : 'Payment failed',
+        success ? t('shop.paymentCaptured') : t('shop.paymentFailed'),
         success
-          ? `Order ${String(orderPayload.orderId).slice(0, 8)} is placed.`
-          : `Failure event recorded and stock restored for order ${String(orderPayload.orderId).slice(0, 8)}.`
+          ? t('shop.orderPlaced', { orderId: String(orderPayload.orderId).slice(0, 8) })
+          : t('shop.paymentFailedBody', { orderId: String(orderPayload.orderId).slice(0, 8) }),
       );
     } catch (error: unknown) {
-      Alert.alert('Checkout unavailable', messageFromError(error));
+      Alert.alert(t('shop.checkoutUnavailable'), messageFromError(error));
     } finally {
       setCheckoutState('idle');
     }
@@ -377,12 +380,12 @@ export default function ShopScreen() {
         <View style={[styles.header, { borderBottomColor: colors.backgroundSelected }]}>
           <View>
             <ThemedText type="small" style={{ color: colors.textSecondary, fontWeight: '700', letterSpacing: 1 }}>
-              DELIVERING TO
+              {t('shop.deliveringTo')}
             </ThemedText>
             <View style={styles.locationRow}>
               <AppIcon name="location" color={colors.primary} size={16} />
               <ThemedText style={{ color: colors.text, fontWeight: '800' }}>
-                Home — Indiranagar, Bangalore
+                {t('shop.deliveryAddress')}
               </ThemedText>
             </View>
           </View>
@@ -400,17 +403,17 @@ export default function ShopScreen() {
             />
             <View style={styles.heroOverlay}>
               <ThemedText type="title" style={styles.heroTitle}>
-                Paw & Petals
+                {t('shop.heroTitle')}
               </ThemedText>
               <ThemedText type="default" style={styles.heroSubtitle}>
-                Premium Organic Pet Food & Treats delivered in 15 mins.
+                {t('shop.heroSubtitle')}
               </ThemedText>
             </View>
           </View>
 
           {/* Categories */}
           <ThemedText style={[styles.sectionTitle, { color: colors.text }]}>
-            Shop by Category
+            {t('shop.shopByCategory')}
           </ThemedText>
           <ScrollView 
             horizontal 
@@ -433,7 +436,7 @@ export default function ShopScreen() {
                   <AppIcon name={cat.icon as AppIconName} color={colors.primary} size={26} />
                 </View>
                 <ThemedText type="small" style={[styles.categoryName, { color: colors.text }]}>
-                  {cat.name}
+                  {t(`shop.categories.${cat.id}`)}
                 </ThemedText>
               </TouchableOpacity>
             ))}
@@ -442,7 +445,7 @@ export default function ShopScreen() {
           {/* Nearby Stores */}
           <View style={styles.sectionHeader}>
             <ThemedText style={[styles.sectionTitleText, { color: colors.text }]}>
-              Stores Near You
+              {t('shop.storesNearYou')}
             </ThemedText>
             {isLoading && <ActivityIndicator size="small" color={colors.primary} />}
           </View>
@@ -468,10 +471,10 @@ export default function ShopScreen() {
                 {!isLoadingOfferings && offerings.length === 0 ? (
                   <View style={[styles.emptyState, { borderColor: colors.textSecondary, backgroundColor: colors.backgroundElement }]}>
                     <ThemedText style={{ color: colors.text, fontWeight: '800' }}>
-                      No live products available
+                      {t('shop.noProducts')}
                     </ThemedText>
                     <ThemedText type="small" style={{ color: colors.textSecondary }}>
-                      This store needs active catalog offerings before checkout can run.
+                      {t('shop.noProductsHint')}
                     </ThemedText>
                   </View>
                 ) : (
@@ -523,10 +526,10 @@ export default function ShopScreen() {
                 <View style={[styles.cartBar, { backgroundColor: colors.backgroundElement, borderColor: colors.primary }]}>
                   <View>
                     <ThemedText style={{ color: colors.text, fontWeight: '800' }}>
-                      {selectedItems.length} item{selectedItems.length === 1 ? '' : 's'} selected
+                      {t('common.itemsSelected', { count: selectedItems.length })}
                     </ThemedText>
                     <ThemedText type="small" style={{ color: colors.textSecondary }}>
-                      Total Rs {cartTotal.toFixed(2)}
+                      {t('common.totalRs', { amount: cartTotal.toFixed(2) })}
                     </ThemedText>
                   </View>
                   <View style={styles.checkoutActions}>
@@ -535,14 +538,14 @@ export default function ShopScreen() {
                       onPress={() => checkout(true)}
                       disabled={checkoutState !== 'idle'}
                     >
-                      <ThemedText type="small" style={styles.checkoutButtonText}>Pay</ThemedText>
+                      <ThemedText type="small" style={styles.checkoutButtonText}>{t('shop.pay')}</ThemedText>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.failureButton, { borderColor: colors.textSecondary }]}
                       onPress={() => checkout(false)}
                       disabled={checkoutState !== 'idle'}
                     >
-                      <ThemedText type="small" style={{ color: colors.text, fontWeight: '800' }}>Fail</ThemedText>
+                      <ThemedText type="small" style={{ color: colors.text, fontWeight: '800' }}>{t('shop.fail')}</ThemedText>
                     </TouchableOpacity>
                   </View>
                 </View>

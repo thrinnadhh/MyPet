@@ -3,11 +3,25 @@ kind: ConfigMap
 metadata:
   name: pawsnearme-backend-config
 data:
-  DB_POOL_MAX_SIZE: "5"
-  KAFKA_LISTENER_CONCURRENCY: "3"
-  GATEWAY_TRUST_ENABLED: "true"
-  GATEWAY_RATE_LIMIT_REPLENISH_RATE: "100"
-  GATEWAY_RATE_LIMIT_BURST_CAPACITY: "200"
+  DB_POOL_MAX_SIZE: '5'
+  DB_POOL_MIN_IDLE: '2'
+  DB_POOL_CONNECTION_TIMEOUT_MS: '5000'
+  DB_POOL_MAX_SIZE_DISCOVERY: '8'
+  DB_POOL_MAX_SIZE_CATALOG: '8'
+  DB_POOL_MAX_SIZE_APPOINTMENT: '8'
+  DB_POOL_MAX_SIZE_ORDER: '8'
+  DB_POOL_MAX_SIZE_PAYMENT: '8'
+  DB_POOL_MAX_SIZE_DISPATCH: '6'
+  DB_POOL_MAX_SIZE_PROVIDER: '6'
+  DB_POOL_MAX_SIZE_CHAT: '6'
+  DB_POOL_MAX_SIZE_NOTIFICATION: '4'
+  DB_POOL_MAX_SIZE_REVIEW: '4'
+  DB_POOL_MAX_SIZE_CAPTAIN: '4'
+  DB_POOL_MAX_SIZE_CONTENT: '4'
+  KAFKA_LISTENER_CONCURRENCY: '3'
+  GATEWAY_TRUST_ENABLED: 'true'
+  GATEWAY_RATE_LIMIT_REPLENISH_RATE: '100'
+  GATEWAY_RATE_LIMIT_BURST_CAPACITY: '200'
 ---
 apiVersion: v1
 kind: Secret
@@ -15,13 +29,13 @@ metadata:
   name: pawsnearme-backend-secrets
 type: Opaque
 stringData:
-  SUPAVISOR_DB_URL: "jdbc:postgresql://aws-0-region.pooler.supabase.com:6543/postgres?sslmode=require"
-  DB_USERNAME: "postgres.project-ref"
-  DB_PASSWORD: "replace-me"
-  GATEWAY_SECRET: "replace-me"
-  KAFKA_BOOTSTRAP_SERVERS: "replace-me:9092"
-  REDIS_HOST: "replace-me"
-  REDIS_PORT: "6379"
+  SUPAVISOR_DB_URL: jdbc:postgresql://aws-0-region.pooler.supabase.com:6543/postgres?sslmode=require
+  DB_USERNAME: postgres.project-ref
+  DB_PASSWORD: replace-me
+  GATEWAY_SECRET: replace-me
+  KAFKA_BOOTSTRAP_SERVERS: replace-me:9092
+  REDIS_HOST: replace-me
+  REDIS_PORT: '6379'
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -38,22 +52,61 @@ spec:
         app: api-gateway
     spec:
       containers:
-        - name: api-gateway
-          image: ghcr.io/your-org/pawsnearme-api-gateway:latest
-          ports:
-            - containerPort: 8080
-          envFrom:
-            - configMapRef:
-                name: pawsnearme-backend-config
-            - secretRef:
-                name: pawsnearme-backend-secrets
-          resources:
-            requests:
-              cpu: 250m
-              memory: 384Mi
-            limits:
-              cpu: "1"
-              memory: 768Mi
+      - name: api-gateway
+        image: ghcr.io/your-org/pawsnearme-api-gateway:latest
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: pawsnearme-backend-config
+        - secretRef:
+            name: pawsnearme-backend-secrets
+        env:
+        - name: PROVIDER_SERVICE_URL
+          value: http://provider-service:8081
+        - name: CATALOG_SERVICE_URL
+          value: http://catalog-service:8082
+        - name: DISCOVERY_SERVICE_URL
+          value: http://discovery-service:8083
+        - name: ORDER_SERVICE_URL
+          value: http://order-service:8084
+        - name: APPOINTMENT_SERVICE_URL
+          value: http://appointment-service:8085
+        - name: DISPATCH_SERVICE_URL
+          value: http://dispatch-service:8086
+        - name: CAPTAIN_SERVICE_URL
+          value: http://captain-service:8087
+        - name: NOTIFICATION_SERVICE_URL
+          value: http://notification-service:8088
+        - name: REVIEW_SERVICE_URL
+          value: http://review-service:8089
+        - name: PAYMENT_SERVICE_URL
+          value: http://payment-service:8090
+        - name: CHAT_SERVICE_URL
+          value: http://chat-service:8091
+        - name: CONTENT_SERVICE_URL
+          value: http://content-service:8092
+        resources:
+          requests:
+            cpu: 250m
+            memory: 384Mi
+          limits:
+            cpu: '1'
+            memory: 768Mi
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service
@@ -63,8 +116,8 @@ spec:
   selector:
     app: api-gateway
   ports:
-    - port: 8080
-      targetPort: 8080
+  - port: 8080
+    targetPort: 8080
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -81,18 +134,37 @@ spec:
         app: discovery-service
     spec:
       containers:
-        - name: discovery-service
-          image: ghcr.io/your-org/pawsnearme-discovery-service:latest
-          ports:
-            - containerPort: 8083
-          envFrom:
-            - configMapRef:
-                name: pawsnearme-backend-config
-            - secretRef:
-                name: pawsnearme-backend-secrets
-          env:
-            - name: SERVER_PORT
-              value: "8083"
+      - name: discovery-service
+        image: ghcr.io/your-org/pawsnearme-discovery-service:latest
+        ports:
+        - containerPort: 8083
+        envFrom:
+        - configMapRef:
+            name: pawsnearme-backend-config
+        - secretRef:
+            name: pawsnearme-backend-secrets
+        env:
+        - name: SERVER_PORT
+          value: '8083'
+        - name: DB_POOL_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: pawsnearme-backend-config
+              key: DB_POOL_MAX_SIZE_DISCOVERY
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8083
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8083
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service
@@ -102,8 +174,8 @@ spec:
   selector:
     app: discovery-service
   ports:
-    - port: 8083
-      targetPort: 8083
+  - port: 8083
+    targetPort: 8083
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -120,18 +192,37 @@ spec:
         app: catalog-service
     spec:
       containers:
-        - name: catalog-service
-          image: ghcr.io/your-org/pawsnearme-catalog-service:latest
-          ports:
-            - containerPort: 8082
-          envFrom:
-            - configMapRef:
-                name: pawsnearme-backend-config
-            - secretRef:
-                name: pawsnearme-backend-secrets
-          env:
-            - name: SERVER_PORT
-              value: "8082"
+      - name: catalog-service
+        image: ghcr.io/your-org/pawsnearme-catalog-service:latest
+        ports:
+        - containerPort: 8082
+        envFrom:
+        - configMapRef:
+            name: pawsnearme-backend-config
+        - secretRef:
+            name: pawsnearme-backend-secrets
+        env:
+        - name: SERVER_PORT
+          value: '8082'
+        - name: DB_POOL_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: pawsnearme-backend-config
+              key: DB_POOL_MAX_SIZE_CATALOG
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8082
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8082
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service
@@ -141,8 +232,8 @@ spec:
   selector:
     app: catalog-service
   ports:
-    - port: 8082
-      targetPort: 8082
+  - port: 8082
+    targetPort: 8082
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -159,17 +250,585 @@ spec:
         app: appointment-service
     spec:
       containers:
-        - name: appointment-service
-          image: ghcr.io/your-org/pawsnearme-appointment-service:latest
-          ports:
-            - containerPort: 8085
-          envFrom:
-            - configMapRef:
-                name: pawsnearme-backend-config
-            - secretRef:
-                name: pawsnearme-backend-secrets
-          env:
-            - name: SERVER_PORT
-              value: "8085"
-            - name: CATALOG_SERVICE_URL
-              value: "http://catalog-service:8082"
+      - name: appointment-service
+        image: ghcr.io/your-org/pawsnearme-appointment-service:latest
+        ports:
+        - containerPort: 8085
+        envFrom:
+        - configMapRef:
+            name: pawsnearme-backend-config
+        - secretRef:
+            name: pawsnearme-backend-secrets
+        env:
+        - name: SERVER_PORT
+          value: '8085'
+        - name: CATALOG_SERVICE_URL
+          value: http://catalog-service:8082
+        - name: PROVIDER_SERVICE_URL
+          value: http://provider-service:8081
+        - name: PAYMENT_SERVICE_URL
+          value: http://payment-service:8090
+        - name: DB_POOL_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: pawsnearme-backend-config
+              key: DB_POOL_MAX_SIZE_APPOINTMENT
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8085
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8085
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: appointment-service
+spec:
+  selector:
+    app: appointment-service
+  ports:
+  - port: 8085
+    targetPort: 8085
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provider-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: provider-service
+  template:
+    metadata:
+      labels:
+        app: provider-service
+    spec:
+      containers:
+      - name: provider-service
+        image: ghcr.io/your-org/pawsnearme-provider-service:latest
+        ports:
+        - containerPort: 8081
+        envFrom:
+        - configMapRef:
+            name: pawsnearme-backend-config
+        - secretRef:
+            name: pawsnearme-backend-secrets
+        env:
+        - name: SERVER_PORT
+          value: '8081'
+        - name: DB_POOL_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: pawsnearme-backend-config
+              key: DB_POOL_MAX_SIZE_PROVIDER
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: provider-service
+spec:
+  selector:
+    app: provider-service
+  ports:
+  - port: 8081
+    targetPort: 8081
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      containers:
+      - name: order-service
+        image: ghcr.io/your-org/pawsnearme-order-service:latest
+        ports:
+        - containerPort: 8084
+        envFrom:
+        - configMapRef:
+            name: pawsnearme-backend-config
+        - secretRef:
+            name: pawsnearme-backend-secrets
+        env:
+        - name: SERVER_PORT
+          value: '8084'
+        - name: CATALOG_SERVICE_URL
+          value: http://catalog-service:8082
+        - name: PAYMENT_SERVICE_URL
+          value: http://payment-service:8090
+        - name: PROVIDER_SERVICE_URL
+          value: http://provider-service:8081
+        - name: DB_POOL_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: pawsnearme-backend-config
+              key: DB_POOL_MAX_SIZE_ORDER
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8084
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8084
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+spec:
+  selector:
+    app: order-service
+  ports:
+  - port: 8084
+    targetPort: 8084
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dispatch-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: dispatch-service
+  template:
+    metadata:
+      labels:
+        app: dispatch-service
+    spec:
+      containers:
+      - name: dispatch-service
+        image: ghcr.io/your-org/pawsnearme-dispatch-service:latest
+        ports:
+        - containerPort: 8086
+        envFrom:
+        - configMapRef:
+            name: pawsnearme-backend-config
+        - secretRef:
+            name: pawsnearme-backend-secrets
+        env:
+        - name: SERVER_PORT
+          value: '8086'
+        - name: ORDER_SERVICE_URL
+          value: http://order-service:8084
+        - name: DB_POOL_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: pawsnearme-backend-config
+              key: DB_POOL_MAX_SIZE_DISPATCH
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8086
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8086
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dispatch-service
+spec:
+  selector:
+    app: dispatch-service
+  ports:
+  - port: 8086
+    targetPort: 8086
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: captain-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: captain-service
+  template:
+    metadata:
+      labels:
+        app: captain-service
+    spec:
+      containers:
+      - name: captain-service
+        image: ghcr.io/your-org/pawsnearme-captain-service:latest
+        ports:
+        - containerPort: 8087
+        envFrom:
+        - configMapRef:
+            name: pawsnearme-backend-config
+        - secretRef:
+            name: pawsnearme-backend-secrets
+        env:
+        - name: SERVER_PORT
+          value: '8087'
+        - name: DB_POOL_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: pawsnearme-backend-config
+              key: DB_POOL_MAX_SIZE_CAPTAIN
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8087
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8087
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: captain-service
+spec:
+  selector:
+    app: captain-service
+  ports:
+  - port: 8087
+    targetPort: 8087
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      containers:
+      - name: notification-service
+        image: ghcr.io/your-org/pawsnearme-notification-service:latest
+        ports:
+        - containerPort: 8088
+        envFrom:
+        - configMapRef:
+            name: pawsnearme-backend-config
+        - secretRef:
+            name: pawsnearme-backend-secrets
+        env:
+        - name: SERVER_PORT
+          value: '8088'
+        - name: PROVIDER_SERVICE_URL
+          value: http://provider-service:8081
+        - name: DB_POOL_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: pawsnearme-backend-config
+              key: DB_POOL_MAX_SIZE_NOTIFICATION
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8088
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8088
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+spec:
+  selector:
+    app: notification-service
+  ports:
+  - port: 8088
+    targetPort: 8088
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: review-service
+  template:
+    metadata:
+      labels:
+        app: review-service
+    spec:
+      containers:
+      - name: review-service
+        image: ghcr.io/your-org/pawsnearme-review-service:latest
+        ports:
+        - containerPort: 8089
+        envFrom:
+        - configMapRef:
+            name: pawsnearme-backend-config
+        - secretRef:
+            name: pawsnearme-backend-secrets
+        env:
+        - name: SERVER_PORT
+          value: '8089'
+        - name: DB_POOL_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: pawsnearme-backend-config
+              key: DB_POOL_MAX_SIZE_REVIEW
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8089
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8089
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-service
+spec:
+  selector:
+    app: review-service
+  ports:
+  - port: 8089
+    targetPort: 8089
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+    spec:
+      containers:
+      - name: payment-service
+        image: ghcr.io/your-org/pawsnearme-payment-service:latest
+        ports:
+        - containerPort: 8090
+        envFrom:
+        - configMapRef:
+            name: pawsnearme-backend-config
+        - secretRef:
+            name: pawsnearme-backend-secrets
+        env:
+        - name: SERVER_PORT
+          value: '8090'
+        - name: DB_POOL_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: pawsnearme-backend-config
+              key: DB_POOL_MAX_SIZE_PAYMENT
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8090
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8090
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+spec:
+  selector:
+    app: payment-service
+  ports:
+  - port: 8090
+    targetPort: 8090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: chat-service
+  template:
+    metadata:
+      labels:
+        app: chat-service
+    spec:
+      containers:
+      - name: chat-service
+        image: ghcr.io/your-org/pawsnearme-chat-service:latest
+        ports:
+        - containerPort: 8091
+        envFrom:
+        - configMapRef:
+            name: pawsnearme-backend-config
+        - secretRef:
+            name: pawsnearme-backend-secrets
+        env:
+        - name: SERVER_PORT
+          value: '8091'
+        - name: DB_POOL_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: pawsnearme-backend-config
+              key: DB_POOL_MAX_SIZE_CHAT
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8091
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8091
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chat-service
+spec:
+  selector:
+    app: chat-service
+  ports:
+  - port: 8091
+    targetPort: 8091
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: content-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: content-service
+  template:
+    metadata:
+      labels:
+        app: content-service
+    spec:
+      containers:
+      - name: content-service
+        image: ghcr.io/your-org/pawsnearme-content-service:latest
+        ports:
+        - containerPort: 8092
+        envFrom:
+        - configMapRef:
+            name: pawsnearme-backend-config
+        - secretRef:
+            name: pawsnearme-backend-secrets
+        env:
+        - name: SERVER_PORT
+          value: '8092'
+        - name: PROVIDER_SERVICE_URL
+          value: http://provider-service:8081
+        - name: DB_POOL_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: pawsnearme-backend-config
+              key: DB_POOL_MAX_SIZE_CONTENT
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8092
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8092
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: content-service
+spec:
+  selector:
+    app: content-service
+  ports:
+  - port: 8092
+    targetPort: 8092

@@ -465,6 +465,7 @@
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('approvals')">Provider Approvals</button>
             <button class="tab-btn" onclick="switchTab('disputes')">Support Disputes</button>
+            <button class="tab-btn" onclick="switchTab('banner-auction')">Banner Auction</button>
         </div>
 
         <div class="grid-panels">
@@ -481,6 +482,22 @@
                             <div class="empty-state">
                                 <span class="empty-icon">⏳</span>
                                 <p>Loading onboarding queue...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Banner Auction Panel -->
+                <div id="banner-auction-panel" class="tab-panel" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title">🎯 Banner Auction Outcomes</h2>
+                            <button class="btn btn-emerald" onclick="fetchBannerAuctionOutcomes()">🔄 Refresh</button>
+                        </div>
+                        <div id="banner-auction-list" class="list-container">
+                            <div class="empty-state">
+                                <span class="empty-icon">⏳</span>
+                                <p>Loading auction outcomes...</p>
                             </div>
                         </div>
                     </div>

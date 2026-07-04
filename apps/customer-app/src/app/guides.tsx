@@ -12,10 +12,12 @@ import { GUIDE_CATEGORIES, type GuideCategory } from '@/constants/content';
 import { fetchGuides, type GuideArticle } from '@/services/content';
 import { BottomTabInset, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/i18n';
 
 export default function GuidesScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const { t } = useTranslation();
   const [category, setCategory] = useState<GuideCategory>('puppy-kitten');
   const [articles, setArticles] = useState<GuideArticle[]>([]);
 
@@ -27,11 +29,11 @@ export default function GuidesScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ScreenHeader
-          title="Pet care guides"
-          subtitle="Health tips from trusted vets and groomers"
+          title={t('guides.title')}
+          subtitle={t('guides.subtitle')}
           trailing={
-            <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
-              <ThemedText style={{ color: theme.primary, fontWeight: '800' }}>Back</ThemedText>
+            <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel={t('guides.goBack')}>
+              <ThemedText style={{ color: theme.primary, fontWeight: '800' }}>{t('common.back')}</ThemedText>
             </Pressable>
           }
         />
@@ -54,10 +56,10 @@ export default function GuidesScreen() {
                     },
                   ]}
                   accessibilityRole="button"
-                  accessibilityLabel={item.label}
+                  accessibilityLabel={t(`guides.categories.${item.id}.label`)}
                 >
                   <ThemedText style={{ color: selected ? '#FFFFFF' : theme.text, fontWeight: '800' }}>
-                    {item.label}
+                    {t(`guides.categories.${item.id}.label`)}
                   </ThemedText>
                 </Pressable>
               );
@@ -65,7 +67,7 @@ export default function GuidesScreen() {
           </ScrollView>
 
           <ThemedText type="small" themeColor="textSecondary">
-            {GUIDE_CATEGORIES.find((c) => c.id === category)?.description}
+            {t(`guides.categories.${category}.description`)}
           </ThemedText>
 
           {articles.map((article) => (
@@ -78,7 +80,7 @@ export default function GuidesScreen() {
                   <ThemedText style={{ fontWeight: '900' }}>{article.title}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">{article.summary}</ThemedText>
                   <ThemedText type="small" style={{ color: theme.accent, fontWeight: '700' }}>
-                    {article.readMinutes} min read
+                    {t('common.minRead', { minutes: article.readMinutes })}
                   </ThemedText>
                 </View>
               </View>

@@ -9,6 +9,11 @@ spring:
     username: ${DB_USERNAME:content_service_role}
     password: ${DB_PASSWORD:content_service_pass}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 3000
+      leak-detection-threshold: 10000
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
   flyway:
     enabled: true
     baseline-on-migrate: true
@@ -25,7 +30,26 @@ spring:
     hibernate:
       ddl-auto: none
 
+
+
+
+
 gateway:
   trust:
     enabled: ${GATEWAY_TRUST_ENABLED:false}
     secret: ${GATEWAY_SECRET:dev-secret-change-in-production}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  health:
+    readinessstate:
+      enabled: true
+    livenessstate:
+      enabled: true

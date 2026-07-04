@@ -95,6 +95,8 @@ class AppointmentService(
     private val holdDurationSeconds: Long,
     @Value("\${PROVIDER_SERVICE_URL:http://localhost:8081}")
     private val providerServiceUrl: String = "http://localhost:8081",
+    @Value("\${PAYMENT_SERVICE_URL:http://localhost:8090}")
+    private val paymentServiceUrl: String = "http://localhost:8090",
     @Value("\${gateway.trust.secret:}")
     private val gatewayTrustSecret: String = ""
 ) {
@@ -296,9 +298,23 @@ class AppointmentService(
     }
 
     // --- Two-stage Checkout: Confirm Slot (Task 2) ---
-    fun confirmAppointment(appointmentId: UUID, paymentId: UUID? = null): Appointment {
+    fun confirmAppointment(
+        appointmentId: UUID,
+        paymentId: UUID?,
+        callerId: UUID,
+        callerRole: String?,
+    ): Appointment {
         val appointment = appointmentRepository.findById(appointmentId)
             .orElseThrow { NoSuchElementException("Appointment with ID $appointmentId not found") }
+
+        assertCanAccessAppointment(appointment, callerId, callerRole)
+
+        if (!appointment.payAtClinic) {
+            if (paymentId == null) {
+                throw IllegalArgumentException("paymentId is required to confirm this appointment.")
+            }
+            verifyAppointmentPayment(appointment, paymentId)
+        }
 
         if (appointment.status != AppointmentStatus.SLOT_HELD) {
             throw IllegalStateException("Appointment is not in SLOT_HELD state. Current state: ${appointment.status}")
@@ -379,6 +395,11 @@ class AppointmentService(
         val appointment = appointmentRepository.findById(appointmentId)
             .orElseThrow { NoSuchElementException("Appointment with ID $appointmentId not found") }
 
+        assertCanAccessAppointment(appointment, callerId, callerRole)
+        return appointment
+    }
+
+    private fun assertCanAccessAppointment(appointment: Appointment, callerId: UUID, callerRole: String?) {
         val isAdmin = callerRole?.uppercase() == "ADMIN"
         val isCustomer = appointment.customerId == callerId
         val isProviderStaff = if (callerRole?.uppercase() == "MERCHANT") {
@@ -391,7 +412,42 @@ class AppointmentService(
         if (!isAdmin && !isCustomer && !isProviderStaff) {
             throw AppointmentAccessDeniedException("Access denied to appointment data.")
         }
-        return appointment
+    }
+
+    private fun verifyAppointmentPayment(appointment: Appointment, paymentId: UUID) {
+        val url = "$paymentServiceUrl/api/v1/payments/transactions/$paymentId"
+        val response = restTemplate.exchange(
+            url,
+            org.springframework.http.HttpMethod.GET,
+            org.springframework.http.HttpEntity<Any>(internalHeaders()),
+            Map::class.java,
+        ).body ?: throw IllegalStateException("Payment transaction not found for ID $paymentId")
+
+        val status = response["status"] as? String
+        val referenceId = response["referenceId"]?.toString()
+        val userId = response["userId"]?.toString()
+        val transactionType = response["transactionType"] as? String
+        val amount = when (val raw = response["amount"]) {
+            is BigDecimal -> raw
+            is Number -> BigDecimal(raw.toString())
+            else -> throw IllegalStateException("Payment transaction amount is missing.")
+        }
+
+        if (status != "SUCCESS") {
+            throw IllegalStateException("Payment transaction is not successful.")
+        }
+        if (referenceId != appointment.appointmentId.toString()) {
+            throw IllegalStateException("Payment transaction does not match this appointment.")
+        }
+        if (userId != appointment.customerId.toString()) {
+            throw IllegalStateException("Payment transaction does not belong to the appointment customer.")
+        }
+        if (transactionType != "APPOINTMENT_PAYMENT") {
+            throw IllegalStateException("Payment transaction type is invalid for appointment confirmation.")
+        }
+        if (amount.compareTo(appointment.priceAmount) != 0) {
+            throw IllegalStateException("Payment amount does not match appointment price.")
+        }
     }
 
     fun getAppointmentsByCustomer(targetCustomerId: UUID, callerId: UUID, callerRole: String?): List<Appointment> {

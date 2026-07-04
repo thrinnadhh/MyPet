@@ -10,5 +10,6 @@ docker run --rm \
   -e SLOT_ID="${SLOT_ID:?Set SLOT_ID}" \
   -e CUSTOMER_ID="${CUSTOMER_ID:?Set CUSTOMER_ID}" \
   -e PET_ID="${PET_ID:?Set PET_ID}" \
+  -e DELIVERY_ADDRESS_ID="${DELIVERY_ADDRESS_ID:?Set DELIVERY_ADDRESS_ID}" \
   -v "$PWD/load-tests/k6:/scripts" \
   grafana/k6:latest run /scripts/discovery-appointments-catalog.js

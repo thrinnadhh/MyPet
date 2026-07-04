@@ -11,13 +11,14 @@ k6 run \
   -e SLOT_ID="$SLOT_ID" \
   -e CUSTOMER_ID="$CUSTOMER_ID" \
   -e PET_ID="$PET_ID" \
+  -e DELIVERY_ADDRESS_ID="$DELIVERY_ADDRESS_ID" \
   load-tests/k6/discovery-appointments-catalog.js
 ```
 
 The script ramps to 1000 virtual users across discovery, catalog offerings/slots,
-and appointment hold traffic. Use dedicated test data; a single `SLOT_ID` will
-intentionally create contention and should return a mix of success, conflict, and
-rate-limited responses.
+appointment hold, order creation, dispatch lookup, and payment initiation. Use
+dedicated test data; a single `SLOT_ID` will intentionally create contention and
+should return a mix of success, conflict, and rate-limited responses.
 
 If k6 is not installed locally, use the Docker wrapper from the repository root:
 
@@ -28,5 +29,6 @@ OFFERING_ID="$OFFERING_ID" \
 SLOT_ID="$SLOT_ID" \
 CUSTOMER_ID="$CUSTOMER_ID" \
 PET_ID="$PET_ID" \
+DELIVERY_ADDRESS_ID="$DELIVERY_ADDRESS_ID" \
 load-tests/k6/run-local.sh
 ```

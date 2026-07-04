@@ -48,9 +48,19 @@ class AppointmentController(
     @PostMapping("/{id}/confirm")
     fun confirmAppointment(
         @PathVariable id: UUID,
-        @RequestParam(required = false) paymentId: UUID?
+        @RequestParam(required = false) paymentId: UUID?,
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?,
     ): ResponseEntity<Any> {
-        val appointment = appointmentService.confirmAppointment(id, paymentId)
+        if (authenticatedUserId.isNullOrBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
+        }
+        val appointment = appointmentService.confirmAppointment(
+            id,
+            paymentId,
+            UUID.fromString(authenticatedUserId),
+            authenticatedUserRole,
+        )
         return ResponseEntity.ok(appointment)
     }
 

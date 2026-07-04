@@ -10,10 +10,12 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/i18n';
 import { supabase } from '@/utils/supabase';
 
 export default function LoginScreen() {
   const theme = useTheme();
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -22,12 +24,12 @@ export default function LoginScreen() {
 
   const handleAuth = useCallback(async () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please fill in email and password.');
+      Alert.alert(t('common.error'), t('login.fillEmailPassword'));
       return;
     }
 
     if (isSignUp && !fullName.trim()) {
-      Alert.alert('Error', 'Please enter your full name.');
+      Alert.alert(t('common.error'), t('login.enterFullName'));
       return;
     }
 
@@ -46,18 +48,18 @@ export default function LoginScreen() {
           },
         });
         if (error) throw error;
-        Alert.alert('Success', 'Verification email sent. Please check your inbox.');
+        Alert.alert(t('common.success'), t('login.verificationSent'));
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Something went wrong.';
-      Alert.alert('Authentication Failed', message);
+      const message = err instanceof Error ? err.message : t('login.somethingWrong');
+      Alert.alert(t('login.authFailed'), message);
     } finally {
       setLoading(false);
     }
-  }, [email, password, fullName, isSignUp]);
+  }, [email, password, fullName, isSignUp, t]);
 
   return (
     <ThemedView style={styles.container}>
@@ -67,9 +69,9 @@ export default function LoginScreen() {
             <View style={[styles.logoWrap, { backgroundColor: theme.primary }]}>
               <AppIcon name="paw" color="#FFFFFF" size={28} />
             </View>
-            <ThemedText style={styles.brand}>PawsNearMe</ThemedText>
+            <ThemedText style={styles.brand}>{t('common.brand')}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary" style={styles.tagline}>
-              {isSignUp ? 'Create your account and start caring for your pets nearby.' : 'Welcome back. Book services and chat with trusted merchants.'}
+              {isSignUp ? t('login.taglineSignUp') : t('login.taglineSignIn')}
             </ThemedText>
           </View>
 
@@ -77,8 +79,8 @@ export default function LoginScreen() {
             <View style={styles.form}>
             {isSignUp ? (
               <TextField
-                label="Full name"
-                placeholder="Your name"
+                label={t('login.fullName')}
+                placeholder={t('login.fullNamePlaceholder')}
                 value={fullName}
                 onChangeText={setFullName}
                 autoCapitalize="words"
@@ -86,8 +88,8 @@ export default function LoginScreen() {
               />
             ) : null}
             <TextField
-              label="Email"
-              placeholder="you@email.com"
+              label={t('login.email')}
+              placeholder={t('login.emailPlaceholder')}
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -96,8 +98,8 @@ export default function LoginScreen() {
               accessibilityLabel="Email Input"
             />
             <TextField
-              label="Password"
-              placeholder="Enter password"
+              label={t('login.password')}
+              placeholder={t('login.passwordPlaceholder')}
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -107,7 +109,7 @@ export default function LoginScreen() {
             />
 
             <PrimaryButton
-              label={isSignUp ? 'Create account' : 'Log in'}
+              label={isSignUp ? t('login.createAccount') : t('login.logIn')}
               onPress={() => void handleAuth()}
               loading={loading}
               style={styles.submit}
@@ -116,7 +118,7 @@ export default function LoginScreen() {
           </AppCard>
 
           <PrimaryButton
-            label={isSignUp ? 'Already have an account? Log in' : "Don't have an account? Sign up"}
+            label={isSignUp ? t('login.toggleToSignIn') : t('login.toggleToSignUp')}
             onPress={() => setIsSignUp((prev) => !prev)}
             variant="ghost"
           />
