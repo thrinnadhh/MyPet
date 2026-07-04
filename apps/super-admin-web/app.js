@@ -27,6 +27,8 @@ function switchTab(tabId) {
         fetchDisputes();
     } else if (tabId === 'banner-auction') {
         fetchBannerAuctionOutcomes();
+    } else if (tabId === 'users') {
+        fetchUsers();
     }
 }
 
@@ -374,5 +376,105 @@ async function fetchBannerAuctionOutcomes() {
                 <p>Failed to load auction outcomes: ${e.message}</p>
             </div>
         `;
+    }
+}
+
+async function fetchUsers() {
+    const container = document.getElementById('users-list');
+    container.innerHTML = `
+        <div class="empty-state">
+            <span class="empty-icon">⏳</span>
+            <p>Loading users...</p>
+        </div>
+    `;
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/profiles`, {
+            headers: { 'X-User-Role': 'ADMIN' }
+        });
+        if (!res.ok) throw new Error("Failed to fetch users");
+
+        const users = await res.json();
+        if (users.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <span class="empty-icon">👥</span>
+                    <p>No user profiles registered.</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = '';
+        users.forEach(u => {
+            const item = document.createElement('div');
+            item.className = 'list-item';
+
+            const statusText = u.suspended ? 'REVOKED' : 'ACTIVE';
+            const badgeClass = u.suspended ? 'badge-danger' : 'badge-success';
+            const actionButton = u.suspended 
+                ? `<button class="btn btn-emerald" onclick="restoreUserAccess('${u.userId}')">🔓 Restore Access</button>`
+                : `<button class="btn btn-rose" onclick="revokeUserAccess('${u.userId}')">🚫 Revoke Access</button>`;
+
+            item.innerHTML = `
+                <div class="item-header">
+                    <div>
+                        <h3 class="item-title">${u.fullName}</h3>
+                        <p class="item-subtitle">${u.role} — ${u.phoneNumber}</p>
+                    </div>
+                    <span class="badge ${badgeClass}">${statusText}</span>
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                    User ID: ${u.userId}
+                </div>
+                <div class="btn-group">
+                    ${actionButton}
+                </div>
+            `;
+            container.appendChild(item);
+        });
+    } catch (e) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <span class="empty-icon">❌</span>
+                <p>Failed to load users: ${e.message}</p>
+            </div>
+        `;
+    }
+}
+
+async function revokeUserAccess(userId) {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/profiles/${userId}/revoke`, {
+            method: 'POST',
+            headers: { 'X-User-Role': 'ADMIN' }
+        });
+        if (res.ok) {
+            showToast("Access revoked successfully!");
+            fetchUsers();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.error || "Failed to revoke access", true);
+        }
+    } catch (e) {
+        showToast("Error revoking user access", true);
+    }
+}
+
+async function restoreUserAccess(userId) {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/profiles/${userId}/restore`, {
+            method: 'POST',
+            headers: { 'X-User-Role': 'ADMIN' }
+        });
+        if (res.ok) {
+            showToast("Access restored successfully!");
+            fetchUsers();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.error || "Failed to restore access", true);
+        }
+    } catch (e) {
+        showToast("Error restoring user access", true);
     }
 }

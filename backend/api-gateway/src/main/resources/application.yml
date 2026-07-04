@@ -9,9 +9,213 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6380}
   cloud:
-
-
-
+    gateway:
+      # Stamp every proxied request with the gateway secret so downstream services
+      # can verify the request originated from the gateway (not a direct port hit).
+      default-filters:
+        - AddRequestHeader=X-Internal-Gateway-Secret, ${GATEWAY_SECRET:dev-secret-change-in-production}
+        - name: RequestRateLimiter
+          args:
+            redis-rate-limiter.replenishRate: ${GATEWAY_RATE_LIMIT_REPLENISH_RATE:100}
+            redis-rate-limiter.burstCapacity: ${GATEWAY_RATE_LIMIT_BURST_CAPACITY:200}
+            redis-rate-limiter.requestedTokens: 1
+            key-resolver: "#{@clientIpKeyResolver}"
+      routes:
+        - id: provider-approval-admin
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/providers/*/approve
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: provider-commission-admin
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/providers/*/commission
+            - Method=PATCH
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: provider-service
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/providers/**, /api/v1/profiles/**, /api/v1/pets/**, /api/v1/addresses/**
+        - id: provider-uploads
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/uploads/**
+        - id: provider-service-grpc
+          uri: ${PROVIDER_SERVICE_GRPC_URL:grpc://localhost:9091}
+          predicates:
+            - Path=/com.pawsnearme.providerservice.grpc.ProviderService/**
+        - id: catalog-service-writes
+          uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/catalog/offerings/**, /api/v1/catalog/slots/**
+            - Method=POST,PUT,DELETE
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
+        - id: catalog-service
+          uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/catalog/offerings/**, /api/v1/catalog/slots/**
+        - id: catalog-service-billing
+          uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/catalog/bills/**, /api/v1/catalog/offerings/by-barcode/**
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
+        - id: discovery-service
+          uri: ${DISCOVERY_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/v1/discovery/**
+        - id: order-service-admin
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/orders/admin/**
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: order-service
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/orders/**
+        - id: appointment-service-writes
+          uri: ${APPOINTMENT_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/appointments/*/status
+            - Method=PUT
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
+        - id: appointment-service
+          uri: ${APPOINTMENT_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/appointments/**
+        - id: dispatch-service
+          uri: ${DISPATCH_SERVICE_URL:http://localhost:8086}
+          predicates:
+            - Path=/api/v1/dispatch/**
+        - id: captain-service
+          uri: ${CAPTAIN_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/api/v1/captains/**
+        - id: notification-service
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8088}
+          predicates:
+            - Path=/api/v1/notifications/**
+        - id: review-service
+          uri: ${REVIEW_SERVICE_URL:http://localhost:8089}
+          predicates:
+            - Path=/api/v1/reviews/**
+        - id: payment-payout-admin
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8090}
+          predicates:
+            - Path=/api/v1/payments/payouts/calculate
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: payment-promotions-write
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8090}
+          predicates:
+            - Path=/api/v1/payments/promotions
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
+        - id: payment-refund-admin
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8090}
+          predicates:
+            - Path=/api/v1/payments/refund
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: payment-service
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8090}
+          predicates:
+            - Path=/api/v1/payments/**
+        - id: chat-service-privacy
+          uri: ${CHAT_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/v1/chat/conversations/*/privacy
+            - Method=PATCH
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
+        - id: chat-service
+          uri: ${CHAT_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/v1/chat/**
+        - id: content-service-guide-writes
+          uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
+          predicates:
+            - Path=/api/v1/content/guides
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN,MERCHANT
+        - id: content-service-banner-admin
+          uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
+          predicates:
+            - Path=/api/v1/content/banners
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: content-service-writer-admin
+          uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
+          predicates:
+            - Path=/api/v1/content/guides/writers, /api/v1/content/guides/writers/**
+            - Method=POST,DELETE
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: content-service
+          uri: ${CONTENT_SERVICE_URL:http://localhost:9092} # Content service grpc uses 9092 or HTTP? Let's keep 8092 as in table.
+          predicates:
+            - Path=/api/v1/content/**
+        - id: captain-approval-admin
+          uri: ${CAPTAIN_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/api/v1/captains/pending, /api/v1/captains/*/approve, /api/v1/captains/*/reject
+            - Method=GET,POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: vaccination-reminders
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/vaccination-reminders/**
+        - id: profile-locale
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/profiles/me/locale
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${SUPABASE_JWT_JWK_SET_URI:https://your-project.supabase.co/rest/v1/auth/keys}
+          secret-key: ${SUPABASE_JWT_SECRET:} # HS256 JWT secret for symmetric validation (optional dev fallback)
+          allow-unsigned: ${ALLOW_UNSIGNED_JWT:false}
 
 gateway:
   trust:
