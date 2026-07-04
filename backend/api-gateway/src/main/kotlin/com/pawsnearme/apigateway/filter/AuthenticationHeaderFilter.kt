@@ -3,6 +3,8 @@ package com.pawsnearme.apigateway.filter
 import org.springframework.cloud.gateway.filter.GatewayFilterChain
 import org.springframework.cloud.gateway.filter.GlobalFilter
 import org.springframework.core.Ordered
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate
+import org.springframework.http.HttpStatus
 import org.springframework.security.core.context.ReactiveSecurityContextHolder
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.stereotype.Component
@@ -10,7 +12,9 @@ import org.springframework.web.server.ServerWebExchange
 import reactor.core.publisher.Mono
 
 @Component
-class AuthenticationHeaderFilter : GlobalFilter, Ordered {
+class AuthenticationHeaderFilter(
+    private val redisTemplate: ReactiveStringRedisTemplate? = null
+) : GlobalFilter, Ordered {
 
     override fun filter(exchange: ServerWebExchange, chain: GatewayFilterChain): Mono<Void> {
         val sanitizedExchange = exchange.mutate()
@@ -39,21 +43,37 @@ class AuthenticationHeaderFilter : GlobalFilter, Ordered {
                     val fullName = extractFullName(principal)
                     val phone = extractPhone(principal)
 
-                    val requestBuilder = sanitizedExchange.request.mutate()
-                        .header("X-User-Id", userId)
-                        .header("X-User-Role", role)
-                    if (!email.isNullOrBlank()) requestBuilder.header("X-User-Email", email)
-                    if (!fullName.isNullOrBlank()) requestBuilder.header("X-User-Full-Name", fullName)
-                    if (!phone.isNullOrBlank()) requestBuilder.header("X-User-Phone", phone)
+                    val hasKeyMono = redisTemplate?.hasKey("suspended_user:$userId") ?: Mono.just(false)
+                    hasKeyMono.flatMap { isSuspended ->
+                        if (isSuspended) {
+                            forbidden(sanitizedExchange, "User access has been revoked")
+                        } else {
+                            val requestBuilder = sanitizedExchange.request.mutate()
+                                .header("X-User-Id", userId)
+                                .header("X-User-Role", role)
+                            if (!email.isNullOrBlank()) requestBuilder.header("X-User-Email", email)
+                            if (!fullName.isNullOrBlank()) requestBuilder.header("X-User-Full-Name", fullName)
+                            if (!phone.isNullOrBlank()) requestBuilder.header("X-User-Phone", phone)
 
-                    val mutatedRequest = requestBuilder.build()
-                    Mono.just(sanitizedExchange.mutate().request(mutatedRequest).build())
+                            val mutatedRequest = requestBuilder.build()
+                            val newExchange = sanitizedExchange.mutate().request(mutatedRequest).build()
+                            chain.filter(newExchange)
+                        }
+                    }
                 } else {
-                    Mono.just(sanitizedExchange)
+                    chain.filter(sanitizedExchange)
                 }
             }
-            .defaultIfEmpty(sanitizedExchange)
-            .flatMap { chain.filter(it) }
+            .switchIfEmpty(Mono.defer { chain.filter(sanitizedExchange) })
+    }
+
+    private fun forbidden(exchange: ServerWebExchange, message: String): Mono<Void> {
+        val response = exchange.response
+        response.statusCode = HttpStatus.FORBIDDEN
+        response.headers.add("Content-Type", "application/json")
+        val body = """{"error":"$message"}"""
+        val buffer = response.bufferFactory().wrap(body.toByteArray())
+        return response.writeWith(Mono.just(buffer))
     }
 
     private fun extractRole(jwt: Jwt): String {

@@ -168,6 +168,17 @@ services:
       SERVER_PORT: 8091
       CHAT_PUBLIC_BASE_URL: http://localhost:8091
 
+  content-service:
+    <<: *backend-common
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: content-service
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8092
+
   api-gateway:
     build:
       context: ..
@@ -195,6 +206,7 @@ services:
       REVIEW_SERVICE_URL: http://review-service:8089
       PAYMENT_SERVICE_URL: http://payment-service:8090
       CHAT_SERVICE_URL: http://chat-service:8091
+      CONTENT_SERVICE_URL: http://content-service:8092
     depends_on:
       redis:
         condition: service_healthy
@@ -205,6 +217,8 @@ services:
       discovery-service:
         condition: service_started
       appointment-service:
+        condition: service_started
+      content-service:
         condition: service_started
     deploy:
       replicas: 2
