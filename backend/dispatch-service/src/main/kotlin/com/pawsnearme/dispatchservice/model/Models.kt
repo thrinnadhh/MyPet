@@ -66,5 +66,9 @@ class DispatchOffer(
     var response: String? = null, // 'ACCEPTED', 'REJECTED', 'TIMED_OUT'
 
     @Column(name = "offer_rank", nullable = false)
-    var offerRank: Int
+    var offerRank: Int,
+
+    @Version
+    @Column(name = "version")
+    var version: Long = 0
 )
