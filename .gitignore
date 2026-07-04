@@ -40,6 +40,7 @@ coverage/
 *.pyc
 __pycache__/
 *.jar
+!**/gradle-wrapper.jar
 !*-plain.jar
 *.war
 *.ear
