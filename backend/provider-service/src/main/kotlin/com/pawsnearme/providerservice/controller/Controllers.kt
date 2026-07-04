@@ -4,6 +4,7 @@ import com.pawsnearme.providerservice.model.*
 import com.pawsnearme.providerservice.repository.*
 import com.pawsnearme.providerservice.service.ProviderService
 import jakarta.validation.Valid
+import org.springframework.data.redis.core.StringRedisTemplate
 import jakarta.validation.constraints.DecimalMax
 import jakarta.validation.constraints.DecimalMin
 import jakarta.validation.constraints.NotBlank
@@ -115,7 +116,8 @@ data class UpdateProviderCommissionRequest(
 @RequestMapping("/api/v1/profiles")
 class ProfileController(
     private val profileRepository: ProfileRepository,
-    private val providerService: ProviderService
+    private val providerService: ProviderService,
+    private val redisTemplate: StringRedisTemplate
 ) {
     @PostMapping
     fun createProfile(@Valid @RequestBody request: CreateProfileRequest): ResponseEntity<ProfileResponse> {
@@ -161,6 +163,7 @@ class ProfileController(
             avatarUrl = null
         )
         if (savedProfile.suspended) {
+            redisTemplate.opsForValue().set("suspended_user:${savedProfile.userId}", "true")
             throw ProviderAccessDeniedException("Access Denied: User access has been revoked.")
         }
         return ResponseEntity.ok(
@@ -180,6 +183,7 @@ class ProfileController(
         val p = profileRepository.findById(id)
             .orElseThrow { NoSuchElementException("Profile with ID $id not found") }
         if (p.suspended) {
+            redisTemplate.opsForValue().set("suspended_user:${p.userId}", "true")
             throw ProviderAccessDeniedException("Access Denied: User access has been revoked.")
         }
         return ResponseEntity.ok(ProfileResponse(p.userId, p.role, p.fullName, p.phoneNumber, p.avatarUrl, p.suspended))
@@ -208,6 +212,7 @@ class ProfileController(
             .orElseThrow { NoSuchElementException("Profile with ID $id not found") }
         p.suspended = true
         profileRepository.save(p)
+        redisTemplate.opsForValue().set("suspended_user:$id", "true")
         return ResponseEntity.ok(mapOf("status" to "SUCCESS", "message" to "Access revoked for user ${p.fullName}"))
     }
 
@@ -223,6 +228,7 @@ class ProfileController(
             .orElseThrow { NoSuchElementException("Profile with ID $id not found") }
         p.suspended = false
         profileRepository.save(p)
+        redisTemplate.delete("suspended_user:$id")
         return ResponseEntity.ok(mapOf("status" to "SUCCESS", "message" to "Access restored for user ${p.fullName}"))
     }
 }

@@ -39,6 +39,24 @@ spring:
             - name: RoleGuard
               args:
                 roles: ADMIN
+        - id: profile-admin-operations
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/profiles/*/revoke, /api/v1/profiles/*/restore
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: profile-listing-admin
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/profiles
+            - Method=GET
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
         - id: provider-service
           uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
           predicates:
@@ -189,7 +207,7 @@ spring:
               args:
                 roles: ADMIN
         - id: content-service
-          uri: ${CONTENT_SERVICE_URL:http://localhost:9092} # Content service grpc uses 9092 or HTTP? Let's keep 8092 as in table.
+          uri: ${CONTENT_SERVICE_URL:http://localhost:8092} # Content service grpc uses 9092 or HTTP? Let's keep 8092 as in table.
           predicates:
             - Path=/api/v1/content/**
         - id: captain-approval-admin
