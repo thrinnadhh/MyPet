@@ -10,6 +10,7 @@ interface AuthContextType {
   role: string | null;
   loading: boolean;
   signOut: () => Promise<void>;
+  signInWithMockPhone?: (phone: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -27,32 +28,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (appConfig.allowDemoMode) {
-      console.log("AuthProvider: Running in explicit demo mode");
-      const mockUser = {
-        id: 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
-        email: 'dev@pawsnearme.com',
-        app_metadata: { role: 'CUSTOMER' },
-        user_metadata: {},
-        aud: 'authenticated',
-        created_at: new Date().toISOString()
-      } as User;
-      
-      const mockSession = {
-        access_token: 'mock-jwt-token-for-dev-purposes-only',
-        token_type: 'bearer',
-        expires_in: 3600,
-        refresh_token: 'mock-refresh-token',
-        user: mockUser
-      } as Session;
-
-      setSession(mockSession);
-      setUser(mockUser);
-      setRole('CUSTOMER');
-      setLoading(false);
-      return;
-    }
-
     const applySession = async (nextSession: Session | null) => {
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
@@ -81,12 +56,43 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
+  const signInWithMockPhone = (phoneNumber: string) => {
+    const mockUser = {
+      id: 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
+      email: 'dev@pawsnearme.com',
+      phone: phoneNumber,
+      app_metadata: { role: 'CUSTOMER' },
+      user_metadata: {},
+      aud: 'authenticated',
+      created_at: new Date().toISOString()
+    } as User;
+    
+    const mockSession = {
+      access_token: 'mock-jwt-token-for-dev-purposes-only',
+      token_type: 'bearer',
+      expires_in: 3600,
+      refresh_token: 'mock-refresh-token',
+      user: mockUser
+    } as Session;
+
+    setSession(mockSession);
+    setUser(mockUser);
+    setRole('CUSTOMER');
+    setLoading(false);
+  };
+
   const signOut = async () => {
-    await supabase.auth.signOut();
+    if (session?.access_token === 'mock-jwt-token-for-dev-purposes-only') {
+      setSession(null);
+      setUser(null);
+      setRole(null);
+    } else {
+      await supabase.auth.signOut();
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, role, loading, signOut }}>
+    <AuthContext.Provider value={{ user, session, role, loading, signOut, signInWithMockPhone }}>
       {children}
     </AuthContext.Provider>
   );

@@ -11,11 +11,14 @@ import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
+import { useAuth } from '@/context/AuthContext';
+import { appConfig } from '@/utils/app-config';
 import { supabase } from '@/utils/supabase';
 
 export default function LoginScreen() {
   const theme = useTheme();
   const { t } = useTranslation();
+  const { signInWithMockPhone } = useAuth();
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [showOtpField, setShowOtpField] = useState(false);
@@ -30,6 +33,12 @@ export default function LoginScreen() {
     let normalizedPhone = phone.trim().replace(/[\s-()]/g, '');
     if (!normalizedPhone.startsWith('+')) {
       normalizedPhone = `+91${normalizedPhone}`;
+    }
+
+    if (appConfig.allowDemoMode) {
+      Alert.alert(t('common.success'), `${t('login.otpSent')} (Testing code: 123456)`);
+      setShowOtpField(true);
+      return;
     }
 
     setLoading(true);
@@ -67,6 +76,15 @@ export default function LoginScreen() {
       normalizedPhone = `+91${normalizedPhone}`;
     }
 
+    if (appConfig.allowDemoMode) {
+      if (otp.trim() === '123456') {
+        signInWithMockPhone?.(normalizedPhone);
+      } else {
+        Alert.alert(t('login.authFailed'), 'Invalid testing OTP. Try 123456.');
+      }
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -82,7 +100,7 @@ export default function LoginScreen() {
     } finally {
       setLoading(false);
     }
-  }, [phone, otp, t]);
+  }, [phone, otp, signInWithMockPhone, t]);
 
   return (
     <ThemedView style={styles.container}>
