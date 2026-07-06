@@ -6,6 +6,7 @@ import com.pawsnearme.paymentservice.model.Transaction
 import com.pawsnearme.paymentservice.service.PaymentResultRequest
 import com.pawsnearme.paymentservice.service.PaymentService
 import com.pawsnearme.paymentservice.service.RazorpayOrderResponse
+import com.pawsnearme.paymentservice.service.CreateLinkedAccountRequest
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -106,6 +107,31 @@ class PaymentController(private val paymentService: PaymentService) {
             throw PaymentAccessDeniedException("Access denied")
         }
         return ResponseEntity.ok(paymentService.getPayoutHistory(userId))
+    }
+
+    @PostMapping("/linked-accounts")
+    fun createLinkedAccount(
+        @RequestBody request: CreateLinkedAccountRequest,
+        @RequestHeader("X-User-Role", required = false) role: String?
+    ): ResponseEntity<Any> {
+        if (role != "ADMIN") {
+            throw PaymentAccessDeniedException("Access denied: Admin only")
+        }
+        val linked = paymentService.createLinkedAccount(request)
+        return ResponseEntity.status(HttpStatus.CREATED).body(linked)
+    }
+
+    @GetMapping("/payouts/{id}")
+    fun getPayout(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?,
+        @RequestHeader("X-User-Role", required = false) xUserRole: String?
+    ): ResponseEntity<Any> {
+        val payout = paymentService.getPayoutById(id)
+        if (xUserRole != "ADMIN" && xUserId != payout.payeeUserId.toString()) {
+            throw PaymentAccessDeniedException("Access denied")
+        }
+        return ResponseEntity.ok(payout)
     }
 
     @PostMapping("/promotions")

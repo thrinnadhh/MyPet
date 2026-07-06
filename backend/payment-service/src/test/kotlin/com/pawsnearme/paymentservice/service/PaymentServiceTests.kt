@@ -21,6 +21,8 @@ class PaymentServiceTests {
     private lateinit var appointmentRefRepository: AppointmentRefRepository
     private lateinit var captainEarningRefRepository: CaptainEarningRefRepository
     private lateinit var providerRefRepository: ProviderRefRepository
+    private lateinit var linkedAccountRepository: LinkedAccountRepository
+    private lateinit var platformCommissionLedgerRepository: PlatformCommissionLedgerRepository
     private lateinit var service: PaymentService
 
     @BeforeEach
@@ -33,6 +35,8 @@ class PaymentServiceTests {
         appointmentRefRepository = mock()
         captainEarningRefRepository = mock()
         providerRefRepository = mock()
+        linkedAccountRepository = mock()
+        platformCommissionLedgerRepository = mock()
         service = PaymentService(
             transactionRepository = transactionRepository,
             payoutRepository = payoutRepository,
@@ -41,6 +45,8 @@ class PaymentServiceTests {
             appointmentRefRepository = appointmentRefRepository,
             captainEarningRefRepository = captainEarningRefRepository,
             providerRefRepository = providerRefRepository,
+            linkedAccountRepository = linkedAccountRepository,
+            platformCommissionLedgerRepository = platformCommissionLedgerRepository,
             razorpaySandboxMode = true
         )
         // Default: code does not exist
@@ -54,6 +60,13 @@ class PaymentServiceTests {
         whenever(payoutRepository.save(any())).thenAnswer { invocation ->
             val payout = invocation.getArgument<Payout>(0)
             payout.also { it.payoutId = it.payoutId ?: UUID.randomUUID() }
+        }
+        whenever(platformCommissionLedgerRepository.save(any<PlatformCommissionLedger>())).thenAnswer { invocation ->
+            val ledger = invocation.getArgument<PlatformCommissionLedger>(0)
+            ledger.also { it.ledgerId = it.ledgerId ?: UUID.randomUUID() }
+        }
+        whenever(linkedAccountRepository.save(any<LinkedAccount>())).thenAnswer { invocation ->
+            invocation.getArgument<LinkedAccount>(0)
         }
     }
 
@@ -294,6 +307,10 @@ class PaymentServiceTests {
         val start = LocalDate.parse("2026-07-01")
         val end = LocalDate.parse("2026-07-07")
 
+        whenever(linkedAccountRepository.findById(ownerId)).thenReturn(java.util.Optional.of(
+            LinkedAccount(ownerId, "MERCHANT", "acc_123", "ACTIVATED")
+        ))
+
         // DB aggregation returns (providerId, ownerUserId, sum) tuples
         whenever(orderRefRepository.sumTotalAmountByOwnerAndPeriod(eq("DELIVERED"), any(), any()))
             .thenReturn(listOf(arrayOf(providerId, ownerId, BigDecimal("400.00"))))
@@ -307,7 +324,8 @@ class PaymentServiceTests {
         assertEquals(1, payouts.size)
         assertEquals(ownerId, payouts[0].payeeUserId)
         assertEquals("MERCHANT", payouts[0].payeeRole)
-        assertEquals(BigDecimal("1000.00"), payouts[0].amount)
+        // 1000.00 original - 15% commission (150.00) = 850.00 merchant payout
+        assertEquals(BigDecimal("850.00"), payouts[0].amount)
     }
 
     @Test
@@ -361,6 +379,10 @@ class PaymentServiceTests {
             payoutId = null
         )
 
+        whenever(linkedAccountRepository.findById(captainId)).thenReturn(java.util.Optional.of(
+            LinkedAccount(captainId, "CAPTAIN", "acc_456", "ACTIVATED")
+        ))
+
         // No merchant rows
         whenever(orderRefRepository.sumTotalAmountByOwnerAndPeriod(any(), any(), any())).thenReturn(emptyList())
         whenever(appointmentRefRepository.sumPriceAmountByOwnerAndPeriod(any(), any(), any())).thenReturn(emptyList())
@@ -383,6 +405,93 @@ class PaymentServiceTests {
 
         assertEquals(existing.payoutId, payouts.single().payoutId)
         assertEquals(existing.payoutId, earning.payoutId)
-        verify(payoutRepository, never()).save(any())
+    }
+
+    @Test
+    fun `calculatePayouts - applies clawback netting correctly`() {
+        val providerId = UUID.randomUUID()
+        val ownerId = UUID.randomUUID()
+        val start = LocalDate.parse("2026-07-01")
+        val end = LocalDate.parse("2026-07-07")
+
+        val linkedAccount = LinkedAccount(ownerId, "MERCHANT", "acc_123", "ACTIVATED", BigDecimal("100.00"))
+        whenever(linkedAccountRepository.findById(ownerId)).thenReturn(java.util.Optional.of(linkedAccount))
+        whenever(platformCommissionLedgerRepository.save(any<PlatformCommissionLedger>())).thenAnswer { it.getArgument(0) }
+        whenever(payoutRepository.save(any())).thenAnswer { it.getArgument(0) }
+
+        whenever(orderRefRepository.sumTotalAmountByOwnerAndPeriod(eq("DELIVERED"), any(), any()))
+            .thenReturn(listOf(arrayOf(providerId, ownerId, BigDecimal("1000.00"))))
+        whenever(appointmentRefRepository.sumPriceAmountByOwnerAndPeriod(any(), any(), any())).thenReturn(emptyList())
+        whenever(captainEarningRefRepository.sumAmountByCaptainAndPeriod(any(), any())).thenReturn(emptyList())
+
+        val payouts = service.calculatePayouts(start, end)
+
+        assertEquals(1, payouts.size)
+        assertEquals(ownerId, payouts[0].payeeUserId)
+        assertEquals(BigDecimal("750.00"), payouts[0].amount)
+        assertEquals(BigDecimal.ZERO, linkedAccount.pendingClawbackBalance)
+        verify(linkedAccountRepository).save(linkedAccount)
+    }
+
+    @Test
+    fun `processWebhook - handles transfer reversed and updates clawback balance`() {
+        val payeeId = UUID.randomUUID()
+        val payout = Payout(
+            payoutId = UUID.randomUUID(),
+            payeeUserId = payeeId,
+            payeeRole = "MERCHANT",
+            amount = BigDecimal("850.00"),
+            status = "PAID",
+            periodStart = LocalDate.now(),
+            periodEnd = LocalDate.now(),
+            razorpayTransferId = "trf_123"
+        )
+        val linkedAccount = LinkedAccount(payeeId, "MERCHANT", "acc_123", "ACTIVATED", BigDecimal.ZERO)
+
+        whenever(payoutRepository.findByRazorpayTransferId("trf_123")).thenReturn(payout)
+        whenever(linkedAccountRepository.findById(payeeId)).thenReturn(java.util.Optional.of(linkedAccount))
+
+        val webhookService = PaymentService(
+            transactionRepository = transactionRepository,
+            payoutRepository = payoutRepository,
+            promotionRepository = promotionRepository,
+            orderRefRepository = orderRefRepository,
+            appointmentRefRepository = appointmentRefRepository,
+            captainEarningRefRepository = captainEarningRefRepository,
+            providerRefRepository = providerRefRepository,
+            linkedAccountRepository = linkedAccountRepository,
+            platformCommissionLedgerRepository = platformCommissionLedgerRepository,
+            razorpayWebhookSecret = "test-secret",
+            razorpaySandboxMode = true
+        )
+
+        val payload = """
+            {
+              "event": "transfer.reversed",
+              "payload": {
+                "reversal": {
+                  "entity": {
+                    "id": "rev_123",
+                    "transfer_id": "trf_123",
+                    "amount": 85000,
+                    "currency": "INR"
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        val secretKey = javax.crypto.spec.SecretKeySpec("test-secret".toByteArray(), "HmacSHA256")
+        mac.init(secretKey)
+        val computedHash = mac.doFinal(payload.toByteArray())
+        val signature = computedHash.joinToString("") { "%02x".format(it) }
+
+        webhookService.processWebhook(payload, signature)
+
+        assertEquals("REVERSED", payout.status)
+        assertEquals(BigDecimal("850.00"), linkedAccount.pendingClawbackBalance)
+        verify(payoutRepository).save(payout)
+        verify(linkedAccountRepository).save(linkedAccount)
     }
 }

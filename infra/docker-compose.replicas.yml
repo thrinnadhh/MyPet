@@ -14,6 +14,7 @@ x-backend-common: &backend-common
     KAFKA_LISTENER_CONCURRENCY: 3
     GATEWAY_SECRET: dev-secret-change-in-production
     GATEWAY_TRUST_ENABLED: "true"
+    RAZORPAY_SANDBOX_MODE: "true"
     INTERNAL_API_SECRET: dev-internal-secret
     NOTIFICATION_DELIVERY_MODE: EXPO_FCM
     ORDER_AUTO_COMPLETE_HOURS: "1"
@@ -27,7 +28,7 @@ x-backend-common: &backend-common
     kafka-init-topics:
       condition: service_completed_successfully
   deploy:
-    replicas: 2
+    replicas: 1
     resources:
       limits:
         cpus: "1.0"
@@ -152,6 +153,8 @@ services:
       dockerfile: backend/Dockerfile
       args:
         SERVICE_NAME: payment-service
+    ports:
+      - "8090:8090"
     environment:
       <<: *backend-env
       SERVER_PORT: 8090
@@ -221,7 +224,7 @@ services:
       content-service:
         condition: service_started
     deploy:
-      replicas: 2
+      replicas: 1
       resources:
         limits:
           cpus: "1.0"
@@ -230,13 +233,13 @@ services:
   prometheus:
     image: prom/prometheus:v2.54.1
     ports:
-      - "9090:9090"
+      - "9095:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
 
   grafana:
     image: grafana/grafana:11.1.4
     ports:
-      - "3004:3000"
+      - "3005:3000"
     depends_on:
       - prometheus

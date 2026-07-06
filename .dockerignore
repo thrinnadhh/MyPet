@@ -1,0 +1,8 @@
+**
+
+!backend/
+!backend/Dockerfile
+!backend/*/
+!backend/*/build/
+!backend/*/build/libs/
+!backend/*/build/libs/*-SNAPSHOT.jar

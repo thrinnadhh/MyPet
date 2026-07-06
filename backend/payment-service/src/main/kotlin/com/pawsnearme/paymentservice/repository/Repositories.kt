@@ -25,6 +25,7 @@ interface PayoutRepository : JpaRepository<Payout, UUID> {
         periodStart: LocalDate,
         periodEnd: LocalDate
     ): Payout?
+    fun findByRazorpayTransferId(razorpayTransferId: String): Payout?
 }
 
 @Repository
@@ -103,3 +104,15 @@ interface CaptainEarningRefRepository : JpaRepository<CaptainEarningRef, UUID> {
 
 @Repository
 interface ProviderRefRepository : JpaRepository<ProviderRef, UUID>
+
+@Repository
+interface LinkedAccountRepository : JpaRepository<LinkedAccount, UUID>
+
+@Repository
+interface PlatformCommissionLedgerRepository : JpaRepository<PlatformCommissionLedger, UUID> {
+    fun findByProviderIdAndPeriodStartAndPeriodEnd(
+        providerId: UUID,
+        periodStart: LocalDate,
+        periodEnd: LocalDate
+    ): PlatformCommissionLedger?
+}

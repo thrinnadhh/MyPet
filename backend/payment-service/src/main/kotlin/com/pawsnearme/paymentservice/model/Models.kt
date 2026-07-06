@@ -79,6 +79,9 @@ class Payout(
     @Column(name = "paid_at")
     var paidAt: Instant? = null,
 
+    @Column(name = "razorpay_transfer_id")
+    var razorpayTransferId: String? = null,
+
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant = Instant.now()
 )
@@ -203,4 +206,57 @@ class ProviderRef(
     
     @Column(name = "owner_user_id")
     val ownerUserId: UUID
+)
+
+@Entity
+@Table(name = "linked_accounts", schema = "payments")
+class LinkedAccount(
+    @Id
+    @Column(name = "payee_user_id")
+    var payeeUserId: UUID,
+
+    @Column(name = "payee_role", nullable = false)
+    var payeeRole: String,
+
+    @Column(name = "razorpay_account_id", nullable = false)
+    var razorpayAccountId: String,
+
+    @Column(name = "kyc_status", nullable = false)
+    var kycStatus: String,
+
+    @Column(name = "pending_clawback_balance", nullable = false)
+    var pendingClawbackBalance: BigDecimal = BigDecimal.ZERO,
+
+    @Column(name = "created_at", nullable = false)
+    var createdAt: Instant = Instant.now()
+)
+
+@Entity
+@Table(name = "platform_commission_ledger", schema = "payments")
+class PlatformCommissionLedger(
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    @Column(name = "ledger_id")
+    var ledgerId: UUID? = null,
+
+    @Column(name = "provider_id", nullable = false)
+    var providerId: UUID,
+
+    @Column(name = "period_start", nullable = false)
+    var periodStart: LocalDate,
+
+    @Column(name = "period_end", nullable = false)
+    var periodEnd: LocalDate,
+
+    @Column(name = "original_amount", nullable = false)
+    var originalAmount: BigDecimal,
+
+    @Column(name = "commission_pct", nullable = false)
+    var commissionPct: BigDecimal,
+
+    @Column(name = "commission_kept", nullable = false)
+    var commissionKept: BigDecimal,
+
+    @Column(name = "created_at", nullable = false)
+    var createdAt: Instant = Instant.now()
 )
