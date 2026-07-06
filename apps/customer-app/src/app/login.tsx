@@ -27,11 +27,16 @@ export default function LoginScreen() {
       return;
     }
 
+    let normalizedPhone = phone.trim().replace(/[\s-()]/g, '');
+    if (!normalizedPhone.startsWith('+')) {
+      normalizedPhone = `+91${normalizedPhone}`;
+    }
+
     setLoading(true);
 
     try {
       const { error } = await supabase.auth.signInWithOtp({
-        phone: phone.trim(),
+        phone: normalizedPhone,
         options: {
           channel: 'sms',
         }
@@ -57,11 +62,16 @@ export default function LoginScreen() {
       return;
     }
 
+    let normalizedPhone = phone.trim().replace(/[\s-()]/g, '');
+    if (!normalizedPhone.startsWith('+')) {
+      normalizedPhone = `+91${normalizedPhone}`;
+    }
+
     setLoading(true);
 
     try {
       const { error } = await supabase.auth.verifyOtp({
-        phone: phone.trim(),
+        phone: normalizedPhone,
         token: otp.trim(),
         type: 'sms',
       });
