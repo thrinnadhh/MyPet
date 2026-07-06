@@ -16,50 +16,63 @@ import { supabase } from '@/utils/supabase';
 export default function LoginScreen() {
   const theme = useTheme();
   const { t } = useTranslation();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [showOtpField, setShowOtpField] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleAuth = useCallback(async () => {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert(t('common.error'), t('login.fillEmailPassword'));
-      return;
-    }
-
-    if (isSignUp && !fullName.trim()) {
-      Alert.alert(t('common.error'), t('login.enterFullName'));
+  const handleSendOtp = useCallback(async () => {
+    if (!phone.trim()) {
+      Alert.alert(t('common.error'), t('login.fillPhone'));
       return;
     }
 
     setLoading(true);
 
     try {
-      if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              full_name: fullName,
-              role: 'CUSTOMER',
-            },
-          },
-        });
-        if (error) throw error;
-        Alert.alert(t('common.success'), t('login.verificationSent'));
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-      }
+      const { error } = await supabase.auth.signInWithOtp({
+        phone: phone.trim(),
+        options: {
+          channel: 'sms',
+        }
+      });
+      if (error) throw error;
+      Alert.alert(t('common.success'), t('login.otpSent'));
+      setShowOtpField(true);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('login.somethingWrong');
       Alert.alert(t('login.authFailed'), message);
     } finally {
       setLoading(false);
     }
-  }, [email, password, fullName, isSignUp, t]);
+  }, [phone, t]);
+
+  const handleVerifyOtp = useCallback(async () => {
+    if (!phone.trim()) {
+      Alert.alert(t('common.error'), t('login.fillPhone'));
+      return;
+    }
+    if (!otp.trim()) {
+      Alert.alert(t('common.error'), t('login.fillOtp'));
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        phone: phone.trim(),
+        token: otp.trim(),
+        type: 'sms',
+      });
+      if (error) throw error;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('login.somethingWrong');
+      Alert.alert(t('login.authFailed'), message);
+    } finally {
+      setLoading(false);
+    }
+  }, [phone, otp, t]);
 
   return (
     <ThemedView style={styles.container}>
@@ -71,57 +84,63 @@ export default function LoginScreen() {
             </View>
             <ThemedText style={styles.brand}>{t('common.brand')}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary" style={styles.tagline}>
-              {isSignUp ? t('login.taglineSignUp') : t('login.taglineSignIn')}
+              {t('login.taglineSignIn')}
             </ThemedText>
           </View>
 
           <AppCard>
             <View style={styles.form}>
-            {isSignUp ? (
-              <TextField
-                label={t('login.fullName')}
-                placeholder={t('login.fullNamePlaceholder')}
-                value={fullName}
-                onChangeText={setFullName}
-                autoCapitalize="words"
-                accessibilityLabel="Full Name Input"
-              />
-            ) : null}
             <TextField
-              label={t('login.email')}
-              placeholder={t('login.emailPlaceholder')}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
+              label={t('login.phone')}
+              placeholder={t('login.phonePlaceholder')}
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
               autoCapitalize="none"
               autoCorrect={false}
-              accessibilityLabel="Email Input"
-            />
-            <TextField
-              label={t('login.password')}
-              placeholder={t('login.passwordPlaceholder')}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-              accessibilityLabel="Password Input"
+              editable={!showOtpField}
+              accessibilityLabel="Phone Number Input"
             />
 
-            <PrimaryButton
-              label={isSignUp ? t('login.createAccount') : t('login.logIn')}
-              onPress={() => void handleAuth()}
-              loading={loading}
-              style={styles.submit}
-            />
+            {showOtpField ? (
+              <>
+                <TextField
+                  label={t('login.otp')}
+                  placeholder={t('login.otpPlaceholder')}
+                  value={otp}
+                  onChangeText={setOtp}
+                  keyboardType="number-pad"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  accessibilityLabel="OTP Code Input"
+                />
+
+                <PrimaryButton
+                  label={t('login.verifyOtp')}
+                  onPress={() => void handleVerifyOtp()}
+                  loading={loading}
+                  style={styles.submit}
+                />
+
+                <PrimaryButton
+                  label={t('login.changePhone')}
+                  onPress={() => {
+                    setShowOtpField(false);
+                    setOtp('');
+                  }}
+                  variant="ghost"
+                />
+              </>
+            ) : (
+              <PrimaryButton
+                label={t('login.sendOtp')}
+                onPress={() => void handleSendOtp()}
+                loading={loading}
+                style={styles.submit}
+              />
+            )}
             </View>
           </AppCard>
-
-          <PrimaryButton
-            label={isSignUp ? t('login.toggleToSignIn') : t('login.toggleToSignUp')}
-            onPress={() => setIsSignUp((prev) => !prev)}
-            variant="ghost"
-          />
         </View>
       </SafeAreaView>
     </ThemedView>
