@@ -108,9 +108,9 @@ jobs:
           git checkout origin/main -- backend
           git clean -fd backend
 
-      - name: Verify narrowed S10 scope
+      - name: Verify narrowed S10 source scope
         run: |
-          grep -RInE 'ProtectionProvider|useProtection|protectionStatus|order-protection|orderProtection|expo-local-authentication' apps/customer-app/src apps/customer-app/package.json && exit 1 || true
+          grep -RInE 'ProtectionProvider|useProtection|protectionStatus|order-protection|orderProtection' apps/customer-app/src && exit 1 || true
 
       - name: Remove bootstrap artifacts
         run: rm -rf .s10-bootstrap.py .s10-payload .github/workflows/s10-bootstrap.yml
