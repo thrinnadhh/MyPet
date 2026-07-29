@@ -1,0 +1,58 @@
+name: S10 Final Validation
+
+on:
+  push:
+    branches: [ codex/s10-ui-auth-foundation ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-customer-s10:
+    if: github.event_name == 'push' || github.head_ref == 'codex/s10-ui-auth-foundation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/s10-ui-auth-foundation
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/customer-app/package-lock.json
+      - name: Install customer dependencies
+        working-directory: apps/customer-app
+        run: npm ci
+      - name: Validate Expo configuration
+        working-directory: apps/customer-app
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: validation-anon-key
+          EXPO_PUBLIC_API_BASE_URL: https://api.example.invalid
+        run: npx expo config --type public
+      - name: Generate Android native project
+        working-directory: apps/customer-app
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: validation-anon-key
+          EXPO_PUBLIC_API_BASE_URL: https://api.example.invalid
+        run: npx expo prebuild --platform android --no-install --clean
+      - name: Typecheck
+        working-directory: apps/customer-app
+        run: npm run typecheck
+      - name: Lint
+        working-directory: apps/customer-app
+        run: npm run lint
+      - name: Test S10
+        working-directory: apps/customer-app
+        run: npm run test:s10
+      - name: Export web bundle
+        working-directory: apps/customer-app
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: validation-anon-key
+          EXPO_PUBLIC_API_BASE_URL: https://api.example.invalid
+        run: npx expo export --platform web --output-dir dist-s10 --clear
