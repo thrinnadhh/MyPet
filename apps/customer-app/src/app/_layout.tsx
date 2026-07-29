@@ -1,40 +1,40 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import { useColorScheme, ActivityIndicator, View } from 'react-native';
+import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold, useFonts } from '@expo-google-fonts/inter';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { ActivityIndicator, useColorScheme, View } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
-import '@/i18n';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { AuthIntentProvider } from '@/context/AuthIntentContext';
 import { LocaleProvider } from '@/context/LocaleContext';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
-import LoginScreen from './login';
+import '@/i18n';
 
-function TabLayoutContent() {
-  const colorScheme = useColorScheme();
-  const { user, loading, session } = useAuth();
+function AppNavigator() {
+  const scheme = useColorScheme();
+  const { loading, session, user } = useAuth();
+  const [fontsLoaded, fontError] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold });
   usePushNotifications(user?.id, session?.access_token);
 
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colorScheme === 'dark' ? '#000' : '#fff' }}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
+  if (loading || (!fontsLoaded && !fontError)) {
+    return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator size="large" /></View>;
   }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={scheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AnimatedSplashOverlay />
-      {user ? <AppTabs /> : <LoginScreen />}
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="login" options={{ presentation: 'modal' }} />
+      </Stack>
     </ThemeProvider>
   );
 }
 
-export default function TabLayout() {
+export default function RootLayout() {
   return (
     <AuthProvider>
       <LocaleProvider>
-        <TabLayoutContent />
+        <AuthIntentProvider><AppNavigator /></AuthIntentProvider>
       </LocaleProvider>
     </AuthProvider>
   );
