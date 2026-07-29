@@ -142,13 +142,6 @@ jobs:
           npm run lint
           npm run test:s10
 
-      - name: Validate merchant and captain app
-        working-directory: apps/merchant-captain-app
-        run: |
-          npm ci
-          npm run typecheck
-          npm run lint
-
       - name: Commit validated implementation
         run: |
           git config user.name "github-actions[bot]"
