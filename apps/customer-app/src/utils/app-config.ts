@@ -8,11 +8,13 @@ const defaultGatewayUrl = Platform.select({
   default: 'http://localhost:8080',
 }) ?? 'http://localhost:8080';
 
+const allowDemoMode = __DEV__ && isTruthy(process.env.EXPO_PUBLIC_ALLOW_DEMO_MODE);
+
 export const appConfig = {
   apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || defaultGatewayUrl,
   supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
   supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
-  allowDemoMode: isTruthy(process.env.EXPO_PUBLIC_ALLOW_DEMO_MODE),
+  allowDemoMode,
 };
 
 export function requireMobileConfig() {
@@ -24,7 +26,7 @@ export function requireMobileConfig() {
   if (missing.length > 0 && !appConfig.allowDemoMode) {
     throw new Error(
       `Missing mobile configuration: ${missing.join(', ')}. ` +
-      'Set EXPO_PUBLIC_ALLOW_DEMO_MODE=true only for local demo fixtures.'
+      'Set EXPO_PUBLIC_ALLOW_DEMO_MODE=true only in a development build with local demo fixtures.'
     );
   }
 }
