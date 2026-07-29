@@ -2,25 +2,33 @@
 
 ## Scope
 
-S10 converts the customer app to guest-first discovery, a four-tab route shell, OTP-first authentication, centralized profile readiness, and optional account-level Order Protection with device-local verification material. It preserves Expo Router, Supabase Auth, the API gateway, and existing backend service boundaries.
+S10 converts the customer app to guest-first discovery, a four-tab route shell, OTP-first authentication, centralized profile readiness, and reusable native UI foundations. It preserves Expo Router, Supabase Auth, the API gateway, and existing backend service boundaries.
 
 ## Implementation decisions
 
-- `AuthProvider` restores Supabase sessions from chunked platform SecureStore storage on native and browser local storage on web. No service-role key, demo user, mock token, or automatic demo login is present.
-- `AuthIntentProvider` is the only customer UI entry point for protected actions. It preserves a serializable route intent and an in-memory callback; process restarts safely resume the destination without replaying an uncommitted write.
-- `ProtectionProvider` is separate from authentication. Protection never replaces or disables the OTP session. The enabled preference is stored server-side on the customer profile; per-user PIN/biometric material stays in `WHEN_UNLOCKED_THIS_DEVICE_ONLY` secure storage with a PIN fallback.
-- Fresh OTP authorization is transient and is not restored with the session. The gateway strips spoofed `X-User-Auth-Time`, derives it from the verified Supabase JWT, and the provider service rejects preference mutations older than ten minutes. Enrollment, disabling, recovery, and enrollment on another device require a fresh verification.
-- Profile completeness is a pure policy module. First verification requires a display name; checkout additionally requires a verified mobile and a server-returned default delivery address.
-- Public provider discovery is data-driven by provider type and launch-market configuration. Tirupati is the first market record, not a route-level constant.
-- Legacy `/home`, `/profile`, and `/explore` routes redirect to the new tab routes. `/shop`, `/vet`, and `/groom` remain public and use reusable discovery screens without production fallback data.
+- `AuthProvider` restores the existing Supabase session and listens for subsequent auth-state changes. No service-role key, demo user, mock token, or automatic demo login is present.
+- `AuthIntentProvider` is the central customer UI entry point for protected actions. It preserves a serializable route intent and an in-memory callback; authentication resumes the intended destination without serializing a write callback into route parameters.
+- Phone and email OTP share one typed state machine for input validation, send, verification, resend, expiry, rate-limit, network, cancellation, and recovery states.
+- First verification collects a display name when the Supabase user does not already have one.
+- Profile completeness is a pure policy module. Post-auth completion requires a display name; checkout additionally requires a verified mobile number and a server-returned default delivery address. Email remains optional.
+- Public provider discovery is data-driven by provider type and launch-market configuration. Tirupati is the first market record, not a route-level architectural constant.
+- Legacy `/home`, `/profile`, `/explore`, `/shop`, `/vet`, and `/groom` routes redirect or compose into the new tab and nested-route foundations so existing navigation does not break during migration.
+- English and Telugu resources are established while existing Hindi support is retained.
 
-## Security invariants
+## Design foundation
 
-- Marketplace APIs are called only through the configured API gateway.
+- Typed royal-blue, amber, emerald, cool-white, light-mode, and dark-mode colour tokens.
+- Inter typography, a 4 px spacing scale, 8/16/24 px radii, subtle elevations, and semantic interaction states.
+- Reusable screen shell, app bar, location header, search field, chips, section headers, entity/provider/product cards, badges, star progress, loading/empty/error/offline/unauthenticated states, bottom-sheet foundation, and sticky CTA.
+- Touch targets, safe areas, scalable text, keyboard handling, semantic labels, and reduced-motion support are centralized in the foundation components.
+
+## Security and data invariants
+
+- Marketplace APIs are called through the configured API gateway.
 - Protected write callbacks are never serialized into route parameters.
-- Order Protection keys are namespaced by authenticated Supabase user ID to prevent cross-account device leakage. A server-enabled account with no local key material fails closed into fresh-OTP device enrollment.
 - Checkout readiness is derived from verified Supabase identity plus the gateway-backed default-address endpoint.
-- S10 does not introduce client-authoritative discounts, loyalty balances, provider IDs, customer IDs, or payment results.
+- S10 does not introduce client-authoritative discounts, loyalty balances, provider IDs, customer IDs, payment results, mock sessions, or sample API responses.
+- The customer bundle uses the Supabase public client configuration only; no service-role credential is referenced.
 
 ## Validation commands
 
@@ -32,7 +40,7 @@ npm run lint
 npm run test:s10
 ```
 
-The repository CI additionally runs the complete backend Gradle build/tests, provider-service migration validation through Flyway startup/tests, and validates the merchant/captain app.
+The S10 test suite covers phone/email OTP send, verification, error and resend handling, auth-intent serialization/resumption, profile-completeness policy, customer tab definitions, and English/Telugu/Hindi resource loading.
 
 ## Pet identity boundary
 
