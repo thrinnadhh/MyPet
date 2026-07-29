@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   validate-customer-s10:
+    # Temporary branch validation; removed after a green run.
     if: github.event_name == 'push' || github.head_ref == 'codex/s10-ui-auth-foundation'
     runs-on: ubuntu-latest
     timeout-minutes: 45
