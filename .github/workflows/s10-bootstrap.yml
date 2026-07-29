@@ -111,6 +111,7 @@ jobs:
           rm -f apps/customer-app/src/context/ProtectionContext.tsx
           git checkout origin/main -- backend
           git clean -fd backend
+          git checkout origin/main -- .github/workflows/ci.yml
 
       - name: Verify narrowed S10 source scope
         run: |
