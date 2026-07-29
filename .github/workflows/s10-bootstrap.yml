@@ -68,6 +68,10 @@ jobs:
           source = source.replace("import { useProtection } from '@/context/ProtectionContext';", "import { useAuthIntent } from '@/context/AuthIntentContext';")
           source = source.replace('  const { requireProtection } = useProtection();', '  const { requireAuth } = useAuthIntent();')
           source = source.replace("onPress={() => void requireProtection({ operation: 'CHECKOUT', returnTo: '/checkout' })}", "onPress={() => void requireAuth({ action: 'CHECKOUT', returnTo: '/checkout' })}")
+          duplicate_import = "import { useAuthIntent } from '@/context/AuthIntentContext';\nimport { useAuthIntent } from '@/context/AuthIntentContext';\n"
+          source = source.replace(duplicate_import, "import { useAuthIntent } from '@/context/AuthIntentContext';\n")
+          duplicate_guard = "  const { requireAuth } = useAuthIntent();\n  const { requireAuth } = useAuthIntent();\n"
+          source = source.replace(duplicate_guard, "  const { requireAuth } = useAuthIntent();\n")
           checkout.write_text(source)
 
           profile = Path('apps/customer-app/src/screens/profile-screen.tsx')
