@@ -6,6 +6,7 @@ import io
 import tarfile
 from pathlib import Path
 
+# S10 validation trigger: workflow exists before this push.
 ROOT = Path(__file__).resolve().parent
 parts = "".join(path.read_text() for path in sorted((ROOT / ".s10-payload").glob("part-*")))
 raw = gzip.decompress(base64.b64decode(parts))
