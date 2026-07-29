@@ -31,8 +31,7 @@ jobs:
           import json
 
           otp = Path('apps/customer-app/src/auth/otp-auth.ts')
-          source = otp.read_text()
-          source = source.replace(
+          source = otp.read_text().replace(
               ": await supabase.auth.resend({ type: 'email', email: identifier });",
               ": await supabase.auth.signInWithOtp({ email: identifier, options: { shouldCreateUser: true, data: { role: 'CUSTOMER' } } });",
           )
@@ -46,8 +45,7 @@ jobs:
           tabs.write_text(source)
 
           test = Path('apps/customer-app/src/auth/__tests__/otp-auth.test.ts')
-          source = test.read_text()
-          source = source.replace(
+          source = test.read_text().replace(
               "jest.mock('@/utils/supabase', () => ({ supabase: { auth: { signInWithOtp: mockSignInWithOtp, verifyOtp: mockVerifyOtp, resend: mockResend } } }));",
               "jest.mock('@/utils/supabase', () => ({ supabase: { auth: { signInWithOtp: (...args: unknown[]) => mockSignInWithOtp(...args), verifyOtp: (...args: unknown[]) => mockVerifyOtp(...args), resend: (...args: unknown[]) => mockResend(...args) } } }));",
           )
@@ -59,24 +57,45 @@ jobs:
           test.write_text(source)
 
           layout = Path('apps/customer-app/src/app/_layout.tsx')
-          source = layout.read_text().replace('        <Stack.Screen name="order-protection" options={{ presentation: \'modal\' }} />\n', '')
+          source = layout.read_text()
+          source = source.replace("import { ProtectionProvider } from '@/context/ProtectionContext';\n", '')
+          source = source.replace('        <Stack.Screen name="order-protection" options={{ presentation: \'modal\' }} />\n', '')
+          source = source.replace('<AuthIntentProvider><ProtectionProvider><AppNavigator /></ProtectionProvider></AuthIntentProvider>', '<AuthIntentProvider><AppNavigator /></AuthIntentProvider>')
           layout.write_text(source)
 
-          for locale_path in [
-              Path('apps/customer-app/src/i18n/s10-en.json'),
-              Path('apps/customer-app/src/i18n/s10-hi.json'),
-              Path('apps/customer-app/src/i18n/te.json'),
-          ]:
+          checkout = Path('apps/customer-app/src/app/checkout/index.tsx')
+          source = checkout.read_text()
+          source = source.replace("import { useProtection } from '@/context/ProtectionContext';", "import { useAuthIntent } from '@/context/AuthIntentContext';")
+          source = source.replace('  const { requireProtection } = useProtection();', '  const { requireAuth } = useAuthIntent();')
+          source = source.replace("onPress={() => void requireProtection({ operation: 'CHECKOUT', returnTo: '/checkout' })}", "onPress={() => void requireAuth({ action: 'CHECKOUT', returnTo: '/checkout' })}")
+          checkout.write_text(source)
+
+          profile = Path('apps/customer-app/src/screens/profile-screen.tsx')
+          source = profile.read_text()
+          source = source.replace("import { useRouter } from 'expo-router';\n", '')
+          source = source.replace('import { AppBar, EntityCard, PrimaryAction, SectionHeader, StateView, StatusBadge }', 'import { AppBar, PrimaryAction, SectionHeader, StateView, StatusBadge }')
+          source = source.replace("import { useProtection } from '@/context/ProtectionContext';\n", '')
+          source = source.replace("import { protectionStatus } from '@/security/order-protection';\n", '')
+          source = source.replace('  const router = useRouter();\n', '')
+          source = source.replace('  const { requireProtection } = useProtection();\n', '')
+          source = source.replace("  const [protectionLabel, setProtectionLabel] = useState(t('protection.disabled'));\n", '')
+          source = source.replace("    void protectionStatus(user.id, session.access_token)\n      .then((status) => setProtectionLabel(status.needsEnrollment ? t('protection.newDevice') : status.enabled ? t(status.method === 'BIOMETRIC' ? 'protection.enabledBiometric' : 'protection.enabledPin') : t('protection.disabled')))\n      .catch(() => setProtectionLabel(t('states.error')));\n", '')
+          source = source.replace('  }, [loadAddress, session, t, user]);', '  }, [loadAddress, session, user]);')
+          source = source.replace("    await requireProtection({ operation: 'ADDRESS_CHANGE', returnTo: '/(tabs)/profile' }, persist);", '    await persist();')
+          source = source.replace('  }, [address, requireProtection, session, t, user]);', '  }, [address, session, t, user]);')
+          source = source.replace("      <EntityCard title={t('profileFoundation.orderProtection')} subtitle={protectionLabel} meta={t('profileFoundation.orderProtectionHint')} icon=\"shield\" onPress={() => router.push('/order-protection' as never)} />\n", '')
+          profile.write_text(source)
+
+          for locale_path in [Path('apps/customer-app/src/i18n/s10-en.json'), Path('apps/customer-app/src/i18n/s10-hi.json'), Path('apps/customer-app/src/i18n/te.json')]:
               data = json.loads(locale_path.read_text())
               def remove_keys(value):
                   if isinstance(value, dict):
                       value.pop('orderProtection', None)
                       value.pop('orderProtectionHint', None)
-                      for child in value.values():
-                          remove_keys(child)
+                      value.pop('protection', None)
+                      for child in value.values(): remove_keys(child)
                   elif isinstance(value, list):
-                      for child in value:
-                          remove_keys(child)
+                      for child in value: remove_keys(child)
               remove_keys(data)
               locale_path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
           PY
@@ -89,12 +108,9 @@ jobs:
           git checkout origin/main -- backend
           git clean -fd backend
 
-      - name: Show remaining scope references
+      - name: Verify narrowed S10 scope
         run: |
-          echo '--- Profile screen ---'
-          sed -n '1,220p' apps/customer-app/src/screens/profile-screen.tsx
-          echo '--- Remaining protection references ---'
-          grep -RInE 'Protection|order-protection|orderProtection|expo-local-authentication' apps/customer-app/src apps/customer-app/package.json || true
+          grep -RInE 'ProtectionProvider|useProtection|protectionStatus|order-protection|orderProtection|expo-local-authentication' apps/customer-app/src apps/customer-app/package.json && exit 1 || true
 
       - name: Remove bootstrap artifacts
         run: rm -rf .s10-bootstrap.py .s10-payload .github/workflows/s10-bootstrap.yml
