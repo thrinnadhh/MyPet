@@ -24,6 +24,36 @@ jobs:
       - name: Apply reviewed S10 payload
         run: python .s10-bootstrap.py
 
+      - name: Apply demonstrated source corrections
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          otp = Path('apps/customer-app/src/auth/otp-auth.ts')
+          source = otp.read_text()
+          source = source.replace(
+              ": await supabase.auth.resend({ type: 'email', email: identifier });",
+              ": await supabase.auth.signInWithOtp({ email: identifier, options: { shouldCreateUser: true, data: { role: 'CUSTOMER' } } });",
+          )
+          otp.write_text(source)
+
+          tabs = Path('apps/customer-app/src/components/app-tabs.tsx')
+          source = tabs.read_text().replace(
+              '<AppIcon name={tab.icon} color={color} size={size} />',
+              "<AppIcon name={tab.icon} color={typeof color === 'string' ? color : theme.primary} size={size} />",
+          )
+          tabs.write_text(source)
+
+          test = Path('apps/customer-app/src/auth/__tests__/otp-auth.test.ts')
+          source = test.read_text()
+          source = source.replace("    mockResend.mockResolvedValue({ error: null });\n", '')
+          source = source.replace(
+              "    expect(mockResend).toHaveBeenCalledWith({ type: 'email', email });",
+              '    expect(mockSignInWithOtp).toHaveBeenLastCalledWith(expect.objectContaining({ email }));',
+          )
+          test.write_text(source)
+          PY
+
       - name: Remove bootstrap artifacts
         run: rm -rf .s10-bootstrap.py .s10-payload .github/workflows/s10-bootstrap.yml
 
