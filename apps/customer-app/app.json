@@ -23,7 +23,6 @@
       "expo-router",
       "expo-notifications",
       "expo-secure-store",
-      ["expo-local-authentication", { "faceIDPermission": "Allow PetStore to use device biometrics for optional Order Protection." }],
       ["expo-splash-screen", { "backgroundColor": "#004AC6", "android": { "image": "./assets/images/splash-icon.png", "imageWidth": 76 } }]
     ],
     "experiments": { "typedRoutes": true, "reactCompiler": true }
