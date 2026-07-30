@@ -112,7 +112,7 @@ class LoyaltyService(
 
         checkAndApplyRollover(account, program)
 
-        publishLoyaltyEvent("WelcomeStarClaimed", customerId, providerId, mapOf("account" to account))
+        publishLoyaltyEvent("WelcomeStarClaimed", customerId, providerId, mapOf("starBalance" to account.starBalance, "welcomeStarClaimed" to true))
 
         return getProgress(customerId, providerId)
     }
