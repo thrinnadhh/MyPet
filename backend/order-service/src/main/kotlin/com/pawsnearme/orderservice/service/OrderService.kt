@@ -99,8 +99,6 @@ data class CreateOrderRequest(
     @field:Size(max = 50)
     @field:Valid
     val items: List<OrderItemRequest>,
-    val deliveryFee: BigDecimal = BigDecimal.ZERO,
-    val discountAmount: BigDecimal = BigDecimal.ZERO,
     @field:Size(max = 64)
     val couponCode: String? = null,
     val loyaltyRewardId: UUID? = null,
@@ -197,7 +195,8 @@ class OrderService(
     private val gatewayTrustSecret: String = "",
     @Value("\${order.online-payments-enabled:false}")
     private val onlinePaymentsEnabled: Boolean = false,
-    private val restTemplate: RestTemplate = RestTemplate()
+    private val restTemplate: RestTemplate,
+    private val quoteStore: QuoteStore? = null
 ) {
     fun calculateQuote(request: CheckoutQuoteRequest): CheckoutQuoteResponse {
         validateItems(request.items, "Quote")
@@ -265,6 +264,11 @@ class OrderService(
         val quoteToken = "Q-${UUID.randomUUID().toString().take(12)}"
         val expiresAt = Instant.now().plusSeconds(900)
 
+        // Store the computed total in Redis so createOrder() can validate it.
+        // This prevents the client from re-submitting the same token multiple times
+        // or placing orders after prices have changed.
+        quoteStore?.store(quoteToken, payableTotal, request.couponCode?.trim()?.uppercase())
+
         return CheckoutQuoteResponse(
             quoteToken = quoteToken,
             subtotal = subtotal,
@@ -293,20 +297,53 @@ class OrderService(
             )
         }
 
-        val quote = calculateQuote(
-            CheckoutQuoteRequest(
-                customerId = request.customerId,
-                providerId = request.providerId,
-                deliveryAddressId = request.deliveryAddressId,
-                items = request.items,
-                couponCode = request.couponCode,
-                loyaltyRewardId = request.loyaltyRewardId,
-                paymentMethod = paymentMethod,
-                city = request.city,
-                latitude = request.latitude,
-                longitude = request.longitude
+        // If a quoteToken was provided by the client, validate it against the Redis store.
+        // This prevents price-manipulation: the token locks in the total computed at quote time.
+        // If Redis is unavailable (quoteStore is null), fall through to live recalculation.
+        val quote = if (!request.quoteToken.isNullOrBlank() && quoteStore != null) {
+            val snapshot = quoteStore.consume(request.quoteToken)
+                ?: throw IllegalArgumentException(
+                    "Quote token '${request.quoteToken}' has expired or was already used. " +
+                        "Request a new quote before placing your order."
+                )
+            // Re-validate COD eligibility with the stored total (city may still apply)
+            calculateQuote(
+                CheckoutQuoteRequest(
+                    customerId = request.customerId,
+                    providerId = request.providerId,
+                    deliveryAddressId = request.deliveryAddressId,
+                    items = request.items,
+                    couponCode = request.couponCode,
+                    loyaltyRewardId = request.loyaltyRewardId,
+                    paymentMethod = paymentMethod,
+                    city = request.city,
+                    latitude = request.latitude,
+                    longitude = request.longitude
+                )
+            ).also { freshQuote ->
+                // Guard: reject if live price differs from the locked-in quote by more than ₹1
+                if (freshQuote.payableTotal.subtract(snapshot.total).abs() > BigDecimal("1.00")) {
+                    throw IllegalStateException(
+                        "Price has changed since your quote. Please request a new quote."
+                    )
+                }
+            }
+        } else {
+            calculateQuote(
+                CheckoutQuoteRequest(
+                    customerId = request.customerId,
+                    providerId = request.providerId,
+                    deliveryAddressId = request.deliveryAddressId,
+                    items = request.items,
+                    couponCode = request.couponCode,
+                    loyaltyRewardId = request.loyaltyRewardId,
+                    paymentMethod = paymentMethod,
+                    city = request.city,
+                    latitude = request.latitude,
+                    longitude = request.longitude
+                )
             )
-        )
+        }
 
         val isCod = paymentMethod == "COD"
         if (isCod && !quote.isCodAvailable) {
@@ -427,14 +464,21 @@ class OrderService(
             val tx = response.body ?: throw IllegalStateException("Payment transaction $paymentIdToUse not found")
 
             val status = tx["status"] as? String
-            val amountVal = (tx["amount"] as? Number)?.toDouble() ?: 0.0
-            val expectedAmount = order.totalAmount.toDouble()
 
             if (status != "SUCCESS") {
                 throw IllegalStateException("Payment status is $status, but expected SUCCESS to confirm order")
             }
-            if (Math.abs(amountVal - expectedAmount) > 0.01) {
-                throw IllegalStateException("Payment amount $amountVal does not match order total $expectedAmount")
+            // Use BigDecimal.compareTo() to avoid floating-point rounding errors
+            // when comparing monetary amounts (e.g. 999.95 as Double != 999.95 exactly).
+            val paymentAmount = when (val raw = tx["amount"]) {
+                is BigDecimal -> raw
+                is Number -> BigDecimal(raw.toString())
+                else -> throw IllegalStateException("Cannot parse payment amount from transaction response")
+            }
+            if (paymentAmount.compareTo(order.totalAmount) != 0) {
+                throw IllegalStateException(
+                    "Payment amount \u20b9$paymentAmount does not match order total \u20b9${order.totalAmount}"
+                )
             }
         } catch (e: Exception) {
             throw IllegalStateException("Payment verification failed: ${e.message}", e)

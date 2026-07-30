@@ -95,13 +95,14 @@ class PaymentService(
     private val razorpayWebhookSecret: String = "",
     @Value("\${RAZORPAY_SANDBOX_MODE:false}")
     private val razorpaySandboxMode: Boolean = false,
+    private val objectMapper: ObjectMapper,
     private val restTemplate: RestOperations = RestTemplate()
 ) {
 
     private val logger = LoggerFactory.getLogger(PaymentService::class.java)
-    private val objectMapper = ObjectMapper()
 
     fun verifyWebhookSignature(payload: String, signature: String): Boolean {
+
         if (razorpayWebhookSecret.isBlank()) return false
         return try {
             val mac = Mac.getInstance("HmacSHA256")
@@ -358,10 +359,11 @@ class PaymentService(
     @Transactional
     fun processWebhook(payload: String, signature: String) {
         if (razorpayWebhookSecret.isBlank()) {
-            if (!razorpaySandboxMode || signature != "dummy_sig") {
-                throw IllegalStateException("Razorpay webhook verification is not configured")
-            }
-            logger.warn("Processing a dummy-signed Razorpay webhook in explicit sandbox mode")
+            // No webhook secret configured: block all webhook processing in production.
+            // Return 501 via exception to signal unconfigured state to the controller.
+            throw IllegalStateException(
+                "Razorpay webhook secret is not configured. Set RAZORPAY_WEBHOOK_SECRET to enable webhook processing."
+            )
         } else if (!verifyWebhookSignature(payload, signature)) {
             throw IllegalArgumentException("Invalid Razorpay webhook signature")
         }
@@ -773,7 +775,10 @@ class PaymentService(
             userId,
             orderId,
             "HELD"
-        ) ?: return
+        ) ?: throw IllegalStateException(
+            "No active coupon reservation found for code='$code' on order '$orderId'. " +
+                "The reservation may have expired — reject this order and request a new quote."
+        )
         reservation.status = "REDEEMED"
         couponReservationRepository.save(reservation)
     }

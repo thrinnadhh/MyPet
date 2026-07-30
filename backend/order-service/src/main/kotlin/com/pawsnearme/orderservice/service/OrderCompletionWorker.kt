@@ -2,6 +2,7 @@ package com.pawsnearme.orderservice.service
 
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
@@ -20,6 +21,7 @@ class OrderCompletionWorker(
     private val systemActorId = UUID.fromString("00000000-0000-4000-8000-000000000001")
 
     @Scheduled(fixedDelay = 60_000)
+    @SchedulerLock(name = "order_completeDeliveredOrders", lockAtMostFor = "PT2M", lockAtLeastFor = "PT55S")
     fun completeDeliveredOrders() {
         val cutoff = Instant.now().minusSeconds(hoursAfterDelivery * 3600)
         val delivered = orderRepository.findByStatusAndDeliveredAtBefore(OrderStatus.DELIVERED, cutoff)

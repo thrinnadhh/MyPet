@@ -109,6 +109,17 @@ class SecurityConfig(
                     .build()
             }
             allowUnsignedJwt -> {
+                // Safety check: refuse to start with unsigned JWT mode outside of local/dev profiles.
+                // This prevents accidental deployment to staging/production with auth bypassed.
+                val activeProfiles = System.getenv("SPRING_PROFILES_ACTIVE") ?: ""
+                val safeProfiles = setOf("local", "dev", "test")
+                val isSafeProfile = safeProfiles.any { activeProfiles.contains(it, ignoreCase = true) }
+                if (!isSafeProfile) {
+                    throw IllegalStateException(
+                        "ALLOW_UNSIGNED_JWT=true is only permitted with SPRING_PROFILES_ACTIVE=local|dev|test. " +
+                            "Current profile: '$activeProfiles'. Remove ALLOW_UNSIGNED_JWT from production configuration."
+                    )
+                }
                 logger.warn("Supabase Auth is running in explicit local-only mode. JWT signatures are NOT validated.")
                 ReactiveJwtDecoder { jwtString ->
                     try {

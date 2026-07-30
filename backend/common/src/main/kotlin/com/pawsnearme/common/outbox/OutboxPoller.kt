@@ -1,6 +1,7 @@
 package com.pawsnearme.common.outbox
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
@@ -16,6 +17,7 @@ open class OutboxPoller(
     private val log = LoggerFactory.getLogger(javaClass)
 
     @Scheduled(fixedDelay = 1000)
+    @SchedulerLock(name = "outbox_pollAndPublish", lockAtMostFor = "PT5S", lockAtLeastFor = "PT1S")
     @Transactional
     open fun pollAndPublish() {
         val pending = outboxRepository.findUnpublishedEvents()

@@ -35,6 +35,11 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    // ShedLock — prevents @Scheduled tasks from running on multiple replicas simultaneously.
+    // Uses the shared PostgreSQL DB (no extra infrastructure) as a distributed lock store.
+    implementation("net.javacrumbs.shedlock:shedlock-spring:5.10.2")
+    implementation("net.javacrumbs.shedlock:shedlock-provider-jdbc-template:5.10.2")
 }
 
 tasks.test {

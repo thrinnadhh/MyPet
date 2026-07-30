@@ -12,10 +12,10 @@ x-backend-common: &backend-common
     REDIS_PORT: 6379
     KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     KAFKA_LISTENER_CONCURRENCY: 3
-    GATEWAY_SECRET: dev-secret-change-in-production
+    GATEWAY_SECRET: ${GATEWAY_SECRET:?GATEWAY_SECRET must be set}
     GATEWAY_TRUST_ENABLED: "true"
-    RAZORPAY_SANDBOX_MODE: "true"
-    INTERNAL_API_SECRET: dev-internal-secret
+    RAZORPAY_SANDBOX_MODE: "false"
+    INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?INTERNAL_API_SECRET must be set}
     NOTIFICATION_DELIVERY_MODE: EXPO_FCM
     ORDER_AUTO_COMPLETE_HOURS: "1"
   depends_on:
@@ -48,7 +48,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8081
-      PROVIDER_PUBLIC_BASE_URL: http://localhost:8080
+      PROVIDER_PUBLIC_BASE_URL: ${PROVIDER_PUBLIC_BASE_URL:http://localhost:8080}
 
   catalog-service:
     <<: *backend-common
@@ -169,7 +169,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8091
-      CHAT_PUBLIC_BASE_URL: http://localhost:8091
+      CHAT_PUBLIC_BASE_URL: ${CHAT_PUBLIC_BASE_URL:http://localhost:8091}
 
   content-service:
     <<: *backend-common
@@ -194,10 +194,9 @@ services:
       SERVER_PORT: 8080
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      GATEWAY_SECRET: dev-secret-change-in-production
+      GATEWAY_SECRET: ${GATEWAY_SECRET:?GATEWAY_SECRET must be set}
       GATEWAY_RATE_LIMIT_REPLENISH_RATE: 100
       GATEWAY_RATE_LIMIT_BURST_CAPACITY: 200
-      ALLOW_UNSIGNED_JWT: "true"
       PROVIDER_SERVICE_URL: http://provider-service:8081
       CATALOG_SERVICE_URL: http://catalog-service:8082
       DISCOVERY_SERVICE_URL: http://discovery-service:8083

@@ -14,4 +14,6 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.kafka:spring-kafka")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+    // ShedLock annotation API only (the lock provider is configured per-service)
+    implementation("net.javacrumbs.shedlock:shedlock-spring:5.10.2")
 }

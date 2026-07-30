@@ -25,6 +25,7 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.springframework.web.client.RestTemplate
 import org.springframework.web.client.RestOperations
 import java.net.URLEncoder
@@ -110,85 +111,99 @@ class DispatchService(
         return savedJob
     }
 
+    /**
+     * Iteratively advances dispatch assignment for [job].
+     *
+     * The previous implementation used direct recursion when no captain was available,
+     * which could overflow the call-stack when geo-lookup returned empty results
+     * across all maxAttempts (common during low-captain hours).
+     *
+     * This iterative version loops until a candidate is found or maxAttempts is
+     * exhausted, without consuming additional stack frames.
+     */
     fun triggerNextOffer(job: DispatchJob) {
-        if (job.attemptCount >= job.maxAttempts) {
-            job.status = JobStatus.FAILED
-            job.resolvedAt = Instant.now()
-            jobRepository.save(job)
-            logger.error("Failed to assign order {} after {} attempts.", job.orderId, job.maxAttempts)
-            
-            publishDispatchEvent("DispatchJobFailed", job, null, mapOf("reason" to "MAX_ATTEMPTS_EXHAUSTED"))
-            return
-        }
+        var currentJob = job
 
-        // 1. Get Provider coordinates from DB
-        val providerCoords = getProviderCoordinates(job.orderId)
-        if (providerCoords == null) {
-            logger.error("Coordinates for order {} not found. Failing job.", job.orderId)
-            job.status = JobStatus.FAILED
-            jobRepository.save(job)
-            return
-        }
-        val (lng, lat) = providerCoords
-
-        // 2. Query Redis Geo for active Captains within 5 km
-        val results = try {
-            val args = RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs()
-                .includeDistance()
-                .sortAscending()
-
-            redisTemplate.opsForGeo().search(
-                GEO_KEY,
-                GeoReference.fromCoordinate(RedisPoint(lng, lat)),
-                Distance(5.0, Metrics.KILOMETERS),
-                args
-            )
-        } catch (e: Exception) {
-            logger.warn("Redis Geo lookup failed: {}", e.message, e)
-            null
-        }
-
-        val onlineCaptains = results?.content?.map { UUID.fromString(it.content.name) } ?: emptyList()
-
-        // 3. Find candidates who haven't rejected/timed out this job yet
-        val existingOffers = offerRepository.findByJobId(job.jobId!!)
-        val attemptedCaptains = existingOffers.map { it.captainId }.toSet()
-
-        val candidate = onlineCaptains.firstOrNull { it !in attemptedCaptains }
-
-        if (candidate != null) {
-            // Create offer
-            val offer = DispatchOffer(
-                jobId = job.jobId!!,
-                captainId = candidate,
-                offerRank = job.attemptCount + 1
-            )
-            offerRepository.save(offer)
-
-            job.status = JobStatus.OFFERED
-            job.attemptCount += 1
-            jobRepository.save(job)
-
-            // Publish Offer Event
-            publishDispatchEvent(
-                "DispatchJobOffered",
-                job,
-                candidate,
-                mapOf(
-                    "offer_id" to offer.offerId.toString(),
-                    "offer_rank" to offer.offerRank
+        while (true) {
+            if (currentJob.attemptCount >= currentJob.maxAttempts) {
+                currentJob.status = JobStatus.FAILED
+                currentJob.resolvedAt = Instant.now()
+                jobRepository.save(currentJob)
+                logger.error(
+                    "Failed to assign order {} after {} attempts — MAX_ATTEMPTS_EXHAUSTED.",
+                    currentJob.orderId,
+                    currentJob.maxAttempts
                 )
-            )
+                publishDispatchEvent("DispatchJobFailed", currentJob, null, mapOf("reason" to "MAX_ATTEMPTS_EXHAUSTED"))
+                return
+            }
 
-            logger.info("Offered Job {} to Captain {}.", job.jobId, candidate)
-        } else {
-            // No candidate available, try again or fail
-            job.attemptCount += 1
-            jobRepository.save(job)
-            // Trigger loop iteration immediately
-            triggerNextOffer(job)
+            // 1. Get provider coordinates from DB
+            val providerCoords = getProviderCoordinates(currentJob.orderId)
+            if (providerCoords == null) {
+                logger.error("Coordinates for order {} not found. Failing job.", currentJob.orderId)
+                currentJob.status = JobStatus.FAILED
+                jobRepository.save(currentJob)
+                return
+            }
+            val (lng, lat) = providerCoords
+
+            // 2. Query Redis Geo for active captains within 5 km
+            val results = try {
+                val args = RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs()
+                    .includeDistance()
+                    .sortAscending()
+
+                redisTemplate.opsForGeo().search(
+                    GEO_KEY,
+                    GeoReference.fromCoordinate(RedisPoint(lng, lat)),
+                    Distance(5.0, Metrics.KILOMETERS),
+                    args
+                )
+            } catch (e: Exception) {
+                logger.warn("Redis Geo lookup failed: {}", e.message, e)
+                null
+            }
+
+            val onlineCaptains = results?.content?.map { UUID.fromString(it.content.name) } ?: emptyList()
+
+            // 3. Find candidates who haven't rejected/timed-out this job yet
+            val existingOffers = offerRepository.findByJobId(currentJob.jobId!!)
+            val attemptedCaptains = existingOffers.map { it.captainId }.toSet()
+            val candidate = onlineCaptains.firstOrNull { it !in attemptedCaptains }
+
+            if (candidate != null) {
+                // Create offer and advance job status
+                val offer = DispatchOffer(
+                    jobId = currentJob.jobId!!,
+                    captainId = candidate,
+                    offerRank = currentJob.attemptCount + 1
+                )
+                offerRepository.save(offer)
+                currentJob.status = JobStatus.OFFERED
+                currentJob.attemptCount += 1
+                jobRepository.save(currentJob)
+                publishDispatchEvent(
+                    "DispatchJobOffered",
+                    currentJob,
+                    candidate,
+                    mapOf("offer_id" to offer.offerId.toString(), "offer_rank" to offer.offerRank)
+                )
+                logger.info("Offered Job {} to Captain {}.", currentJob.jobId, candidate)
+                return   // wait for captain response; scheduler drives next iteration
+            } else {
+                // No captain available this attempt — try next attempt within this loop
+                currentJob.attemptCount += 1
+                currentJob = jobRepository.save(currentJob)
+                logger.debug(
+                    "No candidate for job {} on attempt {}. Retrying in loop.",
+                    currentJob.jobId,
+                    currentJob.attemptCount
+                )
+            }
         }
     }
+
 
     fun respondToOffer(offerId: UUID, response: String, captainId: UUID): DispatchOffer {
         val offer = offerRepository.findById(offerId)
@@ -263,8 +278,9 @@ class DispatchService(
         return savedJob
     }
 
-    // --- Expiry / Timeout Scheduler (Task 4) ---
+    // --- Expiry / Timeout Scheduler ---
     @Scheduled(fixedDelay = 5000)
+    @SchedulerLock(name = "dispatch_checkOfferTimeouts", lockAtMostFor = "PT25S", lockAtLeastFor = "PT5S")
     fun checkOfferTimeouts() {
         val activeJobs = jobRepository.findByStatus(JobStatus.OFFERED)
         for (job in activeJobs) {

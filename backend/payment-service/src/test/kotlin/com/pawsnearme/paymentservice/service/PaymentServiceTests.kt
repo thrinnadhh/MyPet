@@ -1,5 +1,6 @@
 package com.pawsnearme.paymentservice.service
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.paymentservice.model.*
 import com.pawsnearme.paymentservice.repository.*
 import org.junit.jupiter.api.BeforeEach
@@ -54,7 +55,8 @@ class PaymentServiceTests {
             platformCommissionLedgerRepository = platformCommissionLedgerRepository,
             couponReservationRepository = couponReservationRepository,
             codConfigRepository = codConfigRepository,
-            razorpaySandboxMode = true
+            razorpaySandboxMode = true,
+            objectMapper = ObjectMapper()
         )
 
         // Default: code does not exist
@@ -112,7 +114,8 @@ class PaymentServiceTests {
         platformCommissionLedgerRepository = platformCommissionLedgerRepository,
         couponReservationRepository = couponReservationRepository,
         codConfigRepository = codConfigRepository,
-        razorpaySandboxMode = false
+        razorpaySandboxMode = false,
+        objectMapper = ObjectMapper()
     )
 
     // ── recordPaymentResult ───────────────────────────────────────────────────
@@ -604,7 +607,8 @@ class PaymentServiceTests {
             couponReservationRepository = couponReservationRepository,
             codConfigRepository = codConfigRepository,
             razorpayWebhookSecret = "test-secret",
-            razorpaySandboxMode = true
+            razorpaySandboxMode = true,
+            objectMapper = ObjectMapper()
         )
 
         val payload = """
