@@ -1,85 +1,67 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
+import React, { useMemo } from 'react';
 
-import { AppIcon } from '@/components/app-icon';
-import { ThemedText } from '@/components/themed-text';
-import { PrimaryButton } from '@/components/ui/primary-button';
-import { ScreenHeader } from '@/components/ui/screen-header';
-import { StatusBadge } from '@/components/ui/status-badge';
-import { Radius, Shadows, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { ProviderCompositionTemplate, type ProviderCompositionData } from '@/components/care/ProviderCompositionTemplate';
+
+const HOSPITALS_DATA: Record<string, ProviderCompositionData> = {
+  'city-pet-hospital': {
+    id: 'city-pet-hospital',
+    name: 'City Pet Hospital Tirupati',
+    type: 'VET_HOSPITAL',
+    tagline: '24/7 Emergency & Advanced Veterinary ICU',
+    address: 'AIR Bypass Road, Near Rama Chandra Nagar, Tirupati, AP',
+    phone: '08772244888',
+    rating: '4.9 ★ (180+ reviews)',
+    reviewCount: 184,
+    heroImageUrl: 'https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&w=800&q=80',
+    distanceKm: 1.8,
+    operatingHours: '24 Hours Open (Emergency ICU)',
+    emergencyCare: true,
+    services: [
+      { name: 'General OPD Consultation', desc: 'Comprehensive health checkup, physical exam & diagnosis', fee: 499, duration: '20 mins' },
+      { name: 'Emergency Trauma & ICU Care', desc: 'Critical care, oxygen support, IV fluids & monitoring', fee: 799, duration: 'Immediate' },
+      { name: 'Pet Vaccination & Deworming', desc: 'Core DHPPi/Rabies vaccine administration & deworming', fee: 350, duration: '15 mins' },
+      { name: 'Blood Diagnostic & Ultrasound Lab', desc: 'Complete blood count, organ profile & digital X-ray', fee: 1200, duration: '45 mins' },
+    ],
+    facilities: ['24/7 Emergency ICU', 'In-house Pathology Lab', 'Pet Pharmacy', 'Digital X-Ray & Ultrasound', 'Surgical Operation Theater'],
+    staffRoster: [
+      { name: 'Dr. K. Srinivas, DVM', role: 'Chief Veterinary Surgeon', experience: '12+ Yrs Exp' },
+      { name: 'Dr. Ananya Rao, MVSc', role: 'Pet Dermatologist & Physician', experience: '8+ Yrs Exp' },
+    ],
+  },
+  'petcare-wellness': {
+    id: 'petcare-wellness',
+    name: 'PetCare & Wellness Hospital',
+    type: 'VET_HOSPITAL',
+    tagline: 'Multi-Specialty Veterinary Clinic & Surgery',
+    address: 'KT Road, Near Royal Nagar, Tirupati, AP',
+    phone: '08772255999',
+    rating: '4.8 ★ (120+ reviews)',
+    reviewCount: 124,
+    heroImageUrl: 'https://images.unsplash.com/photo-1629909613654-28e377c37b09?auto=format&fit=crop&w=800&q=80',
+    distanceKm: 3.2,
+    operatingHours: '08:00 AM - 09:00 PM (Mon - Sun)',
+    emergencyCare: false,
+    services: [
+      { name: 'General OPD Consultation', desc: 'Routine health examination & prescription', fee: 450, duration: '20 mins' },
+      { name: 'Dental Cleaning & Polishing', desc: 'Ultrasonic tartar removal & oral hygiene', fee: 999, duration: '40 mins' },
+      { name: 'Microchipping & Pet Passport', desc: 'ISO standard microchip injection & record card', fee: 650, duration: '15 mins' },
+    ],
+    facilities: ['Outpatient Clinic', 'Pet Dental Unit', 'Isolation Ward', 'Vaccine Storage'],
+    staffRoster: [
+      { name: 'Dr. M. V. Reddy, DVM', role: 'Senior Veterinary Officer', experience: '15+ Yrs Exp' },
+      { name: 'Dr. Priya Sharma, MVSc', role: 'Feline Specialist', experience: '6+ Yrs Exp' },
+    ],
+  },
+};
 
 export default function HospitalProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
-  const theme = useTheme();
 
-  const hospitalName = id === 'city-pet-hospital' ? 'City Pet Hospital Tirupati' : 'PetCare & Wellness Hospital';
-  const [bookingSuccess, setBookingSuccess] = useState(false);
+  const provider = useMemo(() => {
+    const key = id ?? 'city-pet-hospital';
+    return HOSPITALS_DATA[key] ?? HOSPITALS_DATA['city-pet-hospital'];
+  }, [id]);
 
-  return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScreenHeader title={hospitalName} subtitle="24/7 Veterinary Care • Tirupati" />
-
-      <View style={[styles.heroCard, Shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <View style={styles.badgeRow}>
-          <StatusBadge label="4.9 ★ (180+ reviews)" color={theme.warning} />
-          <StatusBadge label="24/7 Emergency ICU" color={theme.danger} />
-        </View>
-
-        <ThemedText style={[styles.hospitalTitle, { color: theme.text }]}>{hospitalName}</ThemedText>
-        <ThemedText style={{ fontSize: 13, color: theme.textSecondary }}>📍 AIR Bypass Road, Near Rama Chandra Nagar, Tirupati</ThemedText>
-        <ThemedText style={{ fontSize: 13, color: theme.textSecondary }}>👨‍⚕️ Chief Vet: Dr. K. Srinivas, DVM (Surgeon, 12+ Yrs Exp)</ThemedText>
-      </View>
-
-      <View style={styles.section}>
-        <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Available Medical Services</ThemedText>
-        {[
-          { title: 'Emergency Trauma & ICU Care', fee: '₹799' },
-          { title: 'General OPD Consultation', fee: '₹499' },
-          { title: 'Pet Vaccination & Deworming', fee: '₹350' },
-          { title: 'Blood Diagnostic & Ultrasound Lab', fee: '₹1,200' },
-        ].map((srv, idx) => (
-          <View key={idx} style={[styles.serviceRow, { borderColor: theme.border }]}>
-            <View style={styles.flexOne}>
-              <ThemedText style={[styles.serviceTitle, { color: theme.text }]}>{srv.title}</ThemedText>
-              <ThemedText style={{ fontSize: 12, color: theme.textSecondary }}>Consultation Fee: {srv.fee}</ThemedText>
-            </View>
-            <AppIcon name="paw" color={theme.textSecondary} size={18} />
-          </View>
-        ))}
-      </View>
-
-      {bookingSuccess ? (
-        <View style={[styles.successBanner, { backgroundColor: theme.primarySoft }]}>
-          <AppIcon name="sparkle" color={theme.success} size={24} />
-          <ThemedText style={{ color: theme.success, fontWeight: '700', fontSize: 13 }}>
-            Appointment Confirmed! Confirmation SMS sent.
-          </ThemedText>
-        </View>
-      ) : null}
-
-      <View style={styles.actionFooter}>
-        <PrimaryButton
-          label={bookingSuccess ? 'Book Another Slot' : 'Book OPD Appointment Slot'}
-          onPress={() => setBookingSuccess(true)}
-        />
-      </View>
-    </View>
-  );
+  return <ProviderCompositionTemplate provider={provider} />;
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: Spacing.three },
-  flexOne: { flex: 1 },
-  heroCard: { padding: Spacing.three, borderRadius: Radius.lg, borderWidth: 1, gap: Spacing.one, marginTop: Spacing.two },
-  badgeRow: { flexDirection: 'row', gap: Spacing.one, flexWrap: 'wrap' },
-  hospitalTitle: { fontSize: 20, fontWeight: '700' },
-  section: { marginTop: Spacing.four, gap: Spacing.two },
-  sectionTitle: { fontSize: 16, fontWeight: '700' },
-  serviceRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.two, borderBottomWidth: 1, gap: Spacing.two },
-  serviceTitle: { fontSize: 14, fontWeight: '600' },
-  successBanner: { padding: Spacing.three, borderRadius: Radius.md, marginTop: Spacing.three, flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  actionFooter: { marginTop: Spacing.four },
-});

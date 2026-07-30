@@ -1,82 +1,64 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
+import React, { useMemo } from 'react';
 
-import { AppIcon } from '@/components/app-icon';
-import { ThemedText } from '@/components/themed-text';
-import { PrimaryButton } from '@/components/ui/primary-button';
-import { ScreenHeader } from '@/components/ui/screen-header';
-import { StatusBadge } from '@/components/ui/status-badge';
-import { Radius, Shadows, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { ProviderCompositionTemplate, type ProviderCompositionData } from '@/components/care/ProviderCompositionTemplate';
+
+const GROOMERS_DATA: Record<string, ProviderCompositionData> = {
+  'paws-bubbles-spa': {
+    id: 'paws-bubbles-spa',
+    name: 'Paws & Bubbles Spa',
+    type: 'GROOMING_CENTER',
+    tagline: 'Luxury Pet Spa & Grooming Salon',
+    address: 'Tilak Road, Near Mahati Auditorium, Tirupati, AP',
+    phone: '08772277111',
+    rating: '4.9 ★ (145+ reviews)',
+    reviewCount: 145,
+    heroImageUrl: 'https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?auto=format&fit=crop&w=800&q=80',
+    distanceKm: 2.1,
+    operatingHours: '09:00 AM - 07:30 PM (Tue - Sun)',
+    emergencyCare: false,
+    services: [
+      { name: 'Full Grooming & Spa Bath Package', desc: 'Warm bath, blow dry, haircut, nail trimming, ear cleaning & paw balm', fee: 1299, duration: '60 mins' },
+      { name: 'Basic Hygiene Bath & Trim', desc: 'Anti-tick bath, sanitary trim, paw massage & nail buffing', fee: 699, duration: '40 mins' },
+      { name: 'Puppy First Bath Experience', desc: 'Gentle tearless bath, fluff dry, paw balm & treat cup', fee: 499, duration: '30 mins' },
+    ],
+    facilities: ['Hydromassage Tubs', 'Breed Styling Specialists', 'Stress-free Quiet Drying', 'Medicated Skin Therapy Baths'],
+    staffRoster: [
+      { name: 'Maya R.', role: 'Senior Master Groomer', experience: '7+ Yrs Exp' },
+      { name: 'Suresh K.', role: 'Certified Pet Stylist', experience: '5+ Yrs Exp' },
+    ],
+  },
+  'fluffy-tails': {
+    id: 'fluffy-tails',
+    name: 'Fluffy Tails Grooming Salon',
+    type: 'GROOMING_CENTER',
+    tagline: 'Professional Pet Styling & Medicated Baths',
+    address: 'Gandhi Road, Opposite Municipal Office, Tirupati, AP',
+    phone: '08772288222',
+    rating: '4.7 ★ (98+ reviews)',
+    reviewCount: 98,
+    heroImageUrl: 'https://images.unsplash.com/photo-1535294435445-d7249524ef2e?auto=format&fit=crop&w=800&q=80',
+    distanceKm: 4.0,
+    operatingHours: '09:30 AM - 08:00 PM (Daily)',
+    emergencyCare: false,
+    services: [
+      { name: 'De-Shedding & Undercoat Furminator', desc: 'Deep coat de-shedding treatment reducing 90% loose fur', fee: 899, duration: '45 mins' },
+      { name: 'Cat Grooming & Lion Cut Package', desc: 'Waterless dry bath, dematting, nail clipping & lion cut', fee: 1199, duration: '50 mins' },
+    ],
+    facilities: ['Sanitized Grooming Tables', 'Organic Shampoos', 'Cat-Friendly Private Studio'],
+    staffRoster: [
+      { name: 'Rohan V.', role: 'Feline & Canine Stylist', experience: '6+ Yrs Exp' },
+    ],
+  },
+};
 
 export default function GroomerProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
-  const theme = useTheme();
 
-  const groomerName = id === 'fluffy-tails' ? 'Fluffy Tails Grooming Salon' : 'Paws & Bubbles Spa';
-  const [booked, setBooked] = useState(false);
+  const provider = useMemo(() => {
+    const key = id ?? 'paws-bubbles-spa';
+    return GROOMERS_DATA[key] ?? GROOMERS_DATA['paws-bubbles-spa'];
+  }, [id]);
 
-  return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScreenHeader title={groomerName} subtitle="Luxury Pet Spa • Tirupati" />
-
-      <View style={[styles.heroCard, Shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <View style={styles.badgeRow}>
-          <StatusBadge label="4.9 ★ (145+ reviews)" color={theme.warning} />
-          <StatusBadge label="Certified Groomers" color={theme.success} />
-        </View>
-
-        <ThemedText style={[styles.groomerTitle, { color: theme.text }]}>{groomerName}</ThemedText>
-        <ThemedText style={{ fontSize: 13, color: theme.textSecondary }}>📍 Tilak Road, Near Mahati Auditorium, Tirupati</ThemedText>
-        <ThemedText style={{ fontSize: 13, color: theme.textSecondary }}>✂️ Specialized in medicated baths, de-shedding & breed styling</ThemedText>
-      </View>
-
-      <View style={styles.section}>
-        <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Popular Spa Packages</ThemedText>
-        {[
-          { name: 'Full Grooming & Bath Package', desc: 'Warm Bath, Blow Dry, Haircut, Nail Trimming, Ear Cleaning', price: '₹1,299' },
-          { name: 'Basic Hygiene Bath & Trim', desc: 'Anti-Tick Bath, Sanitary Trim, Paw Massage & Nail Buffing', price: '₹699' },
-          { name: 'Puppy First Bath Experience', desc: 'Gentle Tearless Bath, Fluff Dry, Paw Balm & Treat Cup', price: '₹499' },
-        ].map((pkg, idx) => (
-          <View key={idx} style={[styles.pkgCard, { backgroundColor: theme.muted, borderColor: theme.border }]}>
-            <View style={styles.flexOne}>
-              <ThemedText style={[styles.pkgName, { color: theme.text }]}>{pkg.name}</ThemedText>
-              <ThemedText style={{ fontSize: 12, color: theme.textSecondary }}>{pkg.desc}</ThemedText>
-            </View>
-            <ThemedText style={[styles.pkgPrice, { color: theme.primary }]}>{pkg.price}</ThemedText>
-          </View>
-        ))}
-      </View>
-
-      {booked ? (
-        <View style={[styles.bookedBanner, { backgroundColor: theme.primarySoft }]}>
-          <AppIcon name="sparkle" color={theme.success} size={24} />
-          <ThemedText style={{ color: theme.success, fontWeight: '700', fontSize: 13 }}>
-            Spa Session Requested! Slot reserved for today.
-          </ThemedText>
-        </View>
-      ) : null}
-
-      <View style={styles.actionFooter}>
-        <PrimaryButton label={booked ? 'Request Another Session' : 'Book Grooming Session'} onPress={() => setBooked(true)} />
-      </View>
-    </View>
-  );
+  return <ProviderCompositionTemplate provider={provider} />;
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: Spacing.three },
-  flexOne: { flex: 1 },
-  heroCard: { padding: Spacing.three, borderRadius: Radius.lg, borderWidth: 1, gap: Spacing.one, marginTop: Spacing.two },
-  badgeRow: { flexDirection: 'row', gap: Spacing.one, flexWrap: 'wrap' },
-  groomerTitle: { fontSize: 20, fontWeight: '700' },
-  section: { marginTop: Spacing.four, gap: Spacing.two },
-  sectionTitle: { fontSize: 16, fontWeight: '700' },
-  pkgCard: { padding: Spacing.three, borderRadius: Radius.md, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  pkgName: { fontWeight: '700', fontSize: 14 },
-  pkgPrice: { fontSize: 15, fontWeight: '700' },
-  bookedBanner: { padding: Spacing.three, borderRadius: Radius.md, marginTop: Spacing.three, flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  actionFooter: { marginTop: Spacing.four },
-});
