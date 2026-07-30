@@ -5,8 +5,9 @@ spring:
   application:
     name: discovery-service
   datasource:
-    url: ${SUPAVISOR_DB_URL:${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=providers,catalog,public&stringtype=unspecified}}
+    url: ${SUPAVISOR_DB_URL:${DB_URL:jdbc:postgresql://localhost:5433/pawsnearme?currentSchema=providers,catalog,customer,public&stringtype=unspecified}}
     username: ${DB_USERNAME:discovery_service_role}
+
     password: ${DB_PASSWORD:discovery_service_pass}
     driver-class-name: org.postgresql.Driver
     hikari:

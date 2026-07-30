@@ -293,3 +293,22 @@ INSERT INTO providers.service_regions (
     '81111111-1111-1111-1111-111111111111', 'tirupati', 'Tirupati', 'Andhra Pradesh', 'India', 13.6288, 79.4192, 25.0, '517501,517502,517507', 'ENABLED', 1
 ) ON CONFLICT (city_identity) DO NOTHING;
 
+-- ---------------------------------------------------------
+-- SCHEMA: customer / favourites
+-- Owner service: Discovery Service / Customer Service
+-- Tenant-safe user favourites (products & shop profiles)
+-- ---------------------------------------------------------
+CREATE SCHEMA IF NOT EXISTS customer;
+
+CREATE TABLE IF NOT EXISTS customer.favourites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    customer_id UUID NOT NULL,
+    target_type VARCHAR(32) NOT NULL, -- 'PRODUCT' or 'SHOP'
+    target_id VARCHAR(128) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_customer_favourite UNIQUE (customer_id, target_type, target_id)
+);
+GRANT ALL ON SCHEMA customer TO public;
+GRANT ALL ON TABLE customer.favourites TO public;
+
+
