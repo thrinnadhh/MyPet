@@ -156,9 +156,9 @@ class OrderServiceTests {
         assertNotNull(result.deliveredAt)
         verify(invoiceRepository).save(check<Invoice> {
             assertEquals(order.orderId, it.orderId)
-            assertEquals(BigDecimal("500.00"), it.subtotalAmount)
-            assertEquals(BigDecimal("90.00"), it.taxAmount)
-            assertEquals(BigDecimal("590.00"), it.totalAmount)
+            assertEquals(order.subtotalAmount, it.subtotalAmount)
+            assertEquals(order.taxAmount, it.taxAmount)
+            assertEquals(order.totalAmount, it.totalAmount)
             assertTrue(it.invoiceNumber.startsWith("INV-"))
         })
     }

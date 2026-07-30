@@ -69,7 +69,19 @@ class Order(
     var cancelledAt: Instant? = null,
 
     @Column(name = "cancellation_reason")
-    var cancellationReason: String? = null
+    var cancellationReason: String? = null,
+
+    @Column(name = "tax_amount", nullable = false)
+    var taxAmount: BigDecimal = BigDecimal.ZERO,
+
+    @Column(name = "coupon_code")
+    var couponCode: String? = null,
+
+    @Column(name = "payment_method", nullable = false)
+    var paymentMethod: String = "CARD",
+
+    @Column(name = "payment_status", nullable = false)
+    var paymentStatus: String = "PENDING"
 )
 
 @Entity
