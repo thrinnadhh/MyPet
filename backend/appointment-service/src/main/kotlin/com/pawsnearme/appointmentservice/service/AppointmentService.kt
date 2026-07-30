@@ -487,6 +487,7 @@ class AppointmentService(
             .orElseThrow { NoSuchElementException("Appointment with ID $appointmentId not found") }
 
         val isAdmin = callerRole?.uppercase() == "ADMIN"
+        val isCustomer = appointment.customerId == changedBy
         val isProviderStaff = if (callerRole?.uppercase() == "MERCHANT") {
             val ownerId = fetchProviderOwnerUserId(appointment.providerId)
             ownerId == changedBy
@@ -494,11 +495,20 @@ class AppointmentService(
             false
         }
 
-        if (!isAdmin && !isProviderStaff) {
+        val isCustomerCancel = isCustomer && newStatus == AppointmentStatus.CANCELLED
+        if (!isAdmin && !isProviderStaff && !isCustomerCancel) {
             throw AppointmentAccessDeniedException("Access denied to change appointment status.")
         }
 
         val oldStatus = appointment.status
+
+        if (newStatus == AppointmentStatus.CANCELLED) {
+            val unCancellable = setOf(AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED, AppointmentStatus.EXPIRED, AppointmentStatus.NO_SHOW)
+            if (oldStatus in unCancellable) {
+                throw IllegalStateException("Appointment in status $oldStatus cannot be cancelled.")
+            }
+        }
+
         appointment.status = newStatus
 
         when (newStatus) {
@@ -531,6 +541,51 @@ class AppointmentService(
 
         return updated
     }
+
+    fun rescheduleAppointment(
+        appointmentId: UUID,
+        newSlotId: UUID,
+        callerId: UUID,
+        callerRole: String?
+    ): Appointment {
+        val appointment = appointmentRepository.findById(appointmentId)
+            .orElseThrow { NoSuchElementException("Appointment with ID $appointmentId not found") }
+
+        assertCanAccessAppointment(appointment, callerId, callerRole)
+
+        val allowedStatuses = setOf(AppointmentStatus.SLOT_HELD, AppointmentStatus.CONFIRMED)
+        if (appointment.status !in allowedStatuses) {
+            throw IllegalStateException("Appointment in status ${appointment.status} cannot be rescheduled.")
+        }
+
+        val oldSlotId = appointment.slotId
+        if (oldSlotId == newSlotId) {
+            return appointment
+        }
+
+        if (activeAppointmentExists(newSlotId)) {
+            throw IllegalStateException("New slot is already booked or held.")
+        }
+
+        try {
+            updateCatalogSlotStatus(newSlotId, if (appointment.status == AppointmentStatus.CONFIRMED) "BOOKED" else "HELD")
+        } catch (e: Exception) {
+            throw IllegalStateException("Failed to update new slot status in Catalog Service: ${e.message}", e)
+        }
+
+        try {
+            updateCatalogSlotStatus(oldSlotId, "AVAILABLE")
+            redisTemplate.delete(holdKey(oldSlotId))
+        } catch (e: Exception) {
+            logger.warn("Failed to release old slot $oldSlotId: {}", e.message, e)
+        }
+
+        appointment.slotId = newSlotId
+        val updated = appointmentRepository.save(appointment)
+        logStatusChange(appointmentId, appointment.status, appointment.status, callerId, "Rescheduled to new slot $newSlotId")
+        return updated
+    }
+
 
     fun getInvoiceByAppointmentId(appointmentId: UUID): AppointmentInvoice {
         return appointmentInvoiceRepository.findByAppointmentId(appointmentId)

@@ -182,7 +182,28 @@ test(
     f"got {r.status_code}",
 )
 
+section("6. Cross-customer order security & cancel/reorder controls")
+order_service_url = "http://localhost:8084"
+r = requests.get(f"{GATEWAY}/api/v1/orders/customer/{customer_id}", timeout=5)
+test("get customer orders without X-User-Id returns 401", r.status_code == 401, f"got {r.status_code}")
+
+r = requests.get(
+    f"{GATEWAY}/api/v1/orders/customer/{customer_id}",
+    headers=headers(other_customer_id, "CUSTOMER"),
+    timeout=5,
+)
+test("get customer orders with mismatched customer ID returns 403", r.status_code == 403, f"got {r.status_code}")
+
+fake_order_id = str(uuid.uuid4())
+r = requests.post(
+    f"{GATEWAY}/api/v1/orders/{fake_order_id}/cancel",
+    headers=headers(customer_id, "CUSTOMER"),
+    timeout=5,
+)
+test("cancel non-existent order returns 404 or 500", r.status_code in (404, 500), f"got {r.status_code}")
+
 print(f"\n{'='*60}")
 print(f"  Sprint 14 results: {passed} passed, {failed} failed, {skipped} skipped")
 print(f"{'='*60}")
 raise SystemExit(1 if failed else 0)
+

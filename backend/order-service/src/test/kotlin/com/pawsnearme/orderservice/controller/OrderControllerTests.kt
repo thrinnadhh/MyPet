@@ -54,4 +54,29 @@ class OrderControllerTests {
             controller.confirmOrder(orderId, paymentId)
         }
     }
+
+    @Test
+    fun `getOrder - missing auth header returns 401`() {
+        val response = controller.getOrder(UUID.randomUUID(), null, null)
+        assertEquals(HttpStatus.UNAUTHORIZED, response.statusCode)
+    }
+
+    @Test
+    fun `getOrdersByCustomer - missing auth header returns 401`() {
+        val response = controller.getOrdersByCustomer(UUID.randomUUID(), null, null)
+        assertEquals(HttpStatus.UNAUTHORIZED, response.statusCode)
+    }
+
+    @Test
+    fun `cancelOrder - unauthenticated returns 401`() {
+        val response = controller.cancelOrder(UUID.randomUUID(), "Change of mind", null, null)
+        assertEquals(HttpStatus.UNAUTHORIZED, response.statusCode)
+    }
+
+    @Test
+    fun `reorder - unauthenticated returns 401`() {
+        val response = controller.reorder(UUID.randomUUID(), null, null)
+        assertEquals(HttpStatus.UNAUTHORIZED, response.statusCode)
+    }
 }
+
