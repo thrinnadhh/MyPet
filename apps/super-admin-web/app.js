@@ -117,30 +117,40 @@ async function fetchPendingProviders() {
             return;
         }
         
+function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
         container.innerHTML = '';
         providers.forEach(p => {
             const item = document.createElement('div');
             item.className = 'list-item';
             
             // Format licensing detail if present
-            const licText = p.licenseNumber ? `License: ${p.licenseNumber}` : 'No license required';
+            const licText = p.licenseNumber ? `License: ${escapeHtml(p.licenseNumber)}` : 'No license required';
             
             item.innerHTML = `
                 <div class="item-header">
                     <div>
-                        <h3 class="item-title">${p.name}</h3>
-                        <p class="item-subtitle">${p.providerType} — ${p.fulfillmentType}</p>
+                        <h3 class="item-title">${escapeHtml(p.name)}</h3>
+                        <p class="item-subtitle">${escapeHtml(p.providerType)} — ${escapeHtml(p.fulfillmentType)}</p>
                     </div>
                     <span class="badge badge-pending">PENDING</span>
                 </div>
                 <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 0.25rem;">
-                    <div>City: ${p.city} | Zip: ${p.pincode}</div>
-                    <div>Address: ${p.addressLine}</div>
+                    <div>City: ${escapeHtml(p.city)} | Zip: ${escapeHtml(p.pincode)}</div>
+                    <div>Address: ${escapeHtml(p.addressLine)}</div>
                     <div>${licText}</div>
                 </div>
                 <div class="btn-group">
-                    <button class="btn btn-emerald" onclick="approveProvider('${p.providerId}')">Approve</button>
-                    <button class="btn btn-rose" onclick="rejectProvider('${p.providerId}')">Reject</button>
+                    <button class="btn btn-emerald" onclick="approveProvider('${escapeHtml(p.providerId)}')">Approve</button>
+                    <button class="btn btn-rose" onclick="rejectProvider('${escapeHtml(p.providerId)}')">Reject</button>
                 </div>
             `;
             container.appendChild(item);
@@ -216,15 +226,15 @@ async function fetchDisputes() {
             
             let btnOrNotesHtml = `
                 <div class="btn-group">
-                    <button class="btn" onclick="openDisputeModal('${d.disputeId}', '${d.reason.replace(/'/g, "\\'")}')">⚖️ Resolve Ticket</button>
-                    <button class="btn btn-emerald" style="background-color: #374151;" onclick="viewInvoice('${d.orderId}')">📄 View Invoice</button>
+                    <button class="btn" onclick="openDisputeModal('${escapeHtml(d.disputeId)}', '${escapeHtml(d.reason)}')">⚖️ Resolve Ticket</button>
+                    <button class="btn btn-emerald" style="background-color: #374151;" onclick="viewInvoice('${escapeHtml(d.orderId)}')">📄 View Invoice</button>
                 </div>
             `;
             if (isResolved) {
                 btnOrNotesHtml = `
                     <div style="font-size: 0.85rem; padding: 0.5rem; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px dashed var(--border-glass);">
                         <div style="font-weight: 700; color: var(--text-primary);">Resolution:</div>
-                        <div style="color: var(--text-secondary);">${d.resolutionNotes || 'No notes provided'}</div>
+                        <div style="color: var(--text-secondary);">${escapeHtml(d.resolutionNotes || 'No notes provided')}</div>
                     </div>
                 `;
             }
@@ -233,12 +243,12 @@ async function fetchDisputes() {
                 <div class="item-header">
                     <div>
                         <h3 class="item-title">Dispute on Order</h3>
-                        <p class="item-subtitle">Order ID: ${d.orderId}</p>
+                        <p class="item-subtitle">Order ID: ${escapeHtml(d.orderId)}</p>
                     </div>
-                    <span class="badge ${badgeClass}">${d.status}</span>
+                    <span class="badge ${badgeClass}">${escapeHtml(d.status)}</span>
                 </div>
                 <div style="font-size: 0.85rem; color: var(--text-secondary);">
-                    <strong>Reason:</strong> ${d.reason}
+                    <strong>Reason:</strong> ${escapeHtml(d.reason)}
                 </div>
                 ${btnOrNotesHtml}
             `;

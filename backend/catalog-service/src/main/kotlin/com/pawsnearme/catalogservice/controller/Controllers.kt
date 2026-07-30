@@ -10,14 +10,29 @@ import org.springframework.web.bind.annotation.*
 import java.util.UUID
 
 
+class CatalogAccessDeniedException(message: String) : RuntimeException(message)
+
 @RestController
 @RequestMapping("/api/v1/catalog")
 class CatalogController(private val catalogService: CatalogService) {
 
+    private fun verifyProviderOwnership(providerId: UUID, xUserId: String?, xUserRole: String?) {
+        if (xUserRole == "ADMIN") return
+        if (xUserRole == "MERCHANT" && !xUserId.isNullOrBlank()) {
+            if (catalogService.isProviderOwnedBy(providerId, UUID.fromString(xUserId))) return
+        }
+        throw CatalogAccessDeniedException("Access denied: merchant does not own provider $providerId")
+    }
+
     // --- Offerings API ---
 
     @PostMapping("/offerings")
-    fun createOffering(@Valid @RequestBody request: OfferingRequest): ResponseEntity<Offering> {
+    fun createOffering(
+        @Valid @RequestBody request: OfferingRequest,
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?
+    ): ResponseEntity<Offering> {
+        verifyProviderOwnership(request.providerId!!, xUserId, role)
         val offering = Offering(
             providerId = request.providerId!!,
             name = request.name!!,
@@ -50,10 +65,18 @@ class CatalogController(private val catalogService: CatalogService) {
     @PutMapping("/offerings/{offeringId}")
     fun updateOffering(
         @PathVariable offeringId: UUID,
-        @Valid @RequestBody request: OfferingRequest
+        @Valid @RequestBody request: OfferingRequest,
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Offering> {
+        // SECURITY: Verify against the *existing* offering's providerId, NOT the client-supplied
+        // request body. Without this check, a merchant could overwrite another merchant's offering
+        // by sending their own providerId in the request body (IDOR vulnerability).
+        val existing = catalogService.getOfferingById(offeringId)
+        verifyProviderOwnership(existing.providerId, xUserId, role)
+
         val offering = Offering(
-            providerId = request.providerId!!,
+            providerId = existing.providerId,   // lock to existing provider — client cannot reassign
             name = request.name!!,
             description = request.description,
             category = request.category,
@@ -70,8 +93,15 @@ class CatalogController(private val catalogService: CatalogService) {
     }
 
 
+
     @DeleteMapping("/offerings/{offeringId}")
-    fun deleteOffering(@PathVariable offeringId: UUID): ResponseEntity<Unit> {
+    fun deleteOffering(
+        @PathVariable offeringId: UUID,
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?
+    ): ResponseEntity<Unit> {
+        val existing = catalogService.getOfferingById(offeringId)
+        verifyProviderOwnership(existing.providerId, xUserId, role)
         catalogService.deleteOffering(offeringId)
         return ResponseEntity.noContent().build()
     }
@@ -97,7 +127,13 @@ class CatalogController(private val catalogService: CatalogService) {
     // --- Slots API ---
 
     @PostMapping("/slots")
-    fun createSlot(@Valid @RequestBody request: SlotRequest): ResponseEntity<Slot> {
+    fun createSlot(
+        @Valid @RequestBody request: SlotRequest,
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?
+    ): ResponseEntity<Slot> {
+        val offering = catalogService.getOfferingById(request.offeringId!!)
+        verifyProviderOwnership(offering.providerId, xUserId, role)
         val slot = Slot(
             offeringId = request.offeringId!!,
             slotStart = request.slotStart!!,
@@ -126,14 +162,26 @@ class CatalogController(private val catalogService: CatalogService) {
     @PutMapping("/slots/{slotId}/status")
     fun updateSlotStatus(
         @PathVariable slotId: UUID,
-        @RequestParam status: SlotStatus
+        @RequestParam status: SlotStatus,
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Slot> {
+        val slot = catalogService.getSlotById(slotId)
+        val offering = catalogService.getOfferingById(slot.offeringId)
+        verifyProviderOwnership(offering.providerId, xUserId, role)
         val updated = catalogService.updateSlotStatus(slotId, status)
         return ResponseEntity.ok(updated)
     }
 
     @DeleteMapping("/slots/{slotId}")
-    fun deleteSlot(@PathVariable slotId: UUID): ResponseEntity<Unit> {
+    fun deleteSlot(
+        @PathVariable slotId: UUID,
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?
+    ): ResponseEntity<Unit> {
+        val slot = catalogService.getSlotById(slotId)
+        val offering = catalogService.getOfferingById(slot.offeringId)
+        verifyProviderOwnership(offering.providerId, xUserId, role)
         catalogService.deleteSlot(slotId)
         return ResponseEntity.noContent().build()
     }
@@ -231,5 +279,10 @@ class CatalogController(private val catalogService: CatalogService) {
         }
         val bills = catalogService.getBillsByStore(storeId)
         return ResponseEntity.ok(bills)
+    }
+
+    @ExceptionHandler(CatalogAccessDeniedException::class)
+    fun handleAccessDenied(ex: CatalogAccessDeniedException): ResponseEntity<Any> {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to ex.message))
     }
 }

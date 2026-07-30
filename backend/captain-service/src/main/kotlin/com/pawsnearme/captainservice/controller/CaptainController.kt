@@ -56,25 +56,65 @@ class CaptainController(private val captainService: CaptainService) {
         return ResponseEntity.ok(profile)
     }
 
+    class CaptainAccessDeniedException(message: String) : RuntimeException(message)
+
+    private fun checkCaptainAccess(xUserId: String?, xUserRole: String?, captainId: UUID) {
+        if (xUserRole == "ADMIN") return
+        if (!xUserId.isNullOrBlank() && xUserId == captainId.toString()) return
+        throw CaptainAccessDeniedException("Access denied: missing authorization for captain resource")
+    }
+
     @GetMapping("/profiles/{id}")
-    fun getProfile(@PathVariable id: UUID): ResponseEntity<CaptainProfile> =
-        ResponseEntity.ok(captainService.getProfile(id))
+    fun getProfile(
+        @PathVariable id: UUID,
+        @RequestHeader(value = "X-User-Id", required = false) xUserId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) xUserRole: String?
+    ): ResponseEntity<CaptainProfile> {
+        checkCaptainAccess(xUserId, xUserRole, id)
+        return ResponseEntity.ok(captainService.getProfile(id))
+    }
 
     @GetMapping("/pending")
-    fun listPending(): ResponseEntity<List<CaptainProfile>> =
-        ResponseEntity.ok(captainService.listPendingCaptains())
+    fun listPending(
+        @RequestHeader(value = "X-User-Role", required = false) xUserRole: String?
+    ): ResponseEntity<List<CaptainProfile>> {
+        if (xUserRole != "ADMIN") {
+            throw CaptainAccessDeniedException("Access denied: viewing pending captains requires ADMIN role")
+        }
+        return ResponseEntity.ok(captainService.listPendingCaptains())
+    }
 
     @PostMapping("/{id}/approve")
-    fun approve(@PathVariable id: UUID): ResponseEntity<CaptainProfile> =
-        ResponseEntity.ok(captainService.approveCaptain(id))
+    fun approve(
+        @PathVariable id: UUID,
+        @RequestHeader(value = "X-User-Role", required = false) xUserRole: String?
+    ): ResponseEntity<CaptainProfile> {
+        if (xUserRole != "ADMIN") {
+            throw CaptainAccessDeniedException("Access denied: approving captains requires ADMIN role")
+        }
+        return ResponseEntity.ok(captainService.approveCaptain(id))
+    }
 
     @PostMapping("/{id}/reject")
-    fun reject(@PathVariable id: UUID): ResponseEntity<CaptainProfile> =
-        ResponseEntity.ok(captainService.rejectCaptain(id))
+    fun reject(
+        @PathVariable id: UUID,
+        @RequestHeader(value = "X-User-Role", required = false) xUserRole: String?
+    ): ResponseEntity<CaptainProfile> {
+        if (xUserRole != "ADMIN") {
+            throw CaptainAccessDeniedException("Access denied: rejecting captains requires ADMIN role")
+        }
+        return ResponseEntity.ok(captainService.rejectCaptain(id))
+    }
 
     @GetMapping("/{id}/documents")
-    fun listDocuments(@PathVariable id: UUID): ResponseEntity<List<CaptainDocument>> =
-        ResponseEntity.ok(captainService.getDocuments(id))
+    fun listDocuments(
+        @PathVariable id: UUID,
+        @RequestHeader(value = "X-User-Id", required = false) xUserId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) xUserRole: String?
+    ): ResponseEntity<List<CaptainDocument>> {
+        checkCaptainAccess(xUserId, xUserRole, id)
+        return ResponseEntity.ok(captainService.getDocuments(id))
+    }
 
     @PutMapping("/status")
     fun toggleOnline(
@@ -99,6 +139,18 @@ class CaptainController(private val captainService: CaptainService) {
     }
 
     @GetMapping("/{id}/earnings")
-    fun getEarnings(@PathVariable id: UUID): ResponseEntity<List<CaptainEarning>> =
-        ResponseEntity.ok(captainService.getEarnings(id))
+    fun getEarnings(
+        @PathVariable id: UUID,
+        @RequestHeader(value = "X-User-Id", required = false) xUserId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) xUserRole: String?
+    ): ResponseEntity<List<CaptainEarning>> {
+        checkCaptainAccess(xUserId, xUserRole, id)
+        return ResponseEntity.ok(captainService.getEarnings(id))
+    }
+
+    @ExceptionHandler(CaptainAccessDeniedException::class)
+    fun handleAccessDenied(ex: CaptainAccessDeniedException): ResponseEntity<Any> {
+        return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
+            .body(mapOf("error" to ex.message))
+    }
 }

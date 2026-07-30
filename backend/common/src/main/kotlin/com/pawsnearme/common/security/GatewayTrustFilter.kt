@@ -42,6 +42,11 @@ class GatewayTrustFilter(private val props: GatewayTrustProperties) : OncePerReq
         response: HttpServletResponse,
         filterChain: FilterChain
     ) {
+        val uri = request.requestURI
+        if (uri.startsWith("/actuator/") || request.method.equals("OPTIONS", ignoreCase = true)) {
+            filterChain.doFilter(request, response)
+            return
+        }
         val incoming = request.getHeader(HEADER)
         if (incoming.isNullOrBlank() || incoming != props.secret) {
             log.warn(

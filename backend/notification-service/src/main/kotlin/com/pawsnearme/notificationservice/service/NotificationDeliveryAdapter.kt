@@ -28,12 +28,31 @@ interface NotificationDeliveryAdapter {
 
 @Component
 class ConfiguredNotificationDeliveryAdapter(
-    @Value("\${notification.delivery.mode:LOGGED_DEV}")
+    /**
+     * Delivery mode is required — no default.
+     * Valid values: EXPO_FCM | LOGGED_DEV
+     * Omitting NOTIFICATION_DELIVERY_MODE in production env is a misconfiguration
+     * that must fail fast rather than silently dropping all notifications.
+     */
+    @Value("\${notification.delivery.mode}")
     private val deliveryMode: String,
     private val pushTokenRepository: DevicePushTokenRepository,
     private val pushNotificationService: PushNotificationService,
 ) : NotificationDeliveryAdapter {
     private val log = LoggerFactory.getLogger(javaClass)
+
+    init {
+        val validModes = setOf("EXPO_FCM", "LOGGED_DEV")
+        require(deliveryMode in validModes) {
+            "Invalid notification.delivery.mode='$deliveryMode'. Must be one of: $validModes"
+        }
+        if (deliveryMode == "LOGGED_DEV") {
+            log.warn(
+                "Notification delivery mode is LOGGED_DEV — notifications will only be logged, not delivered. " +
+                    "Set NOTIFICATION_DELIVERY_MODE=EXPO_FCM for production."
+            )
+        }
+    }
 
     override fun deliver(request: NotificationDeliveryRequest): NotificationDeliveryResult {
         val tokens = pushTokenRepository.findByUserId(request.userId)
