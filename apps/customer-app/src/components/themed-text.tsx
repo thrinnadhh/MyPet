@@ -1,5 +1,6 @@
 import { Platform, StyleSheet, Text, type TextProps } from 'react-native';
 
+import { fontFamilies } from '@/design/tokens';
 import { Fonts, ThemeColor } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -8,11 +9,12 @@ export type ThemedTextProps = TextProps & {
   themeColor?: ThemeColor;
 };
 
-export function ThemedText({ style, type = 'default', themeColor, ...rest }: ThemedTextProps) {
+export function ThemedText({ style, type = 'default', themeColor, maxFontSizeMultiplier = 2, ...rest }: ThemedTextProps) {
   const theme = useTheme();
-
   return (
     <Text
+      allowFontScaling
+      maxFontSizeMultiplier={maxFontSizeMultiplier}
       style={[
         { color: theme[themeColor ?? 'text'] },
         type === 'default' && styles.default,
@@ -31,43 +33,12 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
 }
 
 const styles = StyleSheet.create({
-  small: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: 500,
-  },
-  smallBold: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: 700,
-  },
-  default: {
-    fontSize: 16,
-    lineHeight: 24,
-    fontWeight: 500,
-  },
-  title: {
-    fontSize: 34,
-    fontWeight: 700,
-    lineHeight: 40,
-  },
-  subtitle: {
-    fontSize: 22,
-    lineHeight: 30,
-    fontWeight: 700,
-  },
-  link: {
-    lineHeight: 30,
-    fontSize: 14,
-  },
-  linkPrimary: {
-    lineHeight: 30,
-    fontSize: 14,
-    color: '#3c87f7',
-  },
-  code: {
-    fontFamily: Fonts.mono,
-    fontWeight: Platform.select({ android: 700 }) ?? 500,
-    fontSize: 12,
-  },
+  small: { fontFamily: fontFamilies.medium, fontSize: 14, lineHeight: 20, fontWeight: '500' },
+  smallBold: { fontFamily: fontFamilies.bold, fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  default: { fontFamily: fontFamilies.medium, fontSize: 16, lineHeight: 24, fontWeight: '500' },
+  title: { fontFamily: fontFamilies.bold, fontSize: 34, fontWeight: '700', lineHeight: 40 },
+  subtitle: { fontFamily: fontFamilies.bold, fontSize: 22, lineHeight: 30, fontWeight: '700' },
+  link: { fontFamily: fontFamilies.medium, lineHeight: 30, fontSize: 14 },
+  linkPrimary: { fontFamily: fontFamilies.medium, lineHeight: 30, fontSize: 14, color: '#004AC6' },
+  code: { fontFamily: Fonts.mono, fontWeight: Platform.select({ android: '700' }) ?? '500', fontSize: 12 },
 });

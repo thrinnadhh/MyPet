@@ -166,7 +166,6 @@ export default function HomeScreen() {
         trailing={<AppIcon name="paw" color={theme.primary} size={24} />}
       />
 
-
       {/* Location Bar */}
       <View style={[styles.locationBar, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
         <AppIcon name="location" color={theme.primary} size={18} />
