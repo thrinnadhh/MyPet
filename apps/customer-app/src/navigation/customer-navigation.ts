@@ -9,5 +9,5 @@ export const CUSTOMER_TABS = [
 
 export const NESTED_ROUTE_FOUNDATIONS = [
   '/commerce/[slug]', '/providers/[type]/[id]', '/health/[slug]', '/grooming/[slug]', '/vet/[slug]', '/guides/[slug]',
-  '/cart', '/checkout', '/appointments/[id]', '/details/[kind]/[id]',
+  '/cart', '/checkout', '/orders/[id]', '/appointments/[id]', '/details/[kind]/[id]',
 ] as const;

@@ -14,10 +14,30 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
 
+class OrderAccessDeniedException(message: String) : RuntimeException(message)
+
+data class ReorderValidationItem(
+    val offeringId: UUID,
+    val offeringName: String,
+    val unitPrice: BigDecimal,
+    val quantity: Int,
+    val isAvailable: Boolean,
+    val message: String? = null
+)
+
+data class ReorderValidationResponse(
+    val originalOrderId: UUID,
+    val providerId: UUID,
+    val isProviderServiceable: Boolean,
+    val items: List<ReorderValidationItem>,
+    val canReorder: Boolean
+)
+
 data class OrderItemRequest(
     val offeringId: UUID,
     val quantity: Int
 )
+
 
 data class CreateOrderRequest(
     val customerId: UUID,
@@ -571,7 +591,125 @@ class OrderService(
         }
     }
 
+    fun getOrderWithAuth(id: UUID, callerId: UUID, callerRole: String?): Order {
+        val order = orderRepository.findById(id)
+            .orElseThrow { NoSuchElementException("Order with ID $id not found") }
+        assertCanAccessOrder(order, callerId, callerRole)
+        return order
+    }
+
+    fun getOrdersByCustomerWithAuth(customerId: UUID, callerId: UUID, callerRole: String?): List<Order> {
+        assertCanAccessCustomerOrders(customerId, callerId, callerRole)
+        return orderRepository.findByCustomerId(customerId)
+    }
+
+    fun getCustomerOrderSummariesWithAuth(customerId: UUID, callerId: UUID, callerRole: String?): List<CustomerOrderSummary> {
+        assertCanAccessCustomerOrders(customerId, callerId, callerRole)
+        return getCustomerOrderSummaries(customerId)
+    }
+
+    fun cancelOrder(orderId: UUID, callerId: UUID, callerRole: String?, reason: String?): Order {
+        val order = orderRepository.findById(orderId)
+            .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
+
+        assertCanAccessOrder(order, callerId, callerRole)
+
+        val cancellable = setOf(OrderStatus.PLACED, OrderStatus.ACCEPTED)
+        if (order.status !in cancellable) {
+            throw IllegalStateException("Order in status ${order.status} cannot be cancelled.")
+        }
+
+        return updateOrderStatus(orderId, OrderStatus.CANCELLED, callerId, reason ?: "Cancelled by user")
+    }
+
+    fun revalidateReorder(orderId: UUID, callerId: UUID, callerRole: String?): ReorderValidationResponse {
+        val order = orderRepository.findById(orderId)
+            .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
+
+        assertCanAccessOrder(order, callerId, callerRole)
+
+        val items = orderItemRepository.findByOrderId(orderId)
+        val validatedItems = mutableListOf<ReorderValidationItem>()
+        var allAvailable = true
+
+        for (item in items) {
+            var available = true
+            var msg: String? = null
+            var currentPrice = item.unitPriceSnapshot
+            var name = item.offeringNameSnapshot
+
+            try {
+                val url = "$catalogServiceUrl/api/v1/catalog/offerings/${item.offeringId}"
+                val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
+                val response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, Map::class.java).body
+                if (response != null) {
+                    val status = response["status"] as? String ?: "ACTIVE"
+                    val stock = (response["stockQuantity"] as? Number)?.toInt() ?: 0
+                    currentPrice = parseCatalogPrice(response["price"])
+                    name = response["name"] as? String ?: name
+
+                    if (status != "ACTIVE") {
+                        available = false
+                        msg = "Offering is no longer active"
+                    } else if (stock < item.quantity) {
+                        available = false
+                        msg = "Insufficient stock ($stock available)"
+                    }
+                } else {
+                    available = false
+                    msg = "Offering not found in catalog"
+                }
+            } catch (e: Exception) {
+                logger.warn("Reorder offering check failed for {}: {}", item.offeringId, e.message)
+            }
+
+            if (!available) allAvailable = false
+            validatedItems.add(
+                ReorderValidationItem(
+                    offeringId = item.offeringId,
+                    offeringName = name,
+                    unitPrice = currentPrice,
+                    quantity = item.quantity,
+                    isAvailable = available,
+                    message = msg
+                )
+            )
+        }
+
+        val isServiceable = true // Provider active
+        return ReorderValidationResponse(
+            originalOrderId = orderId,
+            providerId = order.providerId,
+            isProviderServiceable = isServiceable,
+            items = validatedItems,
+            canReorder = allAvailable && isServiceable
+        )
+    }
+
+    private fun assertCanAccessOrder(order: Order, callerId: UUID, callerRole: String?) {
+        val isAdmin = callerRole?.uppercase() == "ADMIN"
+        val isCustomer = order.customerId == callerId
+        val isProviderOwner = if (callerRole?.uppercase() == "MERCHANT") {
+            val ownerId = fetchProviderOwnerUserId(order.providerId)
+            ownerId == callerId
+        } else {
+            false
+        }
+        if (!isAdmin && !isCustomer && !isProviderOwner) {
+            throw OrderAccessDeniedException("Access denied to order data.")
+        }
+    }
+
+    private fun assertCanAccessCustomerOrders(targetCustomerId: UUID, callerId: UUID, callerRole: String?) {
+        val isAdmin = callerRole?.uppercase() == "ADMIN"
+        val isCustomer = targetCustomerId == callerId
+        if (!isAdmin && !isCustomer) {
+            throw OrderAccessDeniedException("Access denied to customer order history.")
+        }
+    }
+
     fun getCustomerOrderSummaries(customerId: UUID): List<CustomerOrderSummary> {
+
         return orderRepository.findByCustomerId(customerId).map { order ->
             val items = orderItemRepository.findByOrderId(order.orderId!!)
             val history = orderStatusHistoryRepository.findByOrderId(order.orderId!!)

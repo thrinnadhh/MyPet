@@ -34,26 +34,80 @@ class OrderController(
     }
 
     @GetMapping("/{id}")
-    fun getOrder(@PathVariable id: UUID): ResponseEntity<Order> {
-        val order = orderRepository.findById(id)
-            .orElseThrow { NoSuchElementException("Order with ID $id not found") }
+    fun getOrder(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+    ): ResponseEntity<Any> {
+        if (authenticatedUserId.isNullOrBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
+        }
+        val callerId = UUID.fromString(authenticatedUserId)
+        val order = orderService.getOrderWithAuth(id, callerId, authenticatedUserRole)
         return ResponseEntity.ok(order)
     }
 
     @GetMapping("/customer/{customerId}")
-    fun getOrdersByCustomer(@PathVariable customerId: UUID): ResponseEntity<List<Order>> {
-        val orders = orderRepository.findByCustomerId(customerId)
+    fun getOrdersByCustomer(
+        @PathVariable customerId: UUID,
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+    ): ResponseEntity<Any> {
+        if (authenticatedUserId.isNullOrBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
+        }
+        val callerId = UUID.fromString(authenticatedUserId)
+        val orders = orderService.getOrdersByCustomerWithAuth(customerId, callerId, authenticatedUserRole)
         return ResponseEntity.ok(orders)
     }
 
     @GetMapping("/customer/{customerId}/tracking")
-    fun getCustomerOrderTracking(@PathVariable customerId: UUID): ResponseEntity<List<CustomerOrderSummary>> =
-        ResponseEntity.ok(orderService.getCustomerOrderSummaries(customerId))
+    fun getCustomerOrderTracking(
+        @PathVariable customerId: UUID,
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+    ): ResponseEntity<Any> {
+        if (authenticatedUserId.isNullOrBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
+        }
+        val callerId = UUID.fromString(authenticatedUserId)
+        val summaries = orderService.getCustomerOrderSummariesWithAuth(customerId, callerId, authenticatedUserRole)
+        return ResponseEntity.ok(summaries)
+    }
 
     @GetMapping("/provider/{providerId}")
     fun getOrdersByProvider(@PathVariable providerId: UUID): ResponseEntity<List<Order>> {
         val orders = orderRepository.findByProviderId(providerId)
         return ResponseEntity.ok(orders)
+    }
+
+    @PostMapping("/{id}/cancel")
+    fun cancelOrder(
+        @PathVariable id: UUID,
+        @RequestParam(required = false) reason: String?,
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+    ): ResponseEntity<Any> {
+        if (authenticatedUserId.isNullOrBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
+        }
+        val callerId = UUID.fromString(authenticatedUserId)
+        val cancelled = orderService.cancelOrder(id, callerId, authenticatedUserRole, reason)
+        return ResponseEntity.ok(cancelled)
+    }
+
+    @PostMapping("/{id}/reorder")
+    fun reorder(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+    ): ResponseEntity<Any> {
+        if (authenticatedUserId.isNullOrBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
+        }
+        val callerId = UUID.fromString(authenticatedUserId)
+        val result = orderService.revalidateReorder(id, callerId, authenticatedUserRole)
+        return ResponseEntity.ok(result)
     }
 
     @PutMapping("/{id}/status")
@@ -80,4 +134,5 @@ class OrderController(
         val order = orderService.confirmOrder(id, paymentId)
         return ResponseEntity.ok(order)
     }
+
 }

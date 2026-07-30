@@ -125,7 +125,23 @@ class AppointmentController(
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
         }
         val changerId = UUID.fromString(authenticatedUserId)
-        val updated = appointmentService.updateAppointmentStatus(id, status, changerId, authenticatedUserRole, note, prescriptionDocUrl)
+        val updated = appointmentService.updateAppointmentStatus(id, status, changerId, note, prescriptionDocUrl, authenticatedUserRole)
         return ResponseEntity.ok(updated)
     }
+
+    @PostMapping("/{id}/reschedule")
+    fun rescheduleAppointment(
+        @PathVariable id: UUID,
+        @RequestParam newSlotId: UUID,
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+    ): ResponseEntity<Any> {
+        if (authenticatedUserId.isNullOrBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
+        }
+        val callerId = UUID.fromString(authenticatedUserId)
+        val rescheduled = appointmentService.rescheduleAppointment(id, newSlotId, callerId, authenticatedUserRole)
+        return ResponseEntity.ok(rescheduled)
+    }
+
 }
