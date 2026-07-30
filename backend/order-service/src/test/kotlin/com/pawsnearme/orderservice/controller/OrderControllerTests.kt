@@ -35,9 +35,10 @@ class OrderControllerTests {
             totalAmount = BigDecimal("500.00"),
             paymentId = paymentId
         )
-        whenever(orderService.confirmOrder(orderId, paymentId)).thenReturn(order)
+        val callerId = UUID.randomUUID()
+        whenever(orderService.confirmOrderWithAuth(eq(orderId), eq(paymentId), eq(callerId), eq("CUSTOMER"))).thenReturn(order)
 
-        val response = controller.confirmOrder(orderId, paymentId)
+        val response = controller.confirmOrder(orderId, paymentId, callerId.toString(), "CUSTOMER")
 
         assertEquals(HttpStatus.OK, response.statusCode)
         assertEquals(order, response.body)
@@ -47,11 +48,12 @@ class OrderControllerTests {
     fun `confirmOrder - validation failure throws IllegalStateException`() {
         val orderId = UUID.randomUUID()
         val paymentId = UUID.randomUUID()
-        whenever(orderService.confirmOrder(orderId, paymentId))
+        val callerId = UUID.randomUUID()
+        whenever(orderService.confirmOrderWithAuth(eq(orderId), eq(paymentId), eq(callerId), eq("CUSTOMER")))
             .thenThrow(IllegalStateException("Payment verification failed"))
 
         assertThrows<IllegalStateException> {
-            controller.confirmOrder(orderId, paymentId)
+            controller.confirmOrder(orderId, paymentId, callerId.toString(), "CUSTOMER")
         }
     }
 

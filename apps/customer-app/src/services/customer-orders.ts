@@ -194,6 +194,8 @@ export interface CheckoutQuoteInput {
   couponCode?: string | null;
   paymentMethod?: 'CARD' | 'UPI' | 'COD' | string | null;
   city?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface CheckoutQuoteOutput {
@@ -222,6 +224,8 @@ export interface CreateOrderInput {
   paymentMethod?: 'CARD' | 'UPI' | 'COD' | string | null;
   quoteToken?: string | null;
   city?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export async function fetchCheckoutQuote(
@@ -258,10 +262,14 @@ export async function createCustomerOrder(
   }
 
   const order = await response.json();
+  const orderId = typeof order.orderId === 'string' ? order.orderId : order.id;
+  if (typeof orderId !== 'string' || typeof order.providerId !== 'string') {
+    throw new Error('Order service returned an invalid response');
+  }
   const rawTotal = Number(order.totalAmount) || 0;
 
   return {
-    id: order.orderId || order.id,
+    id: orderId,
     providerId: order.providerId,
     providerName: `Store ${order.providerId.slice(0, 8)}`,
     items: order.items?.map((i: any) => i.offeringNameSnapshot || i.name) || ['Pet Product'],
@@ -273,4 +281,3 @@ export async function createCustomerOrder(
     flowStep: 'placed',
   };
 }
-

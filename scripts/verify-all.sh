@@ -37,12 +37,22 @@ run_in_dir() {
   (cd "$dir" && "$@")
 }
 
+JAVA_MAJOR="$(java -XshowSettings:properties -version 2>&1 | sed -n 's/^[[:space:]]*java.specification.version = //p' | head -n 1)"
+if [[ "$JAVA_MAJOR" != "21" ]]; then
+  echo "JDK 21 is required, but the active Java specification version is ${JAVA_MAJOR:-unknown}." >&2
+  echo "Set JAVA_HOME to a JDK 21 installation before running verification." >&2
+  exit 1
+fi
+
+node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 20 || (major === 20 && minor < 19)) { console.error(`Node.js 20.19+ is required; found ${process.versions.node}`); process.exit(1); }'
+
 run_in_dir "$ROOT_DIR/backend" ./gradlew test
 
 run "$ROOT_DIR/scripts/check-no-generated-artifacts.sh"
 
 run_in_dir "$ROOT_DIR/apps/customer-app" npm run typecheck
 run_in_dir "$ROOT_DIR/apps/customer-app" npm run lint
+run_in_dir "$ROOT_DIR/apps/customer-app" npm test -- --runInBand
 
 run_in_dir "$ROOT_DIR/apps/merchant-captain-app" npm run typecheck
 run_in_dir "$ROOT_DIR/apps/merchant-captain-app" npm run lint

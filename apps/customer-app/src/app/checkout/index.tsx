@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
@@ -25,7 +25,14 @@ export default function CheckoutScreen() {
   const theme = useTheme();
   const { user, session } = useAuth();
   const { requireAuth } = useAuthIntent();
-  const { items, clearCart } = useCart();
+  const { items, providerId, clearCart, loading: cartLoading } = useCart();
+  const checkoutItems = useMemo(() => {
+    const quantities = new Map<string, number>();
+    items.forEach((item) => {
+      quantities.set(item.product.id, (quantities.get(item.product.id) ?? 0) + item.quantity);
+    });
+    return Array.from(quantities, ([offeringId, quantity]) => ({ offeringId, quantity }));
+  }, [items]);
 
   const [address, setAddress] = useState<CustomerAddress | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'CARD' | 'UPI' | 'COD'>('CARD');
@@ -38,23 +45,29 @@ export default function CheckoutScreen() {
   const [placing, setPlacing] = useState(false);
 
   const loadData = useCallback(async () => {
-    if (!user || !session) return;
+    if (!user || !session || cartLoading) return;
+    if (!providerId || checkoutItems.length === 0) {
+      setQuote(null);
+      setState('ready');
+      return;
+    }
     setState('loading');
     try {
       const defAddr = await fetchDefaultAddress(session.access_token);
       setAddress(defAddr);
 
-      if (items.length > 0 && defAddr) {
-        const dummyProviderId = '11111111-1111-1111-1111-111111111111';
+      if (defAddr) {
         const quoteRes = await fetchCheckoutQuote(
           {
             customerId: user.id,
-            providerId: dummyProviderId,
-            deliveryAddressId: defAddr.addressId || user.id,
-            items: items.map((i) => ({ offeringId: i.product.id, quantity: i.quantity })),
+            providerId,
+            deliveryAddressId: defAddr.addressId,
+            items: checkoutItems,
             couponCode: appliedCoupon,
             paymentMethod,
-            city: defAddr.city || 'Tirupati',
+            city: defAddr.city,
+            latitude: defAddr.geoLat,
+            longitude: defAddr.geoLng,
           },
           session.access_token,
         );
@@ -64,27 +77,30 @@ export default function CheckoutScreen() {
     } catch (error) {
       setState(isOfflineError(error) ? 'offline' : 'error');
     }
-  }, [appliedCoupon, items, paymentMethod, session, user]);
+  }, [appliedCoupon, cartLoading, checkoutItems, paymentMethod, providerId, session, user]);
 
   useEffect(() => {
     if (user && session) void loadData();
   }, [loadData, session, user]);
 
   const handleApplyCoupon = async () => {
-    if (!couponCodeInput.trim() || !user || !session || !address) return;
+    if (!couponCodeInput.trim() || !user || !session || !address || !providerId || checkoutItems.length === 0) {
+      return;
+    }
     setQuoting(true);
     try {
       const codeToApply = couponCodeInput.trim().toUpperCase();
-      const dummyProviderId = '11111111-1111-1111-1111-111111111111';
       const newQuote = await fetchCheckoutQuote(
         {
           customerId: user.id,
-          providerId: dummyProviderId,
-          deliveryAddressId: address.addressId || user.id,
-          items: items.map((i) => ({ offeringId: i.product.id, quantity: i.quantity })),
+          providerId,
+          deliveryAddressId: address.addressId,
+          items: checkoutItems,
           couponCode: codeToApply,
           paymentMethod,
-          city: address.city || 'Tirupati',
+          city: address.city,
+          latitude: address.geoLat,
+          longitude: address.geoLng,
         },
         session.access_token,
       );
@@ -92,8 +108,9 @@ export default function CheckoutScreen() {
       setAppliedCoupon(codeToApply);
       setCouponCodeInput('');
       Alert.alert('Coupon Applied', `Coupon ${codeToApply} applied successfully!`);
-    } catch (err: any) {
-      Alert.alert('Invalid Coupon', err.message || 'Could not apply coupon code.');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Could not apply coupon code.';
+      Alert.alert('Invalid Coupon', message);
     } finally {
       setQuoting(false);
     }
@@ -104,7 +121,7 @@ export default function CheckoutScreen() {
   };
 
   const handlePlaceOrder = async () => {
-    if (!user || !session || !address || !quote) return;
+    if (!user || !session || !address || !quote || !providerId || checkoutItems.length === 0) return;
     if (paymentMethod === 'COD' && !quote.isCodAvailable) {
       Alert.alert('COD Not Allowed', quote.codRejectionReason || 'Order total exceeds COD limit.');
       return;
@@ -112,17 +129,18 @@ export default function CheckoutScreen() {
 
     setPlacing(true);
     try {
-      const dummyProviderId = '11111111-1111-1111-1111-111111111111';
       const created = await createCustomerOrder(
         {
           customerId: user.id,
-          providerId: dummyProviderId,
-          deliveryAddressId: address.addressId || user.id,
-          items: items.map((i) => ({ offeringId: i.product.id, quantity: i.quantity })),
+          providerId,
+          deliveryAddressId: address.addressId,
+          items: checkoutItems,
           couponCode: appliedCoupon,
           paymentMethod,
           quoteToken: quote.quoteToken,
-          city: address.city || 'Tirupati',
+          city: address.city,
+          latitude: address.geoLat,
+          longitude: address.geoLng,
         },
         session.access_token,
       );
@@ -130,8 +148,9 @@ export default function CheckoutScreen() {
       await clearCart();
       Alert.alert('Order Placed!', `Your order #${created.id.slice(0, 8)} has been placed successfully.`);
       router.replace(`/orders/${created.id}` as any);
-    } catch (err: any) {
-      Alert.alert('Checkout Failed', err.message || 'Could not complete order placement.');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Could not complete order placement.';
+      Alert.alert('Checkout Failed', message);
     } finally {
       setPlacing(false);
     }
@@ -151,10 +170,39 @@ export default function CheckoutScreen() {
     );
   }
 
-  if (state === 'loading') {
+  if (state === 'loading' || cartLoading) {
     return (
       <ScreenShell scroll={false} header={<AppBar title={t('routes.checkout')} />}>
         <StateView kind="loading" title={t('states.loading')} message="Fetching server breakdown..." />
+      </ScreenShell>
+    );
+  }
+
+  if (state === 'offline' || state === 'error') {
+    const isOffline = state === 'offline';
+    return (
+      <ScreenShell scroll={false} header={<AppBar title={t('routes.checkout')} />}>
+        <StateView
+          kind={state}
+          title={t(isOffline ? 'states.offline' : 'states.error')}
+          message={t(isOffline ? 'states.offlineMessage' : 'states.errorMessage')}
+          actionLabel={t('states.retry')}
+          onAction={() => void loadData()}
+        />
+      </ScreenShell>
+    );
+  }
+
+  if (!providerId || checkoutItems.length === 0) {
+    return (
+      <ScreenShell scroll={false} header={<AppBar title={t('routes.checkout')} />}>
+        <StateView
+          kind="empty"
+          title="Your cart is empty"
+          message="Add an in-stock product before starting checkout."
+          actionLabel="Browse products"
+          onAction={() => router.replace('/(tabs)' as never)}
+        />
       </ScreenShell>
     );
   }

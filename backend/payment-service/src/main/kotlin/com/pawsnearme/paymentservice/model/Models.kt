@@ -210,6 +210,9 @@ class OrderRef(
     
     @Column(name = "provider_id")
     val providerId: UUID,
+
+    @Column(name = "customer_id")
+    val customerId: UUID,
     
     @Column(name = "captain_id")
     val captainId: UUID?,
@@ -277,4 +280,3 @@ class ProviderRef(
     @Column(name = "commission_pct")
     val commissionPct: BigDecimal = BigDecimal("15.00")
 )
-

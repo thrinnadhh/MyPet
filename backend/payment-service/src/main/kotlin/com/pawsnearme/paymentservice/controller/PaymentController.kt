@@ -85,11 +85,18 @@ class PaymentController(private val paymentService: PaymentService) {
 
     @PostMapping("/linked-accounts")
     fun registerLinkedAccount(
-        @RequestBody request: com.pawsnearme.paymentservice.service.RegisterLinkedAccountRequest,
+        @Valid @RequestBody request: com.pawsnearme.paymentservice.service.RegisterLinkedAccountRequest,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
         @RequestHeader("X-User-Role", required = false) role: String?
     ): ResponseEntity<com.pawsnearme.paymentservice.model.LinkedAccount> {
-        if (role != "ADMIN" && role != "MERCHANT") {
+        if (role !in setOf("ADMIN", "MERCHANT", "CAPTAIN")) {
             throw PaymentAccessDeniedException("Access denied for linked account registration")
+        }
+        if (role != "ADMIN" && userId != request.payeeUserId.toString()) {
+            throw PaymentAccessDeniedException("Users can only register their own payout account")
+        }
+        if (role != "ADMIN" && role != request.payeeRole) {
+            throw PaymentAccessDeniedException("Payout account role does not match authenticated role")
         }
         val account = paymentService.registerLinkedAccount(request)
         return ResponseEntity.status(HttpStatus.CREATED).body(account)
@@ -179,8 +186,13 @@ class PaymentController(private val paymentService: PaymentService) {
 
     @PostMapping("/promotions/reserve")
     fun reserveCoupon(
-        @RequestBody req: com.pawsnearme.paymentservice.service.CouponReservationRequest
+        @Valid @RequestBody req: com.pawsnearme.paymentservice.service.CouponReservationRequest,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?,
+        @RequestHeader("X-User-Role", required = false) xUserRole: String?
     ): ResponseEntity<Any> {
+        if (xUserRole != "ADMIN" && xUserId != req.userId.toString()) {
+            throw PaymentAccessDeniedException("Access denied for coupon reservation")
+        }
         val res = paymentService.reserveCoupon(req)
         return ResponseEntity.ok(res)
     }
@@ -189,8 +201,13 @@ class PaymentController(private val paymentService: PaymentService) {
     fun releaseCouponReservation(
         @RequestParam code: String,
         @RequestParam userId: UUID,
-        @RequestParam(required = false) orderId: UUID?
+        @RequestParam orderId: UUID,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?,
+        @RequestHeader("X-User-Role", required = false) xUserRole: String?
     ): ResponseEntity<Any> {
+        if (xUserRole != "ADMIN" && xUserId != userId.toString()) {
+            throw PaymentAccessDeniedException("Access denied for coupon release")
+        }
         paymentService.releaseCouponReservation(code, userId, orderId)
         return ResponseEntity.ok(mapOf("status" to "released"))
     }
@@ -202,7 +219,7 @@ class PaymentController(private val paymentService: PaymentService) {
 
     @PostMapping("/cod/config")
     fun updateCodConfig(
-        @RequestBody req: com.pawsnearme.paymentservice.service.CodConfigRequest,
+        @Valid @RequestBody req: com.pawsnearme.paymentservice.service.CodConfigRequest,
         @RequestHeader("X-User-Role", required = false) role: String?
     ): ResponseEntity<Any> {
         if (role != "ADMIN") {
@@ -213,9 +230,8 @@ class PaymentController(private val paymentService: PaymentService) {
 
     @PostMapping("/cod/check")
     fun checkCodEligibility(
-        @RequestBody req: com.pawsnearme.paymentservice.service.CodCheckRequest
+        @Valid @RequestBody req: com.pawsnearme.paymentservice.service.CodCheckRequest
     ): ResponseEntity<Any> {
         return ResponseEntity.ok(paymentService.checkCodEligibility(req))
     }
 }
-

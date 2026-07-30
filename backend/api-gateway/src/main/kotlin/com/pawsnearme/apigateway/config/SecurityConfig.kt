@@ -4,6 +4,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.http.HttpMethod
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity
 import org.springframework.security.config.web.server.ServerHttpSecurity
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm
@@ -24,16 +25,34 @@ class SecurityConfig(
     private val secretKey: String,
 
     @Value("\${spring.security.oauth2.resourceserver.jwt.allow-unsigned:false}")
-    private val allowUnsignedJwt: Boolean
+    private val allowUnsignedJwt: Boolean,
+
+    @Value("\${gateway.cors.allowed-origins:http://localhost:3000,http://localhost:8081}")
+    private val corsAllowedOrigins: String
 ) {
 
     @Bean
     fun corsConfigurationSource(): org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource {
         val config = org.springframework.web.cors.CorsConfiguration()
+        val origins = corsAllowedOrigins
+            .split(",")
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+
+        require(origins.isNotEmpty()) {
+            "At least one gateway CORS origin must be configured"
+        }
+        require("*" !in origins) {
+            "Wildcard CORS origins are not allowed. Set GATEWAY_CORS_ALLOWED_ORIGINS to explicit origins."
+        }
+
         config.allowCredentials = true
-        config.allowedOriginPatterns = listOf("*")
-        config.allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS")
-        config.allowedHeaders = listOf("*")
+        config.allowedOrigins = origins
+        config.allowedMethods = listOf("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+        config.allowedHeaders = listOf("Authorization", "Content-Type", "X-Requested-With", "X-Razorpay-Signature")
+        config.exposedHeaders = listOf("Location", "Retry-After")
+        config.maxAge = 3600
         val source = org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource()
         source.registerCorsConfiguration("/**", config)
         return source
@@ -46,10 +65,18 @@ class SecurityConfig(
             .cors { it.configurationSource(corsConfigurationSource()) }
             .authorizeExchange { exchange ->
                 exchange
+                    .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                     .pathMatchers("/api/v1/discovery/**").permitAll()      // Publicly searchable providers
                     .pathMatchers("/api/v1/reviews/provider/**").permitAll() // Publicly viewable reviews
+                    .pathMatchers(HttpMethod.GET, "/api/v1/providers/**").permitAll()
+                    .pathMatchers(HttpMethod.GET, "/api/v1/catalog/offerings/**").permitAll()
+                    .pathMatchers(HttpMethod.GET, "/api/v1/catalog/slots/**").permitAll()
+                    .pathMatchers(HttpMethod.GET, "/api/v1/content/**").permitAll()
+                    .pathMatchers(HttpMethod.GET, "/api/v1/service-regions/**").permitAll()
+                    .pathMatchers(HttpMethod.GET, "/uploads/**").permitAll()
+                    .pathMatchers(HttpMethod.POST, "/api/v1/payments/webhook").permitAll()
                     .pathMatchers("/actuator/**").permitAll()              // Health check, etc.
-                    .anyExchange().permitAll()                             // For local dev sandbox convenience, permit all
+                    .anyExchange().authenticated()
             }
             .oauth2ResourceServer { oauth2 ->
                 oauth2.jwt { }
@@ -82,7 +109,7 @@ class SecurityConfig(
                     .build()
             }
             allowUnsignedJwt -> {
-                logger.warn("Supabase Auth is running in mock/dev mode. JWT signatures are NOT validated.")
+                logger.warn("Supabase Auth is running in explicit local-only mode. JWT signatures are NOT validated.")
                 ReactiveJwtDecoder { jwtString ->
                     try {
                         val jwt = com.nimbusds.jwt.JWTParser.parse(jwtString)
@@ -102,7 +129,10 @@ class SecurityConfig(
                 }
             }
             else -> {
-                throw IllegalStateException("JWT validation is not configured. Set SUPABASE_JWT_SECRET, SUPABASE_JWT_JWK_SET_URI, or ALLOW_UNSIGNED_JWT=true for local-only development.")
+                throw IllegalStateException(
+                    "JWT validation is not configured. Set SUPABASE_JWT_SECRET, " +
+                        "SUPABASE_JWT_JWK_SET_URI, or ALLOW_UNSIGNED_JWT=true for local-only development."
+                )
             }
         }
     }

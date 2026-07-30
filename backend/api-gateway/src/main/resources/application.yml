@@ -116,6 +116,28 @@ spring:
             - name: RoleGuard
               args:
                 roles: ADMIN
+        - id: order-service-provider-orders
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/orders/provider/*
+            - Method=GET
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
+        - id: order-service-status-writes
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/orders/*/status
+            - Method=PUT
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,CAPTAIN,ADMIN
+        - id: checkout-service
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/checkout/**
         - id: order-service
           uri: ${ORDER_SERVICE_URL:http://localhost:8084}
           predicates:
@@ -250,6 +272,8 @@ spring:
           allow-unsigned: ${ALLOW_UNSIGNED_JWT:false}
 
 gateway:
+  cors:
+    allowed-origins: ${GATEWAY_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:8081}
   trust:
     enabled: ${GATEWAY_TRUST_ENABLED:false}
     secret: ${GATEWAY_SECRET:dev-secret-change-in-production}

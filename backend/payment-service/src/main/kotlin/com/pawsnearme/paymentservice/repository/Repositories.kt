@@ -1,8 +1,11 @@
 package com.pawsnearme.paymentservice.repository
 
 import com.pawsnearme.paymentservice.model.*
+import jakarta.persistence.LockModeType
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 import org.springframework.stereotype.Repository
 import java.math.BigDecimal
 import java.time.LocalDate
@@ -44,6 +47,11 @@ interface PlatformCommissionLedgerRepository : JpaRepository<PlatformCommissionL
 @Repository
 interface PromotionRepository : JpaRepository<Promotion, UUID> {
     fun findByCode(code: String): Promotion?
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM Promotion p WHERE p.code = :code")
+    fun findByCodeForUpdate(@Param("code") code: String): Promotion?
+
     fun findByProviderId(providerId: UUID): List<Promotion>
     fun findByProviderIdIsNull(): List<Promotion>
     fun existsByCode(code: String): Boolean
@@ -121,4 +129,3 @@ interface CaptainEarningRefRepository : JpaRepository<CaptainEarningRef, UUID> {
 
 @Repository
 interface ProviderRefRepository : JpaRepository<ProviderRef, UUID>
-
