@@ -105,7 +105,8 @@ spring:
         - id: discovery-service
           uri: ${DISCOVERY_SERVICE_URL:http://localhost:8083}
           predicates:
-            - Path=/api/v1/discovery/**
+            - Path=/api/v1/discovery/**, /api/v1/customer/favourites/**
+
 
         - id: order-service-admin
           uri: ${ORDER_SERVICE_URL:http://localhost:8084}

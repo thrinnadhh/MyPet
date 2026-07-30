@@ -5,9 +5,10 @@ import { ActivityIndicator, useColorScheme, View } from 'react-native';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { AuthIntentProvider } from '@/context/AuthIntentContext';
+import { CartProvider } from '@/context/CartContext';
+import { FavouritesProvider } from '@/context/FavouritesContext';
 import { LocaleProvider } from '@/context/LocaleContext';
 import { LocationProvider } from '@/context/LocationContext';
-
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import '@/i18n';
 
@@ -36,11 +37,14 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <LocationProvider>
-        <LocaleProvider>
-          <AuthIntentProvider><AppNavigator /></AuthIntentProvider>
-        </LocaleProvider>
+        <CartProvider>
+          <FavouritesProvider>
+            <LocaleProvider>
+              <AuthIntentProvider><AppNavigator /></AuthIntentProvider>
+            </LocaleProvider>
+          </FavouritesProvider>
+        </CartProvider>
       </LocationProvider>
     </AuthProvider>
   );
 }
-
