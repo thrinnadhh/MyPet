@@ -16,7 +16,7 @@ Make local development, CI, database, Kafka, Redis, and app shells repeatable be
 
 ## Verification
 
-- `python infra/run_migrations.py`
+- `python infra/run_migrations.py --reset-local-development-database`
 - `./gradlew test` from `backend/`
 - `npx tsc --noEmit` from each mobile app
 

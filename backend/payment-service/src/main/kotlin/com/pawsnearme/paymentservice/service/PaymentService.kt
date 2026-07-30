@@ -779,17 +779,29 @@ class PaymentService(
     }
 
     fun getCodConfig(): Map<String, Any> {
-        val globalMax = codConfigRepository.findById("global_max_amount")
-            .map { BigDecimal(it.configValue) }
-            .orElse(BigDecimal("1000.00"))
+        val globalMax = try {
+            codConfigRepository.findById("global_max_amount")
+                .map { BigDecimal(it.configValue) }
+                .orElse(BigDecimal("1000.00"))
+        } catch (e: Exception) {
+            BigDecimal("1000.00")
+        }
 
-        val cityOverridesStr = codConfigRepository.findById("city_overrides_json")
-            .map { it.configValue }
-            .orElse("{}")
+        val cityOverridesStr = try {
+            codConfigRepository.findById("city_overrides_json")
+                .map { it.configValue }
+                .orElse("{}")
+        } catch (e: Exception) {
+            "{}"
+        }
 
-        val disabledCitiesStr = codConfigRepository.findById("disabled_cities_json")
-            .map { it.configValue }
-            .orElse("[]")
+        val disabledCitiesStr = try {
+            codConfigRepository.findById("disabled_cities_json")
+                .map { it.configValue }
+                .orElse("[]")
+        } catch (e: Exception) {
+            "[]"
+        }
 
         val cityOverrides: Map<String, BigDecimal> = try {
             objectMapper.readValue(cityOverridesStr, object : TypeReference<Map<String, BigDecimal>>() {})

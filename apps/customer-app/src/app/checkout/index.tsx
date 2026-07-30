@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { AppIcon } from '@/components/app-icon';
-import { AppBar, FilterChip, PrimaryAction, StateView, StatusBadge } from '@/components/foundation/primitives';
+import { AppBar, PrimaryAction, StateView, StatusBadge } from '@/components/foundation/primitives';
 import { ScreenShell } from '@/components/foundation/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { useAuth } from '@/context/AuthContext';
@@ -19,6 +19,8 @@ import {
   type CheckoutQuoteOutput,
 } from '@/services/customer-orders';
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export default function CheckoutScreen() {
   const router = useRouter();
   const { t } = useTranslation();
@@ -33,9 +35,12 @@ export default function CheckoutScreen() {
     });
     return Array.from(quantities, ([offeringId, quantity]) => ({ offeringId, quantity }));
   }, [items]);
+  const hasPreviewItems = !providerId
+    || !UUID_PATTERN.test(providerId)
+    || checkoutItems.some((item) => !UUID_PATTERN.test(item.offeringId));
 
   const [address, setAddress] = useState<CustomerAddress | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'CARD' | 'UPI' | 'COD'>('CARD');
+  const paymentMethod = 'COD' as const;
   const [couponCodeInput, setCouponCodeInput] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
 
@@ -47,6 +52,11 @@ export default function CheckoutScreen() {
   const loadData = useCallback(async () => {
     if (!user || !session || cartLoading) return;
     if (!providerId || checkoutItems.length === 0) {
+      setQuote(null);
+      setState('ready');
+      return;
+    }
+    if (hasPreviewItems) {
       setQuote(null);
       setState('ready');
       return;
@@ -77,7 +87,7 @@ export default function CheckoutScreen() {
     } catch (error) {
       setState(isOfflineError(error) ? 'offline' : 'error');
     }
-  }, [appliedCoupon, cartLoading, checkoutItems, paymentMethod, providerId, session, user]);
+  }, [appliedCoupon, cartLoading, checkoutItems, hasPreviewItems, paymentMethod, providerId, session, user]);
 
   useEffect(() => {
     if (user && session) void loadData();
@@ -207,6 +217,22 @@ export default function CheckoutScreen() {
     );
   }
 
+  if (hasPreviewItems) {
+    return (
+      <ScreenShell scroll={false} header={<AppBar title={t('routes.checkout')} />}>
+        <StateView
+          kind="error"
+          title="Preview products cannot be ordered"
+          message="This cart contains sample catalog data. Clear it and add products from a live provider catalog."
+          actionLabel="Clear preview cart"
+          onAction={() => {
+            void clearCart().then(() => router.replace('/(tabs)' as never));
+          }}
+        />
+      </ScreenShell>
+    );
+  }
+
   if (!address) {
     return (
       <ScreenShell scroll={false} header={<AppBar title={t('routes.checkout')} />}>
@@ -293,25 +319,14 @@ export default function CheckoutScreen() {
           ]}
         >
           <ThemedText style={styles.cardTitle}>Payment Method</ThemedText>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
-            <FilterChip
-              label="Card"
-              selected={paymentMethod === 'CARD'}
-              onPress={() => setPaymentMethod('CARD')}
-            />
-            <FilterChip
-              label="UPI"
-              selected={paymentMethod === 'UPI'}
-              onPress={() => setPaymentMethod('UPI')}
-            />
-            <FilterChip
-              label="Cash on Delivery (COD)"
-              selected={paymentMethod === 'COD'}
-              onPress={() => setPaymentMethod('COD')}
-            />
-          </ScrollView>
+          <View style={styles.tabsScroll}>
+            <StatusBadge label="Cash on Delivery (COD)" tone="success" />
+          </View>
+          <ThemedText type="small" themeColor="textSecondary">
+            Card and UPI will be enabled after secure in-app payment confirmation is connected.
+          </ThemedText>
 
-          {paymentMethod === 'COD' && quote && !quote.isCodAvailable ? (
+          {quote && !quote.isCodAvailable ? (
             <View style={[styles.warningBox, { backgroundColor: theme.primarySoft }]}>
               <AppIcon name="warning" size={16} color={theme.danger} />
               <ThemedText type="small" style={{ color: theme.danger, flex: 1 }}>

@@ -43,6 +43,9 @@ gateway:
     enabled: ${GATEWAY_TRUST_ENABLED:false}
     secret: ${GATEWAY_SECRET:dev-secret-change-in-production}
 
+order:
+  online-payments-enabled: ${ORDER_ONLINE_PAYMENTS_ENABLED:false}
+
 management:
   endpoints:
     web:
@@ -110,6 +113,5 @@ resilience4j:
 
 # Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway
 # Enable in staging/production; leave disabled in local dev
-
 
 

@@ -195,6 +195,8 @@ class OrderService(
     private val discoveryServiceUrl: String,
     @Value("\${gateway.trust.secret:}")
     private val gatewayTrustSecret: String = "",
+    @Value("\${order.online-payments-enabled:false}")
+    private val onlinePaymentsEnabled: Boolean = false,
     private val restTemplate: RestTemplate = RestTemplate()
 ) {
     fun calculateQuote(request: CheckoutQuoteRequest): CheckoutQuoteResponse {
@@ -285,6 +287,11 @@ class OrderService(
     fun createOrder(request: CreateOrderRequest): Order {
         validateItems(request.items, "Order")
         val paymentMethod = normalizePaymentMethod(request.paymentMethod)
+        if (paymentMethod != "COD" && !onlinePaymentsEnabled) {
+            throw IllegalStateException(
+                "Online checkout is temporarily unavailable. Select cash on delivery."
+            )
+        }
 
         val quote = calculateQuote(
             CheckoutQuoteRequest(

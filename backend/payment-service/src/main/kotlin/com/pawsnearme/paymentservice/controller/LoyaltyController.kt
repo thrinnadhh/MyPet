@@ -195,4 +195,9 @@ class LoyaltyController(
         }
         return ResponseEntity.ok(loyaltyService.getAuditLogs(providerId))
     }
+
+    @ExceptionHandler(PaymentAccessDeniedException::class)
+    fun handleAccessDenied(ex: PaymentAccessDeniedException): ResponseEntity<Any> {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to ex.message))
+    }
 }
