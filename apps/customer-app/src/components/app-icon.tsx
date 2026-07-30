@@ -17,7 +17,8 @@ export type AppIconName =
   | 'support'
   | 'shield'
   | 'groom'
-  | 'card';
+  | 'card'
+  | 'search';
 
 const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: string }> = {
   cart: { ios: 'cart.fill', android: 'shopping_cart', fallback: 'C' },
@@ -36,7 +37,9 @@ const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: str
   groom: { ios: 'scissors', android: 'content_cut', fallback: 'G' },
   check: { ios: 'checkmark.circle.fill', android: 'check_circle', fallback: '✓' },
   card: { ios: 'creditcard.fill', android: 'credit_card', fallback: '$' },
+  search: { ios: 'magnifyingglass', android: 'search', fallback: '?' },
 };
+
 
 export function AppIcon({
   name,

@@ -59,8 +59,9 @@ def main():
         INSERT INTO orders.orders (
             order_id, customer_id, provider_id, delivery_address_id, status, subtotal_amount, total_amount, delivered_at
         ) VALUES (
-            'f5e4d3c2-b1a0-0987-6543-210fedcba987', gen_random_uuid(), 'a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', gen_random_uuid(), 'DELIVERED', 1000.00, 1000.00, now()
+            'f5e4d3c2-b1a0-0987-6543-210fedcba987', gen_random_uuid(), 'a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', gen_random_uuid(), 'DELIVERED', 1000.00, 1000.00, '2026-07-05 12:00:00+00'
         );
+
     """)
     print("Database test state setup complete.")
     
@@ -155,8 +156,9 @@ def main():
         INSERT INTO orders.orders (
             order_id, customer_id, provider_id, delivery_address_id, status, subtotal_amount, total_amount, delivered_at
         ) VALUES (
-            'e4d3c2b1-a098-7654-3210-fedcba987654', gen_random_uuid(), 'a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', gen_random_uuid(), 'DELIVERED', 1000.00, 1000.00, now()
+            'e4d3c2b1-a098-7654-3210-fedcba987654', gen_random_uuid(), 'a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', gen_random_uuid(), 'DELIVERED', 1000.00, 1000.00, '2026-07-06 12:00:00+00'
         );
+
     """)
     
     print("Re-calculating payouts...")

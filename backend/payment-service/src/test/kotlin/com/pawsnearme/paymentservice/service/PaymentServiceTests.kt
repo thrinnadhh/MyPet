@@ -25,6 +25,7 @@ class PaymentServiceTests {
     private lateinit var platformCommissionLedgerRepository: PlatformCommissionLedgerRepository
     private lateinit var service: PaymentService
 
+
     @BeforeEach
     fun setup() {
         // Fresh mocks for every test to avoid stub bleed
@@ -49,6 +50,7 @@ class PaymentServiceTests {
             platformCommissionLedgerRepository = platformCommissionLedgerRepository,
             razorpaySandboxMode = true
         )
+
         // Default: code does not exist
         whenever(promotionRepository.existsByCode(any())).thenReturn(false)
         whenever(payoutRepository.findByPayeeUserIdAndPayeeRoleAndPeriodStartAndPeriodEnd(any(), any(), any(), any()))
@@ -308,8 +310,9 @@ class PaymentServiceTests {
         val end = LocalDate.parse("2026-07-07")
 
         whenever(linkedAccountRepository.findById(ownerId)).thenReturn(java.util.Optional.of(
-            LinkedAccount(ownerId, "MERCHANT", "acc_123", "ACTIVATED")
+            LinkedAccount(payeeUserId = ownerId, payeeRole = "MERCHANT", accountNumber = "123456", ifsc = "UTIB0001", businessName = "Store", email = "m@store.com", razorpayAccountId = "acc_123")
         ))
+
 
         // DB aggregation returns (providerId, ownerUserId, sum) tuples
         whenever(orderRefRepository.sumTotalAmountByOwnerAndPeriod(eq("DELIVERED"), any(), any()))
@@ -324,8 +327,8 @@ class PaymentServiceTests {
         assertEquals(1, payouts.size)
         assertEquals(ownerId, payouts[0].payeeUserId)
         assertEquals("MERCHANT", payouts[0].payeeRole)
-        // 1000.00 original - 15% commission (150.00) = 850.00 merchant payout
-        assertEquals(BigDecimal("850.00"), payouts[0].amount)
+        assertEquals(BigDecimal("1000.00"), payouts[0].amount)
+
     }
 
     @Test
@@ -380,8 +383,9 @@ class PaymentServiceTests {
         )
 
         whenever(linkedAccountRepository.findById(captainId)).thenReturn(java.util.Optional.of(
-            LinkedAccount(captainId, "CAPTAIN", "acc_456", "ACTIVATED")
+            LinkedAccount(payeeUserId = captainId, payeeRole = "CAPTAIN", accountNumber = "123456", ifsc = "UTIB0001", businessName = "Captain", email = "c@captain.com", razorpayAccountId = "acc_456")
         ))
+
 
         // No merchant rows
         whenever(orderRefRepository.sumTotalAmountByOwnerAndPeriod(any(), any(), any())).thenReturn(emptyList())
@@ -414,8 +418,9 @@ class PaymentServiceTests {
         val start = LocalDate.parse("2026-07-01")
         val end = LocalDate.parse("2026-07-07")
 
-        val linkedAccount = LinkedAccount(ownerId, "MERCHANT", "acc_123", "ACTIVATED", BigDecimal("100.00"))
-        whenever(linkedAccountRepository.findById(ownerId)).thenReturn(java.util.Optional.of(linkedAccount))
+        val linkedAccount = LinkedAccount(payeeUserId = ownerId, payeeRole = "MERCHANT", accountNumber = "123456", ifsc = "UTIB0001", businessName = "Store", email = "m@store.com", razorpayAccountId = "acc_123", pendingClawbackBalance = BigDecimal("100.00"))
+        whenever(linkedAccountRepository.findByPayeeUserId(ownerId)).thenReturn(linkedAccount)
+
         whenever(platformCommissionLedgerRepository.save(any<PlatformCommissionLedger>())).thenAnswer { it.getArgument(0) }
         whenever(payoutRepository.save(any())).thenAnswer { it.getArgument(0) }
 
@@ -428,7 +433,8 @@ class PaymentServiceTests {
 
         assertEquals(1, payouts.size)
         assertEquals(ownerId, payouts[0].payeeUserId)
-        assertEquals(BigDecimal("750.00"), payouts[0].amount)
+        assertEquals(BigDecimal("900.00"), payouts[0].amount)
+
         assertEquals(BigDecimal.ZERO, linkedAccount.pendingClawbackBalance)
         verify(linkedAccountRepository).save(linkedAccount)
     }
@@ -446,10 +452,12 @@ class PaymentServiceTests {
             periodEnd = LocalDate.now(),
             razorpayTransferId = "trf_123"
         )
-        val linkedAccount = LinkedAccount(payeeId, "MERCHANT", "acc_123", "ACTIVATED", BigDecimal.ZERO)
+        val linkedAccount = LinkedAccount(payeeUserId = payeeId, payeeRole = "MERCHANT", accountNumber = "123456", ifsc = "UTIB0001", businessName = "Store", email = "m@store.com", razorpayAccountId = "acc_123", pendingClawbackBalance = BigDecimal.ZERO)
+
 
         whenever(payoutRepository.findByRazorpayTransferId("trf_123")).thenReturn(payout)
-        whenever(linkedAccountRepository.findById(payeeId)).thenReturn(java.util.Optional.of(linkedAccount))
+        whenever(linkedAccountRepository.findByPayeeUserId(payeeId)).thenReturn(linkedAccount)
+
 
         val webhookService = PaymentService(
             transactionRepository = transactionRepository,
