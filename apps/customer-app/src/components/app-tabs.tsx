@@ -1,73 +1,37 @@
-import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { useColorScheme } from 'react-native';
+import { Tabs } from 'expo-router';
 
-import { Colors } from '@/constants/theme';
+import { AppIcon } from '@/components/app-icon';
+import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
+import { CUSTOMER_TABS } from '@/navigation/customer-navigation';
 
 export default function AppTabs() {
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === 'unspecified' ? 'light' : scheme];
+  const theme = useTheme();
   const { t } = useTranslation();
 
   return (
-    <NativeTabs
-      backgroundColor={colors.backgroundElement}
-      indicatorColor={colors.primarySoft}
-      labelStyle={{
-        default: { color: colors.textSecondary },
-        selected: { color: colors.primary },
+    <Tabs
+      initialRouteName="home"
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: theme.primary,
+        tabBarInactiveTintColor: theme.textSecondary,
+        tabBarStyle: { backgroundColor: theme.backgroundElement, borderTopColor: theme.border, minHeight: 64, paddingTop: 6 },
+        tabBarLabelStyle: { fontSize: 12, fontWeight: '700' },
+        tabBarHideOnKeyboard: true,
       }}
-      iconColor={{
-        default: colors.textSecondary,
-        selected: colors.primary,
-      }}>
-      <NativeTabs.Trigger name="home">
-        <NativeTabs.Trigger.Label>{t('tabs.home')}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
-          renderingMode="template"
+    >
+      {CUSTOMER_TABS.map((tab) => (
+        <Tabs.Screen
+          key={tab.name}
+          name={tab.name}
+          options={{
+            title: t(tab.labelKey),
+            tabBarAccessibilityLabel: t(tab.labelKey),
+            tabBarIcon: ({ color, size }) => <AppIcon name={tab.icon} color={typeof color === 'string' ? color : theme.primary} size={size} />,
+          }}
         />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="shop">
-        <NativeTabs.Trigger.Label>{t('tabs.shop')}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="vet">
-        <NativeTabs.Trigger.Label>{t('tabs.vet')}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="groom">
-        <NativeTabs.Trigger.Label>{t('tabs.groom')}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="explore">
-        <NativeTabs.Trigger.Label>{t('tabs.history')}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="profile">
-        <NativeTabs.Trigger.Label>{t('tabs.profile')}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-    </NativeTabs>
+      ))}
+    </Tabs>
   );
 }
