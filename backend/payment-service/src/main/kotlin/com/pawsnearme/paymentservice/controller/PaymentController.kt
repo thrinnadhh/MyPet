@@ -19,7 +19,10 @@ class PaymentAccessDeniedException(message: String) : RuntimeException(message)
 data class CreateRazorpayOrderRequest(
     val userId: UUID,
     val referenceId: UUID,
+    @field:jakarta.validation.constraints.DecimalMin("0.01")
+    @field:jakarta.validation.constraints.DecimalMax("10000000.00")
     val amount: BigDecimal,
+    @field:jakarta.validation.constraints.Pattern(regexp = "ORDER_PAYMENT|APPOINTMENT_PAYMENT")
     val transactionType: String
 )
 
@@ -29,7 +32,7 @@ class PaymentController(private val paymentService: PaymentService) {
 
     @PostMapping("/orders")
     fun createRazorpayOrder(
-        @RequestBody request: CreateRazorpayOrderRequest,
+        @Valid @RequestBody request: CreateRazorpayOrderRequest,
         @RequestHeader("X-User-Id", required = false) xUserId: String?,
         @RequestHeader("X-User-Role", required = false) xUserRole: String?
     ): ResponseEntity<Any> {
@@ -47,7 +50,7 @@ class PaymentController(private val paymentService: PaymentService) {
 
     @PostMapping("/transactions/result")
     fun recordPaymentResult(
-        @RequestBody request: PaymentResultRequest,
+        @Valid @RequestBody request: PaymentResultRequest,
         @RequestHeader("X-User-Id", required = false) xUserId: String?,
         @RequestHeader("X-User-Role", required = false) xUserRole: String?
     ): ResponseEntity<Any> {
@@ -210,6 +213,20 @@ class PaymentController(private val paymentService: PaymentService) {
         }
         paymentService.releaseCouponReservation(code, userId, orderId)
         return ResponseEntity.ok(mapOf("status" to "released"))
+    }
+
+    @PostMapping("/promotions/redeem")
+    fun redeemCouponReservation(
+        @RequestParam code: String,
+        @RequestParam userId: UUID,
+        @RequestParam orderId: UUID,
+        @RequestHeader("X-User-Role", required = false) xUserRole: String?
+    ): ResponseEntity<Any> {
+        if (xUserRole != "ADMIN") {
+            throw PaymentAccessDeniedException("Access denied for coupon redemption")
+        }
+        paymentService.redeemCouponReservation(code, userId, orderId)
+        return ResponseEntity.ok(mapOf("status" to "redeemed"))
     }
 
     @GetMapping("/cod/config")

@@ -1,5 +1,6 @@
 package com.pawsnearme.paymentservice.model
 
+import com.fasterxml.jackson.annotation.JsonIgnore
 import jakarta.persistence.*
 import java.math.BigDecimal
 import java.time.Instant
@@ -101,9 +102,11 @@ class LinkedAccount(
     var payeeRole: String,
 
     @Column(name = "account_number", nullable = false)
+    @JsonIgnore
     var accountNumber: String,
 
     @Column(name = "ifsc", nullable = false)
+    @JsonIgnore
     var ifsc: String,
 
     @Column(name = "business_name", nullable = false)

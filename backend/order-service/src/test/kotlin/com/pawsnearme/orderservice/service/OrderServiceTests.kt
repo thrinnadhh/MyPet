@@ -87,6 +87,100 @@ class OrderServiceTests {
         assertTrue(ex.message!!.contains("at least one item"))
     }
 
+    @Test
+    fun `calculateQuote - rejects invalid quantity before calling dependencies`() {
+        val request = CheckoutQuoteRequest(
+            customerId = customerId,
+            providerId = providerId,
+            deliveryAddressId = UUID.randomUUID(),
+            items = listOf(OrderItemRequest(UUID.randomUUID(), 0)),
+            paymentMethod = "CARD"
+        )
+
+        val ex = assertThrows<IllegalArgumentException> { service.calculateQuote(request) }
+
+        assertTrue(ex.message!!.contains("quantities"))
+        verifyNoInteractions(restTemplate)
+    }
+
+    @Test
+    fun `calculateQuote - fails closed when catalog pricing is unavailable`() {
+        val offeringId = UUID.randomUUID()
+        whenever(
+            restTemplate.exchange(
+                eq("http://localhost:8082/api/v1/catalog/offerings/$offeringId"),
+                eq(org.springframework.http.HttpMethod.GET),
+                any<org.springframework.http.HttpEntity<Any>>(),
+                eq(Map::class.java)
+            )
+        ).thenThrow(org.springframework.web.client.RestClientException("catalog timeout"))
+
+        val request = CheckoutQuoteRequest(
+            customerId = customerId,
+            providerId = providerId,
+            deliveryAddressId = UUID.randomUUID(),
+            items = listOf(OrderItemRequest(offeringId, 1)),
+            paymentMethod = "CARD"
+        )
+
+        val ex = assertThrows<IllegalStateException> { service.calculateQuote(request) }
+
+        assertTrue(ex.message!!.contains("Catalog service is unavailable"))
+    }
+
+    @Test
+    fun `calculateQuote - validates coupon without reserving it`() {
+        val offeringId = UUID.randomUUID()
+        whenever(
+            restTemplate.exchange(
+                eq("http://localhost:8082/api/v1/catalog/offerings/$offeringId"),
+                eq(org.springframework.http.HttpMethod.GET),
+                any<org.springframework.http.HttpEntity<Any>>(),
+                eq(Map::class.java)
+            )
+        ).thenReturn(
+            org.springframework.http.ResponseEntity.ok(
+                mapOf(
+                    "providerId" to providerId.toString(),
+                    "price" to BigDecimal("200.00"),
+                    "status" to "ACTIVE",
+                    "stockQuantity" to 5
+                )
+            )
+        )
+        whenever(
+            restTemplate.exchange(
+                argThat<String> { contains("/api/v1/payments/promotions/validate") },
+                eq(org.springframework.http.HttpMethod.GET),
+                any<org.springframework.http.HttpEntity<Any>>(),
+                eq(Map::class.java)
+            )
+        ).thenReturn(
+            org.springframework.http.ResponseEntity.ok(
+                mapOf(
+                    "discountType" to "PERCENTAGE",
+                    "discountValue" to BigDecimal("10.00"),
+                    "maxDiscountAmount" to BigDecimal("50.00")
+                )
+            )
+        )
+
+        val quote = service.calculateQuote(
+            CheckoutQuoteRequest(
+                customerId = customerId,
+                providerId = providerId,
+                deliveryAddressId = UUID.randomUUID(),
+                items = listOf(OrderItemRequest(offeringId, 1)),
+                couponCode = " save10 ",
+                paymentMethod = "CARD"
+            )
+        )
+
+        assertEquals(BigDecimal("20.00"), quote.couponDiscount)
+        assertEquals("SAVE10", quote.couponCode)
+        verify(restTemplate, never()).postForEntity(any<String>(), any(), eq(Map::class.java))
+    }
+
     // ── decrementCatalogStockFallback ─────────────────────────────────────────
 
     @Test
@@ -210,6 +304,19 @@ class OrderServiceTests {
         )
     }
 
+    @Test
+    fun `updateOrderStatus - terminal order cannot transition`() {
+        val order = savedOrder(OrderStatus.CANCELLED)
+        whenever(orderRepository.findById(order.orderId!!)).thenReturn(java.util.Optional.of(order))
+
+        val ex = assertThrows<IllegalStateException> {
+            service.updateOrderStatus(order.orderId!!, OrderStatus.ACCEPTED, customerId)
+        }
+
+        assertTrue(ex.message!!.contains("terminal state"))
+        verify(orderRepository, never()).save(any())
+    }
+
     // ── support cases ─────────────────────────────────────────────────────────
 
     @Test
@@ -323,6 +430,7 @@ class OrderServiceTests {
 
         assertEquals(OrderStatus.ACCEPTED, saved.status)
         assertEquals(paymentId, saved.paymentId)
+        assertEquals("SUCCESS", saved.paymentStatus)
         verify(outboxService).saveEvent(
             eventId = any(),
             aggregateType = eq("ORDER"),

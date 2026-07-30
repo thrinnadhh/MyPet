@@ -22,8 +22,8 @@ class CouponReservation(
     @Column(name = "user_id", nullable = false)
     var userId: UUID,
 
-    @Column(name = "order_id")
-    var orderId: UUID? = null,
+    @Column(name = "order_id", nullable = false)
+    var orderId: UUID,
 
     @Column(name = "discount_amount", nullable = false)
     var discountAmount: BigDecimal,

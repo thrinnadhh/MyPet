@@ -39,6 +39,15 @@ spring:
             - name: RoleGuard
               args:
                 roles: ADMIN
+        - id: provider-pending-admin
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/providers/pending
+            - Method=GET
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
         - id: profile-admin-operations
           uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
           predicates:
@@ -78,10 +87,6 @@ spring:
             - name: RoleGuard
               args:
                 roles: MERCHANT,ADMIN
-        - id: catalog-service
-          uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
-          predicates:
-            - Path=/api/v1/catalog/offerings/**, /api/v1/catalog/slots/**
         - id: catalog-service-billing
           uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
           predicates:
@@ -90,6 +95,10 @@ spring:
             - name: RoleGuard
               args:
                 roles: MERCHANT,ADMIN
+        - id: catalog-service
+          uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/catalog/offerings/**, /api/v1/catalog/slots/**
         - id: service-regions-admin
           uri: ${DISCOVERY_SERVICE_URL:http://localhost:8083}
           predicates:

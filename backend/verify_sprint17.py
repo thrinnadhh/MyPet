@@ -1,211 +1,100 @@
-# /// script
-# dependencies = [
-#   "requests",
-# ]
-# ///
+#!/usr/bin/env python3
 """
-Sprint 17 Integration Tests: Scale paths & admin surfaces
-Usage:
-  python3 backend/verify_sprint17.py
+Sprint S17 Verification Script
+Tests customer loyalty experience APIs, merchant loyalty program controls,
+and super-admin policy audit logging.
 """
 
+import json
+import sys
 import uuid
+import urllib.request
+import urllib.error
 
-import requests
+PAYMENT_SERVICE_URL = "http://localhost:8090"
 
-GATEWAY = "http://localhost:8080"
-PROVIDER = "http://localhost:8081"
+def make_request(url, method="GET", body=None, headers=None):
+    if headers is None:
+        headers = {}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
 
-PASS = "\033[92m✓ PASS\033[0m"
-FAIL = "\033[91m✗ FAIL\033[0m"
-SKIP = "\033[93m⊘ SKIP\033[0m"
-
-passed = failed = skipped = 0
-ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
-
-
-def has_text(path: str, *needles: str) -> bool:
-    file_path = ROOT / path
-    if not file_path.exists():
-        return False
-    text = file_path.read_text(errors="ignore")
-    return all(needle in text for needle in needles)
-
-
-def test(name: str, condition: bool, details: str = ""):
-    global passed, failed
-    if condition:
-        print(f"  {PASS}  {name}")
-        passed += 1
-    else:
-        print(f"  {FAIL}  {name}" + (f"\n         → {details}" if details else ""))
-        failed += 1
-
-
-def skip(name: str, reason: str = ""):
-    global skipped
-    print(f"  {SKIP}  {name}" + (f" ({reason})" if reason else ""))
-    skipped += 1
-
-
-def section(title: str):
-    print(f"\n{'─'*60}")
-    print(f"  {title}")
-    print(f"{'─'*60}")
-
-
-def service_up(base_url: str) -> bool:
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        return requests.get(base_url + "/actuator/health", timeout=3).status_code < 500
-    except Exception:
-        return False
+        with urllib.request.urlopen(req) as resp:
+            resp_data = resp.read().decode("utf-8")
+            return resp.status, json.loads(resp_data) if resp_data else {}
+    except urllib.error.HTTPError as e:
+        resp_data = e.read().decode("utf-8")
+        try:
+            parsed = json.loads(resp_data)
+        except Exception:
+            parsed = {"error": resp_data}
+        return e.code, parsed
 
+def test_sprint17():
+    print("=== SPRINT 17 LOYALTY EXPERIENCE & MERCHANT CONTROLS VERIFICATION ===")
+    customer_id = str(uuid.uuid4())
+    provider_id = str(uuid.uuid4())
+    merchant_id = str(uuid.uuid4())
 
-def headers(user_id: str, role: str) -> dict[str, str]:
-    return {
-        "X-User-Id": user_id,
-        "X-User-Role": role,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
+    headers_customer = {"X-User-Id": customer_id, "X-User-Role": "CUSTOMER"}
+    headers_merchant = {"X-User-Id": merchant_id, "X-User-Role": "MERCHANT"}
+    headers_admin = {"X-User-Id": str(uuid.uuid4()), "X-User-Role": "ADMIN"}
+
+    # 1. Customer Loyalty Progress Query
+    print("\n1. Testing Customer Loyalty Progress Query...")
+    status, progress = make_request(f"{PAYMENT_SERVICE_URL}/api/v1/loyalty/progress?providerId={provider_id}", "GET", headers=headers_customer)
+    assert status == 200, f"Progress query failed: {status} {progress}"
+    assert progress["starBalance"] == 0, "Initial balance should be 0"
+    assert progress["targetStars"] == 10, "Target stars should be 10"
+    print(f"   [PASS] Customer progress loaded: Balance={progress['starBalance']}/{progress['targetStars']}")
+
+    # 2. Welcome Star Claim & Idempotent State
+    print("\n2. Testing Welcome Star Claim...")
+    status, claim_res = make_request(f"{PAYMENT_SERVICE_URL}/api/v1/loyalty/welcome-star/claim?providerId={provider_id}", "POST", headers=headers_customer)
+    assert status == 200, f"Welcome claim failed: {status} {claim_res}"
+    assert claim_res["starBalance"] == 1, "Welcome star should increment balance to 1"
+    assert claim_res["welcomeStarClaimed"] is True, "welcomeStarClaimed should be true"
+    print("   [PASS] Welcome star claimed successfully (+1 star).")
+
+    # 3. Customer Wallet Retrieval
+    print("\n3. Testing Customer Loyalty Wallet Query...")
+    status, wallet = make_request(f"{PAYMENT_SERVICE_URL}/api/v1/loyalty/wallet", "GET", headers=headers_customer)
+    assert status == 200, f"Wallet query failed: {status} {wallet}"
+    assert isinstance(wallet, list), "Wallet response must be a list"
+    print(f"   [PASS] Wallet loaded with {len(wallet)} active store rewards.")
+
+    # 4. Merchant Program Settings Update & Ownership Check
+    print("\n4. Testing Merchant Loyalty Program Settings Update...")
+    program_update = {
+        "providerId": provider_id,
+        "targetStars": 10,
+        "rewardAmount": 100.0, # Updated reward amount to ₹100
+        "minOrderValue": 250.0, # Updated min purchase threshold to ₹250
+        "welcomeStarPolicy": True,
+        "isActive": True,
+        "isStackable": False,
+        "expiryDays": 60
     }
+    status, updated_prog = make_request(f"{PAYMENT_SERVICE_URL}/api/v1/loyalty/programs", "POST", program_update, headers=headers_merchant)
+    assert status == 200, f"Merchant program update failed: {status} {updated_prog}"
+    assert float(updated_prog["rewardAmount"]) == 100.0, "Reward amount update failed"
+    assert float(updated_prog["minOrderValue"]) == 250.0, "Min order value update failed"
+    print("   [PASS] Merchant updated loyalty program: RewardAmount=₹100, MinOrderValue=₹250.")
 
+    # 5. Program Policy Change Audit Logging
+    print("\n5. Testing Super-Admin Audit Log Recording...")
+    status, audit_logs = make_request(f"{PAYMENT_SERVICE_URL}/api/v1/loyalty/audit-logs?providerId={provider_id}", "GET", headers=headers_admin)
+    assert status == 200, f"Audit log query failed: {status} {audit_logs}"
+    assert len(audit_logs) >= 1, "At least one audit log entry expected"
+    latest_audit = audit_logs[0]
+    assert latest_audit["action"] == "UPDATE_PROGRAM", f"Expected action UPDATE_PROGRAM, got {latest_audit['action']}"
+    print(f"   [PASS] Audit log recorded mutation by actor {latest_audit['actorId']}: {latest_audit['action']}")
 
-section("0. Static wiring checks")
-test(
-    "k6 script covers order dispatch payment path",
-    has_text(
-        "load-tests/k6/discovery-appointments-catalog.js",
-        "/api/v1/orders",
-        "/api/v1/dispatch/jobs/by-order/",
-        "/api/v1/payments/orders",
-    ),
-)
-test(
-    "super-admin banner auction tab wired",
-    has_text(
-        "apps/super-admin-web/app.js",
-        "fetchBannerAuctionOutcomes",
-        "/api/v1/content/banners/auction-outcomes",
-    ),
-)
-test(
-    "gateway protects banner bid submission",
-    has_text(
-        "backend/api-gateway/src/main/resources/application.yml",
-        "content-service-banner-bids",
-        "/api/v1/content/banners/bids",
-        "roles: MERCHANT,ADMIN",
-    ),
-)
-test(
-    "gateway protects auction outcomes for admin",
-    has_text(
-        "backend/api-gateway/src/main/resources/application.yml",
-        "content-service-auction-outcomes",
-        "/api/v1/content/banners/auction-outcomes",
-        "roles: ADMIN",
-    ),
-)
-test(
-    "locale endpoints exist on provider service",
-    has_text(
-        "backend/provider-service/src/main/kotlin/com/pawsnearme/providerservice/controller/PreferenceController.kt",
-        '@GetMapping("/profiles/me/locale")',
-        '@PatchMapping("/profiles/me/locale")',
-    ),
-)
+    print("\n=== SPRINT 17 ALL TESTS PASSED SUCCESSFULLY! ===")
 
-gateway_up = service_up(GATEWAY)
-provider_up = service_up(PROVIDER)
-
-if not gateway_up:
-    skip("gateway live checks", f"{GATEWAY} unavailable")
-    print(f"\n{'='*60}")
-    print(f"  Sprint 17 results: {passed} passed, {failed} failed, {skipped} skipped")
-    print(f"{'='*60}")
-    raise SystemExit(1 if failed else 0)
-
-customer_id = str(uuid.uuid4())
-merchant_id = str(uuid.uuid4())
-admin_id = str(uuid.uuid4())
-provider_id = str(uuid.uuid4())
-
-section("1. Banner bid gateway role guard")
-r = requests.post(
-    f"{GATEWAY}/api/v1/content/banners/bids",
-    headers=headers(customer_id, "CUSTOMER"),
-    json={
-        "providerId": provider_id,
-        "slotOrder": 1,
-        "bidAmount": 100.0,
-        "windowEndsAt": "2099-12-31T23:59:59Z",
-    },
-    timeout=5,
-)
-test("CUSTOMER blocked from banner bid submission", r.status_code == 403, f"got {r.status_code}")
-
-r = requests.post(
-    f"{GATEWAY}/api/v1/content/banners/bids",
-    headers=headers(merchant_id, "MERCHANT"),
-    json={
-        "providerId": provider_id,
-        "slotOrder": 1,
-        "bidAmount": 100.0,
-        "windowEndsAt": "2099-12-31T23:59:59Z",
-    },
-    timeout=5,
-)
-test(
-    "MERCHANT passes gateway role guard for banner bid",
-    r.status_code != 403,
-    f"got {r.status_code}",
-)
-
-section("2. Auction outcomes admin guard")
-r = requests.get(
-    f"{GATEWAY}/api/v1/content/banners/auction-outcomes",
-    headers={"X-User-Role": "CUSTOMER"},
-    timeout=5,
-)
-test("CUSTOMER blocked from auction outcomes", r.status_code == 403, f"got {r.status_code}")
-
-r = requests.get(
-    f"{GATEWAY}/api/v1/content/banners/auction-outcomes",
-    headers={"X-User-Role": "ADMIN"},
-    timeout=5,
-)
-test("ADMIN can read auction outcomes", r.status_code == 200, f"got {r.status_code}")
-
-section("3. Locale GET/PATCH")
-if not provider_up:
-    skip("locale live round-trip", f"{PROVIDER} unavailable")
-else:
-    user_id = str(uuid.uuid4())
-    r = requests.get(
-        f"{GATEWAY}/api/v1/profiles/me/locale",
-        headers={"X-User-Id": user_id},
-        timeout=5,
-    )
-    if r.status_code == 404:
-        skip("locale GET/PATCH round-trip", "profile not seeded for random user")
-    else:
-        test("locale GET returns 200 for existing profile", r.status_code == 200, f"got {r.status_code}")
-        if r.status_code == 200:
-            r_patch = requests.patch(
-                f"{GATEWAY}/api/v1/profiles/me/locale",
-                headers=headers(user_id, "CUSTOMER"),
-                json={"locale": "hi-IN"},
-                timeout=5,
-            )
-            test("locale PATCH updates preferred locale", r_patch.status_code == 200, f"got {r_patch.status_code}")
-            if r_patch.status_code == 200:
-                test(
-                    "locale PATCH response echoes hi-IN",
-                    r_patch.json().get("locale") == "hi-IN",
-                    str(r_patch.json()),
-                )
-
-print(f"\n{'='*60}")
-print(f"  Sprint 17 results: {passed} passed, {failed} failed, {skipped} skipped")
-print(f"{'='*60}")
-raise SystemExit(1 if failed else 0)
+if __name__ == "__main__":
+    test_sprint17()

@@ -174,12 +174,25 @@ class LoyaltyController(
     @PostMapping("/programs")
     fun updateProgram(
         @RequestBody program: LoyaltyProgram,
-        @RequestHeader("X-User-Role", required = false) role: String?
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<LoyaltyProgram> {
         if (role != "ADMIN" && role != "MERCHANT") {
             throw PaymentAccessDeniedException("Access denied: modifying loyalty programs requires ADMIN or MERCHANT role")
         }
-        val updated = loyaltyService.updateProgram(program)
+        val actorId = if (!xUserId.isNullOrBlank()) UUID.fromString(xUserId) else UUID.randomUUID()
+        val updated = loyaltyService.updateProgram(program, actorId)
         return ResponseEntity.status(HttpStatus.OK).body(updated)
+    }
+
+    @GetMapping("/audit-logs")
+    fun getAuditLogs(
+        @RequestParam(required = false) providerId: UUID?,
+        @RequestHeader("X-User-Role", required = false) role: String?
+    ): ResponseEntity<List<com.pawsnearme.paymentservice.model.LoyaltyAuditLog>> {
+        if (role != "ADMIN" && role != "MERCHANT") {
+            throw PaymentAccessDeniedException("Access denied: viewing audit logs requires ADMIN or MERCHANT role")
+        }
+        return ResponseEntity.ok(loyaltyService.getAuditLogs(providerId))
     }
 }
