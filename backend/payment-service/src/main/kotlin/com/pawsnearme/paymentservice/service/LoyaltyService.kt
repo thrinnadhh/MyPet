@@ -38,6 +38,7 @@ class LoyaltyService(
     private val loyaltyLedgerEntryRepository: LoyaltyLedgerEntryRepository,
     private val loyaltyRewardInstanceRepository: LoyaltyRewardInstanceRepository,
     private val loyaltyProcessedEventRepository: LoyaltyProcessedEventRepository,
+    private val loyaltyAuditLogRepository: LoyaltyAuditLogRepository,
     private val outboxService: OutboxService
 ) {
 
@@ -374,12 +375,14 @@ class LoyaltyService(
     }
 
     @Transactional
-    fun updateProgram(program: LoyaltyProgram): LoyaltyProgram {
+    fun updateProgram(program: LoyaltyProgram, actorId: UUID = UUID.randomUUID()): LoyaltyProgram {
         val existingOpt = if (program.providerId != null) {
             loyaltyProgramRepository.findByProviderId(program.providerId!!)
         } else {
             loyaltyProgramRepository.findByProviderIdIsNull()
         }
+
+        val beforeJson = existingOpt.map { "active=${it.isActive}, rewardAmount=${it.rewardAmount}, minOrderValue=${it.minOrderValue}" }.orElse("NEW")
 
         val toSave = if (existingOpt.isPresent) {
             val existing = existingOpt.get()
@@ -396,7 +399,28 @@ class LoyaltyService(
             program
         }
 
-        return loyaltyProgramRepository.save(toSave)
+        val saved = loyaltyProgramRepository.save(toSave)
+        val afterJson = "active=${saved.isActive}, rewardAmount=${saved.rewardAmount}, minOrderValue=${saved.minOrderValue}"
+
+        loyaltyAuditLogRepository.save(
+            LoyaltyAuditLog(
+                actorId = actorId,
+                providerId = saved.providerId,
+                action = "UPDATE_PROGRAM",
+                beforeJson = beforeJson,
+                afterJson = afterJson
+            )
+        )
+
+        return saved
+    }
+
+    fun getAuditLogs(providerId: UUID?): List<LoyaltyAuditLog> {
+        return if (providerId != null) {
+            loyaltyAuditLogRepository.findByProviderIdOrderByCreatedAtDesc(providerId)
+        } else {
+            loyaltyAuditLogRepository.findAllByOrderByCreatedAtDesc()
+        }
     }
 
     private fun publishLoyaltyEvent(eventType: String, customerId: UUID, providerId: UUID, payload: Map<String, Any?>) {

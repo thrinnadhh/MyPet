@@ -18,6 +18,7 @@ class LoyaltyServiceTests {
     private lateinit var loyaltyLedgerEntryRepository: LoyaltyLedgerEntryRepository
     private lateinit var loyaltyRewardInstanceRepository: LoyaltyRewardInstanceRepository
     private lateinit var loyaltyProcessedEventRepository: LoyaltyProcessedEventRepository
+    private lateinit var loyaltyAuditLogRepository: LoyaltyAuditLogRepository
     private lateinit var outboxService: OutboxService
 
     private lateinit var service: LoyaltyService
@@ -32,6 +33,7 @@ class LoyaltyServiceTests {
         loyaltyLedgerEntryRepository = mock()
         loyaltyRewardInstanceRepository = mock()
         loyaltyProcessedEventRepository = mock()
+        loyaltyAuditLogRepository = mock()
         outboxService = mock()
 
         service = LoyaltyService(
@@ -40,6 +42,7 @@ class LoyaltyServiceTests {
             loyaltyLedgerEntryRepository = loyaltyLedgerEntryRepository,
             loyaltyRewardInstanceRepository = loyaltyRewardInstanceRepository,
             loyaltyProcessedEventRepository = loyaltyProcessedEventRepository,
+            loyaltyAuditLogRepository = loyaltyAuditLogRepository,
             outboxService = outboxService
         )
 

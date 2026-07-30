@@ -68,7 +68,7 @@ class SecurityConfig(
                     .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                     .pathMatchers("/api/v1/discovery/**").permitAll()      // Publicly searchable providers
                     .pathMatchers("/api/v1/reviews/provider/**").permitAll() // Publicly viewable reviews
-                    .pathMatchers(HttpMethod.GET, "/api/v1/providers/**").permitAll()
+                    .pathMatchers(HttpMethod.GET, "/api/v1/providers/*").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/catalog/offerings/**").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/catalog/slots/**").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/content/**").permitAll()

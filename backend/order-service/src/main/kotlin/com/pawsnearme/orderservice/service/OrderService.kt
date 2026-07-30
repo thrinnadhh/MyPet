@@ -433,9 +433,14 @@ class OrderService(
             throw IllegalStateException("Payment verification failed: ${e.message}", e)
         }
 
+        if (order.couponCode != null) {
+            redeemCouponReservation(order.couponCode!!, order.customerId, order.orderId!!)
+        }
+
         val oldStatus = order.status
         order.status = OrderStatus.ACCEPTED
         order.paymentId = paymentIdToUse
+        order.paymentStatus = "SUCCESS"
         order.acceptedAt = Instant.now()
         val saved = orderRepository.save(order)
 
@@ -469,6 +474,12 @@ class OrderService(
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
         
         val oldStatus = order.status
+        if (oldStatus == newStatus) {
+            return order
+        }
+        if (oldStatus in setOf(OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.REJECTED)) {
+            throw IllegalStateException("Order in terminal state $oldStatus cannot transition to $newStatus")
+        }
         if (shouldRestoreReservedStock(oldStatus, newStatus)) {
             restoreOrderCatalogStock(orderId)
         }
@@ -480,6 +491,12 @@ class OrderService(
             OrderStatus.READY_FOR_PICKUP -> order.readyAt = Instant.now()
             OrderStatus.PICKED_UP -> order.picked_upAt = Instant.now()
             OrderStatus.DELIVERED -> {
+                if (order.paymentMethod == "COD") {
+                    order.couponCode?.let {
+                        redeemCouponReservation(it, order.customerId, order.orderId!!)
+                    }
+                    order.paymentStatus = "COD_COLLECTED"
+                }
                 order.deliveredAt = Instant.now()
                 generateInvoiceForOrder(order)
                 notifyLoyaltyOrderDelivered(order)
@@ -1108,6 +1125,24 @@ class OrderService(
         } catch (e: Exception) {
             logger.error("Failed to release coupon reservation for order {}: {}", orderId, e.message)
         }
+    }
+
+    private fun redeemCouponReservation(code: String, userId: UUID, orderId: UUID) {
+        val url = UriComponentsBuilder
+            .fromUriString("$paymentServiceUrl/api/v1/payments/promotions/redeem")
+            .queryParam("code", code)
+            .queryParam("userId", userId)
+            .queryParam("orderId", orderId)
+            .build()
+            .encode()
+            .toUriString()
+        val headers = internalHeaders()
+        headers.set("X-User-Role", "ADMIN")
+        restTemplate.postForEntity(
+            url,
+            org.springframework.http.HttpEntity<Any>(headers),
+            Map::class.java
+        )
     }
 
     private fun checkCodEligibility(amount: BigDecimal, city: String?, providerId: UUID?): Pair<Boolean, String?> {

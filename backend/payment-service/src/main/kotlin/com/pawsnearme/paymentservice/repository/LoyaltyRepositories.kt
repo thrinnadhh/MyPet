@@ -37,3 +37,9 @@ interface LoyaltyRewardInstanceRepository : JpaRepository<LoyaltyRewardInstance,
 interface LoyaltyProcessedEventRepository : JpaRepository<LoyaltyProcessedEvent, UUID> {
     fun existsByEventTypeAndReferenceId(eventType: String, referenceId: UUID): Boolean
 }
+
+@Repository
+interface LoyaltyAuditLogRepository : JpaRepository<LoyaltyAuditLog, UUID> {
+    fun findByProviderIdOrderByCreatedAtDesc(providerId: UUID): List<LoyaltyAuditLog>
+    fun findAllByOrderByCreatedAtDesc(): List<LoyaltyAuditLog>
+}

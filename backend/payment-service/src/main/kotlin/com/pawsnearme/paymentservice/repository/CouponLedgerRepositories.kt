@@ -3,11 +3,26 @@ package com.pawsnearme.paymentservice.repository
 import com.pawsnearme.paymentservice.model.CodConfig
 import com.pawsnearme.paymentservice.model.CouponReservation
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
+import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 import org.springframework.stereotype.Repository
+import java.time.Instant
 import java.util.UUID
 
 @Repository
 interface CouponReservationRepository : JpaRepository<CouponReservation, UUID> {
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(
+        """
+        UPDATE CouponReservation reservation
+        SET reservation.status = 'EXPIRED'
+        WHERE reservation.status = 'HELD'
+          AND reservation.expiresAt <= :now
+        """
+    )
+    fun expireHeldReservations(@Param("now") now: Instant): Int
+
     fun countByPromotionIdAndStatusIn(promotionId: UUID, statuses: List<String>): Long
     fun countByPromotionIdAndUserIdAndStatusIn(promotionId: UUID, userId: UUID, statuses: List<String>): Long
     fun findByOrderIdAndStatus(orderId: UUID, status: String): CouponReservation?

@@ -100,6 +100,21 @@ class PaymentServiceTests {
         validUntil = validUntil
     )
 
+    private fun productionService() = PaymentService(
+        transactionRepository = transactionRepository,
+        payoutRepository = payoutRepository,
+        promotionRepository = promotionRepository,
+        orderRefRepository = orderRefRepository,
+        appointmentRefRepository = appointmentRefRepository,
+        captainEarningRefRepository = captainEarningRefRepository,
+        providerRefRepository = providerRefRepository,
+        linkedAccountRepository = linkedAccountRepository,
+        platformCommissionLedgerRepository = platformCommissionLedgerRepository,
+        couponReservationRepository = couponReservationRepository,
+        codConfigRepository = codConfigRepository,
+        razorpaySandboxMode = false
+    )
+
     // ── recordPaymentResult ───────────────────────────────────────────────────
 
     @Test
@@ -158,6 +173,75 @@ class PaymentServiceTests {
 
         assertNotNull(event.eventId)
         assertEquals("PaymentFailed", event.eventType)
+    }
+
+    @Test
+    fun `recordPaymentResult - production client cannot assert payment success`() {
+        val request = PaymentResultRequest(
+            userId = UUID.randomUUID(),
+            referenceId = UUID.randomUUID(),
+            transactionType = "ORDER_PAYMENT",
+            amount = BigDecimal("499.00"),
+            gatewayTransactionId = "pay_untrusted",
+            success = true
+        )
+
+        val ex = assertThrows<IllegalStateException> {
+            productionService().recordPaymentResult(request)
+        }
+
+        assertTrue(ex.message!!.contains("signed webhook"))
+        verifyNoInteractions(transactionRepository)
+    }
+
+    @Test
+    fun `createRazorpayOrder - rejects client amount that differs from order total`() {
+        val orderId = UUID.randomUUID()
+        val userId = UUID.randomUUID()
+        whenever(orderRefRepository.findById(orderId)).thenReturn(
+            java.util.Optional.of(
+                OrderRef(
+                    orderId = orderId,
+                    providerId = UUID.randomUUID(),
+                    customerId = userId,
+                    captainId = null,
+                    status = "PLACED",
+                    totalAmount = BigDecimal("500.00"),
+                    deliveredAt = null
+                )
+            )
+        )
+
+        val ex = assertThrows<IllegalArgumentException> {
+            service.createRazorpayOrder(
+                userId = userId,
+                referenceId = orderId,
+                amount = BigDecimal("1.00"),
+                transactionType = "ORDER_PAYMENT"
+            )
+        }
+
+        assertTrue(ex.message!!.contains("server-authoritative"))
+        verify(transactionRepository, never()).save(any())
+    }
+
+    @Test
+    fun `registerLinkedAccount - production refuses mock account creation`() {
+        val request = RegisterLinkedAccountRequest(
+            payeeUserId = UUID.randomUUID(),
+            payeeRole = "MERCHANT",
+            accountNumber = "1234567890",
+            ifsc = "HDFC0001234",
+            businessName = "Safe Paws",
+            email = "owner@example.com"
+        )
+
+        val ex = assertThrows<IllegalStateException> {
+            productionService().registerLinkedAccount(request)
+        }
+
+        assertTrue(ex.message!!.contains("mock production account"))
+        verifyNoInteractions(linkedAccountRepository)
     }
 
     // ── createPromotion validations ───────────────────────────────────────────
@@ -304,6 +388,48 @@ class PaymentServiceTests {
         whenever(promotionRepository.findByCode(promo.code)).thenReturn(promo)
         val result = service.validateCoupon(promo.code, BigDecimal("300"), providerId, null)
         assertEquals(promo.code, result.code)
+    }
+
+    @Test
+    fun `reserveCoupon - expires stale holds and locks promotion before counting usage`() {
+        val userId = UUID.randomUUID()
+        val orderId = UUID.randomUUID()
+        val providerId = UUID.randomUUID()
+        val promo = promoOf(providerId = providerId).also {
+            it.promotionId = UUID.randomUUID()
+            it.usageLimitTotal = 10
+            it.usageLimitPerUser = 1
+        }
+        whenever(couponReservationRepository.findByOrderIdAndStatusIn(orderId, listOf("HELD", "REDEEMED")))
+            .thenReturn(null)
+        whenever(promotionRepository.findByCodeForUpdate("SAVE10")).thenReturn(promo)
+        whenever(couponReservationRepository.countByPromotionIdAndStatusIn(promo.promotionId!!, listOf("HELD", "REDEEMED")))
+            .thenReturn(0)
+        whenever(
+            couponReservationRepository.countByPromotionIdAndUserIdAndStatusIn(
+                promo.promotionId!!,
+                userId,
+                listOf("HELD", "REDEEMED")
+            )
+        ).thenReturn(0)
+        whenever(couponReservationRepository.save(any())).thenAnswer { invocation ->
+            invocation.getArgument<CouponReservation>(0).also { it.reservationId = UUID.randomUUID() }
+        }
+
+        val response = service.reserveCoupon(
+            CouponReservationRequest(
+                code = " save10 ",
+                orderValue = BigDecimal("500.00"),
+                providerId = providerId,
+                userId = userId,
+                orderId = orderId
+            )
+        )
+
+        assertEquals("SAVE10", response.code)
+        assertEquals(BigDecimal("50.00"), response.discountAmount)
+        verify(couponReservationRepository).expireHeldReservations(any())
+        verify(promotionRepository).findByCodeForUpdate("SAVE10")
     }
 
     // ── calculatePayouts ──────────────────────────────────────────────────────

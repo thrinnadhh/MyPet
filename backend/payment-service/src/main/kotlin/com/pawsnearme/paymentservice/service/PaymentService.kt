@@ -28,8 +28,12 @@ import javax.crypto.spec.SecretKeySpec
 data class PaymentResultRequest(
     val userId: UUID,
     val referenceId: UUID,
+    @field:Pattern(regexp = "ORDER_PAYMENT|APPOINTMENT_PAYMENT")
     val transactionType: String,
+    @field:DecimalMin("0.01")
+    @field:DecimalMax("10000000.00")
     val amount: BigDecimal,
+    @field:Size(max = 128)
     val gatewayTransactionId: String?,
     val success: Boolean
 )
@@ -318,6 +322,11 @@ class PaymentService(
 
     @Transactional
     fun registerLinkedAccount(req: RegisterLinkedAccountRequest): LinkedAccount {
+        if (!razorpaySandboxMode) {
+            throw IllegalStateException(
+                "Razorpay linked-account onboarding is not configured. Refusing to create a mock production account."
+            )
+        }
         val existing = linkedAccountRepository.findByPayeeUserId(req.payeeUserId)
         if (existing != null) {
             existing.payeeRole = req.payeeRole
@@ -415,6 +424,11 @@ class PaymentService(
 
     @Transactional
     fun calculatePayouts(start: LocalDate, end: LocalDate): List<Payout> {
+        if (!razorpaySandboxMode) {
+            throw IllegalStateException(
+                "Razorpay payout transfers are not configured. Refusing to record mock production payouts."
+            )
+        }
         val startInstant = start.atStartOfDay(ZoneOffset.UTC).toInstant()
         val endInstant = end.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant()
 
@@ -687,6 +701,7 @@ class PaymentService(
     @Transactional
     fun reserveCoupon(req: CouponReservationRequest): CouponReservationResponse {
         val normalizedCode = req.code.trim().uppercase()
+        couponReservationRepository.expireHeldReservations(Instant.now())
         val existing = couponReservationRepository.findByOrderIdAndStatusIn(
             req.orderId,
             listOf("HELD", "REDEEMED")
