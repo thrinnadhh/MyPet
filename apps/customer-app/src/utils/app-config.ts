@@ -9,9 +9,10 @@ const defaultGatewayUrl = Platform.select({
 }) ?? 'http://localhost:8080';
 
 const allowDemoMode = __DEV__ && isTruthy(process.env.EXPO_PUBLIC_ALLOW_DEMO_MODE);
+const configuredApiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, '');
 
 export const appConfig = {
-  apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || defaultGatewayUrl,
+  apiBaseUrl: configuredApiBaseUrl || (__DEV__ ? defaultGatewayUrl : ''),
   supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
   supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
   allowDemoMode,
@@ -19,6 +20,7 @@ export const appConfig = {
 
 export function requireMobileConfig() {
   const missing = [
+    appConfig.apiBaseUrl ? null : 'EXPO_PUBLIC_API_BASE_URL',
     appConfig.supabaseUrl ? null : 'EXPO_PUBLIC_SUPABASE_URL',
     appConfig.supabaseAnonKey ? null : 'EXPO_PUBLIC_SUPABASE_ANON_KEY',
   ].filter(Boolean);
@@ -28,5 +30,8 @@ export function requireMobileConfig() {
       `Missing mobile configuration: ${missing.join(', ')}. ` +
       'Set EXPO_PUBLIC_ALLOW_DEMO_MODE=true only in a development build with local demo fixtures.'
     );
+  }
+  if (!__DEV__ && !appConfig.apiBaseUrl.startsWith('https://')) {
+    throw new Error('EXPO_PUBLIC_API_BASE_URL must use HTTPS in production builds.');
   }
 }

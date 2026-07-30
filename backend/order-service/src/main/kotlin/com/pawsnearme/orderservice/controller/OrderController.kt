@@ -24,11 +24,12 @@ class OrderController(
         @Valid @RequestBody request: CreateOrderRequest,
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?
     ): ResponseEntity<Any> {
-        val finalRequest = if (authenticatedUserId != null) {
-            request.copy(customerId = UUID.fromString(authenticatedUserId))
-        } else {
-            request
+        if (authenticatedUserId.isNullOrBlank()) {
+            return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Missing authenticated user context."))
         }
+        val finalRequest = request.copy(customerId = UUID.fromString(authenticatedUserId))
         val order = orderService.createOrder(finalRequest)
         return ResponseEntity.status(HttpStatus.CREATED).body(order)
     }
@@ -76,8 +77,21 @@ class OrderController(
     }
 
     @GetMapping("/provider/{providerId}")
-    fun getOrdersByProvider(@PathVariable providerId: UUID): ResponseEntity<List<Order>> {
-        val orders = orderRepository.findByProviderId(providerId)
+    fun getOrdersByProvider(
+        @PathVariable providerId: UUID,
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+    ): ResponseEntity<Any> {
+        if (authenticatedUserId.isNullOrBlank()) {
+            return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Missing authenticated user context."))
+        }
+        val orders = orderService.getOrdersByProviderWithAuth(
+            providerId,
+            UUID.fromString(authenticatedUserId),
+            authenticatedUserRole
+        )
         return ResponseEntity.ok(orders)
     }
 
@@ -115,23 +129,42 @@ class OrderController(
         @PathVariable id: UUID,
         @RequestParam status: OrderStatus,
         @RequestParam(required = false) note: String?,
-        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        val changerId = if (authenticatedUserId != null) {
-            UUID.fromString(authenticatedUserId)
-        } else {
-            UUID.randomUUID() // fallback if no auth header
+        if (authenticatedUserId.isNullOrBlank()) {
+            return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Missing authenticated user context."))
         }
-        val updated = orderService.updateOrderStatus(id, status, changerId, note)
+        val updated = orderService.updateOrderStatusWithAuth(
+            id,
+            status,
+            UUID.fromString(authenticatedUserId),
+            authenticatedUserRole,
+            note
+        )
         return ResponseEntity.ok(updated)
     }
 
     @PostMapping("/{id}/confirm")
     fun confirmOrder(
         @PathVariable id: UUID,
-        @RequestParam(required = false) paymentId: UUID?
+        @RequestParam(required = false) paymentId: UUID?,
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        val order = orderService.confirmOrder(id, paymentId)
+        if (authenticatedUserId.isNullOrBlank()) {
+            return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Missing authenticated user context."))
+        }
+        val order = orderService.confirmOrderWithAuth(
+            id,
+            paymentId,
+            UUID.fromString(authenticatedUserId),
+            authenticatedUserRole
+        )
         return ResponseEntity.ok(order)
     }
 

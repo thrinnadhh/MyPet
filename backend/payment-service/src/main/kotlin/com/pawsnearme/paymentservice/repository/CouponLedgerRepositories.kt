@@ -11,7 +11,14 @@ interface CouponReservationRepository : JpaRepository<CouponReservation, UUID> {
     fun countByPromotionIdAndStatusIn(promotionId: UUID, statuses: List<String>): Long
     fun countByPromotionIdAndUserIdAndStatusIn(promotionId: UUID, userId: UUID, statuses: List<String>): Long
     fun findByOrderIdAndStatus(orderId: UUID, status: String): CouponReservation?
+    fun findByOrderIdAndStatusIn(orderId: UUID, statuses: List<String>): CouponReservation?
     fun findByCodeAndUserIdAndStatus(code: String, userId: UUID, status: String): List<CouponReservation>
+    fun findByCodeAndUserIdAndOrderIdAndStatus(
+        code: String,
+        userId: UUID,
+        orderId: UUID,
+        status: String
+    ): CouponReservation?
 }
 
 @Repository

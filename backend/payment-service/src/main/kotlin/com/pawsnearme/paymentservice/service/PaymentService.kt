@@ -3,6 +3,12 @@ package com.pawsnearme.paymentservice.service
 import org.slf4j.LoggerFactory
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
+import jakarta.validation.constraints.DecimalMax
+import jakarta.validation.constraints.DecimalMin
+import jakarta.validation.constraints.Email
+import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Pattern
+import jakarta.validation.constraints.Size
 import com.pawsnearme.paymentservice.model.*
 import com.pawsnearme.paymentservice.repository.*
 import org.springframework.beans.factory.annotation.Value
@@ -50,10 +56,17 @@ data class RazorpayOrderResponse(
 
 data class RegisterLinkedAccountRequest(
     val payeeUserId: UUID,
+    @field:Pattern(regexp = "MERCHANT|CAPTAIN")
     val payeeRole: String,
+    @field:Pattern(regexp = "[0-9]{6,18}")
     val accountNumber: String,
+    @field:Pattern(regexp = "[A-Z]{4}0[A-Z0-9]{6}")
     val ifsc: String,
+    @field:NotBlank
+    @field:Size(max = 160)
     val businessName: String,
+    @field:Email
+    @field:Size(max = 254)
     val email: String
 )
 
@@ -108,6 +121,21 @@ class PaymentService(
         amount: BigDecimal,
         transactionType: String
     ): RazorpayOrderResponse {
+        require(amount > BigDecimal.ZERO) { "Payment amount must be greater than zero" }
+        if (transactionType == "ORDER_PAYMENT") {
+            val order = orderRefRepository.findById(referenceId)
+                .orElseThrow { IllegalArgumentException("Order not found for payment reference") }
+            if (order.customerId != userId) {
+                throw IllegalArgumentException("Payment reference does not belong to this user")
+            }
+            if (order.status != "PLACED") {
+                throw IllegalStateException("Order is not awaiting online payment")
+            }
+            if (order.totalAmount.compareTo(amount) != 0) {
+                throw IllegalArgumentException("Payment amount does not match the server-authoritative order total")
+            }
+        }
+
         val existingPending = transactionRepository.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(
             referenceId,
             listOf("PENDING")
@@ -192,11 +220,23 @@ class PaymentService(
 
     @Transactional
     fun recordPaymentResult(request: PaymentResultRequest): PaymentResultEvent {
+        if (request.success && !razorpaySandboxMode) {
+            throw IllegalStateException(
+                "Client payment success callbacks are disabled. Payment success must be confirmed by a signed webhook."
+            )
+        }
         val transaction = transactionRepository.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(
             request.referenceId,
             listOf("PENDING", "SUCCESS")
         ) ?: transactionRepository.findFirstByReferenceIdOrderByCreatedAtDesc(request.referenceId)
             ?: throw IllegalArgumentException("Transaction not found for reference ID ${request.referenceId}")
+
+        if (transaction.userId != request.userId) {
+            throw IllegalArgumentException("Payment transaction does not belong to this user")
+        }
+        if (transaction.amount.compareTo(request.amount) != 0) {
+            throw IllegalArgumentException("Payment result amount does not match the initiated transaction")
+        }
 
         if (transaction.status == "SUCCESS") {
             return PaymentResultEvent(
@@ -308,10 +348,13 @@ class PaymentService(
 
     @Transactional
     fun processWebhook(payload: String, signature: String) {
-        if (!signature.isNullOrBlank() && signature != "dummy_sig" && razorpayWebhookSecret.isNotBlank()) {
-            if (!verifyWebhookSignature(payload, signature)) {
-                throw IllegalArgumentException("Invalid Razorpay webhook signature")
+        if (razorpayWebhookSecret.isBlank()) {
+            if (!razorpaySandboxMode || signature != "dummy_sig") {
+                throw IllegalStateException("Razorpay webhook verification is not configured")
             }
+            logger.warn("Processing a dummy-signed Razorpay webhook in explicit sandbox mode")
+        } else if (!verifyWebhookSignature(payload, signature)) {
+            throw IllegalArgumentException("Invalid Razorpay webhook signature")
         }
 
         val eventMap: Map<String, Any> = try {
@@ -482,6 +525,17 @@ class PaymentService(
 
     @Transactional
     fun createPromotion(promo: Promotion, creatorRole: String, creatorUserId: UUID?): Promotion {
+        promo.code = promo.code.trim().uppercase()
+        require(promo.code.matches(Regex("[A-Z0-9_-]{3,64}"))) {
+            "Coupon code must be 3-64 characters using letters, numbers, underscore, or hyphen"
+        }
+        require(promo.usageLimitTotal == null || promo.usageLimitTotal!! > 0) {
+            "Total usage limit must be greater than zero"
+        }
+        require(promo.usageLimitPerUser == null || promo.usageLimitPerUser!! > 0) {
+            "Per-user usage limit must be greater than zero"
+        }
+
         if (promo.providerId == null && creatorRole != "ADMIN") {
             throw IllegalArgumentException("Platform-wide coupons can only be created by ADMIN users")
         }
@@ -549,9 +603,19 @@ class PaymentService(
     }
 
     fun validateCoupon(code: String, orderValue: BigDecimal, providerId: UUID, category: String?): Promotion {
-        val promo = promotionRepository.findByCode(code)
+        val normalizedCode = code.trim().uppercase()
+        val promo = promotionRepository.findByCode(normalizedCode)
             ?: throw IllegalArgumentException("Invalid coupon code")
+        validateCoupon(promo, orderValue, providerId, category)
+        return promo
+    }
 
+    private fun validateCoupon(
+        promo: Promotion,
+        orderValue: BigDecimal,
+        providerId: UUID,
+        category: String?
+    ) {
         if (!promo.isActive) {
             throw IllegalArgumentException("Coupon code is inactive")
         }
@@ -574,8 +638,6 @@ class PaymentService(
                 throw IllegalArgumentException("Coupon is only applicable to category: ${promo.applicableCategory}")
             }
         }
-
-        return promo
     }
 
     @Transactional
@@ -624,7 +686,23 @@ class PaymentService(
 
     @Transactional
     fun reserveCoupon(req: CouponReservationRequest): CouponReservationResponse {
-        val promo = validateCoupon(req.code, req.orderValue, req.providerId, req.category)
+        val normalizedCode = req.code.trim().uppercase()
+        val existing = couponReservationRepository.findByOrderIdAndStatusIn(
+            req.orderId,
+            listOf("HELD", "REDEEMED")
+        )
+        if (existing != null) {
+            if (existing.code != normalizedCode || existing.userId != req.userId) {
+                throw IllegalArgumentException("Order already has a different coupon reservation")
+            }
+            return existing.toResponse()
+        }
+
+        // The row lock serializes count-and-insert operations for a promotion,
+        // preventing concurrent reservations from exceeding usage limits.
+        val promo = promotionRepository.findByCodeForUpdate(normalizedCode)
+            ?: throw IllegalArgumentException("Invalid coupon code")
+        validateCoupon(promo, req.orderValue, req.providerId, req.category)
 
         if (promo.usageLimitTotal != null) {
             val totalCount = couponReservationRepository.countByPromotionIdAndStatusIn(promo.promotionId!!, listOf("HELD", "REDEEMED"))
@@ -658,32 +736,31 @@ class PaymentService(
             )
         )
 
-        return CouponReservationResponse(
-            reservationId = reservation.reservationId!!,
-            code = reservation.code,
-            discountAmount = reservation.discountAmount,
-            expiresAt = reservation.expiresAt
-        )
+        return reservation.toResponse()
     }
 
     @Transactional
-    fun releaseCouponReservation(code: String, userId: UUID, orderId: UUID?) {
-        val reservations = couponReservationRepository.findByCodeAndUserIdAndStatus(code, userId, "HELD")
-        for (res in reservations) {
-            res.status = "RELEASED"
-            couponReservationRepository.save(res)
-        }
+    fun releaseCouponReservation(code: String, userId: UUID, orderId: UUID) {
+        val reservation = couponReservationRepository.findByCodeAndUserIdAndOrderIdAndStatus(
+            code.trim().uppercase(),
+            userId,
+            orderId,
+            "HELD"
+        ) ?: return
+        reservation.status = "RELEASED"
+        couponReservationRepository.save(reservation)
     }
 
     @Transactional
     fun redeemCouponReservation(code: String, userId: UUID, orderId: UUID) {
-        val reservations = couponReservationRepository.findByCodeAndUserIdAndStatus(code, userId, "HELD")
-        if (reservations.isNotEmpty()) {
-            val res = reservations.first()
-            res.status = "REDEEMED"
-            res.orderId = orderId
-            couponReservationRepository.save(res)
-        }
+        val reservation = couponReservationRepository.findByCodeAndUserIdAndOrderIdAndStatus(
+            code.trim().uppercase(),
+            userId,
+            orderId,
+            "HELD"
+        ) ?: return
+        reservation.status = "REDEEMED"
+        couponReservationRepository.save(reservation)
     }
 
     fun getCodConfig(): Map<String, Any> {
@@ -720,6 +797,21 @@ class PaymentService(
 
     @Transactional
     fun updateCodConfig(req: CodConfigRequest): Map<String, Any> {
+        req.globalMaxAmount?.let {
+            require(it > BigDecimal.ZERO && it <= BigDecimal("100000.00")) {
+                "Global COD limit must be between 0 and 100000"
+            }
+        }
+        req.cityOverrides?.forEach { (city, amount) ->
+            require(city.isNotBlank() && city.length <= 120) { "COD override city is invalid" }
+            require(amount > BigDecimal.ZERO && amount <= BigDecimal("100000.00")) {
+                "City COD limits must be between 0 and 100000"
+            }
+        }
+        req.disabledCities?.forEach {
+            require(it.isNotBlank() && it.length <= 120) { "Disabled COD city is invalid" }
+        }
+
         if (req.globalMaxAmount != null) {
             val config = codConfigRepository.findById("global_max_amount")
                 .orElseGet { CodConfig("global_max_amount", "1000.00") }
@@ -791,12 +883,18 @@ class PaymentService(
 }
 
 data class CouponReservationRequest(
+    @field:NotBlank
+    @field:Size(max = 64)
+    @field:Pattern(regexp = "[A-Za-z0-9_-]+")
     val code: String,
+    @field:DecimalMin("0.01")
+    @field:DecimalMax("10000000.00")
     val orderValue: BigDecimal,
     val providerId: UUID,
     val userId: UUID,
+    @field:Size(max = 120)
     val category: String? = null,
-    val orderId: UUID? = null
+    val orderId: UUID
 )
 
 data class CouponReservationResponse(
@@ -807,13 +905,19 @@ data class CouponReservationResponse(
 )
 
 data class CodConfigRequest(
+    @field:DecimalMin("0.01")
+    @field:DecimalMax("100000.00")
     val globalMaxAmount: BigDecimal? = null,
     val cityOverrides: Map<String, BigDecimal>? = null,
+    @field:Size(max = 500)
     val disabledCities: List<String>? = null
 )
 
 data class CodCheckRequest(
+    @field:DecimalMin("0.00")
+    @field:DecimalMax("10000000.00")
     val amount: BigDecimal,
+    @field:Size(max = 120)
     val city: String? = null,
     val providerId: UUID? = null
 )
@@ -824,3 +928,9 @@ data class CodCheckResponse(
     val reason: String? = null
 )
 
+private fun CouponReservation.toResponse() = CouponReservationResponse(
+    reservationId = reservationId!!,
+    code = code,
+    discountAmount = discountAmount,
+    expiresAt = expiresAt
+)
