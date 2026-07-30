@@ -88,6 +88,22 @@ class OrderServiceTests {
     }
 
     @Test
+    fun `createOrder - rejects online checkout while native payment flow is disabled`() {
+        val request = CreateOrderRequest(
+            customerId = customerId,
+            providerId = providerId,
+            deliveryAddressId = UUID.randomUUID(),
+            items = listOf(OrderItemRequest(UUID.randomUUID(), 1)),
+            paymentMethod = "CARD"
+        )
+
+        val ex = assertThrows<IllegalStateException> { service.createOrder(request) }
+
+        assertTrue(ex.message!!.contains("Online checkout"))
+        verifyNoInteractions(restTemplate)
+    }
+
+    @Test
     fun `calculateQuote - rejects invalid quantity before calling dependencies`() {
         val request = CheckoutQuoteRequest(
             customerId = customerId,

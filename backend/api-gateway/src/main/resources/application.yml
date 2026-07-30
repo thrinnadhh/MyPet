@@ -48,6 +48,24 @@ spring:
             - name: RoleGuard
               args:
                 roles: ADMIN
+        - id: provider-create
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/providers
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
+        - id: provider-onboarding-writes
+          uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/providers/*/documents, /api/v1/providers/*/submit
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: MERCHANT,ADMIN
         - id: profile-admin-operations
           uri: ${PROVIDER_SERVICE_URL:http://localhost:8081}
           predicates:

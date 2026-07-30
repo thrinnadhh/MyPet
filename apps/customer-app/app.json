@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": { "icon": "./assets/expo.icon" },
     "android": {
-      "package": "com.pawsnearme.customerapp",
+      "package": "com.mypet.customer",
       "adaptiveIcon": {
         "backgroundColor": "#F8F9FF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

@@ -75,7 +75,7 @@ class SecurityConfig(
                     .pathMatchers(HttpMethod.GET, "/api/v1/service-regions/**").permitAll()
                     .pathMatchers(HttpMethod.GET, "/uploads/**").permitAll()
                     .pathMatchers(HttpMethod.POST, "/api/v1/payments/webhook").permitAll()
-                    .pathMatchers("/actuator/**").permitAll()              // Health check, etc.
+                    .pathMatchers("/actuator/health/**", "/actuator/info").permitAll()
                     .anyExchange().authenticated()
             }
             .oauth2ResourceServer { oauth2 ->

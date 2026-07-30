@@ -251,4 +251,9 @@ class PaymentController(private val paymentService: PaymentService) {
     ): ResponseEntity<Any> {
         return ResponseEntity.ok(paymentService.checkCodEligibility(req))
     }
+
+    @ExceptionHandler(PaymentAccessDeniedException::class)
+    fun handleAccessDenied(ex: PaymentAccessDeniedException): ResponseEntity<Any> {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to ex.message))
+    }
 }

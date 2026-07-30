@@ -120,10 +120,21 @@ class ProfileController(
     private val redisTemplate: StringRedisTemplate
 ) {
     @PostMapping
-    fun createProfile(@Valid @RequestBody request: CreateProfileRequest): ResponseEntity<ProfileResponse> {
+    fun createProfile(
+        @Valid @RequestBody request: CreateProfileRequest,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?,
+        @RequestHeader("X-User-Role", required = false) xUserRole: String?
+    ): ResponseEntity<ProfileResponse> {
+        val actorId = parseUserId(xUserId)
+        if (xUserRole != "ADMIN" && request.userId != actorId) {
+            throw ProviderAccessDeniedException("Users can only create their own profile")
+        }
+        if (xUserRole != "ADMIN" && request.role.name != xUserRole) {
+            throw ProviderAccessDeniedException("Profile role must match the authenticated role")
+        }
         val savedProfile = providerService.syncAuthenticatedProfile(
-            userId = request.userId,
-            role = request.role.name,
+            userId = if (xUserRole == "ADMIN") request.userId else actorId,
+            role = if (xUserRole == "ADMIN") request.role.name else xUserRole,
             email = null,
             fullName = request.fullName,
             phoneNumber = request.phoneNumber,
@@ -179,7 +190,14 @@ class ProfileController(
     }
 
     @GetMapping("/{id}")
-    fun getProfile(@PathVariable id: UUID): ResponseEntity<ProfileResponse> {
+    fun getProfile(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?,
+        @RequestHeader("X-User-Role", required = false) xUserRole: String?
+    ): ResponseEntity<ProfileResponse> {
+        if (xUserRole != "ADMIN" && parseUserId(xUserId) != id) {
+            throw ProviderAccessDeniedException("Access denied to another user's profile")
+        }
         val p = profileRepository.findById(id)
             .orElseThrow { NoSuchElementException("Profile with ID $id not found") }
         if (p.suspended) {
@@ -230,6 +248,14 @@ class ProfileController(
         profileRepository.save(p)
         redisTemplate.delete("suspended_user:$id")
         return ResponseEntity.ok(mapOf("status" to "SUCCESS", "message" to "Access restored for user ${p.fullName}"))
+    }
+
+    private fun parseUserId(value: String?): UUID {
+        if (value.isNullOrBlank()) {
+            throw ProviderAccessDeniedException("Unauthorized: user context missing")
+        }
+        return runCatching { UUID.fromString(value) }
+            .getOrElse { throw ProviderAccessDeniedException("Unauthorized: invalid user context") }
     }
 }
 
@@ -316,9 +342,20 @@ class ProviderController(
     private val providerRepository: ProviderRepository
 ) {
     @PostMapping
-    fun createProvider(@Valid @RequestBody request: CreateProviderRequest): ResponseEntity<Any> {
+    fun createProvider(
+        @Valid @RequestBody request: CreateProviderRequest,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
+        @RequestHeader("X-User-Role", required = false) userRole: String?
+    ): ResponseEntity<Any> {
+        val actorId = parseRequiredUserId(userId)
+        if (userRole !in setOf("MERCHANT", "ADMIN")) {
+            throw ProviderAccessDeniedException("Access denied: provider creation requires MERCHANT or ADMIN role")
+        }
+        if (userRole != "ADMIN" && request.ownerUserId != actorId) {
+            throw ProviderAccessDeniedException("Merchants can only create providers for their own account")
+        }
         val provider = providerService.createProvider(
-            ownerUserId = request.ownerUserId,
+            ownerUserId = if (userRole == "ADMIN") request.ownerUserId else actorId,
             providerType = request.providerType,
             fulfillmentType = request.fulfillmentType,
             name = request.name,
@@ -335,7 +372,12 @@ class ProviderController(
     }
 
     @GetMapping("/pending")
-    fun getPendingProviders(): ResponseEntity<List<ProviderResponse>> {
+    fun getPendingProviders(
+        @RequestHeader("X-User-Role", required = false) userRole: String?
+    ): ResponseEntity<List<ProviderResponse>> {
+        if (userRole != "ADMIN") {
+            throw ProviderAccessDeniedException("Access denied: pending providers require ADMIN role")
+        }
         val all = providerRepository.findAll()
         val pending = all.filter { it.status == ProviderStatus.PENDING_APPROVAL }
         return ResponseEntity.ok(pending.map { mapToResponse(it) })
@@ -351,14 +393,22 @@ class ProviderController(
     @PostMapping("/{id}/documents")
     fun uploadDocument(
         @PathVariable id: UUID,
-        @Valid @RequestBody request: UploadDocumentRequest
+        @Valid @RequestBody request: UploadDocumentRequest,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
+        @RequestHeader("X-User-Role", required = false) userRole: String?
     ): ResponseEntity<Any> {
+        assertProviderOwnerOrAdmin(id, userId, userRole)
         val doc = providerService.uploadDocument(id, request.docType, request.docUrl)
         return ResponseEntity.ok(doc)
     }
 
     @PostMapping("/{id}/submit")
-    fun submitForApproval(@PathVariable id: UUID): ResponseEntity<Any> {
+    fun submitForApproval(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
+        @RequestHeader("X-User-Role", required = false) userRole: String?
+    ): ResponseEntity<Any> {
+        assertProviderOwnerOrAdmin(id, userId, userRole)
         val provider = providerService.submitForApproval(id)
         return ResponseEntity.ok(mapToResponse(provider))
     }
@@ -391,9 +441,37 @@ class ProviderController(
     }
 
     @GetMapping
-    fun getProvidersByOwner(@RequestParam ownerUserId: UUID): ResponseEntity<List<ProviderResponse>> {
+    fun getProvidersByOwner(
+        @RequestParam ownerUserId: UUID,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
+        @RequestHeader("X-User-Role", required = false) userRole: String?
+    ): ResponseEntity<List<ProviderResponse>> {
+        if (userRole != "ADMIN" && parseRequiredUserId(userId) != ownerUserId) {
+            throw ProviderAccessDeniedException("Access denied to another provider owner's records")
+        }
         val providers = providerRepository.findByOwnerUserId(ownerUserId)
         return ResponseEntity.ok(providers.map { mapToResponse(it) })
+    }
+
+    private fun assertProviderOwnerOrAdmin(id: UUID, userId: String?, userRole: String?) {
+        if (userRole == "ADMIN") return
+        if (userRole != "MERCHANT") {
+            throw ProviderAccessDeniedException("Access denied: provider ownership is required")
+        }
+        val actorId = parseRequiredUserId(userId)
+        val provider = providerRepository.findById(id)
+            .orElseThrow { NoSuchElementException("Provider with ID $id not found") }
+        if (provider.ownerUserId != actorId) {
+            throw ProviderAccessDeniedException("Access denied to another merchant's provider")
+        }
+    }
+
+    private fun parseRequiredUserId(userId: String?): UUID {
+        if (userId.isNullOrBlank()) {
+            throw ProviderAccessDeniedException("Unauthorized: user context missing")
+        }
+        return runCatching { UUID.fromString(userId) }
+            .getOrElse { throw ProviderAccessDeniedException("Unauthorized: invalid user context") }
     }
 
     private fun mapToResponse(p: Provider): ProviderResponse {

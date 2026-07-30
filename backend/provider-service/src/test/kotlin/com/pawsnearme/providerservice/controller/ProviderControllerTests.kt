@@ -60,6 +60,55 @@ class ProviderControllerTests {
         verify(providerService).updateCommission(providerId, BigDecimal("16.00"), actorId, "Rate review")
     }
 
+    @Test
+    fun `createProvider rejects merchant spoofing another owner`() {
+        val actorId = UUID.randomUUID()
+        val request = CreateProviderRequest(
+            ownerUserId = UUID.randomUUID(),
+            providerType = ProviderType.PET_STORE,
+            fulfillmentType = FulfillmentType.DELIVERY,
+            name = "Spoofed Store",
+            description = null,
+            licenseNumber = null,
+            licenseDocUrl = null,
+            addressLine = "12 Main Road",
+            city = "Bengaluru",
+            pincode = "560001",
+            longitude = 77.5946,
+            latitude = 12.9716
+        )
+
+        assertThrows<ProviderAccessDeniedException> {
+            controller.createProvider(request, actorId.toString(), "MERCHANT")
+        }
+
+        verify(providerService, never()).createProvider(
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
+        )
+    }
+
+    @Test
+    fun `getPendingProviders rejects non-admin caller`() {
+        assertThrows<ProviderAccessDeniedException> {
+            controller.getPendingProviders("MERCHANT")
+        }
+
+        verify(providerRepository, never()).findAll()
+    }
+
+    @Test
+    fun `getProvidersByOwner rejects access to another owner`() {
+        assertThrows<ProviderAccessDeniedException> {
+            controller.getProvidersByOwner(
+                ownerUserId = UUID.randomUUID(),
+                userId = UUID.randomUUID().toString(),
+                userRole = "MERCHANT"
+            )
+        }
+
+        verify(providerRepository, never()).findByOwnerUserId(any())
+    }
+
     private fun sampleProvider(providerId: UUID, commissionPct: BigDecimal) = Provider(
         providerId = providerId,
         ownerUserId = UUID.randomUUID(),
