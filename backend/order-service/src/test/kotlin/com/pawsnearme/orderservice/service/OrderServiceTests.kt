@@ -56,8 +56,10 @@ class OrderServiceTests {
             catalogServiceUrl = "http://localhost:8082",
             paymentServiceUrl = "http://localhost:8090",
             providerServiceUrl = "http://localhost:8081",
+            discoveryServiceUrl = "http://localhost:8083",
             restTemplate = restTemplate
         )
+
     }
 
     private fun savedOrder(status: OrderStatus) = Order(
