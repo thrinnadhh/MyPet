@@ -83,6 +83,18 @@ class PaymentController(private val paymentService: PaymentService) {
         return ResponseEntity.ok(transaction)
     }
 
+    @PostMapping("/linked-accounts")
+    fun registerLinkedAccount(
+        @RequestBody request: com.pawsnearme.paymentservice.service.RegisterLinkedAccountRequest,
+        @RequestHeader("X-User-Role", required = false) role: String?
+    ): ResponseEntity<com.pawsnearme.paymentservice.model.LinkedAccount> {
+        if (role != "ADMIN" && role != "MERCHANT") {
+            throw PaymentAccessDeniedException("Access denied for linked account registration")
+        }
+        val account = paymentService.registerLinkedAccount(request)
+        return ResponseEntity.status(HttpStatus.CREATED).body(account)
+    }
+
     @PostMapping("/payouts/calculate")
     fun calculatePayouts(
         @RequestParam start: String,
@@ -96,6 +108,19 @@ class PaymentController(private val paymentService: PaymentService) {
         return ResponseEntity.ok(payouts)
     }
 
+    @GetMapping("/payouts/{id}")
+    fun getPayoutById(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?,
+        @RequestHeader("X-User-Role", required = false) xUserRole: String?
+    ): ResponseEntity<Payout> {
+        val payout = paymentService.getPayoutById(id)
+        if (xUserRole != "ADMIN" && xUserId != payout.payeeUserId.toString()) {
+            throw PaymentAccessDeniedException("Access denied")
+        }
+        return ResponseEntity.ok(payout)
+    }
+
     @GetMapping("/payouts/user/{userId}")
     fun getPayoutHistory(
         @PathVariable userId: UUID,
@@ -107,6 +132,7 @@ class PaymentController(private val paymentService: PaymentService) {
         }
         return ResponseEntity.ok(paymentService.getPayoutHistory(userId))
     }
+
 
     @PostMapping("/promotions")
     fun createPromotion(

@@ -32,6 +32,7 @@ const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: str
 };
 
 export function AppIcon({ name, color, size = 18, style }: { name: AppIconName; color: string; size?: number; style?: StyleProp<ViewStyle> }) {
+
   const symbol = SYMBOLS[name];
   return (
     <SymbolView

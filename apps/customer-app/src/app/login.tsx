@@ -12,6 +12,8 @@ import { useAuthIntent } from '@/context/AuthIntentContext';
 import { radii, spacing, touchTarget, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
+import { appConfig } from '@/utils/app-config';
+
 import { supabase } from '@/utils/supabase';
 
 type Step = 'identifier' | 'code' | 'name';
@@ -124,6 +126,7 @@ export default function LoginScreen() {
           <PrimaryAction label={t('auth.sendCode')} onPress={() => void send()} loading={loading} />
         </View>
       ) : null}
+
 
       {step === 'code' ? (
         <View style={styles.stack}>

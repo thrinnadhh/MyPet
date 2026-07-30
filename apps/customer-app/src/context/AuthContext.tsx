@@ -14,6 +14,7 @@ interface AuthContextType {
   markOtpVerified: () => void;
   hasFreshOtp: (maxAgeMs?: number) => boolean;
   signOut: () => Promise<void>;
+  signInWithMockPhone?: (phone: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -47,6 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     return () => { active = false; subscription.unsubscribe(); };
   }, [applySession]);
+
 
   const markOtpVerified = useCallback(() => {
     const now = Date.now();

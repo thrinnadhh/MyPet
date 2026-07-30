@@ -41,8 +41,8 @@ export function PrimaryButton({
           backgroundColor,
           borderColor,
           opacity: isDisabled ? 0.55 : pressed ? 0.9 : 1,
-          transform: pressed && !isDisabled ? [{ scale: 0.98 }] : undefined,
         },
+        pressed && !isDisabled && { transform: [{ scale: 0.98 }] },
         style,
       ]}
       accessibilityRole="button"

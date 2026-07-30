@@ -1,0 +1,2 @@
+ALTER TYPE payments.payout_status ADD VALUE IF NOT EXISTS 'REVERSED';
+

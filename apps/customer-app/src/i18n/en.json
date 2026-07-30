@@ -74,7 +74,17 @@
     "enterFullName": "Please enter your full name.",
     "verificationSent": "Verification email sent. Please check your inbox.",
     "authFailed": "Authentication Failed",
-    "somethingWrong": "Something went wrong."
+    "somethingWrong": "Something went wrong.",
+    "phone": "Phone number",
+    "phonePlaceholder": "+91 99999 99999",
+    "otp": "OTP Code",
+    "otpPlaceholder": "Enter 6-digit code",
+    "sendOtp": "Send OTP",
+    "verifyOtp": "Verify & Sign In",
+    "changePhone": "Change Phone Number",
+    "fillPhone": "Please enter your phone number.",
+    "fillOtp": "Please enter the verification code.",
+    "otpSent": "Verification code sent to your mobile number."
   },
   "shop": {
     "deliveringTo": "DELIVERING TO",

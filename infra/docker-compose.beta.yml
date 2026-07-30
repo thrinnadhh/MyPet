@@ -1,0 +1,34 @@
+x-beta-scale: &beta-scale
+  restart: unless-stopped
+  deploy:
+    replicas: 1
+    resources:
+      limits:
+        memory: 320M
+      reservations:
+        memory: 192M
+
+x-beta-scale-medium: &beta-scale-medium
+  restart: unless-stopped
+  deploy:
+    replicas: 1
+    resources:
+      limits:
+        memory: 384M
+      reservations:
+        memory: 224M
+
+services:
+  provider-service: *beta-scale
+  catalog-service: *beta-scale
+  discovery-service: *beta-scale-medium
+  order-service: *beta-scale
+  appointment-service: *beta-scale
+  dispatch-service: *beta-scale-medium
+  captain-service: *beta-scale
+  notification-service: *beta-scale-medium
+  review-service: *beta-scale
+  payment-service: *beta-scale
+  chat-service: *beta-scale
+  content-service: *beta-scale
+  api-gateway: *beta-scale

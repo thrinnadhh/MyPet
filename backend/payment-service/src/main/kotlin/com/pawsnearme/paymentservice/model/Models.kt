@@ -68,7 +68,10 @@ class Payout(
     var amount: BigDecimal,
 
     @Column(name = "status", nullable = false)
-    var status: String = "PENDING", // PENDING, PROCESSING, PAID, FAILED
+    var status: String = "PENDING", // PENDING, PROCESSING, PAID, REVERSED, FAILED
+
+    @Column(name = "razorpay_transfer_id")
+    var razorpayTransferId: String? = null,
 
     @Column(name = "period_start", nullable = false)
     var periodStart: LocalDate,
@@ -82,6 +85,73 @@ class Payout(
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant = Instant.now()
 )
+
+@Entity
+@Table(name = "linked_accounts", schema = "payments")
+class LinkedAccount(
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    @Column(name = "linked_account_id")
+    var linkedAccountId: UUID? = null,
+
+    @Column(name = "payee_user_id", nullable = false, unique = true)
+    var payeeUserId: UUID,
+
+    @Column(name = "payee_role", nullable = false)
+    var payeeRole: String,
+
+    @Column(name = "account_number", nullable = false)
+    var accountNumber: String,
+
+    @Column(name = "ifsc", nullable = false)
+    var ifsc: String,
+
+    @Column(name = "business_name", nullable = false)
+    var businessName: String,
+
+    @Column(name = "email", nullable = false)
+    var email: String,
+
+    @Column(name = "razorpay_account_id", nullable = false)
+    var razorpayAccountId: String,
+
+    @Column(name = "pending_clawback_balance", nullable = false)
+    var pendingClawbackBalance: BigDecimal = BigDecimal.ZERO,
+
+    @Column(name = "created_at", nullable = false)
+    var createdAt: Instant = Instant.now()
+)
+
+@Entity
+@Table(name = "platform_commission_ledger", schema = "payments")
+class PlatformCommissionLedger(
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    @Column(name = "ledger_id")
+    var ledgerId: UUID? = null,
+
+    @Column(name = "provider_id", nullable = false)
+    var providerId: UUID,
+
+    @Column(name = "order_id")
+    var orderId: UUID? = null,
+
+    @Column(name = "gross_amount", nullable = false)
+    var grossAmount: BigDecimal,
+
+    @Column(name = "commission_pct", nullable = false)
+    var commissionPct: BigDecimal,
+
+    @Column(name = "commission_amount", nullable = false)
+    var commissionAmount: BigDecimal,
+
+    @Column(name = "net_merchant_amount", nullable = false)
+    var netMerchantAmount: BigDecimal,
+
+    @Column(name = "created_at", nullable = false)
+    var createdAt: Instant = Instant.now()
+)
+
 
 @Entity
 @Table(name = "promotions", schema = "payments")
@@ -202,5 +272,9 @@ class ProviderRef(
     val providerId: UUID,
     
     @Column(name = "owner_user_id")
-    val ownerUserId: UUID
+    val ownerUserId: UUID,
+
+    @Column(name = "commission_pct")
+    val commissionPct: BigDecimal = BigDecimal("15.00")
 )
+

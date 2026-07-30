@@ -19,6 +19,7 @@ interface TransactionRepository : JpaRepository<Transaction, UUID> {
 @Repository
 interface PayoutRepository : JpaRepository<Payout, UUID> {
     fun findByPayeeUserId(payeeUserId: UUID): List<Payout>
+    fun findByRazorpayTransferId(razorpayTransferId: String): Payout?
     fun findByPayeeUserIdAndPayeeRoleAndPeriodStartAndPeriodEnd(
         payeeUserId: UUID,
         payeeRole: String,
@@ -26,6 +27,19 @@ interface PayoutRepository : JpaRepository<Payout, UUID> {
         periodEnd: LocalDate
     ): Payout?
 }
+
+
+@Repository
+interface LinkedAccountRepository : JpaRepository<LinkedAccount, UUID> {
+    fun findByPayeeUserId(payeeUserId: UUID): LinkedAccount?
+    fun findByPayeeUserIdAndPayeeRole(payeeUserId: UUID, payeeRole: String): LinkedAccount?
+}
+
+@Repository
+interface PlatformCommissionLedgerRepository : JpaRepository<PlatformCommissionLedger, UUID> {
+    fun findByProviderId(providerId: UUID): List<PlatformCommissionLedger>
+}
+
 
 @Repository
 interface PromotionRepository : JpaRepository<Promotion, UUID> {
@@ -55,7 +69,11 @@ interface OrderRefRepository : JpaRepository<OrderRef, UUID> {
         start: Instant,
         end: Instant
     ): List<Array<Any>>
+
+    fun findByStatusAndDeliveredAtBetween(status: String, start: Instant, end: Instant): List<OrderRef>
 }
+
+
 
 @Repository
 interface AppointmentRefRepository : JpaRepository<AppointmentRef, UUID> {
@@ -103,3 +121,4 @@ interface CaptainEarningRefRepository : JpaRepository<CaptainEarningRef, UUID> {
 
 @Repository
 interface ProviderRefRepository : JpaRepository<ProviderRef, UUID>
+
