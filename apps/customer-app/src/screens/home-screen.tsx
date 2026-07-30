@@ -9,12 +9,15 @@ import { PrimaryButton } from '@/components/ui/primary-button';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { PROMO_BANNERS } from '@/constants/content';
+import { LocationModal, NotifyCityModal } from '@/components/location-modal';
 import { Radius, Shadows, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { useLocation } from '@/context/LocationContext';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
 import { fetchBanners, type PromoBanner } from '@/services/content';
 import { appConfig } from '@/utils/app-config';
+
 
 interface StoryCategory {
   id: string;
@@ -138,6 +141,7 @@ export default function HomeScreen() {
   const theme = useTheme();
   const { user } = useAuth();
   const { t } = useTranslation();
+  const { activeCity, openLocationModal } = useLocation();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [banners, setBanners] = useState<PromoBanner[]>(
@@ -158,42 +162,59 @@ export default function HomeScreen() {
   }, [user, t]);
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.background }]} contentContainerStyle={styles.contentContainer}>
-      {/* Top Header */}
-      <ScreenHeader
-        title="PetStore"
-        subtitle={`Welcome back, ${firstName}`}
-        trailing={<AppIcon name="paw" color={theme.primary} size={24} />}
-      />
-
-      {/* Location Bar */}
-      <View style={[styles.locationBar, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <AppIcon name="location" color={theme.primary} size={18} />
-        <View style={styles.flexOne}>
-          <ThemedText style={{ fontSize: 12, color: theme.textSecondary }}>Delivering to</ThemedText>
-          <ThemedText style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>Tirupati, Andhra Pradesh</ThemedText>
-        </View>
-      </View>
-
-      {/* Search Field */}
-      <View style={[styles.searchField, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <AppIcon name="search" color={theme.textSecondary} size={18} />
-        <TextInput
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="Search pet food, vet care, grooming spas..."
-          placeholderTextColor={theme.textSecondary}
-          style={[styles.searchInput, { color: theme.text }]}
-          returnKeyType="search"
-          onSubmitEditing={() => {
-            if (searchQuery.trim()) {
-              router.push(`/category/food` as never);
-            }
-          }}
+    <>
+      <ScrollView style={[styles.container, { backgroundColor: theme.background }]} contentContainerStyle={styles.contentContainer}>
+        {/* Top Header */}
+        <ScreenHeader
+          title="PetStore"
+          subtitle={`Welcome back, ${firstName}`}
+          trailing={<AppIcon name="paw" color={theme.primary} size={24} />}
         />
-      </View>
 
-      {/* Category Stories (Swiggy Circular Row) */}
+        {/* Location Bar */}
+        <Pressable
+          onPress={openLocationModal}
+          style={[styles.locationBar, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
+          accessibilityRole="button"
+          accessibilityLabel="Change location"
+        >
+          <AppIcon name="location" color={theme.primary} size={18} />
+          <View style={styles.flexOne}>
+            <ThemedText style={{ fontSize: 12, color: theme.textSecondary }}>Delivering to</ThemedText>
+            <ThemedText style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>
+              {activeCity.displayName}, {activeCity.state}
+            </ThemedText>
+          </View>
+          <AppIcon name="chevron" color={theme.textSecondary} size={16} />
+        </Pressable>
+
+        {/* Universal Search Field */}
+        <View style={[styles.searchField, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+          <AppIcon name="search" color={theme.textSecondary} size={18} />
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search pet food, vet care, grooming spas..."
+            placeholderTextColor={theme.textSecondary}
+            style={[styles.searchInput, { color: theme.text }]}
+            returnKeyType="search"
+            onSubmitEditing={() => {
+              if (searchQuery.trim()) {
+                router.push({ pathname: '/search', params: { q: searchQuery.trim() } } as never);
+              }
+            }}
+          />
+          <Pressable
+            onPress={() => router.push({ pathname: '/search', params: { mic: 'true' } } as never)}
+            style={{ padding: 4 }}
+            accessibilityLabel="Voice search"
+          >
+            <AppIcon name="sparkle" color={theme.primary} size={20} />
+          </Pressable>
+        </View>
+
+        {/* Category Stories (Swiggy Circular Row) */}
+
       <View style={styles.sectionMargin}>
         <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Explore Services & Products</ThemedText>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storiesScroll}>
@@ -348,8 +369,13 @@ export default function HomeScreen() {
         </ScrollView>
       </View>
     </ScrollView>
+    <LocationModal />
+    <NotifyCityModal />
+  </>
+
   );
 }
+
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

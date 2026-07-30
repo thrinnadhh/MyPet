@@ -261,4 +261,107 @@ class DiscoveryService(
             )
         }
     }
+
+    fun universalSearch(
+        query: String,
+        city: String?,
+        latitude: Double?,
+        longitude: Double?,
+        typeFilter: String?,
+        page: Int = 0,
+        size: Int = 20
+    ): UniversalSearchResponse {
+        val q = query.trim().lowercase()
+        val allItems = mutableListOf<UniversalSearchResultItem>()
+
+        val providers = providerRepository.findByStatus(ProviderStatus.ACTIVE)
+            .filter { p ->
+                city.isNullOrBlank() || p.city.equals(city.trim(), ignoreCase = true)
+            }
+            .filter { p ->
+                q.isEmpty() || p.name.lowercase().contains(q) ||
+                (p.description?.lowercase()?.contains(q) == true) ||
+                p.city.lowercase().contains(q)
+            }
+
+        for (p in providers) {
+            val dist = if (latitude != null && longitude != null) {
+                haversineKm(latitude, longitude, p.geoLocation.y, p.geoLocation.x)
+            } else null
+
+            val itemType = when (p.providerType) {
+                ProviderType.PET_STORE -> "PET_SHOP"
+                ProviderType.VET_HOSPITAL -> "HOSPITAL"
+                ProviderType.GROOMING_CENTER -> "GROOMER"
+            }
+
+            val route = when (p.providerType) {
+                ProviderType.PET_STORE -> "/shop/${p.providerId}"
+                ProviderType.VET_HOSPITAL -> "/hospital/${p.providerId}"
+                ProviderType.GROOMING_CENTER -> "/groomer/${p.providerId}"
+            }
+
+            val isEmergency = p.providerType == ProviderType.VET_HOSPITAL
+
+            allItems.add(
+                UniversalSearchResultItem(
+                    id = p.providerId.toString(),
+                    type = itemType,
+                    title = p.name,
+                    subtitle = "${p.addressLine}, ${p.city} • Rating ${p.ratingAvg} ★",
+                    rating = "${p.ratingAvg} ★",
+                    distanceKm = dist,
+                    route = route,
+                    isEmergency = isEmergency
+                )
+            )
+        }
+
+        val mockProducts = listOf(
+            UniversalSearchResultItem(id = "prod-1", type = "PRODUCT", title = "Royal Canin Maxi Puppy Dry Food 3kg", subtitle = "Balanced nutrition for growing puppies", price = "₹1,850", route = "/category/food"),
+            UniversalSearchResultItem(id = "prod-2", type = "PRODUCT", title = "Pedigree Chicken & Vegetables Adult", subtitle = "Complete daily meal for adult dogs", price = "₹850", route = "/category/food"),
+            UniversalSearchResultItem(id = "prod-3", type = "PRODUCT", title = "Paws & Bubbles Anti-Tick Shampoo 500ml", subtitle = "Gentle herbal formula with tea tree oil", price = "₹499", route = "/category/grooming"),
+            UniversalSearchResultItem(id = "prod-4", type = "PRODUCT", title = "KONG Classic Dog Toy Medium", subtitle = "Durable natural rubber chew toy", price = "₹799", route = "/category/toys")
+        ).filter { q.isEmpty() || it.title.lowercase().contains(q) || (it.subtitle?.lowercase()?.contains(q) == true) }
+
+        allItems.addAll(mockProducts)
+
+        val mockGuides = listOf(
+            UniversalSearchResultItem(id = "g-1", type = "GUIDE", title = "Puppy Nutrition Guide (0 - 2 Months)", subtitle = "Essential weaning steps & milk substitutes", route = "/guide/puppy-nutrition-0-2-mo"),
+            UniversalSearchResultItem(id = "g-2", type = "GUIDE", title = "Puppy Growth Tracker (2 - 12 Months)", subtitle = "Teething relief & weight milestones", route = "/guide/puppy-growth-2-12-mo"),
+            UniversalSearchResultItem(id = "g-3", type = "GUIDE", title = "Coat & Skin Health Masterclass", subtitle = "Prevent hot spots & seasonal shedding", route = "/guide/coat-skin-health")
+        ).filter { q.isEmpty() || it.title.lowercase().contains(q) || (it.subtitle?.lowercase()?.contains(q) == true) }
+
+        allItems.addAll(mockGuides)
+
+        val filtered = if (!typeFilter.isNullOrBlank() && !typeFilter.equals("ALL", ignoreCase = true)) {
+            allItems.filter { it.type.equals(typeFilter.trim(), ignoreCase = true) }
+        } else {
+            allItems
+        }
+
+        val fromIndex = (page * size).coerceAtMost(filtered.size)
+        val toIndex = ((page + 1) * size).coerceAtMost(filtered.size)
+        val pagedResults = if (fromIndex <= toIndex) filtered.subList(fromIndex, toIndex) else emptyList()
+
+        return UniversalSearchResponse(
+            query = query,
+            totalResults = filtered.size,
+            page = page,
+            size = size,
+            results = pagedResults
+        )
+    }
+
+    private fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+        val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+        return r * c
+    }
 }
+

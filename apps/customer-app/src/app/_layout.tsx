@@ -6,6 +6,8 @@ import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { AuthIntentProvider } from '@/context/AuthIntentContext';
 import { LocaleProvider } from '@/context/LocaleContext';
+import { LocationProvider } from '@/context/LocationContext';
+
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import '@/i18n';
 
@@ -33,9 +35,12 @@ function AppNavigator() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <LocaleProvider>
-        <AuthIntentProvider><AppNavigator /></AuthIntentProvider>
-      </LocaleProvider>
+      <LocationProvider>
+        <LocaleProvider>
+          <AuthIntentProvider><AppNavigator /></AuthIntentProvider>
+        </LocaleProvider>
+      </LocationProvider>
     </AuthProvider>
   );
 }
+
