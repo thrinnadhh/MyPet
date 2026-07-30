@@ -185,3 +185,92 @@ export async function reorderItems(
 
   return (await response.json()) as ReorderValidationResult;
 }
+
+export interface CheckoutQuoteInput {
+  customerId: string;
+  providerId: string;
+  deliveryAddressId: string;
+  items: Array<{ offeringId: string; quantity: number }>;
+  couponCode?: string | null;
+  paymentMethod?: 'CARD' | 'UPI' | 'COD' | string | null;
+  city?: string | null;
+}
+
+export interface CheckoutQuoteOutput {
+  quoteToken: string;
+  subtotal: number;
+  itemDiscount: number;
+  couponDiscount: number;
+  loyaltyDiscount: number;
+  deliveryFee: number;
+  tax: number;
+  roundOff: number;
+  payableTotal: number;
+  couponCode?: string | null;
+  paymentMethod?: string | null;
+  isCodAvailable: boolean;
+  codRejectionReason?: string | null;
+  expiresAt: string;
+}
+
+export interface CreateOrderInput {
+  customerId: string;
+  providerId: string;
+  deliveryAddressId: string;
+  items: Array<{ offeringId: string; quantity: number }>;
+  couponCode?: string | null;
+  paymentMethod?: 'CARD' | 'UPI' | 'COD' | string | null;
+  quoteToken?: string | null;
+  city?: string | null;
+}
+
+export async function fetchCheckoutQuote(
+  input: CheckoutQuoteInput,
+  accessToken?: string | null,
+): Promise<CheckoutQuoteOutput> {
+  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/checkout/quote`, {
+    method: 'POST',
+    headers: { ...headers(accessToken), 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new Error(errorBody?.message || errorBody?.error || 'Could not calculate checkout quote');
+  }
+
+  return (await response.json()) as CheckoutQuoteOutput;
+}
+
+export async function createCustomerOrder(
+  input: CreateOrderInput,
+  accessToken?: string | null,
+): Promise<CustomerOrderRecord> {
+  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders`, {
+    method: 'POST',
+    headers: { ...headers(accessToken), 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new Error(errorBody?.message || errorBody?.error || 'Could not place order');
+  }
+
+  const order = await response.json();
+  const rawTotal = Number(order.totalAmount) || 0;
+
+  return {
+    id: order.orderId || order.id,
+    providerId: order.providerId,
+    providerName: `Store ${order.providerId.slice(0, 8)}`,
+    items: order.items?.map((i: any) => i.offeringNameSnapshot || i.name) || ['Pet Product'],
+    total: `₹${rawTotal.toFixed(0)}`,
+    rawTotal,
+    status: order.status,
+    orderedAt: order.placedAt || new Date().toISOString(),
+    hasReview: false,
+    flowStep: 'placed',
+  };
+}
+

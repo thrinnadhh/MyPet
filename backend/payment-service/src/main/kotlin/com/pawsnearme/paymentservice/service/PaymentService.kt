@@ -68,6 +68,8 @@ class PaymentService(
     private val providerRefRepository: ProviderRefRepository,
     private val linkedAccountRepository: LinkedAccountRepository,
     private val platformCommissionLedgerRepository: PlatformCommissionLedgerRepository,
+    private val couponReservationRepository: CouponReservationRepository,
+    private val codConfigRepository: CodConfigRepository,
     @Value("\${RAZORPAY_KEY_ID:}")
     private val razorpayKeyId: String = "",
     @Value("\${RAZORPAY_KEY_SECRET:}")
@@ -619,4 +621,206 @@ class PaymentService(
         transaction.updatedAt = Instant.now()
         return transactionRepository.save(transaction)
     }
+
+    @Transactional
+    fun reserveCoupon(req: CouponReservationRequest): CouponReservationResponse {
+        val promo = validateCoupon(req.code, req.orderValue, req.providerId, req.category)
+
+        if (promo.usageLimitTotal != null) {
+            val totalCount = couponReservationRepository.countByPromotionIdAndStatusIn(promo.promotionId!!, listOf("HELD", "REDEEMED"))
+            if (totalCount >= promo.usageLimitTotal!!) {
+                throw IllegalArgumentException("Total coupon usage limit reached")
+            }
+        }
+
+        if (promo.usageLimitPerUser != null) {
+            val userCount = couponReservationRepository.countByPromotionIdAndUserIdAndStatusIn(promo.promotionId!!, req.userId, listOf("HELD", "REDEEMED"))
+            if (userCount >= promo.usageLimitPerUser!!) {
+                throw IllegalArgumentException("User usage limit reached for this coupon")
+            }
+        }
+
+        val calculatedDiscount = if (promo.discountType == "PERCENTAGE") {
+            val raw = req.orderValue.multiply(promo.discountValue).divide(BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP)
+            if (promo.maxDiscountAmount != null) raw.min(promo.maxDiscountAmount!!) else raw
+        } else {
+            promo.discountValue.min(req.orderValue)
+        }
+
+        val reservation = couponReservationRepository.save(
+            CouponReservation(
+                promotionId = promo.promotionId!!,
+                code = promo.code,
+                userId = req.userId,
+                orderId = req.orderId,
+                discountAmount = calculatedDiscount,
+                status = "HELD"
+            )
+        )
+
+        return CouponReservationResponse(
+            reservationId = reservation.reservationId!!,
+            code = reservation.code,
+            discountAmount = reservation.discountAmount,
+            expiresAt = reservation.expiresAt
+        )
+    }
+
+    @Transactional
+    fun releaseCouponReservation(code: String, userId: UUID, orderId: UUID?) {
+        val reservations = couponReservationRepository.findByCodeAndUserIdAndStatus(code, userId, "HELD")
+        for (res in reservations) {
+            res.status = "RELEASED"
+            couponReservationRepository.save(res)
+        }
+    }
+
+    @Transactional
+    fun redeemCouponReservation(code: String, userId: UUID, orderId: UUID) {
+        val reservations = couponReservationRepository.findByCodeAndUserIdAndStatus(code, userId, "HELD")
+        if (reservations.isNotEmpty()) {
+            val res = reservations.first()
+            res.status = "REDEEMED"
+            res.orderId = orderId
+            couponReservationRepository.save(res)
+        }
+    }
+
+    fun getCodConfig(): Map<String, Any> {
+        val globalMax = codConfigRepository.findById("global_max_amount")
+            .map { BigDecimal(it.configValue) }
+            .orElse(BigDecimal("1000.00"))
+
+        val cityOverridesStr = codConfigRepository.findById("city_overrides_json")
+            .map { it.configValue }
+            .orElse("{}")
+
+        val disabledCitiesStr = codConfigRepository.findById("disabled_cities_json")
+            .map { it.configValue }
+            .orElse("[]")
+
+        val cityOverrides: Map<String, BigDecimal> = try {
+            objectMapper.readValue(cityOverridesStr, object : TypeReference<Map<String, BigDecimal>>() {})
+        } catch (e: Exception) {
+            emptyMap()
+        }
+
+        val disabledCities: List<String> = try {
+            objectMapper.readValue(disabledCitiesStr, object : TypeReference<List<String>>() {})
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+        return mapOf(
+            "globalMaxAmount" to globalMax,
+            "cityOverrides" to cityOverrides,
+            "disabledCities" to disabledCities
+        )
+    }
+
+    @Transactional
+    fun updateCodConfig(req: CodConfigRequest): Map<String, Any> {
+        if (req.globalMaxAmount != null) {
+            val config = codConfigRepository.findById("global_max_amount")
+                .orElseGet { CodConfig("global_max_amount", "1000.00") }
+            config.configValue = req.globalMaxAmount.toString()
+            config.updatedAt = Instant.now()
+            codConfigRepository.save(config)
+        }
+
+        if (req.cityOverrides != null) {
+            val config = codConfigRepository.findById("city_overrides_json")
+                .orElseGet { CodConfig("city_overrides_json", "{}") }
+            config.configValue = objectMapper.writeValueAsString(req.cityOverrides)
+            config.updatedAt = Instant.now()
+            codConfigRepository.save(config)
+        }
+
+        if (req.disabledCities != null) {
+            val config = codConfigRepository.findById("disabled_cities_json")
+                .orElseGet { CodConfig("disabled_cities_json", "[]") }
+            config.configValue = objectMapper.writeValueAsString(req.disabledCities)
+            config.updatedAt = Instant.now()
+            codConfigRepository.save(config)
+        }
+
+        return getCodConfig()
+    }
+
+    fun checkCodEligibility(req: CodCheckRequest): CodCheckResponse {
+        val config = getCodConfig()
+        val globalMax = config["globalMaxAmount"] as BigDecimal
+        @Suppress("UNCHECKED_CAST")
+        val cityOverrides = config["cityOverrides"] as Map<String, BigDecimal>
+        @Suppress("UNCHECKED_CAST")
+        val disabledCities = config["disabledCities"] as List<String>
+
+        if (req.city != null) {
+            val normalizedCity = req.city.trim().lowercase()
+            if (disabledCities.any { it.trim().lowercase() == normalizedCity }) {
+                return CodCheckResponse(
+                    isEligible = false,
+                    maxAllowedAmount = BigDecimal.ZERO,
+                    reason = "COD is disabled in ${req.city}"
+                )
+            }
+
+            val cityLimit = cityOverrides.entries.firstOrNull { it.key.trim().lowercase() == normalizedCity }?.value
+            val maxAllowed = cityLimit ?: globalMax
+
+            if (req.amount > maxAllowed) {
+                return CodCheckResponse(
+                    isEligible = false,
+                    maxAllowedAmount = maxAllowed,
+                    reason = "Order total ₹${req.amount} exceeds COD limit ₹$maxAllowed for ${req.city}"
+                )
+            }
+            return CodCheckResponse(isEligible = true, maxAllowedAmount = maxAllowed)
+        }
+
+        if (req.amount > globalMax) {
+            return CodCheckResponse(
+                isEligible = false,
+                maxAllowedAmount = globalMax,
+                reason = "Order total ₹${req.amount} exceeds default COD limit ₹$globalMax"
+            )
+        }
+
+        return CodCheckResponse(isEligible = true, maxAllowedAmount = globalMax)
+    }
 }
+
+data class CouponReservationRequest(
+    val code: String,
+    val orderValue: BigDecimal,
+    val providerId: UUID,
+    val userId: UUID,
+    val category: String? = null,
+    val orderId: UUID? = null
+)
+
+data class CouponReservationResponse(
+    val reservationId: UUID,
+    val code: String,
+    val discountAmount: BigDecimal,
+    val expiresAt: Instant
+)
+
+data class CodConfigRequest(
+    val globalMaxAmount: BigDecimal? = null,
+    val cityOverrides: Map<String, BigDecimal>? = null,
+    val disabledCities: List<String>? = null
+)
+
+data class CodCheckRequest(
+    val amount: BigDecimal,
+    val city: String? = null,
+    val providerId: UUID? = null
+)
+
+data class CodCheckResponse(
+    val isEligible: Boolean,
+    val maxAllowedAmount: BigDecimal,
+    val reason: String? = null
+)
+

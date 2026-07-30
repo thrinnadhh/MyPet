@@ -176,4 +176,46 @@ class PaymentController(private val paymentService: PaymentService) {
         val tx = paymentService.refundPayment(orderId)
         return ResponseEntity.ok(tx)
     }
+
+    @PostMapping("/promotions/reserve")
+    fun reserveCoupon(
+        @RequestBody req: com.pawsnearme.paymentservice.service.CouponReservationRequest
+    ): ResponseEntity<Any> {
+        val res = paymentService.reserveCoupon(req)
+        return ResponseEntity.ok(res)
+    }
+
+    @PostMapping("/promotions/release")
+    fun releaseCouponReservation(
+        @RequestParam code: String,
+        @RequestParam userId: UUID,
+        @RequestParam(required = false) orderId: UUID?
+    ): ResponseEntity<Any> {
+        paymentService.releaseCouponReservation(code, userId, orderId)
+        return ResponseEntity.ok(mapOf("status" to "released"))
+    }
+
+    @GetMapping("/cod/config")
+    fun getCodConfig(): ResponseEntity<Any> {
+        return ResponseEntity.ok(paymentService.getCodConfig())
+    }
+
+    @PostMapping("/cod/config")
+    fun updateCodConfig(
+        @RequestBody req: com.pawsnearme.paymentservice.service.CodConfigRequest,
+        @RequestHeader("X-User-Role", required = false) role: String?
+    ): ResponseEntity<Any> {
+        if (role != "ADMIN") {
+            throw PaymentAccessDeniedException("Access denied: COD configuration requires ADMIN role")
+        }
+        return ResponseEntity.ok(paymentService.updateCodConfig(req))
+    }
+
+    @PostMapping("/cod/check")
+    fun checkCodEligibility(
+        @RequestBody req: com.pawsnearme.paymentservice.service.CodCheckRequest
+    ): ResponseEntity<Any> {
+        return ResponseEntity.ok(paymentService.checkCodEligibility(req))
+    }
 }
+

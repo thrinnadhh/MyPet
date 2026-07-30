@@ -39,6 +39,36 @@ data class OrderItemRequest(
 )
 
 
+data class CheckoutQuoteRequest(
+    val customerId: UUID,
+    val providerId: UUID,
+    val deliveryAddressId: UUID,
+    val items: List<OrderItemRequest>,
+    val couponCode: String? = null,
+    val loyaltyRewardId: UUID? = null,
+    val paymentMethod: String? = null,
+    val city: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null
+)
+
+data class CheckoutQuoteResponse(
+    val quoteToken: String,
+    val subtotal: BigDecimal,
+    val itemDiscount: BigDecimal,
+    val couponDiscount: BigDecimal,
+    val loyaltyDiscount: BigDecimal,
+    val deliveryFee: BigDecimal,
+    val tax: BigDecimal,
+    val roundOff: BigDecimal,
+    val payableTotal: BigDecimal,
+    val couponCode: String? = null,
+    val paymentMethod: String? = null,
+    val isCodAvailable: Boolean = true,
+    val codRejectionReason: String? = null,
+    val expiresAt: Instant
+)
+
 data class CreateOrderRequest(
     val customerId: UUID,
     val providerId: UUID,
@@ -46,6 +76,10 @@ data class CreateOrderRequest(
     val items: List<OrderItemRequest>,
     val deliveryFee: BigDecimal = BigDecimal.ZERO,
     val discountAmount: BigDecimal = BigDecimal.ZERO,
+    val couponCode: String? = null,
+    val loyaltyRewardId: UUID? = null,
+    val paymentMethod: String? = null,
+    val quoteToken: String? = null,
     val city: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null
@@ -130,9 +164,9 @@ class OrderService(
     private val gatewayTrustSecret: String = "",
     private val restTemplate: RestTemplate = RestTemplate()
 ) {
-    fun createOrder(request: CreateOrderRequest): Order {
+    fun calculateQuote(request: CheckoutQuoteRequest): CheckoutQuoteResponse {
         if (request.items.isEmpty()) {
-            throw IllegalArgumentException("Order must contain at least one item")
+            throw IllegalArgumentException("Quote must contain at least one item")
         }
 
         if (request.city != null || request.latitude != null) {
@@ -149,31 +183,122 @@ class OrderService(
             }
         }
 
+        var subtotal = BigDecimal.ZERO
+        for (item in request.items) {
+            val price = fetchOfferingPrice(item.offeringId)
+            val lineTotal = price.multiply(BigDecimal(item.quantity))
+            subtotal = subtotal.add(lineTotal)
+        }
+
+        var couponDiscount = BigDecimal.ZERO
+        if (!request.couponCode.isNullOrBlank()) {
+            couponDiscount = reserveCouponDiscount(request.couponCode, subtotal, request.providerId, request.customerId)
+        }
+
+        val itemDiscount = BigDecimal.ZERO
+        val loyaltyDiscount = BigDecimal.ZERO
+
+        val deliveryFee = if (subtotal >= BigDecimal("500.00")) BigDecimal.ZERO else BigDecimal("49.00")
+
+        val taxableBase = subtotal.subtract(couponDiscount).subtract(itemDiscount).subtract(loyaltyDiscount).max(BigDecimal.ZERO)
+        val tax = taxableBase.multiply(BigDecimal("0.05")).setScale(2, java.math.RoundingMode.HALF_UP)
+        val roundOff = BigDecimal.ZERO
+
+        val payableTotal = subtotal
+            .subtract(couponDiscount)
+            .subtract(itemDiscount)
+            .subtract(loyaltyDiscount)
+            .add(deliveryFee)
+            .add(tax)
+            .add(roundOff)
+            .setScale(2, java.math.RoundingMode.HALF_UP)
+
+        if (payableTotal < BigDecimal.ZERO) {
+            throw IllegalArgumentException("Calculated order total cannot be negative")
+        }
+
+        var isCodAvailable = true
+        var codRejectionReason: String? = null
+
+        if (request.paymentMethod == "COD") {
+            val codCheck = checkCodEligibility(payableTotal, request.city, request.providerId)
+            isCodAvailable = codCheck.first
+            codRejectionReason = codCheck.second
+        }
+
+        val quoteToken = "Q-${UUID.randomUUID().toString().take(12)}"
+        val expiresAt = Instant.now().plusSeconds(900)
+
+        return CheckoutQuoteResponse(
+            quoteToken = quoteToken,
+            subtotal = subtotal,
+            itemDiscount = itemDiscount,
+            couponDiscount = couponDiscount,
+            loyaltyDiscount = loyaltyDiscount,
+            deliveryFee = deliveryFee,
+            tax = tax,
+            roundOff = roundOff,
+            payableTotal = payableTotal,
+            couponCode = request.couponCode,
+            paymentMethod = request.paymentMethod,
+            isCodAvailable = isCodAvailable,
+            codRejectionReason = codRejectionReason,
+            expiresAt = expiresAt
+        )
+    }
+
+    fun createOrder(request: CreateOrderRequest): Order {
+        if (request.items.isEmpty()) {
+            throw IllegalArgumentException("Order must contain at least one item")
+        }
+
+        val quote = calculateQuote(
+            CheckoutQuoteRequest(
+                customerId = request.customerId,
+                providerId = request.providerId,
+                deliveryAddressId = request.deliveryAddressId,
+                items = request.items,
+                couponCode = request.couponCode,
+                loyaltyRewardId = request.loyaltyRewardId,
+                paymentMethod = request.paymentMethod,
+                city = request.city,
+                latitude = request.latitude,
+                longitude = request.longitude
+            )
+        )
+
+        val isCod = request.paymentMethod == "COD"
+        if (isCod && !quote.isCodAvailable) {
+            throw IllegalArgumentException("COD_NOT_ELIGIBLE: ${quote.codRejectionReason ?: "Order total exceeds COD limit"}")
+        }
+
         val reservedItems = mutableListOf<OrderItemRequest>()
 
-
         try {
-            var subtotal = BigDecimal.ZERO
             val orderItemsToSave = mutableListOf<OrderItem>()
 
             for (item in request.items) {
                 val cartEntry = decrementCatalogStock(item.offeringId, item.quantity, catalogServiceUrl)
                 reservedItems.add(item)
-                subtotal = subtotal.add(cartEntry.lineTotal)
                 orderItemsToSave.add(cartEntry)
             }
 
-            val total = subtotal.add(request.deliveryFee).subtract(request.discountAmount)
+            val initialStatus = if (isCod) OrderStatus.ACCEPTED else OrderStatus.PLACED
+            val paymentStatus = if (isCod) "COD_PENDING" else "PENDING"
 
             val order = Order(
                 customerId = request.customerId,
                 providerId = request.providerId,
                 deliveryAddressId = request.deliveryAddressId,
-                status = OrderStatus.PLACED,
-                subtotalAmount = subtotal,
-                deliveryFee = request.deliveryFee,
-                discountAmount = request.discountAmount,
-                totalAmount = total
+                status = initialStatus,
+                subtotalAmount = quote.subtotal,
+                deliveryFee = quote.deliveryFee,
+                discountAmount = quote.couponDiscount.add(quote.itemDiscount).add(quote.loyaltyDiscount),
+                taxAmount = quote.tax,
+                totalAmount = quote.payableTotal,
+                couponCode = quote.couponCode,
+                paymentMethod = request.paymentMethod ?: "CARD",
+                paymentStatus = paymentStatus
             )
             val savedOrder = orderRepository.save(order)
 
@@ -571,9 +696,8 @@ class OrderService(
     private fun generateInvoiceForOrder(order: Order) {
         if (!invoiceRepository.findByOrderId(order.orderId!!).isPresent) {
             val subtotal = order.subtotalAmount
-            val taxRate = BigDecimal("0.18")
-            val tax = subtotal.multiply(taxRate).setScale(2, java.math.RoundingMode.HALF_UP)
-            val total = subtotal.add(tax).setScale(2, java.math.RoundingMode.HALF_UP)
+            val tax = order.taxAmount
+            val total = order.totalAmount
 
             val year = java.time.LocalDate.now().year
             val suffix = order.orderId.toString().substring(0, 8).uppercase()
@@ -617,6 +741,17 @@ class OrderService(
         val cancellable = setOf(OrderStatus.PLACED, OrderStatus.ACCEPTED)
         if (order.status !in cancellable) {
             throw IllegalStateException("Order in status ${order.status} cannot be cancelled.")
+        }
+
+        if (order.couponCode != null) {
+            try {
+                val url = "$paymentServiceUrl/api/v1/payments/promotions/release?code=${order.couponCode}&userId=${order.customerId}&orderId=${order.orderId}"
+                val headers = internalHeaders()
+                val entity = org.springframework.http.HttpEntity<Any>(headers)
+                restTemplate.postForEntity(url, entity, Map::class.java)
+            } catch (e: Exception) {
+                logger.warn("Could not release coupon reservation for order {}: {}", order.orderId, e.message)
+            }
         }
 
         return updateOrderStatus(orderId, OrderStatus.CANCELLED, callerId, reason ?: "Cancelled by user")
@@ -751,6 +886,70 @@ class OrderService(
         else -> "placed"
     }
 
+    private fun fetchOfferingPrice(offeringId: UUID): BigDecimal {
+        return try {
+            val url = "$catalogServiceUrl/api/v1/catalog/offerings/$offeringId"
+            val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
+            val response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, Map::class.java).body
+            if (response != null) {
+                parseCatalogPrice(response["price"])
+            } else {
+                BigDecimal("100.00")
+            }
+        } catch (e: Exception) {
+            logger.warn("Could not fetch offering price for {}: {}", offeringId, e.message)
+            BigDecimal("100.00")
+        }
+    }
+
+    private fun reserveCouponDiscount(code: String, subtotal: BigDecimal, providerId: UUID, userId: UUID): BigDecimal {
+        return try {
+            val url = "$paymentServiceUrl/api/v1/payments/promotions/reserve"
+            val headers = internalHeaders()
+            headers.set("X-User-Role", "CUSTOMER")
+            val body = mapOf(
+                "code" to code,
+                "orderValue" to subtotal,
+                "providerId" to providerId,
+                "userId" to userId
+            )
+            val entity = org.springframework.http.HttpEntity(body, headers)
+            val response = restTemplate.postForEntity(url, entity, Map::class.java)
+            val discountVal = response.body?.get("discountAmount")
+            parseCatalogPrice(discountVal)
+        } catch (e: Exception) {
+            val msg = e.message ?: ""
+            if (msg.contains("limit") || msg.contains("expired") || msg.contains("Invalid") || msg.contains("minimum") || msg.contains("applicable")) {
+                throw IllegalArgumentException(msg)
+            }
+            logger.warn("Coupon reservation call failed: {}", e.message)
+            BigDecimal.ZERO
+        }
+    }
+
+    private fun checkCodEligibility(amount: BigDecimal, city: String?, providerId: UUID?): Pair<Boolean, String?> {
+        return try {
+            val url = "$paymentServiceUrl/api/v1/payments/cod/check"
+            val headers = internalHeaders()
+            val body = mapOf(
+                "amount" to amount,
+                "city" to city,
+                "providerId" to providerId
+            )
+            val entity = org.springframework.http.HttpEntity(body, headers)
+            val response = restTemplate.postForEntity(url, entity, Map::class.java).body
+            val isEligible = response?.get("isEligible") as? Boolean ?: true
+            val reason = response?.get("reason") as? String
+            Pair(isEligible, reason)
+        } catch (e: Exception) {
+            if (amount > BigDecimal("1000.00")) {
+                Pair(false, "Order total ₹$amount exceeds default COD limit ₹1000.00")
+            } else {
+                Pair(true, null)
+            }
+        }
+    }
+
     private fun internalHeaders(): org.springframework.http.HttpHeaders {
         val headers = org.springframework.http.HttpHeaders()
         if (gatewayTrustSecret.isNotBlank()) {
@@ -763,3 +962,4 @@ class OrderService(
         private val logger = LoggerFactory.getLogger(OrderService::class.java)
     }
 }
+

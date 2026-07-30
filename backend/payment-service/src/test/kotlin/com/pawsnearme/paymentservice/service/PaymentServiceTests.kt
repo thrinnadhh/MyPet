@@ -23,6 +23,8 @@ class PaymentServiceTests {
     private lateinit var providerRefRepository: ProviderRefRepository
     private lateinit var linkedAccountRepository: LinkedAccountRepository
     private lateinit var platformCommissionLedgerRepository: PlatformCommissionLedgerRepository
+    private lateinit var couponReservationRepository: com.pawsnearme.paymentservice.repository.CouponReservationRepository
+    private lateinit var codConfigRepository: com.pawsnearme.paymentservice.repository.CodConfigRepository
     private lateinit var service: PaymentService
 
 
@@ -38,6 +40,8 @@ class PaymentServiceTests {
         providerRefRepository = mock()
         linkedAccountRepository = mock()
         platformCommissionLedgerRepository = mock()
+        couponReservationRepository = mock()
+        codConfigRepository = mock()
         service = PaymentService(
             transactionRepository = transactionRepository,
             payoutRepository = payoutRepository,
@@ -48,6 +52,8 @@ class PaymentServiceTests {
             providerRefRepository = providerRefRepository,
             linkedAccountRepository = linkedAccountRepository,
             platformCommissionLedgerRepository = platformCommissionLedgerRepository,
+            couponReservationRepository = couponReservationRepository,
+            codConfigRepository = codConfigRepository,
             razorpaySandboxMode = true
         )
 
@@ -469,6 +475,8 @@ class PaymentServiceTests {
             providerRefRepository = providerRefRepository,
             linkedAccountRepository = linkedAccountRepository,
             platformCommissionLedgerRepository = platformCommissionLedgerRepository,
+            couponReservationRepository = couponReservationRepository,
+            codConfigRepository = codConfigRepository,
             razorpayWebhookSecret = "test-secret",
             razorpaySandboxMode = true
         )
