@@ -26,4 +26,27 @@ class DiscoveryController(private val discoveryService: DiscoveryService) {
         )
         return ResponseEntity.ok(providers)
     }
+
+    @GetMapping("/search")
+    fun universalSearch(
+        @RequestParam(defaultValue = "") q: String,
+        @RequestParam(required = false) city: String?,
+        @RequestParam(required = false) latitude: Double?,
+        @RequestParam(required = false) longitude: Double?,
+        @RequestParam(required = false) type: String?,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): ResponseEntity<UniversalSearchResponse> {
+        val result = discoveryService.universalSearch(
+            query = q,
+            city = city,
+            latitude = latitude,
+            longitude = longitude,
+            typeFilter = type,
+            page = page,
+            size = size
+        )
+        return ResponseEntity.ok(result)
+    }
 }
+

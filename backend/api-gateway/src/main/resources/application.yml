@@ -90,10 +90,23 @@ spring:
             - name: RoleGuard
               args:
                 roles: MERCHANT,ADMIN
+        - id: service-regions-admin
+          uri: ${DISCOVERY_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/v1/admin/service-regions, /api/v1/admin/service-regions/**
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: service-regions
+          uri: ${DISCOVERY_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/v1/service-regions/**
         - id: discovery-service
           uri: ${DISCOVERY_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/api/v1/discovery/**
+
         - id: order-service-admin
           uri: ${ORDER_SERVICE_URL:http://localhost:8084}
           predicates:

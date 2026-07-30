@@ -25,8 +25,12 @@ data class CreateOrderRequest(
     val deliveryAddressId: UUID,
     val items: List<OrderItemRequest>,
     val deliveryFee: BigDecimal = BigDecimal.ZERO,
-    val discountAmount: BigDecimal = BigDecimal.ZERO
+    val discountAmount: BigDecimal = BigDecimal.ZERO,
+    val city: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null
 )
+
 
 data class OrderPlacedEvent(
     val eventId: UUID = UUID.randomUUID(),
@@ -100,6 +104,8 @@ class OrderService(
     private val paymentServiceUrl: String,
     @Value("\${PROVIDER_SERVICE_URL:http://localhost:8081}")
     private val providerServiceUrl: String,
+    @Value("\${DISCOVERY_SERVICE_URL:http://localhost:8083}")
+    private val discoveryServiceUrl: String,
     @Value("\${gateway.trust.secret:}")
     private val gatewayTrustSecret: String = "",
     private val restTemplate: RestTemplate = RestTemplate()
@@ -109,7 +115,22 @@ class OrderService(
             throw IllegalArgumentException("Order must contain at least one item")
         }
 
+        if (request.city != null || request.latitude != null) {
+            val checkUrl = "$discoveryServiceUrl/api/v1/service-regions/check?city=${request.city ?: ""}&latitude=${request.latitude ?: ""}&longitude=${request.longitude ?: ""}"
+            try {
+                val response = restTemplate.getForObject(checkUrl, Map::class.java)
+                val serviceable = response?.get("serviceable") as? Boolean
+                if (serviceable == false) {
+                    throw IllegalArgumentException("UNSERVICEABLE_REGION: Location is outside active service regions")
+                }
+            } catch (e: Exception) {
+                if (e.message?.contains("UNSERVICEABLE_REGION") == true) throw e
+                logger.warn("Serviceability check warning: {}", e.message)
+            }
+        }
+
         val reservedItems = mutableListOf<OrderItemRequest>()
+
 
         try {
             var subtotal = BigDecimal.ZERO
