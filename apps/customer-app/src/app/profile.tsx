@@ -1,4 +1,5 @@
 import { Redirect } from 'expo-router';
 
-export default function LegacyRoute() { return <Redirect href="/(tabs)/profile" />; }
+export default function LegacyRoute() { return <Redirect href={"/(tabs)/profile" as never} />; }
+
 

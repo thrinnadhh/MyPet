@@ -12,8 +12,8 @@ import { useAuthIntent } from '@/context/AuthIntentContext';
 import { radii, spacing, touchTarget, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
-import { useAuth } from '@/context/AuthContext';
 import { appConfig } from '@/utils/app-config';
+
 import { supabase } from '@/utils/supabase';
 
 type Step = 'identifier' | 'code' | 'name';
