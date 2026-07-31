@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.captainservice.model.CaptainProfile
 import com.pawsnearme.captainservice.model.CaptainStatus
 import com.pawsnearme.captainservice.model.VehicleType
+import com.pawsnearme.captainservice.security.LegacyBankDataMigration
 import com.pawsnearme.captainservice.service.CaptainService
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
@@ -14,7 +15,9 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
 import org.springframework.boot.test.mock.mockito.MockBean
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.util.UUID
 
@@ -29,6 +32,9 @@ class CaptainAuthorizationWebMvcTest {
 
     @MockBean
     private lateinit var captainService: CaptainService
+
+    @MockBean
+    private lateinit var legacyBankDataMigration: LegacyBankDataMigration
 
     private val captainId = UUID.randomUUID()
     private val otherCaptainId = UUID.randomUUID()
