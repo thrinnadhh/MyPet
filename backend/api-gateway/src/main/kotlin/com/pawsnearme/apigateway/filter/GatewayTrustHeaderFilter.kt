@@ -12,29 +12,26 @@ import reactor.core.publisher.Mono
  * Adds the gateway-only trust credential after route/default request-header
  * sanitizers have removed any client-supplied value.
  *
- * Downstream services use this header to distinguish traffic that actually
- * traversed the API gateway from requests that attempt to forge identity
- * headers by calling a service directly.
+ * Supplying GATEWAY_SECRET activates the trust boundary. This matches the
+ * deployment contract, where Compose/Kubernetes require that secret. A local
+ * gateway without the environment variable remains usable alongside services
+ * that have gateway trust disabled.
  */
 @Component
 class GatewayTrustHeaderFilter(
-    @Value("\${gateway.trust.enabled:false}") private val trustEnabled: Boolean,
-    @Value("\${gateway.trust.secret:}") private val trustSecret: String
+    @Value("\${GATEWAY_SECRET:}") private val trustSecret: String
 ) : GlobalFilter, Ordered {
 
     init {
-        if (trustEnabled) {
-            require(trustSecret.isNotBlank()) {
-                "gateway.trust.secret must be configured when gateway trust is enabled"
-            }
+        if (trustSecret.isNotBlank()) {
             require(trustSecret != DEVELOPMENT_SECRET) {
-                "The development gateway trust secret cannot be used when gateway trust is enabled"
+                "The development gateway trust secret cannot be used for downstream trust"
             }
         }
     }
 
     override fun filter(exchange: ServerWebExchange, chain: GatewayFilterChain): Mono<Void> {
-        if (!trustEnabled) {
+        if (trustSecret.isBlank()) {
             return chain.filter(exchange)
         }
 
