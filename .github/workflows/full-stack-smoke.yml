@@ -47,5 +47,6 @@ jobs:
           retention-days: 14
           path: |
             build/reports/*.md
+            build/reports/docker-diagnostics/**
             backend/*/build/reports/tests/test/**
             backend/*/build/test-results/test/**
