@@ -1,0 +1,5 @@
+spring:
+  # Production runs Flyway against PostgreSQL. These slice/context tests use
+  # H2 with mocked repositories and should not execute PostgreSQL-specific SQL.
+  flyway:
+    enabled: false
