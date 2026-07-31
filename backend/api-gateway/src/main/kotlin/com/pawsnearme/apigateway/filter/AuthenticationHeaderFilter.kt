@@ -5,6 +5,7 @@ import org.springframework.cloud.gateway.filter.GlobalFilter
 import org.springframework.core.Ordered
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate
 import org.springframework.http.HttpStatus
+import org.springframework.security.core.Authentication
 import org.springframework.security.core.context.ReactiveSecurityContextHolder
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.stereotype.Component
@@ -27,13 +28,20 @@ class AuthenticationHeaderFilter(
                         it.remove("X-User-Full-Name")
                         it.remove("X-User-Phone")
                         it.remove("X-Admin-Api-Key")
+                        it.remove("X-Internal-Gateway-Secret")
+                        it.remove("X-Internal-Secret")
+                        it.remove("X-Service-Name")
                     }
                     .build()
             )
             .build()
 
-        return ReactiveSecurityContextHolder.getContext()
-            .map { it.authentication }
+        val authenticationMono = exchange.getPrincipal<Authentication>()
+            .switchIfEmpty(ReactiveSecurityContextHolder.getContext().map { it.authentication })
+            .filter { it.isAuthenticated }
+            .cache()
+
+        return authenticationMono
             .flatMap { authentication ->
                 val principal = authentication.principal
                 if (principal is Jwt) {
@@ -64,7 +72,11 @@ class AuthenticationHeaderFilter(
                     chain.filter(sanitizedExchange)
                 }
             }
-            .switchIfEmpty(Mono.defer { chain.filter(sanitizedExchange) })
+            .then(
+                authenticationMono.hasElement().flatMap { hasAuthentication ->
+                    if (hasAuthentication) Mono.empty() else chain.filter(sanitizedExchange)
+                }
+            )
     }
 
     private fun forbidden(exchange: ServerWebExchange, message: String): Mono<Void> {

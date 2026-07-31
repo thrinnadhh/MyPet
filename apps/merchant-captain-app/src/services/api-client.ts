@@ -13,21 +13,9 @@ export class ApiError extends Error {
 
 class ApiClient {
   private sessionToken: string | null = null;
-  private userId: string | null = null;
-  private userRole: string | null = null;
-  private gatewaySecret: string = 'dev-gateway-secret-key';
 
   public setSessionToken(token: string | null) {
     this.sessionToken = token;
-  }
-
-  public setUserContext(userId: string | null, role: string | null) {
-    this.userId = userId;
-    this.userRole = role;
-  }
-
-  public setGatewaySecret(secret: string) {
-    this.gatewaySecret = secret;
   }
 
   private getBaseUrl(): string {
@@ -37,18 +25,11 @@ class ApiClient {
   private buildHeaders(customHeaders?: Record<string, string>): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-Internal-Gateway-Secret': this.gatewaySecret,
       ...(customHeaders || {}),
     };
 
     if (this.sessionToken) {
       headers['Authorization'] = `Bearer ${this.sessionToken}`;
-    }
-    if (this.userId) {
-      headers['X-User-Id'] = this.userId;
-    }
-    if (this.userRole) {
-      headers['X-User-Role'] = this.userRole;
     }
 
     return headers;

@@ -40,10 +40,20 @@ spec:
     metadata:
       labels:
         app: api-gateway
+        metrics: enabled
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: api-gateway
-        image: ghcr.io/your-org/pawsnearme-api-gateway:latest
+        image: ghcr.io/thrinnadhh/pawsnearme-api-gateway@sha256:REQUIRED_IMAGE_DIGEST
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [\"ALL\"]
         ports:
         - containerPort: 8080
         envFrom:
@@ -122,10 +132,20 @@ spec:
     metadata:
       labels:
         app: discovery-service
+        metrics: enabled
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: discovery-service
-        image: ghcr.io/your-org/pawsnearme-discovery-service:latest
+        image: ghcr.io/thrinnadhh/pawsnearme-discovery-service@sha256:REQUIRED_IMAGE_DIGEST
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [\"ALL\"]
         ports:
         - containerPort: 8083
         envFrom:
@@ -180,10 +200,20 @@ spec:
     metadata:
       labels:
         app: catalog-service
+        metrics: enabled
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: catalog-service
-        image: ghcr.io/your-org/pawsnearme-catalog-service:latest
+        image: ghcr.io/thrinnadhh/pawsnearme-catalog-service@sha256:REQUIRED_IMAGE_DIGEST
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [\"ALL\"]
         ports:
         - containerPort: 8082
         envFrom:
@@ -238,10 +268,20 @@ spec:
     metadata:
       labels:
         app: appointment-service
+        metrics: enabled
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: appointment-service
-        image: ghcr.io/your-org/pawsnearme-appointment-service:latest
+        image: ghcr.io/thrinnadhh/pawsnearme-appointment-service@sha256:REQUIRED_IMAGE_DIGEST
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [\"ALL\"]
         ports:
         - containerPort: 8085
         envFrom:
@@ -302,10 +342,20 @@ spec:
     metadata:
       labels:
         app: provider-service
+        metrics: enabled
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: provider-service
-        image: ghcr.io/your-org/pawsnearme-provider-service:latest
+        image: ghcr.io/thrinnadhh/pawsnearme-provider-service@sha256:REQUIRED_IMAGE_DIGEST
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [\"ALL\"]
         ports:
         - containerPort: 8081
         envFrom:
@@ -360,10 +410,20 @@ spec:
     metadata:
       labels:
         app: order-service
+        metrics: enabled
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: order-service
-        image: ghcr.io/your-org/pawsnearme-order-service:latest
+        image: ghcr.io/thrinnadhh/pawsnearme-order-service@sha256:REQUIRED_IMAGE_DIGEST
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [\"ALL\"]
         ports:
         - containerPort: 8084
         envFrom:
@@ -424,10 +484,20 @@ spec:
     metadata:
       labels:
         app: dispatch-service
+        metrics: enabled
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: dispatch-service
-        image: ghcr.io/your-org/pawsnearme-dispatch-service:latest
+        image: ghcr.io/thrinnadhh/pawsnearme-dispatch-service@sha256:REQUIRED_IMAGE_DIGEST
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [\"ALL\"]
         ports:
         - containerPort: 8086
         envFrom:
@@ -484,10 +554,20 @@ spec:
     metadata:
       labels:
         app: captain-service
+        metrics: enabled
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: captain-service
-        image: ghcr.io/your-org/pawsnearme-captain-service:latest
+        image: ghcr.io/thrinnadhh/pawsnearme-captain-service@sha256:REQUIRED_IMAGE_DIGEST
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [\"ALL\"]
         ports:
         - containerPort: 8087
         envFrom:
@@ -542,10 +622,20 @@ spec:
     metadata:
       labels:
         app: notification-service
+        metrics: enabled
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: notification-service
-        image: ghcr.io/your-org/pawsnearme-notification-service:latest
+        image: ghcr.io/thrinnadhh/pawsnearme-notification-service@sha256:REQUIRED_IMAGE_DIGEST
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [\"ALL\"]
         ports:
         - containerPort: 8088
         envFrom:
@@ -602,10 +692,20 @@ spec:
     metadata:
       labels:
         app: review-service
+        metrics: enabled
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: review-service
-        image: ghcr.io/your-org/pawsnearme-review-service:latest
+        image: ghcr.io/thrinnadhh/pawsnearme-review-service@sha256:REQUIRED_IMAGE_DIGEST
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [\"ALL\"]
         ports:
         - containerPort: 8089
         envFrom:
@@ -660,10 +760,20 @@ spec:
     metadata:
       labels:
         app: payment-service
+        metrics: enabled
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: payment-service
-        image: ghcr.io/your-org/pawsnearme-payment-service:latest
+        image: ghcr.io/thrinnadhh/pawsnearme-payment-service@sha256:REQUIRED_IMAGE_DIGEST
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [\"ALL\"]
         ports:
         - containerPort: 8090
         envFrom:
@@ -718,10 +828,20 @@ spec:
     metadata:
       labels:
         app: chat-service
+        metrics: enabled
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: chat-service
-        image: ghcr.io/your-org/pawsnearme-chat-service:latest
+        image: ghcr.io/thrinnadhh/pawsnearme-chat-service@sha256:REQUIRED_IMAGE_DIGEST
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [\"ALL\"]
         ports:
         - containerPort: 8091
         envFrom:
@@ -776,10 +896,20 @@ spec:
     metadata:
       labels:
         app: content-service
+        metrics: enabled
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: content-service
-        image: ghcr.io/your-org/pawsnearme-content-service:latest
+        image: ghcr.io/thrinnadhh/pawsnearme-content-service@sha256:REQUIRED_IMAGE_DIGEST
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [\"ALL\"]
         ports:
         - containerPort: 8092
         envFrom:

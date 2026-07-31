@@ -10,10 +10,10 @@ spring:
       port: ${REDIS_PORT:6380}
   cloud:
     gateway:
-      # Stamp every proxied request with the gateway secret so downstream services
-      # can verify the request originated from the gateway (not a direct port hit).
       default-filters:
-        - AddRequestHeader=X-Internal-Gateway-Secret, ${GATEWAY_SECRET:dev-secret-change-in-production}
+        - RemoveRequestHeader=X-Internal-Gateway-Secret
+        - RemoveRequestHeader=X-Internal-Secret
+        - RemoveRequestHeader=X-Service-Name
         - name: RequestRateLimiter
           args:
             redis-rate-limiter.replenishRate: ${GATEWAY_RATE_LIMIT_REPLENISH_RATE:100}

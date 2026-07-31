@@ -15,7 +15,7 @@ dependencies {
 
     implementation(project(":common"))
     // Import Spring Boot BOM for dependency version management
-    implementation(platform("org.springframework.boot:spring-boot-dependencies:3.2.3"))
+    implementation(platform("org.springframework.boot:spring-boot-dependencies:3.5.14"))
 
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")

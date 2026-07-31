@@ -1,6 +1,7 @@
 package com.pawsnearme.paymentservice.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.pawsnearme.common.idempotency.IdempotencyService
 import com.pawsnearme.paymentservice.model.*
 import com.pawsnearme.paymentservice.repository.*
 import org.junit.jupiter.api.BeforeEach
@@ -27,6 +28,7 @@ class PaymentServiceTests {
     private lateinit var couponReservationRepository: com.pawsnearme.paymentservice.repository.CouponReservationRepository
     private lateinit var codConfigRepository: com.pawsnearme.paymentservice.repository.CodConfigRepository
     private lateinit var service: PaymentService
+    private lateinit var idempotencyService: IdempotencyService
 
 
     @BeforeEach
@@ -43,6 +45,8 @@ class PaymentServiceTests {
         platformCommissionLedgerRepository = mock()
         couponReservationRepository = mock()
         codConfigRepository = mock()
+        idempotencyService = mock()
+        whenever(idempotencyService.checkAndRecord(any())).thenReturn(true)
         service = PaymentService(
             transactionRepository = transactionRepository,
             payoutRepository = payoutRepository,
@@ -56,7 +60,8 @@ class PaymentServiceTests {
             couponReservationRepository = couponReservationRepository,
             codConfigRepository = codConfigRepository,
             razorpaySandboxMode = true,
-            objectMapper = ObjectMapper()
+            objectMapper = ObjectMapper(),
+            idempotencyService = idempotencyService
         )
 
         // Default: code does not exist
@@ -115,7 +120,8 @@ class PaymentServiceTests {
         couponReservationRepository = couponReservationRepository,
         codConfigRepository = codConfigRepository,
         razorpaySandboxMode = false,
-        objectMapper = ObjectMapper()
+        objectMapper = ObjectMapper(),
+        idempotencyService = idempotencyService
     )
 
     // ── recordPaymentResult ───────────────────────────────────────────────────
@@ -608,7 +614,8 @@ class PaymentServiceTests {
             codConfigRepository = codConfigRepository,
             razorpayWebhookSecret = "test-secret",
             razorpaySandboxMode = true,
-            objectMapper = ObjectMapper()
+            objectMapper = ObjectMapper(),
+            idempotencyService = idempotencyService
         )
 
         val payload = """
@@ -633,7 +640,7 @@ class PaymentServiceTests {
         val computedHash = mac.doFinal(payload.toByteArray())
         val signature = computedHash.joinToString("") { "%02x".format(it) }
 
-        webhookService.processWebhook(payload, signature)
+        webhookService.processWebhook(payload, signature, "evt_transfer_reversed_123")
 
         assertEquals("REVERSED", payout.status)
         assertEquals(BigDecimal("850.00"), linkedAccount.pendingClawbackBalance)

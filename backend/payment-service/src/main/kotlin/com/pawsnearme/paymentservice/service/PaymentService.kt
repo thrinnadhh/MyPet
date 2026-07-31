@@ -12,7 +12,6 @@ import jakarta.validation.constraints.Size
 import com.pawsnearme.paymentservice.model.*
 import com.pawsnearme.paymentservice.repository.*
 import com.pawsnearme.common.idempotency.IdempotencyService
-import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -89,8 +88,7 @@ class PaymentService(
     private val platformCommissionLedgerRepository: PlatformCommissionLedgerRepository,
     private val couponReservationRepository: CouponReservationRepository,
     private val codConfigRepository: CodConfigRepository,
-    @Autowired(required = false)
-    private val idempotencyService: IdempotencyService? = null,
+    private val idempotencyService: IdempotencyService,
     @Value("\${RAZORPAY_KEY_ID:}")
     private val razorpayKeyId: String = "",
     @Value("\${RAZORPAY_KEY_SECRET:}")
@@ -404,14 +402,15 @@ class PaymentService(
             throw IllegalArgumentException("Invalid payload format")
         }
 
-        val eventIdRaw = eventIdHeader ?: eventMap["id"] as? String ?: (eventMap["event"] as? String ?: "evt") + "_" + System.currentTimeMillis()
+        val eventIdRaw = eventIdHeader?.trim()?.takeIf { it.isNotBlank() }
+            ?: throw IllegalArgumentException("Missing X-Razorpay-Event-Id header")
         val deterministicUuid = try {
             UUID.fromString(eventIdRaw)
         } catch (e: Exception) {
             UUID.nameUUIDFromBytes(eventIdRaw.toByteArray())
         }
 
-        if (idempotencyService != null && !idempotencyService.checkAndRecord(deterministicUuid)) {
+        if (!idempotencyService.checkAndRecord(deterministicUuid)) {
             logger.info("Webhook event {} already processed, skipping.", eventIdRaw)
             return false
         }

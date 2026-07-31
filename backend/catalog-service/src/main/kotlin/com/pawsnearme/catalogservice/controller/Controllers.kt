@@ -17,10 +17,6 @@ class CatalogAccessDeniedException(message: String) : RuntimeException(message)
 @RequestMapping("/api/v1/catalog")
 class CatalogController(
     private val catalogService: CatalogService,
-    @Value("\${internal.api.secret:dev-internal-secret}")
-    private val internalSecret: String = "dev-internal-secret",
-    @Value("\${gateway.trust.secret:dev-gateway-secret-key}")
-    private val gatewayTrustSecret: String = "dev-gateway-secret-key"
 ) {
 
     private fun verifyProviderOwnership(providerId: UUID, xUserId: String?, xUserRole: String?) {
@@ -30,19 +26,6 @@ class CatalogController(
         }
         throw CatalogAccessDeniedException("Access denied: merchant does not own provider $providerId")
     }
-
-    private fun verifyStockMutationAccess(
-        providerId: UUID,
-        xUserId: String?,
-        xUserRole: String?,
-        xInternalSecret: String?,
-        xGatewaySecret: String?
-    ) {
-        if (!xInternalSecret.isNullOrBlank() && (xInternalSecret == internalSecret || xInternalSecret == gatewayTrustSecret)) return
-        if (!xGatewaySecret.isNullOrBlank() && xGatewaySecret == gatewayTrustSecret) return
-        verifyProviderOwnership(providerId, xUserId, xUserRole)
-    }
-
     // --- Offerings API ---
 
     @PostMapping("/offerings")
@@ -130,14 +113,11 @@ class CatalogController(
         @PathVariable offeringId: UUID,
         @RequestParam quantity: Int,
         @RequestHeader("X-User-Role", required = false) role: String?,
-        @RequestHeader("X-User-Id", required = false) xUserId: String?,
-        @RequestHeader("X-Internal-Secret", required = false) xInternalSecret: String?,
-        @RequestHeader("X-Internal-Gateway-Secret", required = false) xGatewaySecret: String?
+        @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Offering> {
         val existing = catalogService.getOfferingById(offeringId)
-        verifyStockMutationAccess(existing.providerId, xUserId, role, xInternalSecret, xGatewaySecret)
-        val updated = catalogService.decrementStock(offeringId, quantity)
-        return ResponseEntity.ok(updated)
+        verifyProviderOwnership(existing.providerId, xUserId, role)
+        return ResponseEntity.ok(catalogService.decrementStock(offeringId, quantity))
     }
 
     @PutMapping("/offerings/{offeringId}/restore-stock")
@@ -145,14 +125,11 @@ class CatalogController(
         @PathVariable offeringId: UUID,
         @RequestParam quantity: Int,
         @RequestHeader("X-User-Role", required = false) role: String?,
-        @RequestHeader("X-User-Id", required = false) xUserId: String?,
-        @RequestHeader("X-Internal-Secret", required = false) xInternalSecret: String?,
-        @RequestHeader("X-Internal-Gateway-Secret", required = false) xGatewaySecret: String?
+        @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Offering> {
         val existing = catalogService.getOfferingById(offeringId)
-        verifyStockMutationAccess(existing.providerId, xUserId, role, xInternalSecret, xGatewaySecret)
-        val updated = catalogService.restoreStock(offeringId, quantity)
-        return ResponseEntity.ok(updated)
+        verifyProviderOwnership(existing.providerId, xUserId, role)
+        return ResponseEntity.ok(catalogService.restoreStock(offeringId, quantity))
     }
 
     // --- Slots API ---

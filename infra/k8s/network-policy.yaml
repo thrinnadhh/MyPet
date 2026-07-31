@@ -1,0 +1,149 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-and-https-egress
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # Kubernetes NetworkPolicy is L3/L4 only. Restrict external HTTPS further
+    # with an egress gateway/FQDN-aware policy in the target cluster.
+    - ports:
+        - { protocol: TCP, port: 443 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-backends
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [provider-service, catalog-service, discovery-service, order-service, appointment-service, dispatch-service, captain-service, notification-service, review-service, payment-service, chat-service, content-service]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-service-mesh
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [provider-service, catalog-service, discovery-service, order-service, appointment-service, dispatch-service, captain-service, notification-service, review-service, payment-service, chat-service, content-service]
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [provider-service, catalog-service, discovery-service, order-service, appointment-service, dispatch-service, captain-service, notification-service, review-service, payment-service, chat-service, content-service]
+  egress:
+    - to:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [provider-service, catalog-service, discovery-service, order-service, appointment-service, dispatch-service, captain-service, notification-service, review-service, payment-service, chat-service, content-service]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backends-to-datastores
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [provider-service, catalog-service, discovery-service, order-service, appointment-service, dispatch-service, captain-service, notification-service, review-service, payment-service, chat-service, content-service, api-gateway]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [postgres, redis, kafka]
+      ports:
+        - { protocol: TCP, port: 5432 }
+        - { protocol: TCP, port: 6379 }
+        - { protocol: TCP, port: 9092 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-datastore-ingress
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [postgres, redis, kafka]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [provider-service, catalog-service, discovery-service, order-service, appointment-service, dispatch-service, captain-service, notification-service, review-service, payment-service, chat-service, content-service, api-gateway]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrapes
+spec:
+  podSelector:
+    matchLabels:
+      metrics: enabled
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              monitoring: "true"
+      ports:
+        - { protocol: TCP, port: 8080 }
+        - { protocol: TCP, port: 8081 }
+        - { protocol: TCP, port: 8082 }
+        - { protocol: TCP, port: 8083 }
+        - { protocol: TCP, port: 8084 }
+        - { protocol: TCP, port: 8085 }
+        - { protocol: TCP, port: 8086 }
+        - { protocol: TCP, port: 8087 }
+        - { protocol: TCP, port: 8088 }
+        - { protocol: TCP, port: 8089 }
+        - { protocol: TCP, port: 8090 }
+        - { protocol: TCP, port: 8091 }
+        - { protocol: TCP, port: 8092 }

@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.cloud.gateway.filter.GatewayFilterChain
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest
 import org.springframework.mock.web.server.MockServerWebExchange
-import org.springframework.security.authentication.TestingAuthenticationToken
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.context.ReactiveSecurityContextHolder
 import org.springframework.security.core.context.SecurityContextImpl
 import org.springframework.security.oauth2.jwt.Jwt
@@ -25,6 +25,9 @@ class AuthenticationHeaderFilterTests {
                 .header("X-User-Id", "spoofed-user")
                 .header("X-User-Role", "ADMIN")
                 .header("X-Admin-Api-Key", "legacy-key")
+                .header("X-Internal-Gateway-Secret", "forged")
+                .header("X-Internal-Secret", "forged")
+                .header("X-Service-Name", "order-service")
         )
         val capturedExchange = AtomicReference<org.springframework.web.server.ServerWebExchange>()
         val chain = GatewayFilterChain {
@@ -41,6 +44,9 @@ class AuthenticationHeaderFilterTests {
         assertNull(headers.getFirst("X-User-Full-Name"))
         assertNull(headers.getFirst("X-User-Phone"))
         assertNull(headers.getFirst("X-Admin-Api-Key"))
+        assertNull(headers.getFirst("X-Internal-Gateway-Secret"))
+        assertNull(headers.getFirst("X-Internal-Secret"))
+        assertNull(headers.getFirst("X-Service-Name"))
     }
 
     @Test
@@ -53,6 +59,9 @@ class AuthenticationHeaderFilterTests {
                 .header("X-User-Full-Name", "Spoof Name")
                 .header("X-User-Phone", "+910000000000")
                 .header("X-Admin-Api-Key", "legacy-key")
+                .header("X-Internal-Gateway-Secret", "forged")
+                .header("X-Internal-Secret", "forged")
+                .header("X-Service-Name", "order-service")
         )
         val capturedExchange = AtomicReference<org.springframework.web.server.ServerWebExchange>()
         val chain = GatewayFilterChain {
@@ -74,12 +83,11 @@ class AuthenticationHeaderFilterTests {
                 )
             )
         )
-        val authentication = TestingAuthenticationToken(jwt, null)
+        val authentication = UsernamePasswordAuthenticationToken.authenticated(jwt, null, emptyList())
         val securityContext = SecurityContextImpl(authentication)
 
-        filter.filter(exchange, chain)
-            .contextWrite(ReactiveSecurityContextHolder.withSecurityContext(Mono.just(securityContext)))
-            .block()
+        val authenticatedExchange = exchange.mutate().principal(Mono.just(authentication)).build()
+        filter.filter(authenticatedExchange, chain).block()
 
         val headers = capturedExchange.get().request.headers
         assertEquals("real-user", headers.getFirst("X-User-Id"))
@@ -88,6 +96,9 @@ class AuthenticationHeaderFilterTests {
         assertEquals("Real User", headers.getFirst("X-User-Full-Name"))
         assertEquals("+919999111111", headers.getFirst("X-User-Phone"))
         assertNull(headers.getFirst("X-Admin-Api-Key"))
+        assertNull(headers.getFirst("X-Internal-Gateway-Secret"))
+        assertNull(headers.getFirst("X-Internal-Secret"))
+        assertNull(headers.getFirst("X-Service-Name"))
     }
 
     @Test
@@ -111,12 +122,11 @@ class AuthenticationHeaderFilterTests {
                 "app_metadata" to mapOf("role" to "ADMIN")
             )
         )
-        val authentication = TestingAuthenticationToken(jwt, null)
+        val authentication = UsernamePasswordAuthenticationToken.authenticated(jwt, null, emptyList())
         val securityContext = SecurityContextImpl(authentication)
 
-        filter.filter(exchange, chain)
-            .contextWrite(ReactiveSecurityContextHolder.withSecurityContext(Mono.just(securityContext)))
-            .block()
+        val authenticatedExchange = exchange.mutate().principal(Mono.just(authentication)).build()
+        filter.filter(authenticatedExchange, chain).block()
 
         val headers = capturedExchange.get().request.headers
         assertEquals("admin-user", headers.getFirst("X-User-Id"))
@@ -144,12 +154,11 @@ class AuthenticationHeaderFilterTests {
                 "app_metadata" to mapOf("role" to "PROVIDER")
             )
         )
-        val authentication = TestingAuthenticationToken(jwt, null)
+        val authentication = UsernamePasswordAuthenticationToken.authenticated(jwt, null, emptyList())
         val securityContext = SecurityContextImpl(authentication)
 
-        filter.filter(exchange, chain)
-            .contextWrite(ReactiveSecurityContextHolder.withSecurityContext(Mono.just(securityContext)))
-            .block()
+        val authenticatedExchange = exchange.mutate().principal(Mono.just(authentication)).build()
+        filter.filter(authenticatedExchange, chain).block()
 
         val headers = capturedExchange.get().request.headers
         assertEquals("provider-user", headers.getFirst("X-User-Id"))
