@@ -89,6 +89,7 @@ if __name__ == "__main__":
             repository_root / "imp files" / "01_identity_providers.sql",
             repository_root / "imp files" / "02_catalog_orders_appointments.sql",
             repository_root / "imp files" / "03_dispatch_captains_payments_reviews_notifications.sql",
+            repository_root / "infra" / "captain_onboarding_bootstrap.sql",
             repository_root / "infra" / "service_schemas.sql",
             repository_root / "infra" / "db_roles.sql",
         ]
