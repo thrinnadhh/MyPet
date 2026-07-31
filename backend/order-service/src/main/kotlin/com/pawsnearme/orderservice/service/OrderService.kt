@@ -52,7 +52,7 @@ data class OrderItemRequest(
 
 
 data class CheckoutQuoteRequest(
-    val customerId: UUID,
+    val customerId: UUID? = null,
     val providerId: UUID,
     val deliveryAddressId: UUID,
     @field:NotEmpty
@@ -92,7 +92,7 @@ data class CheckoutQuoteResponse(
 )
 
 data class CreateOrderRequest(
-    val customerId: UUID,
+    val customerId: UUID? = null,
     val providerId: UUID,
     val deliveryAddressId: UUID,
     @field:NotEmpty
@@ -350,6 +350,7 @@ class OrderService(
             throw IllegalArgumentException("COD_NOT_ELIGIBLE: ${quote.codRejectionReason ?: "Order total exceeds COD limit"}")
         }
 
+        val activeCustomerId = requireNotNull(request.customerId) { "Missing required customerId context" }
         val reservedItems = mutableListOf<OrderItemRequest>()
         var couponReserved = false
         var savedOrderId: UUID? = null
@@ -367,7 +368,7 @@ class OrderService(
             val paymentStatus = if (isCod) "COD_PENDING" else "PENDING"
 
             val order = Order(
-                customerId = request.customerId,
+                customerId = activeCustomerId,
                 providerId = request.providerId,
                 deliveryAddressId = request.deliveryAddressId,
                 status = initialStatus,
@@ -431,7 +432,7 @@ class OrderService(
             if (couponReserved && !request.couponCode.isNullOrBlank() && savedOrderId != null) {
                 releaseCouponReservation(
                     request.couponCode.trim().uppercase(),
-                    request.customerId,
+                    activeCustomerId,
                     savedOrderId
                 )
             }
@@ -1308,6 +1309,7 @@ class OrderService(
         val headers = org.springframework.http.HttpHeaders()
         if (gatewayTrustSecret.isNotBlank()) {
             headers.set("X-Internal-Gateway-Secret", gatewayTrustSecret)
+            headers.set("X-Internal-Secret", gatewayTrustSecret)
         }
         return headers
     }

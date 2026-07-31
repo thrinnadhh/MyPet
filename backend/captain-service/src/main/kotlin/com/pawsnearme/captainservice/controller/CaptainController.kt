@@ -119,22 +119,26 @@ class CaptainController(private val captainService: CaptainService) {
     @PutMapping("/status")
     fun toggleOnline(
         @RequestHeader(value = "X-User-Id", required = false) xUserId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) xUserRole: String?,
         @RequestBody request: StatusRequest,
     ): ResponseEntity<Map<String, String>> {
-        val captainId = xUserId?.let { UUID.fromString(it) } ?: request.captainId
+        val targetCaptainId = request.captainId ?: xUserId?.let { UUID.fromString(it) }
             ?: throw IllegalArgumentException("Missing captain context / ID")
-        val status = captainService.toggleOnlineStatus(captainId, request.online, request.longitude, request.latitude)
+        checkCaptainAccess(xUserId, xUserRole, targetCaptainId)
+        val status = captainService.toggleOnlineStatus(targetCaptainId, request.online, request.longitude, request.latitude)
         return ResponseEntity.ok(mapOf("status" to status))
     }
 
     @PutMapping("/location")
     fun updateLocation(
         @RequestHeader(value = "X-User-Id", required = false) xUserId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) xUserRole: String?,
         @RequestBody request: LocationRequest,
     ): ResponseEntity<Map<String, String>> {
-        val captainId = xUserId?.let { UUID.fromString(it) } ?: request.captainId
+        val targetCaptainId = request.captainId ?: xUserId?.let { UUID.fromString(it) }
             ?: throw IllegalArgumentException("Missing captain context / ID")
-        captainService.updateLocation(captainId, request.longitude, request.latitude)
+        checkCaptainAccess(xUserId, xUserRole, targetCaptainId)
+        captainService.updateLocation(targetCaptainId, request.longitude, request.latitude)
         return ResponseEntity.ok(mapOf("status" to "SUCCESS"))
     }
 

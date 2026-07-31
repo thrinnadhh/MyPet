@@ -1,10 +1,13 @@
 package com.pawsnearme.orderservice.config
 
+import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
+import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Primary
 import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.web.client.RestTemplate
 
@@ -28,13 +31,16 @@ class InfraConfig {
     /**
      * Centrally configured ObjectMapper shared across order-service.
      * JavaTimeModule ensures Instant fields serialise as ISO strings, not epoch numbers.
-     * Spring Boot's autoconfigured ObjectMapper is the primary bean; this is a
-     * named qualifier used by injection points that need explicit JavaTimeModule.
+     * KotlinModule provides native support for Kotlin data classes.
      */
     @Bean
-    fun orderObjectMapper(): ObjectMapper = ObjectMapper().apply {
+    @Primary
+    fun objectMapper(): ObjectMapper = ObjectMapper().apply {
+        registerKotlinModule()
         registerModule(JavaTimeModule())
         disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+        configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
     }
 }
+
 

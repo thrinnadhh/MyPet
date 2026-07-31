@@ -4,6 +4,8 @@ server:
 order:
   auto-complete:
     hours-after-delivery: ${ORDER_AUTO_COMPLETE_HOURS:1}
+  online-payments-enabled: ${ORDER_ONLINE_PAYMENTS_ENABLED:false}
+
 
 spring:
   application:
@@ -47,8 +49,6 @@ gateway:
     enabled: ${GATEWAY_TRUST_ENABLED:false}
     secret: ${GATEWAY_SECRET:dev-secret-change-in-production}
 
-order:
-  online-payments-enabled: ${ORDER_ONLINE_PAYMENTS_ENABLED:false}
 
 management:
   endpoints:
