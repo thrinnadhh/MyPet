@@ -42,18 +42,29 @@ spec:
         app: api-gateway
         metrics: enabled
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: api-gateway
         image: ghcr.io/thrinnadhh/pawsnearme-api-gateway@sha256:REQUIRED_IMAGE_DIGEST
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          privileged: false
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
             drop: [\"ALL\"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: 8080
         envFrom:
@@ -107,6 +118,10 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -134,18 +149,29 @@ spec:
         app: discovery-service
         metrics: enabled
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: discovery-service
         image: ghcr.io/thrinnadhh/pawsnearme-discovery-service@sha256:REQUIRED_IMAGE_DIGEST
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          privileged: false
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
             drop: [\"ALL\"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: 8083
         envFrom:
@@ -161,6 +187,13 @@ spec:
             configMapKeyRef:
               name: pawsnearme-backend-config
               key: DB_POOL_MAX_SIZE_DISCOVERY
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: '1'
+            memory: 1Gi
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
@@ -175,6 +208,10 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -202,18 +239,29 @@ spec:
         app: catalog-service
         metrics: enabled
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: catalog-service
         image: ghcr.io/thrinnadhh/pawsnearme-catalog-service@sha256:REQUIRED_IMAGE_DIGEST
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          privileged: false
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
             drop: [\"ALL\"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: 8082
         envFrom:
@@ -222,6 +270,11 @@ spec:
         - secretRef:
             name: pawsnearme-backend-secrets
         env:
+        - name: INTERNAL_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: pawsnearme-backend-secrets
+              key: INTERNAL_API_SECRET
         - name: SERVER_PORT
           value: '8082'
         - name: DB_POOL_MAX_SIZE
@@ -229,6 +282,13 @@ spec:
             configMapKeyRef:
               name: pawsnearme-backend-config
               key: DB_POOL_MAX_SIZE_CATALOG
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: '1'
+            memory: 1Gi
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
@@ -243,6 +303,10 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -270,18 +334,29 @@ spec:
         app: appointment-service
         metrics: enabled
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: appointment-service
         image: ghcr.io/thrinnadhh/pawsnearme-appointment-service@sha256:REQUIRED_IMAGE_DIGEST
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          privileged: false
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
             drop: [\"ALL\"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: 8085
         envFrom:
@@ -303,6 +378,13 @@ spec:
             configMapKeyRef:
               name: pawsnearme-backend-config
               key: DB_POOL_MAX_SIZE_APPOINTMENT
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: '1'
+            memory: 1Gi
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
@@ -317,6 +399,10 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -344,18 +430,29 @@ spec:
         app: provider-service
         metrics: enabled
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: provider-service
         image: ghcr.io/thrinnadhh/pawsnearme-provider-service@sha256:REQUIRED_IMAGE_DIGEST
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          privileged: false
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
             drop: [\"ALL\"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: 8081
         envFrom:
@@ -364,6 +461,21 @@ spec:
         - secretRef:
             name: pawsnearme-backend-secrets
         env:
+        - name: INTERNAL_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: pawsnearme-backend-secrets
+              key: INTERNAL_API_SECRET
+        - name: MEDICAL_REPORTS_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: pawsnearme-backend-secrets
+              key: MEDICAL_REPORTS_BUCKET
+        - name: MEDICAL_REPORTS_REGION
+          valueFrom:
+            secretKeyRef:
+              name: pawsnearme-backend-secrets
+              key: MEDICAL_REPORTS_REGION
         - name: SERVER_PORT
           value: '8081'
         - name: DB_POOL_MAX_SIZE
@@ -371,6 +483,13 @@ spec:
             configMapKeyRef:
               name: pawsnearme-backend-config
               key: DB_POOL_MAX_SIZE_PROVIDER
+        resources:
+          requests:
+            cpu: 200m
+            memory: 384Mi
+          limits:
+            cpu: '750m'
+            memory: 768Mi
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
@@ -385,6 +504,10 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -412,18 +535,29 @@ spec:
         app: order-service
         metrics: enabled
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: order-service
         image: ghcr.io/thrinnadhh/pawsnearme-order-service@sha256:REQUIRED_IMAGE_DIGEST
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          privileged: false
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
             drop: [\"ALL\"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: 8084
         envFrom:
@@ -432,6 +566,11 @@ spec:
         - secretRef:
             name: pawsnearme-backend-secrets
         env:
+        - name: INTERNAL_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: pawsnearme-backend-secrets
+              key: INTERNAL_API_SECRET
         - name: SERVER_PORT
           value: '8084'
         - name: CATALOG_SERVICE_URL
@@ -445,6 +584,13 @@ spec:
             configMapKeyRef:
               name: pawsnearme-backend-config
               key: DB_POOL_MAX_SIZE_ORDER
+        resources:
+          requests:
+            cpu: 300m
+            memory: 512Mi
+          limits:
+            cpu: '1'
+            memory: 1Gi
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
@@ -459,6 +605,10 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -486,18 +636,29 @@ spec:
         app: dispatch-service
         metrics: enabled
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: dispatch-service
         image: ghcr.io/thrinnadhh/pawsnearme-dispatch-service@sha256:REQUIRED_IMAGE_DIGEST
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          privileged: false
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
             drop: [\"ALL\"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: 8086
         envFrom:
@@ -515,6 +676,13 @@ spec:
             configMapKeyRef:
               name: pawsnearme-backend-config
               key: DB_POOL_MAX_SIZE_DISPATCH
+        resources:
+          requests:
+            cpu: 200m
+            memory: 384Mi
+          limits:
+            cpu: '750m'
+            memory: 768Mi
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
@@ -529,6 +697,10 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -556,18 +728,29 @@ spec:
         app: captain-service
         metrics: enabled
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: captain-service
         image: ghcr.io/thrinnadhh/pawsnearme-captain-service@sha256:REQUIRED_IMAGE_DIGEST
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          privileged: false
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
             drop: [\"ALL\"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: 8087
         envFrom:
@@ -576,6 +759,11 @@ spec:
         - secretRef:
             name: pawsnearme-backend-secrets
         env:
+        - name: BANK_DATA_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: pawsnearme-backend-secrets
+              key: BANK_DATA_ENCRYPTION_KEY
         - name: SERVER_PORT
           value: '8087'
         - name: DB_POOL_MAX_SIZE
@@ -583,6 +771,13 @@ spec:
             configMapKeyRef:
               name: pawsnearme-backend-config
               key: DB_POOL_MAX_SIZE_CAPTAIN
+        resources:
+          requests:
+            cpu: 150m
+            memory: 256Mi
+          limits:
+            cpu: '500m'
+            memory: 512Mi
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
@@ -597,6 +792,10 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -624,18 +823,29 @@ spec:
         app: notification-service
         metrics: enabled
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: notification-service
         image: ghcr.io/thrinnadhh/pawsnearme-notification-service@sha256:REQUIRED_IMAGE_DIGEST
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          privileged: false
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
             drop: [\"ALL\"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: 8088
         envFrom:
@@ -644,6 +854,11 @@ spec:
         - secretRef:
             name: pawsnearme-backend-secrets
         env:
+        - name: INTERNAL_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: pawsnearme-backend-secrets
+              key: INTERNAL_API_SECRET
         - name: SERVER_PORT
           value: '8088'
         - name: PROVIDER_SERVICE_URL
@@ -653,6 +868,13 @@ spec:
             configMapKeyRef:
               name: pawsnearme-backend-config
               key: DB_POOL_MAX_SIZE_NOTIFICATION
+        resources:
+          requests:
+            cpu: 150m
+            memory: 256Mi
+          limits:
+            cpu: '500m'
+            memory: 512Mi
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
@@ -667,6 +889,10 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -694,18 +920,29 @@ spec:
         app: review-service
         metrics: enabled
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: review-service
         image: ghcr.io/thrinnadhh/pawsnearme-review-service@sha256:REQUIRED_IMAGE_DIGEST
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          privileged: false
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
             drop: [\"ALL\"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: 8089
         envFrom:
@@ -721,6 +958,13 @@ spec:
             configMapKeyRef:
               name: pawsnearme-backend-config
               key: DB_POOL_MAX_SIZE_REVIEW
+        resources:
+          requests:
+            cpu: 150m
+            memory: 256Mi
+          limits:
+            cpu: '500m'
+            memory: 512Mi
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
@@ -735,6 +979,10 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -762,18 +1010,29 @@ spec:
         app: payment-service
         metrics: enabled
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: payment-service
         image: ghcr.io/thrinnadhh/pawsnearme-payment-service@sha256:REQUIRED_IMAGE_DIGEST
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          privileged: false
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
             drop: [\"ALL\"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: 8090
         envFrom:
@@ -782,6 +1041,21 @@ spec:
         - secretRef:
             name: pawsnearme-backend-secrets
         env:
+        - name: RAZORPAY_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: pawsnearme-backend-secrets
+              key: RAZORPAY_KEY_ID
+        - name: RAZORPAY_KEY_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: pawsnearme-backend-secrets
+              key: RAZORPAY_KEY_SECRET
+        - name: RAZORPAY_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: pawsnearme-backend-secrets
+              key: RAZORPAY_WEBHOOK_SECRET
         - name: SERVER_PORT
           value: '8090'
         - name: DB_POOL_MAX_SIZE
@@ -789,6 +1063,13 @@ spec:
             configMapKeyRef:
               name: pawsnearme-backend-config
               key: DB_POOL_MAX_SIZE_PAYMENT
+        resources:
+          requests:
+            cpu: 300m
+            memory: 512Mi
+          limits:
+            cpu: '1'
+            memory: 1Gi
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
@@ -803,6 +1084,10 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -830,18 +1115,29 @@ spec:
         app: chat-service
         metrics: enabled
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: chat-service
         image: ghcr.io/thrinnadhh/pawsnearme-chat-service@sha256:REQUIRED_IMAGE_DIGEST
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          privileged: false
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
             drop: [\"ALL\"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: 8091
         envFrom:
@@ -857,6 +1153,13 @@ spec:
             configMapKeyRef:
               name: pawsnearme-backend-config
               key: DB_POOL_MAX_SIZE_CHAT
+        resources:
+          requests:
+            cpu: 200m
+            memory: 384Mi
+          limits:
+            cpu: '750m'
+            memory: 768Mi
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
@@ -871,6 +1174,10 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -898,18 +1205,29 @@ spec:
         app: content-service
         metrics: enabled
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: content-service
         image: ghcr.io/thrinnadhh/pawsnearme-content-service@sha256:REQUIRED_IMAGE_DIGEST
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          privileged: false
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
             drop: [\"ALL\"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         ports:
         - containerPort: 8092
         envFrom:
@@ -927,6 +1245,13 @@ spec:
             configMapKeyRef:
               name: pawsnearme-backend-config
               key: DB_POOL_MAX_SIZE_CONTENT
+        resources:
+          requests:
+            cpu: 150m
+            memory: 256Mi
+          limits:
+            cpu: '500m'
+            memory: 512Mi
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
@@ -941,6 +1266,10 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
