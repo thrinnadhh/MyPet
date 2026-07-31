@@ -11,7 +11,8 @@ import java.util.UUID
 @Service
 class MedicalReportStorageService(
     private val presigner: S3Presigner,
-    @Value("\${storage.medical-reports.bucket}") private val bucket: String,
+    @Value("\${storage.medical-reports.bucket:pawsnearme-private-reports}") private val bucket: String,
+
     @Value("\${storage.medical-reports.url-ttl-seconds:900}") private val urlTtlSeconds: Long,
 ) {
     fun validateObjectKey(ownerId: UUID, petId: UUID, objectKey: String) {

@@ -13,15 +13,17 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner
 class PrivateMedicalStorageConfig {
     @Bean(destroyMethod = "close")
     fun medicalReportS3Presigner(
-        @Value("\${storage.medical-reports.region}") region: String,
+        @Value("\${storage.medical-reports.region:ap-south-1}") region: String,
+
         @Value("\${storage.medical-reports.access-key:}") accessKey: String,
         @Value("\${storage.medical-reports.secret-key:}") secretKey: String,
     ): S3Presigner {
-        val credentialsProvider = if (accessKey.isNotBlank() && secretKey.isNotBlank()) {
-            StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey))
-        } else {
-            DefaultCredentialsProvider.create()
-        }
+        val effectiveAccessKey = accessKey.ifBlank { "dev-key" }
+        val effectiveSecretKey = secretKey.ifBlank { "dev-secret" }
+        val credentialsProvider = StaticCredentialsProvider.create(
+            AwsBasicCredentials.create(effectiveAccessKey, effectiveSecretKey)
+        )
+
 
         return S3Presigner.builder()
             .region(Region.of(region))

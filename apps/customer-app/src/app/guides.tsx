@@ -1,116 +1,63 @@
-import React, { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import React from 'react';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppIcon } from '@/components/app-icon';
-import { AppCard } from '@/components/ui/app-card';
-import { ScreenHeader } from '@/components/ui/screen-header';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { GUIDE_CATEGORIES, type GuideCategory } from '@/constants/content';
-import { fetchGuides, type GuideArticle } from '@/services/content';
-import { BottomTabInset, Radius, Spacing } from '@/constants/theme';
+import { ScreenHeader } from '@/components/ui/screen-header';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { radii, shadows, spacing, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
-import { useTranslation } from '@/i18n';
+import { ARTICLES_DATA } from '@/services/content-data';
 
 export default function GuidesScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const { t } = useTranslation();
-  const [category, setCategory] = useState<GuideCategory>('puppy-kitten');
-  const [articles, setArticles] = useState<GuideArticle[]>([]);
 
-  useEffect(() => {
-    void fetchGuides(category).then(setArticles).catch(() => setArticles([]));
-  }, [category]);
+  const articlesList = Object.values(ARTICLES_DATA);
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ScreenHeader
-          title={t('guides.title')}
-          subtitle={t('guides.subtitle')}
-          trailing={
-            <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel={t('guides.goBack')}>
-              <ThemedText style={{ color: theme.primary, fontWeight: '800' }}>{t('common.back')}</ThemedText>
-            </Pressable>
-          }
-        />
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.content, { paddingBottom: BottomTabInset + Spacing.six }]}
-        >
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categories}>
-            {GUIDE_CATEGORIES.map((item) => {
-              const selected = item.id === category;
-              return (
-                <Pressable
-                  key={item.id}
-                  onPress={() => setCategory(item.id)}
-                  style={[
-                    styles.categoryChip,
-                    {
-                      backgroundColor: selected ? theme.primary : theme.backgroundElement,
-                      borderColor: theme.border,
-                    },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel={t(`guides.categories.${item.id}.label`)}
-                >
-                  <ThemedText style={{ color: selected ? '#FFFFFF' : theme.text, fontWeight: '800' }}>
-                    {t(`guides.categories.${item.id}.label`)}
-                  </ThemedText>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <ScreenHeader title="PetCare Health Guides" subtitle="Verified veterinary knowledge & tips" />
 
-          <ThemedText type="small" themeColor="textSecondary">
-            {t(`guides.categories.${category}.description`)}
-          </ThemedText>
-
-          {articles.map((article) => (
-            <AppCard key={article.id}>
-              <View style={styles.articleRow}>
-                <View style={[styles.articleIcon, { backgroundColor: theme.primarySoft }]}>
-                  <AppIcon name="shield" color={theme.primary} size={20} />
-                </View>
-                <View style={{ flex: 1, gap: 4 }}>
-                  <ThemedText style={{ fontWeight: '900' }}>{article.title}</ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">{article.summary}</ThemedText>
-                  <ThemedText type="small" style={{ color: theme.accent, fontWeight: '700' }}>
-                    {t('common.minRead', { minutes: article.readMinutes })}
-                  </ThemedText>
-                </View>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {articlesList.map((article) => (
+          <Pressable
+            key={article.id}
+            onPress={() => router.push(`/guide/${article.id}` as never)}
+            style={({ pressed }) => [
+              styles.card,
+              shadows.raised,
+              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Image source={{ uri: article.heroImageUrl }} style={styles.thumb} resizeMode="cover" />
+            <View style={styles.cardInfo}>
+              <View style={styles.badgeRow}>
+                <StatusBadge label={article.category} color={theme.primary} />
+                <ThemedText style={{ fontSize: 12, color: theme.textSecondary }}>⏱️ {article.readTimeMins} min read</ThemedText>
               </View>
-            </AppCard>
-          ))}
-        </ScrollView>
-      </SafeAreaView>
-    </ThemedView>
+
+              <ThemedText style={[styles.cardTitle, { color: theme.text }]}>{article.title}</ThemedText>
+              <ThemedText style={{ fontSize: 12, color: theme.textSecondary }} numberOfLines={2}>
+                {article.subtitle}
+              </ThemedText>
+            </View>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  safeArea: { flex: 1 },
-  content: { padding: Spacing.four, gap: Spacing.three },
-  categories: { gap: Spacing.two },
-  categoryChip: {
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  articleRow: { flexDirection: 'row', gap: Spacing.three, alignItems: 'flex-start' },
-  articleIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  container: { flex: 1, padding: spacing.x3 },
+  content: { gap: spacing.x4, paddingBottom: spacing.x6 },
+  card: { borderRadius: radii.card, borderWidth: 1, overflow: 'hidden' },
+  thumb: { width: '100%', height: 140 },
+  cardInfo: { padding: spacing.x3, gap: spacing.x2 },
+  badgeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cardTitle: { ...typography.headline, fontSize: 16, fontWeight: '700' },
+  pressed: { opacity: 0.88 },
 });

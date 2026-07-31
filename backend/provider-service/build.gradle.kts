@@ -12,6 +12,11 @@ kotlin {
     jvmToolchain(21)
 }
 
+springBoot {
+    mainClass.set("com.pawsnearme.providerservice.ProviderServiceApplicationKt")
+}
+
+
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("io.micrometer:micrometer-registry-prometheus")

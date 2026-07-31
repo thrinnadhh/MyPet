@@ -13,8 +13,9 @@ import java.security.MessageDigest
 @RequestMapping("/api/v1/internal")
 class InternalVaccinationController(
     private val vaccinationReminderRepository: VaccinationReminderRepository,
-    @Value("\${internal.api.secret}")
+    @Value("\${internal.api.secret:dev-internal-secret}")
     private val internalSecret: String,
+
 ) {
     @GetMapping("/vaccination-reminders")
     fun listEnabled(
