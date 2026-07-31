@@ -12,7 +12,7 @@ class ServiceRegionController(
     private val serviceRegionService: ServiceRegionService
 ) {
 
-    @GetMapping("/api/v1/service-regions/active")
+    @GetMapping("/api/v1/service-regions", "/api/v1/service-regions/active")
     fun getActiveRegions(): ResponseEntity<List<ServiceRegionDto>> {
         return ResponseEntity.ok(serviceRegionService.getActiveRegions())
     }
