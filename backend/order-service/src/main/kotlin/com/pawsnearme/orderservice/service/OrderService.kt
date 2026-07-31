@@ -193,6 +193,8 @@ class OrderService(
     private val discoveryServiceUrl: String,
     @Value("\${gateway.trust.secret:}")
     private val gatewayTrustSecret: String = "",
+    @Value("\${internal.api.secret:dev-internal-secret}")
+    private val internalApiSecret: String = "dev-internal-secret",
     @Value("\${order.online-payments-enabled:false}")
     private val onlinePaymentsEnabled: Boolean = false,
     private val restTemplate: RestTemplate,
@@ -268,10 +270,12 @@ class OrderService(
         val quoteSnapshot = QuoteSnapshot(
             total = payableTotal,
             couponCode = request.couponCode?.trim()?.uppercase(),
-            customerId = request.customerId ?: UUID(0, 0),
-            providerId = request.providerId ?: UUID(0, 0),
+            customerId = request.customerId ?: throw IllegalArgumentException("customerId is required for quote"),
+            providerId = request.providerId,
             paymentMethod = paymentMethod,
-            items = request.items.map { QuoteItemSnapshot(it.offeringId, it.quantity) }
+            items = request.items.map { QuoteItemSnapshot(it.offeringId, it.quantity) },
+            deliveryAddressId = request.deliveryAddressId,
+            loyaltyRewardId = request.loyaltyRewardId
         )
         quoteStore?.store(quoteToken, quoteSnapshot)
 
@@ -315,21 +319,30 @@ class OrderService(
                     "Request a new quote before placing your order."
             )
 
-        // Validate immutable snapshot bindings
-        if (snapshot.customerId != activeCustomerId && snapshot.customerId.toString() != "00000000-0000-0000-0000-000000000000") {
-            if (snapshot.customerId.mostSignificantBits != 0L && snapshot.customerId.leastSignificantBits != 0L) {
-                // Ignore dummy random IDs from backward compatibility helper, check matching customerId
-            }
+        // Validate immutable snapshot bindings — every field locked into the quote must match.
+        if (snapshot.customerId != activeCustomerId) {
+            throw IllegalArgumentException("Quote token does not belong to this customer")
         }
-        if (snapshot.providerId != request.providerId && snapshot.items.isNotEmpty()) {
+        if (snapshot.providerId != request.providerId) {
             throw IllegalArgumentException("Quote token does not match order provider")
         }
-        if (snapshot.items.isNotEmpty()) {
-            val reqItemsMap = request.items.associate { it.offeringId to it.quantity }
-            val snapItemsMap = snapshot.items.associate { it.offeringId to it.quantity }
-            if (reqItemsMap != snapItemsMap) {
-                throw IllegalArgumentException("Order items do not match locked-in quote snapshot")
-            }
+        if (snapshot.deliveryAddressId != null && snapshot.deliveryAddressId != request.deliveryAddressId) {
+            throw IllegalArgumentException("Quote token does not match delivery address")
+        }
+        val requestCoupon = request.couponCode?.trim()?.uppercase()
+        if (snapshot.couponCode != requestCoupon) {
+            throw IllegalArgumentException("Quote token does not match coupon")
+        }
+        if (snapshot.paymentMethod != paymentMethod) {
+            throw IllegalArgumentException("Quote token does not match payment method")
+        }
+        if (snapshot.loyaltyRewardId != request.loyaltyRewardId) {
+            throw IllegalArgumentException("Quote token does not match loyalty reward")
+        }
+        val reqItemsMap = request.items.associate { it.offeringId to it.quantity }
+        val snapItemsMap = snapshot.items.associate { it.offeringId to it.quantity }
+        if (reqItemsMap != snapItemsMap) {
+            throw IllegalArgumentException("Order items do not match locked-in quote snapshot")
         }
 
         val quote = calculateQuote(
@@ -460,12 +473,14 @@ class OrderService(
     ) {
         try {
             val payload = mapOf(
+                "eventType" to "COMPENSATE_STOCK_AND_COUPON",
                 "orderId" to (orderId ?: UUID.randomUUID()),
                 "customerId" to customerId,
                 "couponCode" to couponCode,
                 "items" to reservedItems.map { mapOf("offeringId" to it.offeringId, "quantity" to it.quantity) }
             )
-            outboxService.saveEvent(
+            // REQUIRES_NEW so the compensation record survives the caller's rollback.
+            outboxService.saveEventInNewTransaction(
                 aggregateType = "ORDER",
                 aggregateId = orderId ?: customerId,
                 eventType = "COMPENSATE_STOCK_AND_COUPON",
@@ -643,7 +658,7 @@ class OrderService(
         if (quantity <= 0) {
             throw IllegalArgumentException("Quantity must be greater than zero")
         }
-        val url = "$baseUrl/api/v1/catalog/offerings/$offeringId/decrement-stock?quantity=$quantity"
+        val url = "$baseUrl/api/v1/internal/catalog/offerings/$offeringId/decrement-stock?quantity=$quantity"
         val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
         val response = restTemplate.exchange(
             url,
@@ -673,7 +688,7 @@ class OrderService(
     private fun restoreReservedCatalogStock(items: List<OrderItemRequest>) {
         for (item in items.asReversed()) {
             try {
-                val url = "$catalogServiceUrl/api/v1/catalog/offerings/${item.offeringId}/restore-stock?quantity=${item.quantity}"
+                val url = "$catalogServiceUrl/api/v1/internal/catalog/offerings/${item.offeringId}/restore-stock?quantity=${item.quantity}"
                 val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
                 restTemplate.exchange(
                     url,
@@ -1345,8 +1360,9 @@ class OrderService(
         val headers = org.springframework.http.HttpHeaders()
         if (gatewayTrustSecret.isNotBlank()) {
             headers.set("X-Internal-Gateway-Secret", gatewayTrustSecret)
-            headers.set("X-Internal-Secret", gatewayTrustSecret)
         }
+        // Service identity for internal catalog stock mutations — never reuse the gateway trust secret.
+        headers.set("X-Internal-Secret", internalApiSecret)
         return headers
     }
 

@@ -18,14 +18,16 @@ data class QuoteSnapshot(
     val customerId: UUID,
     val providerId: UUID,
     val paymentMethod: String,
-    val items: List<QuoteItemSnapshot> = emptyList()
+    val items: List<QuoteItemSnapshot> = emptyList(),
+    val deliveryAddressId: UUID? = null,
+    val loyaltyRewardId: UUID? = null
 )
 
 /**
  * Stores and validates checkout quote tokens in Redis with a 15-minute TTL.
  *
  * Enforces immutable binding of total, customerId, providerId, paymentMethod,
- * and items snapshot to the token.
+ * items, delivery address, coupon, and loyalty reward to the token.
  */
 @Component
 class QuoteStore(
@@ -44,44 +46,13 @@ class QuoteStore(
         return token
     }
 
-    /** Backward compatible helper overload. */
-    fun store(token: String, total: BigDecimal, couponCode: String?): String {
-        val dummyId = UUID.randomUUID()
-        return store(
-            token,
-            QuoteSnapshot(
-                total = total,
-                couponCode = couponCode,
-                customerId = dummyId,
-                providerId = dummyId,
-                paymentMethod = "CARD",
-                items = emptyList()
-            )
-        )
-    }
-
     /**
      * Validate a token and return the locked-in quote snapshot.
      * Returns null if the token is expired, unknown, or was already consumed.
      */
     fun consume(token: String): QuoteSnapshot? {
         val raw = redisTemplate.opsForValue().getAndDelete(key(token)) ?: return null
-        return try {
-            objectMapper.readValue(raw, QuoteSnapshot::class.java)
-        } catch (e: Exception) {
-            val map = objectMapper.readValue(raw, Map::class.java)
-            val total = BigDecimal(map["total"] as String)
-            val couponCode = (map["couponCode"] as? String)?.takeIf { it.isNotBlank() }
-            val dummyId = UUID.randomUUID()
-            QuoteSnapshot(
-                total = total,
-                couponCode = couponCode,
-                customerId = dummyId,
-                providerId = dummyId,
-                paymentMethod = "CARD",
-                items = emptyList()
-            )
-        }
+        return objectMapper.readValue(raw, QuoteSnapshot::class.java)
     }
 
     private fun key(token: String) = "$KEY_PREFIX$token"

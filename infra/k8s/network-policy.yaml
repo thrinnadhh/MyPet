@@ -1,0 +1,318 @@
+# Network policies for PawsNearMe. Split by traffic class so gateway, service-to-service,
+# data stores, monitoring, and external HTTPS all work under default-deny.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: default
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+# API gateway: accept external / ingress-controller traffic; talk to backends + Redis + DNS + HTTPS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-gateway
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 8082
+    - protocol: TCP
+      port: 8083
+    - protocol: TCP
+      port: 8084
+    - protocol: TCP
+      port: 8085
+    - protocol: TCP
+      port: 8086
+    - protocol: TCP
+      port: 8087
+    - protocol: TCP
+      port: 8088
+    - protocol: TCP
+      port: 8089
+    - protocol: TCP
+      port: 8090
+    - protocol: TCP
+      port: 8091
+    - protocol: TCP
+      port: 8092
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  - ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+    - protocol: TCP
+      port: 443
+---
+# Backend microservices: ingress from gateway + peer services + Prometheus; egress to peers, DB, Kafka, Redis, DNS, HTTPS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-services
+  namespace: default
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app
+      operator: In
+      values:
+      - provider-service
+      - catalog-service
+      - discovery-service
+      - order-service
+      - appointment-service
+      - dispatch-service
+      - captain-service
+      - notification-service
+      - review-service
+      - payment-service
+      - chat-service
+      - content-service
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api-gateway
+    - podSelector:
+        matchExpressions:
+        - key: app
+          operator: In
+          values:
+          - provider-service
+          - catalog-service
+          - discovery-service
+          - order-service
+          - appointment-service
+          - dispatch-service
+          - captain-service
+          - notification-service
+          - review-service
+          - payment-service
+          - chat-service
+          - content-service
+    ports:
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 8082
+    - protocol: TCP
+      port: 8083
+    - protocol: TCP
+      port: 8084
+    - protocol: TCP
+      port: 8085
+    - protocol: TCP
+      port: 8086
+    - protocol: TCP
+      port: 8087
+    - protocol: TCP
+      port: 8088
+    - protocol: TCP
+      port: 8089
+    - protocol: TCP
+      port: 8090
+    - protocol: TCP
+      port: 8091
+    - protocol: TCP
+      port: 8092
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 8082
+    - protocol: TCP
+      port: 8083
+    - protocol: TCP
+      port: 8084
+    - protocol: TCP
+      port: 8085
+    - protocol: TCP
+      port: 8086
+    - protocol: TCP
+      port: 8087
+    - protocol: TCP
+      port: 8088
+    - protocol: TCP
+      port: 8089
+    - protocol: TCP
+      port: 8090
+    - protocol: TCP
+      port: 8091
+    - protocol: TCP
+      port: 8092
+  egress:
+  - to:
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 8082
+    - protocol: TCP
+      port: 8083
+    - protocol: TCP
+      port: 8084
+    - protocol: TCP
+      port: 8085
+    - protocol: TCP
+      port: 8086
+    - protocol: TCP
+      port: 8087
+    - protocol: TCP
+      port: 8088
+    - protocol: TCP
+      port: 8089
+    - protocol: TCP
+      port: 8090
+    - protocol: TCP
+      port: 8091
+    - protocol: TCP
+      port: 8092
+  - ports:
+    - protocol: TCP
+      port: 5432
+    - protocol: TCP
+      port: 9092
+    - protocol: TCP
+      port: 6379
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+    - protocol: TCP
+      port: 443
+---
+# Redis: only backends + gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api-gateway
+    - podSelector:
+        matchExpressions:
+        - key: app
+          operator: In
+          values:
+          - provider-service
+          - catalog-service
+          - discovery-service
+          - order-service
+          - appointment-service
+          - dispatch-service
+          - captain-service
+          - notification-service
+          - review-service
+          - payment-service
+          - chat-service
+          - content-service
+    ports:
+    - protocol: TCP
+      port: 6379
+  egress:
+  - ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+---
+# Prometheus: scrape backends + gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - ports:
+    - protocol: TCP
+      port: 9090
+  egress:
+  - to:
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 8082
+    - protocol: TCP
+      port: 8083
+    - protocol: TCP
+      port: 8084
+    - protocol: TCP
+      port: 8085
+    - protocol: TCP
+      port: 8086
+    - protocol: TCP
+      port: 8087
+    - protocol: TCP
+      port: 8088
+    - protocol: TCP
+      port: 8089
+    - protocol: TCP
+      port: 8090
+    - protocol: TCP
+      port: 8091
+    - protocol: TCP
+      port: 8092
+  - ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+    - protocol: TCP
+      port: 443

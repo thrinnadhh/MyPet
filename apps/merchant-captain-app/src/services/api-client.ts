@@ -15,7 +15,6 @@ class ApiClient {
   private sessionToken: string | null = null;
   private userId: string | null = null;
   private userRole: string | null = null;
-  private gatewaySecret: string = 'dev-gateway-secret-key';
 
   public setSessionToken(token: string | null) {
     this.sessionToken = token;
@@ -26,18 +25,15 @@ class ApiClient {
     this.userRole = role;
   }
 
-  public setGatewaySecret(secret: string) {
-    this.gatewaySecret = secret;
-  }
-
   private getBaseUrl(): string {
     return appConfig.apiBaseUrl || 'http://localhost:8080';
   }
 
   private buildHeaders(customHeaders?: Record<string, string>): Record<string, string> {
+    // Never send gateway/internal trust secrets from the client — only the API gateway
+    // may attach X-Internal-Gateway-Secret on server-to-server hops.
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-Internal-Gateway-Secret': this.gatewaySecret,
       ...(customHeaders || {}),
     };
 

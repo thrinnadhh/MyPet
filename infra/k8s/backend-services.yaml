@@ -43,7 +43,7 @@ spec:
     spec:
       containers:
       - name: api-gateway
-        image: ghcr.io/your-org/pawsnearme-api-gateway:latest
+        image: ghcr.io/your-org/pawsnearme-api-gateway:v1.0.0
         ports:
         - containerPort: 8080
         envFrom:
@@ -125,7 +125,7 @@ spec:
     spec:
       containers:
       - name: discovery-service
-        image: ghcr.io/your-org/pawsnearme-discovery-service:latest
+        image: ghcr.io/your-org/pawsnearme-discovery-service:v1.0.0
         ports:
         - containerPort: 8083
         envFrom:
@@ -183,7 +183,7 @@ spec:
     spec:
       containers:
       - name: catalog-service
-        image: ghcr.io/your-org/pawsnearme-catalog-service:latest
+        image: ghcr.io/your-org/pawsnearme-catalog-service:v1.0.0
         ports:
         - containerPort: 8082
         envFrom:
@@ -241,7 +241,7 @@ spec:
     spec:
       containers:
       - name: appointment-service
-        image: ghcr.io/your-org/pawsnearme-appointment-service:latest
+        image: ghcr.io/your-org/pawsnearme-appointment-service:v1.0.0
         ports:
         - containerPort: 8085
         envFrom:
@@ -305,7 +305,7 @@ spec:
     spec:
       containers:
       - name: provider-service
-        image: ghcr.io/your-org/pawsnearme-provider-service:latest
+        image: ghcr.io/your-org/pawsnearme-provider-service:v1.0.0
         ports:
         - containerPort: 8081
         envFrom:
@@ -363,7 +363,7 @@ spec:
     spec:
       containers:
       - name: order-service
-        image: ghcr.io/your-org/pawsnearme-order-service:latest
+        image: ghcr.io/your-org/pawsnearme-order-service:v1.0.0
         ports:
         - containerPort: 8084
         envFrom:
@@ -427,7 +427,7 @@ spec:
     spec:
       containers:
       - name: dispatch-service
-        image: ghcr.io/your-org/pawsnearme-dispatch-service:latest
+        image: ghcr.io/your-org/pawsnearme-dispatch-service:v1.0.0
         ports:
         - containerPort: 8086
         envFrom:
@@ -487,7 +487,7 @@ spec:
     spec:
       containers:
       - name: captain-service
-        image: ghcr.io/your-org/pawsnearme-captain-service:latest
+        image: ghcr.io/your-org/pawsnearme-captain-service:v1.0.0
         ports:
         - containerPort: 8087
         envFrom:
@@ -545,7 +545,7 @@ spec:
     spec:
       containers:
       - name: notification-service
-        image: ghcr.io/your-org/pawsnearme-notification-service:latest
+        image: ghcr.io/your-org/pawsnearme-notification-service:v1.0.0
         ports:
         - containerPort: 8088
         envFrom:
@@ -605,7 +605,7 @@ spec:
     spec:
       containers:
       - name: review-service
-        image: ghcr.io/your-org/pawsnearme-review-service:latest
+        image: ghcr.io/your-org/pawsnearme-review-service:v1.0.0
         ports:
         - containerPort: 8089
         envFrom:
@@ -663,7 +663,7 @@ spec:
     spec:
       containers:
       - name: payment-service
-        image: ghcr.io/your-org/pawsnearme-payment-service:latest
+        image: ghcr.io/your-org/pawsnearme-payment-service:v1.0.0
         ports:
         - containerPort: 8090
         envFrom:
@@ -721,7 +721,7 @@ spec:
     spec:
       containers:
       - name: chat-service
-        image: ghcr.io/your-org/pawsnearme-chat-service:latest
+        image: ghcr.io/your-org/pawsnearme-chat-service:v1.0.0
         ports:
         - containerPort: 8091
         envFrom:
@@ -779,7 +779,7 @@ spec:
     spec:
       containers:
       - name: content-service
-        image: ghcr.io/your-org/pawsnearme-content-service:latest
+        image: ghcr.io/your-org/pawsnearme-content-service:v1.0.0
         ports:
         - containerPort: 8092
         envFrom:

@@ -7,18 +7,21 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.util.UUID
 
+/**
+ * Service-to-service stock mutations. Authenticated only via X-Internal-Secret
+ * (shared between order-service and catalog-service). The gateway trust header is
+ * intentionally NOT accepted — every proxied request carries that header.
+ */
 @RestController
 @RequestMapping("/api/v1/internal/catalog")
 class InternalCatalogController(
     private val catalogService: CatalogService,
     @Value("\${internal.api.secret:dev-internal-secret}")
-    private val internalSecret: String = "dev-internal-secret",
-    @Value("\${gateway.trust.secret:dev-gateway-secret-key}")
-    private val gatewayTrustSecret: String = "dev-gateway-secret-key"
+    private val internalSecret: String = "dev-internal-secret"
 ) {
 
     private fun verifyInternalSecret(secret: String?) {
-        if (secret.isNullOrBlank() || (secret != internalSecret && secret != gatewayTrustSecret)) {
+        if (secret.isNullOrBlank() || secret != internalSecret) {
             throw CatalogAccessDeniedException("Forbidden: invalid or missing internal secret")
         }
     }
@@ -27,10 +30,9 @@ class InternalCatalogController(
     fun decrementStockInternal(
         @PathVariable offeringId: UUID,
         @RequestParam quantity: Int,
-        @RequestHeader(value = "X-Internal-Secret", required = false) xInternalSecret: String?,
-        @RequestHeader(value = "X-Internal-Gateway-Secret", required = false) xGatewaySecret: String?
+        @RequestHeader(value = "X-Internal-Secret", required = false) xInternalSecret: String?
     ): ResponseEntity<Offering> {
-        verifyInternalSecret(xInternalSecret ?: xGatewaySecret)
+        verifyInternalSecret(xInternalSecret)
         val updated = catalogService.decrementStock(offeringId, quantity)
         return ResponseEntity.ok(updated)
     }
@@ -39,10 +41,9 @@ class InternalCatalogController(
     fun restoreStockInternal(
         @PathVariable offeringId: UUID,
         @RequestParam quantity: Int,
-        @RequestHeader(value = "X-Internal-Secret", required = false) xInternalSecret: String?,
-        @RequestHeader(value = "X-Internal-Gateway-Secret", required = false) xGatewaySecret: String?
+        @RequestHeader(value = "X-Internal-Secret", required = false) xInternalSecret: String?
     ): ResponseEntity<Offering> {
-        verifyInternalSecret(xInternalSecret ?: xGatewaySecret)
+        verifyInternalSecret(xInternalSecret)
         val updated = catalogService.restoreStock(offeringId, quantity)
         return ResponseEntity.ok(updated)
     }

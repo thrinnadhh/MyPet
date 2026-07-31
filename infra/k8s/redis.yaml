@@ -14,9 +14,18 @@ spec:
       labels:
         app: redis
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
       containers:
       - name: redis
-        image: redis:7-alpine
+        image: redis:7.2.4-alpine
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
         command: ["redis-server", "--appendonly", "yes"]
         ports:
         - containerPort: 6379

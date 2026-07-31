@@ -4,7 +4,6 @@ import com.pawsnearme.catalogservice.model.*
 import com.pawsnearme.catalogservice.service.CatalogService
 import com.pawsnearme.catalogservice.dto.*
 import jakarta.validation.Valid
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
@@ -16,11 +15,7 @@ class CatalogAccessDeniedException(message: String) : RuntimeException(message)
 @RestController
 @RequestMapping("/api/v1/catalog")
 class CatalogController(
-    private val catalogService: CatalogService,
-    @Value("\${internal.api.secret:dev-internal-secret}")
-    private val internalSecret: String = "dev-internal-secret",
-    @Value("\${gateway.trust.secret:dev-gateway-secret-key}")
-    private val gatewayTrustSecret: String = "dev-gateway-secret-key"
+    private val catalogService: CatalogService
 ) {
 
     private fun verifyProviderOwnership(providerId: UUID, xUserId: String?, xUserRole: String?) {
@@ -29,18 +24,6 @@ class CatalogController(
             if (catalogService.isProviderOwnedBy(providerId, UUID.fromString(xUserId))) return
         }
         throw CatalogAccessDeniedException("Access denied: merchant does not own provider $providerId")
-    }
-
-    private fun verifyStockMutationAccess(
-        providerId: UUID,
-        xUserId: String?,
-        xUserRole: String?,
-        xInternalSecret: String?,
-        xGatewaySecret: String?
-    ) {
-        if (!xInternalSecret.isNullOrBlank() && (xInternalSecret == internalSecret || xInternalSecret == gatewayTrustSecret)) return
-        if (!xGatewaySecret.isNullOrBlank() && xGatewaySecret == gatewayTrustSecret) return
-        verifyProviderOwnership(providerId, xUserId, xUserRole)
     }
 
     // --- Offerings API ---
@@ -125,17 +108,19 @@ class CatalogController(
         return ResponseEntity.noContent().build()
     }
 
+    /**
+     * Merchant/admin stock adjustments only. Service-to-service mutations must use
+     * [InternalCatalogController] with X-Internal-Secret — never the gateway trust header.
+     */
     @PutMapping("/offerings/{offeringId}/decrement-stock")
     fun decrementStock(
         @PathVariable offeringId: UUID,
         @RequestParam quantity: Int,
         @RequestHeader("X-User-Role", required = false) role: String?,
-        @RequestHeader("X-User-Id", required = false) xUserId: String?,
-        @RequestHeader("X-Internal-Secret", required = false) xInternalSecret: String?,
-        @RequestHeader("X-Internal-Gateway-Secret", required = false) xGatewaySecret: String?
+        @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Offering> {
         val existing = catalogService.getOfferingById(offeringId)
-        verifyStockMutationAccess(existing.providerId, xUserId, role, xInternalSecret, xGatewaySecret)
+        verifyProviderOwnership(existing.providerId, xUserId, role)
         val updated = catalogService.decrementStock(offeringId, quantity)
         return ResponseEntity.ok(updated)
     }
@@ -145,12 +130,10 @@ class CatalogController(
         @PathVariable offeringId: UUID,
         @RequestParam quantity: Int,
         @RequestHeader("X-User-Role", required = false) role: String?,
-        @RequestHeader("X-User-Id", required = false) xUserId: String?,
-        @RequestHeader("X-Internal-Secret", required = false) xInternalSecret: String?,
-        @RequestHeader("X-Internal-Gateway-Secret", required = false) xGatewaySecret: String?
+        @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Offering> {
         val existing = catalogService.getOfferingById(offeringId)
-        verifyStockMutationAccess(existing.providerId, xUserId, role, xInternalSecret, xGatewaySecret)
+        verifyProviderOwnership(existing.providerId, xUserId, role)
         val updated = catalogService.restoreStock(offeringId, quantity)
         return ResponseEntity.ok(updated)
     }
