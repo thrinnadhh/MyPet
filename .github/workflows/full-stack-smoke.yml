@@ -18,6 +18,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  schema-inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Package database source inventory
+        run: |
+          mkdir -p build/reports
+          tar -czf build/reports/database-source-inventory.tgz \
+            backend/*/src/main/resources/db/migration \
+            backend/*/src/main/kotlin \
+            infra \
+            "imp files" 2>/dev/null || true
+          find backend -path '*/src/main/resources/db/migration/*.sql' -print \
+            | sort > build/reports/migration-files.txt
+          find "imp files" -maxdepth 1 -type f -print 2>/dev/null \
+            | sort > build/reports/legacy-bootstrap-files.txt || true
+
+      - name: Upload database source inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-source-inventory-${{ github.run_id }}
+          retention-days: 2
+          path: build/reports/*
+
   full-stack:
     runs-on: ubuntu-latest
     timeout-minutes: 35
