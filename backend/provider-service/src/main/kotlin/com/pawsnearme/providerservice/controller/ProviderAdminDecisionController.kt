@@ -1,6 +1,5 @@
 package com.pawsnearme.providerservice.controller
 
-import com.pawsnearme.providerservice.model.ProviderResponse
 import com.pawsnearme.providerservice.model.ProviderStatus
 import com.pawsnearme.providerservice.repository.ProviderRepository
 import org.springframework.http.ResponseEntity
