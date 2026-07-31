@@ -1,10 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../utils/supabase';
 import { Session, User } from '@supabase/supabase-js';
+
+import { ApiError, apiClient } from '../services/api-client';
 import { appConfig } from '../utils/app-config';
 import { syncAuthenticatedProfile } from '../utils/profile-sync';
-
-import { apiClient } from '../services/api-client';
+import { supabase } from '../utils/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -16,6 +16,15 @@ interface AuthContextType {
   toggleActiveRole: () => void;
   loading: boolean;
   signOut: () => Promise<void>;
+}
+
+interface ProviderIdentity {
+  providerId: string;
+  status?: string;
+}
+
+interface CaptainIdentity {
+  captainId: string;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -35,35 +44,36 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [activeRole, setActiveRole] = useState<string | null>(null);
+  const [providerId, setProviderId] = useState<string | null>(null);
+  const [captainId, setCaptainId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const providerId = user?.id ?? null;
-  const captainId = user?.id ?? null;
 
   useEffect(() => {
     if (appConfig.allowDemoMode) {
-      console.log("AuthProvider: Running in explicit demo mode");
+      console.log('AuthProvider: Running in explicit demo mode');
       const mockUser = {
-        id: 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e', // Merchant ID
+        id: 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
         email: 'merchant@pawsnearme.com',
         app_metadata: { role: 'MERCHANT' },
         user_metadata: {},
         aud: 'authenticated',
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
       } as User;
-      
+
       const mockSession = {
         access_token: 'mock-jwt-token-for-dev-purposes-only',
         token_type: 'bearer',
         expires_in: 3600,
         refresh_token: 'mock-refresh-token',
-        user: mockUser
+        user: mockUser,
       } as Session;
 
       setSession(mockSession);
       setUser(mockUser);
       setRole('MERCHANT');
       setActiveRole('PROVIDER');
+      setProviderId(mockUser.id);
+      setCaptainId(null);
       apiClient.setSessionToken(mockSession.access_token);
       setLoading(false);
       return;
@@ -80,32 +90,82 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return 'PROVIDER';
     };
 
-    const applySession = async (nextSession: Session | null) => {
-      setSession(nextSession);
-      setUser(nextSession?.user ?? null);
-      const backendRole = normalizeBackendRole(nextSession?.user?.app_metadata?.role as string | undefined);
-      setRole(backendRole);
-      setActiveRole(resolveActiveRole(backendRole));
-      
-      apiClient.setSessionToken(nextSession?.access_token ?? null);
+    const isMissingIdentity = (error: unknown) =>
+      error instanceof ApiError && (error.status === 400 || error.status === 404);
 
-      if (nextSession) {
+    const resolveOperationalIdentity = async (backendRole: string) => {
+      let nextProviderId: string | null = null;
+      let nextCaptainId: string | null = null;
+
+      if (backendRole === 'MERCHANT' || backendRole === 'ADMIN') {
         try {
-          await syncAuthenticatedProfile(nextSession, backendRole as 'MERCHANT' | 'CAPTAIN' | 'ADMIN');
+          const providers = await apiClient.get<ProviderIdentity[]>('/api/v1/providers/me');
+          const preferred = providers.find((provider) => provider.status === 'ACTIVE') ?? providers[0];
+          nextProviderId = preferred?.providerId ?? null;
         } catch (error) {
-          console.warn('Profile sync failed', error);
+          if (!isMissingIdentity(error)) {
+            console.warn('Provider identity resolution failed', error);
+          }
         }
       }
+
+      if (backendRole === 'CAPTAIN' || backendRole === 'ADMIN') {
+        try {
+          const captain = await apiClient.get<CaptainIdentity>('/api/v1/captains/me');
+          nextCaptainId = captain.captainId;
+        } catch (error) {
+          if (!isMissingIdentity(error)) {
+            console.warn('Captain identity resolution failed', error);
+          }
+        }
+      }
+
+      setProviderId(nextProviderId);
+      setCaptainId(nextCaptainId);
+    };
+
+    const applySession = async (nextSession: Session | null) => {
+      setLoading(true);
+      setSession(nextSession);
+      setUser(nextSession?.user ?? null);
+      apiClient.setSessionToken(nextSession?.access_token ?? null);
+
+      if (!nextSession) {
+        setRole(null);
+        setActiveRole(null);
+        setProviderId(null);
+        setCaptainId(null);
+        setLoading(false);
+        return;
+      }
+
+      const backendRole = normalizeBackendRole(
+        nextSession.user.app_metadata?.role as string | undefined,
+      );
+      setRole(backendRole);
+      setActiveRole(resolveActiveRole(backendRole));
+
+      try {
+        await syncAuthenticatedProfile(
+          nextSession,
+          backendRole as 'MERCHANT' | 'CAPTAIN' | 'ADMIN',
+        );
+      } catch (error) {
+        console.warn('Profile sync failed', error);
+      }
+
+      await resolveOperationalIdentity(backendRole);
       setLoading(false);
     };
 
-    // Standard Supabase Session listener
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      void applySession(session);
+    void supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      void applySession(initialSession);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      void applySession(session);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      void applySession(nextSession);
     });
 
     return () => {
@@ -114,16 +174,34 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const toggleActiveRole = () => {
-    setActiveRole((prev) => (prev === 'PROVIDER' ? 'CAPTAIN' : 'PROVIDER'));
+    setActiveRole((previous) => {
+      if (previous === 'PROVIDER' && captainId) return 'CAPTAIN';
+      if (previous === 'CAPTAIN' && providerId) return 'PROVIDER';
+      return previous;
+    });
   };
 
   const signOut = async () => {
     apiClient.setSessionToken(null);
+    setProviderId(null);
+    setCaptainId(null);
     await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, role, activeRole, providerId, captainId, toggleActiveRole, loading, signOut }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        role,
+        activeRole,
+        providerId,
+        captainId,
+        toggleActiveRole,
+        loading,
+        signOut,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
