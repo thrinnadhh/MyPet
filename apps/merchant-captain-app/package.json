@@ -52,6 +52,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
+    "test": "npx tsx --test src/__tests__/*.test.ts",
     "lint": "expo lint --quiet",
     "lint:all": "expo lint"
   },

@@ -3,10 +3,72 @@ const API_BASE_URL = 'http://localhost:8080';
 let activeTab = 'approvals';
 let currentDisputeId = null;
 
-// On Load
-document.addEventListener('DOMContentLoaded', () => {
+function getAdminToken() {
+    return sessionStorage.getItem('admin_token') || localStorage.getItem('admin_token');
+}
+
+function getAuthHeaders(customHeaders = {}) {
+    const token = getAdminToken();
+    const headers = {
+        'X-User-Role': 'ADMIN',
+        ...customHeaders
+    };
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+}
+
+function checkAdminAuth() {
+    const token = getAdminToken();
+    const modal = document.getElementById('admin-login-modal');
+    const badge = document.getElementById('admin-session-badge');
+    if (!token) {
+        if (modal) modal.style.display = 'flex';
+        if (badge) badge.style.display = 'none';
+        return false;
+    } else {
+        if (modal) modal.style.display = 'none';
+        if (badge) badge.style.display = 'flex';
+        return true;
+    }
+}
+
+function handleAdminLogin(event) {
+    if (event) event.preventDefault();
+    const input = document.getElementById('admin-token-input');
+    const token = input ? input.value.trim() : '';
+    if (!token) return;
+    sessionStorage.setItem('admin_token', token);
+    checkAdminAuth();
+    showToast('Admin session authenticated successfully');
     fetchRefundModeConfig();
     fetchPendingProviders();
+}
+
+function handleAdminSignOut() {
+    sessionStorage.removeItem('admin_token');
+    localStorage.removeItem('admin_token');
+    checkAdminAuth();
+    showToast('Admin session signed out');
+}
+
+function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// On Load
+document.addEventListener('DOMContentLoaded', () => {
+    if (checkAdminAuth()) {
+        fetchRefundModeConfig();
+        fetchPendingProviders();
+    }
 });
 
 // Tab switching logic
@@ -400,7 +462,7 @@ async function fetchUsers() {
 
     try {
         const res = await fetch(`${API_BASE_URL}/api/v1/profiles`, {
-            headers: { 'X-User-Role': 'ADMIN' }
+            headers: getAuthHeaders()
         });
         if (!res.ok) throw new Error("Failed to fetch users");
 
@@ -420,22 +482,27 @@ async function fetchUsers() {
             const item = document.createElement('div');
             item.className = 'list-item';
 
+            const safeUserId = escapeHtml(u.userId);
+            const safeName = escapeHtml(u.fullName || 'User');
+            const safeRole = escapeHtml(u.role || 'USER');
+            const safePhone = escapeHtml(u.phoneNumber || 'N/A');
+
             const statusText = u.suspended ? 'REVOKED' : 'ACTIVE';
             const badgeClass = u.suspended ? 'badge-danger' : 'badge-success';
             const actionButton = u.suspended 
-                ? `<button class="btn btn-emerald" onclick="restoreUserAccess('${u.userId}')">🔓 Restore Access</button>`
-                : `<button class="btn btn-rose" onclick="revokeUserAccess('${u.userId}')">🚫 Revoke Access</button>`;
+                ? `<button class="btn btn-emerald" onclick="restoreUserAccess('${safeUserId}')">🔓 Restore Access</button>`
+                : `<button class="btn btn-rose" onclick="revokeUserAccess('${safeUserId}')">🚫 Revoke Access</button>`;
 
             item.innerHTML = `
                 <div class="item-header">
                     <div>
-                        <h3 class="item-title">${u.fullName}</h3>
-                        <p class="item-subtitle">${u.role} — ${u.phoneNumber}</p>
+                        <h3 class="item-title">${safeName}</h3>
+                        <p class="item-subtitle">${safeRole} — ${safePhone}</p>
                     </div>
                     <span class="badge ${badgeClass}">${statusText}</span>
                 </div>
                 <div style="font-size: 0.85rem; color: var(--text-secondary);">
-                    User ID: ${u.userId}
+                    User ID: ${safeUserId}
                 </div>
                 <div class="btn-group">
                     ${actionButton}
@@ -447,7 +514,7 @@ async function fetchUsers() {
         container.innerHTML = `
             <div class="empty-state">
                 <span class="empty-icon">❌</span>
-                <p>Failed to load users: ${e.message}</p>
+                <p>Failed to load users: ${escapeHtml(e.message)}</p>
             </div>
         `;
     }
@@ -457,7 +524,7 @@ async function revokeUserAccess(userId) {
     try {
         const res = await fetch(`${API_BASE_URL}/api/v1/profiles/${userId}/revoke`, {
             method: 'POST',
-            headers: { 'X-User-Role': 'ADMIN' }
+            headers: getAuthHeaders()
         });
         if (res.ok) {
             showToast("Access revoked successfully!");
@@ -475,7 +542,7 @@ async function restoreUserAccess(userId) {
     try {
         const res = await fetch(`${API_BASE_URL}/api/v1/profiles/${userId}/restore`, {
             method: 'POST',
-            headers: { 'X-User-Role': 'ADMIN' }
+            headers: getAuthHeaders()
         });
         if (res.ok) {
             showToast("Access restored successfully!");

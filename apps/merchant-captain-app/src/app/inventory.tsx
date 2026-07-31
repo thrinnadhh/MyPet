@@ -148,13 +148,20 @@ export default function InventoryScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  const { user } = useAuth();
+  const { user, providerId } = useAuth();
+  const activeBusinessId = providerId || user?.id || 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e';
   
-  // Provider / business context — dynamically loaded, falls back to DEMO_PROVIDERS config in local dev
-  const [providers, setProviders] = useState(DEMO_PROVIDERS);
-  const [selectedProvider, setSelectedProvider] = useState(DEMO_PROVIDERS[0]);
-  const selectedProviderId = selectedProvider.id;
-  const selectedProviderFulfillment = selectedProvider.fulfillmentType;
+  // Provider / business context — derived dynamically from session context
+  const [providers, setProviders] = useState([
+    {
+      id: activeBusinessId,
+      label: '🏬 My Business',
+      fulfillmentType: 'DELIVERY' as const,
+    }
+  ]);
+  const [selectedProvider, setSelectedProvider] = useState(providers[0]);
+  const selectedProviderId = selectedProvider?.id || activeBusinessId;
+  const selectedProviderFulfillment = selectedProvider?.fulfillmentType || 'DELIVERY';
 
   const fetchProviders = useCallback(async () => {
     if (!user) return;
@@ -166,7 +173,7 @@ export default function InventoryScreen() {
           const mapped = data.map((p: any) => ({
             id: p.providerId,
             label: p.providerType === 'PET_STORE' ? `🏬 ${p.name}` : p.providerType === 'VET_HOSPITAL' ? `🏥 ${p.name}` : `✂️ ${p.name}`,
-            fulfillmentType: p.fulfillmentType,
+            fulfillmentType: p.fulfillmentType || 'DELIVERY',
           }));
           setProviders(mapped);
           setSelectedProvider(mapped[0]);

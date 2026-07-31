@@ -447,17 +447,35 @@
 
         .alert-toast.active {
             transform: translateY(0);
-        }
-    </style>
 </head>
 <body>
+    <!-- Admin Authentication Login Modal Overlay -->
+    <div id="admin-login-modal" style="position: fixed; inset: 0; background: rgba(11, 15, 25, 0.95); backdrop-filter: blur(16px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 1.5rem;">
+        <div style="background: var(--bg-secondary); border: 1px solid var(--border-glass); border-radius: 16px; padding: 2.5rem; max-width: 420px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.5); text-align: center;">
+            <div style="display: inline-block; background: linear-gradient(135deg, var(--primary), var(--accent-amber)); color: #fff; font-weight: 800; padding: 0.5rem 1rem; border-radius: 10px; font-size: 1.1rem; margin-bottom: 1.5rem; letter-spacing: 0.05em;">PNM SUPER ADMIN</div>
+            <h2 style="font-size: 1.5rem; margin-bottom: 0.5rem; color: var(--text-primary);">Authenticate Console</h2>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1.5rem;">Enter Admin Authentication Token or Secret Key to access governance tools.</p>
+            <form onsubmit="handleAdminLogin(event)">
+                <input type="password" id="admin-token-input" placeholder="Enter Super Admin Token (e.g. admin123)" required style="width: 100%; padding: 0.85rem 1rem; background: var(--bg-primary); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 1.25rem; outline: none;">
+                <button type="submit" class="btn btn-emerald" style="width: 100%; padding: 0.85rem; font-size: 1rem; font-weight: 700; border-radius: 8px;">🔓 Access Console</button>
+            </form>
+            <p id="login-error-msg" style="color: var(--accent-rose); font-size: 0.85rem; margin-top: 1rem; display: none;"></p>
+        </div>
+    </div>
+
     <header>
         <div class="header-title-group">
             <span class="logo-badge">PNM</span>
             <h1>Super Admin Console</h1>
         </div>
-        <div style="font-size: 0.85rem; color: var(--text-secondary);">
-            Enviroment: <span style="color: var(--accent-emerald); font-weight: bold;">LOCAL_SANDBOX</span>
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                Environment: <span style="color: var(--accent-emerald); font-weight: bold;">LOCAL_SANDBOX</span>
+            </div>
+            <div id="admin-session-badge" style="display: none; align-items: center; gap: 0.75rem;">
+                <span class="badge badge-verified">ADMIN AUTHENTICATED</span>
+                <button class="btn btn-rose" onclick="handleAdminSignOut()" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">🔒 Sign Out</button>
+            </div>
         </div>
     </header>
     <main class="container">
