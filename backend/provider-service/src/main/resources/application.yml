@@ -40,7 +40,7 @@ spring:
       group-id: provider-service-reviews
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.StringDeserializer
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -54,32 +54,6 @@ gateway:
   trust:
     enabled: ${GATEWAY_TRUST_ENABLED:false}
     secret: ${GATEWAY_SECRET:dev-secret-change-in-production}
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,prometheus
-  endpoint:
-    health:
-      probes:
-        enabled: true
-  health:
-    readinessstate:
-      enabled: true
-    livenessstate:
-      enabled: true
----
-# Dev profile: enable SQL logging
-spring:
-  config:
-    activate:
-      on-profile: dev
-  jpa:
-    show-sql: false
-
-# Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway
-# Enable in staging/production; leave disabled in local dev
 
 provider:
   public-base-url: ${PROVIDER_PUBLIC_BASE_URL:http://localhost:8081}
@@ -95,3 +69,26 @@ storage:
     url-ttl-seconds: ${MEDICAL_REPORTS_URL_TTL_SECONDS:900}
     access-key: ${MEDICAL_REPORTS_ACCESS_KEY:}
     secret-key: ${MEDICAL_REPORTS_SECRET_KEY:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  health:
+    readinessstate:
+      enabled: true
+    livenessstate:
+      enabled: true
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  jpa:
+    show-sql: false
