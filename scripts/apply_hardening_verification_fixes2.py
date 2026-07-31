@@ -14,7 +14,6 @@ def write(path: str, text: str) -> None:
     print(f"fixed {path}")
 
 
-# TestingAuthenticationToken's two-argument constructor is unauthenticated.
 gateway_test = "backend/api-gateway/src/test/kotlin/com/pawsnearme/apigateway/filter/AuthenticationHeaderFilterTests.kt"
 text = read(gateway_test)
 text = text.replace(
@@ -23,7 +22,6 @@ text = text.replace(
 )
 write(gateway_test, text)
 
-# Make the MVC slice independent of application-profile defaults.
 catalog_test = "backend/catalog-service/src/test/kotlin/com/pawsnearme/catalogservice/controller/CatalogAuthorizationWebMvcTest.kt"
 text = read(catalog_test)
 if "org.springframework.test.context.TestPropertySource" not in text:
@@ -40,7 +38,6 @@ if "@TestPropertySource(properties = [\"internal.api.secret=dev-internal-secret\
     )
 write(catalog_test, text)
 
-# Payment idempotency is mandatory in production, so unit tests provide an explicit mock.
 payment_test = "backend/payment-service/src/test/kotlin/com/pawsnearme/paymentservice/service/PaymentServiceTests.kt"
 text = read(payment_test)
 if "com.pawsnearme.common.idempotency.IdempotencyService" not in text:
@@ -72,6 +69,40 @@ text = text.replace(
     "        objectMapper = ObjectMapper(),\n"
     "        idempotencyService = idempotencyService\n",
 )
+text = text.replace(
+    "        webhookService.processWebhook(payload, signature)\n",
+    "        webhookService.processWebhook(payload, signature, \"evt_transfer_reversed_123\")\n",
+)
 write(payment_test, text)
+
+filter_path = "backend/api-gateway/src/main/kotlin/com/pawsnearme/apigateway/filter/AuthenticationHeaderFilter.kt"
+text = read(filter_path)
+if "import org.springframework.security.core.Authentication" not in text:
+    text = text.replace(
+        "import org.springframework.security.core.context.ReactiveSecurityContextHolder\n",
+        "import org.springframework.security.core.Authentication\n"
+        "import org.springframework.security.core.context.ReactiveSecurityContextHolder\n",
+    )
+text = text.replace(
+    "        return ReactiveSecurityContextHolder.getContext()\n"
+    "            .map { it.authentication }\n"
+    "            .flatMap { authentication ->",
+    "        val authenticationMono = exchange.getPrincipal<Authentication>()\n"
+    "            .switchIfEmpty(ReactiveSecurityContextHolder.getContext().map { it.authentication })\n"
+    "            .filter { it.isAuthenticated }\n\n"
+    "        return authenticationMono\n"
+    "            .flatMap { authentication ->",
+)
+write(filter_path, text)
+
+text = read(gateway_test)
+text = text.replace(
+    "        filter.filter(exchange, chain)\n"
+    "            .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication))\n"
+    "            .block()",
+    "        val authenticatedExchange = exchange.mutate().principal(Mono.just(authentication)).build()\n"
+    "        filter.filter(authenticatedExchange, chain).block()",
+)
+write(gateway_test, text)
 
 print("Second verification-fix pass applied.")
