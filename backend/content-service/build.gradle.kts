@@ -22,6 +22,8 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.flywaydb:flyway-core:10.1.0")
+    implementation("net.javacrumbs.shedlock:shedlock-spring:5.10.2")
+    implementation("net.javacrumbs.shedlock:shedlock-provider-jdbc-template:5.10.2")
     runtimeOnly("org.postgresql:postgresql")
     runtimeOnly("org.flywaydb:flyway-database-postgresql:10.1.0")
     testImplementation("com.h2database:h2")
