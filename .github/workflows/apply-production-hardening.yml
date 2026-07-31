@@ -59,6 +59,8 @@ jobs:
           python3 scripts/apply_production_hardening.py
           python3 -m py_compile scripts/apply_hardening_verification_fixes.py
           python3 scripts/apply_hardening_verification_fixes.py
+          python3 -m py_compile scripts/apply_hardening_verification_fixes2.py
+          python3 scripts/apply_hardening_verification_fixes2.py
           rm -rf scripts/.hardening
 
       - name: Refresh merchant dependency lock
