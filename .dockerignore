@@ -6,10 +6,3 @@
 !backend/*/build/
 !backend/*/build/libs/
 !backend/*/build/libs/*-SNAPSHOT.jar
-
-!infra/
-!infra/postgres.Dockerfile
-!infra/*.sql
-
-!imp files/
-!imp files/*.sql
