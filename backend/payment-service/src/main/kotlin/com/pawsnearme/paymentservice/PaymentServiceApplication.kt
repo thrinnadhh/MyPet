@@ -12,12 +12,14 @@ import org.springframework.scheduling.annotation.EnableScheduling
 @EntityScan(
     basePackages = [
         "com.pawsnearme.paymentservice",
+        "com.pawsnearme.common.idempotency",
         "com.pawsnearme.common.outbox"
     ]
 )
 @EnableJpaRepositories(
     basePackages = [
         "com.pawsnearme.paymentservice",
+        "com.pawsnearme.common.idempotency",
         "com.pawsnearme.common.outbox"
     ]
 )
