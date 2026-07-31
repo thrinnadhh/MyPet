@@ -105,14 +105,14 @@ jobs:
       - name: Capture diagnostics
         if: always()
         run: |
-          git status --short > hardening-status.txt
-          git diff --stat >> hardening-status.txt
-          find backend -path '*/build/test-results/test/*.xml' -type f -print > hardening-test-files.txt || true
-          test_files=$(cat hardening-test-files.txt)
+          git status --short > /tmp/hardening-status.txt
+          git diff --stat >> /tmp/hardening-status.txt
+          find backend -path '*/build/test-results/test/*.xml' -type f -print > /tmp/hardening-test-files.txt || true
+          test_files=$(cat /tmp/hardening-test-files.txt)
           if [ -n "$test_files" ]; then
-            tar -czf hardening-test-results.tgz $test_files
+            tar -czf /tmp/hardening-test-results.tgz $test_files
           fi
-          git diff --binary > production-hardening.patch || true
+          git diff --binary > /tmp/production-hardening.patch || true
 
       - name: Upload diagnostics
         if: always()
@@ -120,10 +120,10 @@ jobs:
         with:
           name: production-hardening-diagnostics-${{ github.run_attempt }}
           path: |
-            hardening-status.txt
-            hardening-test-files.txt
-            hardening-test-results.tgz
-            production-hardening.patch
+            /tmp/hardening-status.txt
+            /tmp/hardening-test-files.txt
+            /tmp/hardening-test-results.tgz
+            /tmp/production-hardening.patch
           if-no-files-found: ignore
           retention-days: 7
 
@@ -140,6 +140,9 @@ jobs:
         run: |
           git config user.name "mypet-hardening-bot"
           git config user.email "actions@users.noreply.github.com"
+          # Workflow files are updated separately through the GitHub connector because
+          # Actions tokens cannot grant themselves workflow-write permission.
+          git restore --source=HEAD -- .github/workflows
           git add -A
           if git diff --cached --quiet; then
             echo "No remediation changes to commit."
