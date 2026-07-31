@@ -45,6 +45,28 @@ WHERE table_schema = 'payments'
 [[ "$loyalty_table_count" == "6" ]] || fail "Expected 6 loyalty tables, found $loyalty_table_count"
 pass "Loyalty database schema is complete"
 
+shedlock_table_count="$("${COMPOSE[@]}" exec -T postgres psql -U postgres -d pawsnearme -Atc "
+SELECT count(*)
+FROM (VALUES
+  (to_regclass('appointments.shedlock')),
+  (to_regclass('content.shedlock')),
+  (to_regclass('dispatch.shedlock')),
+  (to_regclass('notifications.shedlock')),
+  (to_regclass('orders.shedlock')),
+  (to_regclass('payments.shedlock')),
+  (to_regclass('providers.shedlock')),
+  (to_regclass('reviews.shedlock'))
+) AS required_lock(table_name)
+WHERE table_name IS NOT NULL;")"
+[[ "$shedlock_table_count" == "8" ]] || fail "Expected 8 service ShedLock tables, found $shedlock_table_count"
+pass "All scheduler lock tables exist in their service schemas"
+
+topics="$("${COMPOSE[@]}" exec -T kafka \
+  /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list)"
+printf '%s\n' "$topics" | grep -qx 'loyalty.events' \
+  || fail "Kafka topic is missing: loyalty.events"
+pass "Loyalty event topic was provisioned explicitly"
+
 local_jwt="$(python3 - <<'PY'
 import base64
 import json
@@ -108,9 +130,34 @@ ledger="$(curl -fsS "${AUTH_HEADERS[@]}" \
 printf '%s' "$ledger" | assert_json 'len(data) == 2'
 pass "Loyalty ledger recorded exactly two star entries"
 
+published_loyalty_events=0
+for _ in $(seq 1 20); do
+  published_loyalty_events="$("${COMPOSE[@]}" exec -T postgres psql -U postgres -d pawsnearme -Atc "
+SELECT count(*) FROM payments.outbox_events
+WHERE aggregate_type = 'LOYALTY' AND published_at IS NOT NULL;")"
+  if [[ "$published_loyalty_events" -ge 2 ]]; then
+    break
+  fi
+  sleep 1
+done
+[[ "$published_loyalty_events" -ge 2 ]] \
+  || fail "Expected at least 2 published loyalty outbox events, found $published_loyalty_events"
+pass "Payment Outbox persisted and published loyalty events to Kafka"
+
 region_check="$(curl -fsS \
   "http://localhost:8080/api/v1/service-regions/check?pincode=517501")"
 printf '%s' "$region_check" | assert_json 'data["serviceable"] is True'
 pass "Tirupati pincode serviceability lookup succeeded"
+
+sleep 3
+scheduler_errors="$("${COMPOSE[@]}" logs --no-color --since=5m \
+  provider-service appointment-service order-service review-service \
+  content-service payment-service dispatch-service notification-service \
+  | grep -F 'relation "shedlock" does not exist' || true)"
+if [[ -n "$scheduler_errors" ]]; then
+  printf '%s\n' "$scheduler_errors" >&2
+  fail "A scheduled worker queried an unqualified or missing ShedLock table"
+fi
+pass "Scheduled workers ran without missing ShedLock-table errors"
 
 printf '%s\n' "- ✅ Extended loyalty and service-region feature flows passed" >> "$REPORT"
