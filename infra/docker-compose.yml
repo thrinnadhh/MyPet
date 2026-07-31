@@ -16,11 +16,18 @@ services:
       - ./captain_onboarding_bootstrap.sql:/docker-entrypoint-initdb.d/04_captain_onboarding_bootstrap.sql:ro
       - ./service_schemas.sql:/docker-entrypoint-initdb.d/05_service_schemas.sql:ro
       - ./db_roles.sql:/docker-entrypoint-initdb.d/06_db_roles.sql:ro
+      - ./bootstrap_complete.sql:/docker-entrypoint-initdb.d/99_bootstrap_complete.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d pawsnearme"]
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -U postgres -d pawsnearme &&
+          psql -U postgres -d pawsnearme -tAc
+          "SELECT 1 FROM public.bootstrap_status WHERE bootstrap_name = 'base-schema'"
+          | grep -q 1
       interval: 5s
       timeout: 5s
-      retries: 12
+      retries: 18
       start_period: 10s
 
   redis:
