@@ -91,32 +91,35 @@ class Payout(
 @Table(name = "linked_accounts", schema = "payments")
 class LinkedAccount(
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
-    @Column(name = "linked_account_id")
-    var linkedAccountId: UUID? = null,
-
-    @Column(name = "payee_user_id", nullable = false, unique = true)
+    @Column(name = "payee_user_id")
     var payeeUserId: UUID,
 
     @Column(name = "payee_role", nullable = false)
     var payeeRole: String,
 
-    @Column(name = "account_number", nullable = false)
+    /** Request-only compatibility input. Full bank coordinates are never persisted locally. */
+    @Transient
     @JsonIgnore
-    var accountNumber: String,
+    var accountNumber: String = "",
 
-    @Column(name = "ifsc", nullable = false)
+    /** Request-only compatibility input. Full bank coordinates are never persisted locally. */
+    @Transient
     @JsonIgnore
-    var ifsc: String,
+    var ifsc: String = "",
 
-    @Column(name = "business_name", nullable = false)
-    var businessName: String,
+    /** Razorpay owns business/KYC details; these values are not retained in the payment database. */
+    @Transient
+    var businessName: String = "",
 
-    @Column(name = "email", nullable = false)
-    var email: String,
+    @Transient
+    @JsonIgnore
+    var email: String = "",
 
     @Column(name = "razorpay_account_id", nullable = false)
     var razorpayAccountId: String,
+
+    @Column(name = "kyc_status", nullable = false)
+    var kycStatus: String = "MOCK_ONLY",
 
     @Column(name = "pending_clawback_balance", nullable = false)
     var pendingClawbackBalance: BigDecimal = BigDecimal.ZERO,
