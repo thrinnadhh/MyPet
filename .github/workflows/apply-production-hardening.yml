@@ -5,6 +5,10 @@ on:
   push:
     branches:
       - security/s24-s28-production-hardening
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
@@ -16,7 +20,7 @@ concurrency:
 
 jobs:
   apply-and-verify:
-    if: ${{ !contains(github.event.head_commit.message, '[hardening-bot]') }}
+    if: ${{ !contains(github.event.head_commit.message || '', '[hardening-bot]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -25,6 +29,7 @@ jobs:
         with:
           ref: security/s24-s28-production-hardening
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -85,12 +90,13 @@ jobs:
       - name: Static production hardening gates
         run: bash scripts/check-production-hardening.sh
 
-      - name: Capture failure diagnostics
-        if: failure()
+      - name: Capture diagnostics
+        if: always()
         run: |
           git status --short > hardening-status.txt
           git diff --stat >> hardening-status.txt
           find backend -path '*/build/test-results/test/*.xml' -type f -print > hardening-test-files.txt || true
+          git diff --binary > production-hardening.patch || true
 
       - name: Upload diagnostics
         if: always()
@@ -100,6 +106,7 @@ jobs:
           path: |
             hardening-status.txt
             hardening-test-files.txt
+            production-hardening.patch
             backend/**/build/reports/tests/test/**
           if-no-files-found: ignore
           retention-days: 7
