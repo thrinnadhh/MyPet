@@ -10,21 +10,23 @@ import os
 import sys
 from pathlib import Path
 
+
 def run_sql_file(cursor, file_path):
     print(f"Executing: {file_path}")
     if not os.path.exists(file_path):
         print(f"Error: File not found {file_path}")
         sys.exit(1)
-        
+
     with open(file_path, "r", encoding="utf-8") as f:
         sql = f.read()
-    
+
     try:
         cursor.execute(sql)
         print(f"Successfully executed {os.path.basename(file_path)}")
     except Exception as e:
         print(f"Error executing {file_path}: {e}")
         raise e
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -54,13 +56,13 @@ if __name__ == "__main__":
         parser.error("LOCAL_DEV_DB_URL must use the pawsnearme development database")
 
     repository_root = Path(__file__).resolve().parent.parent
-    
+
     print("Connecting to the local PostgreSQL development database...")
     try:
         conn = psycopg2.connect(conn_str)
         cursor = conn.cursor()
         print("Connected!")
-        
+
         # Reset schemas for a clean run
         print("Resetting database schemas...")
         cursor.execute("""
@@ -74,20 +76,23 @@ if __name__ == "__main__":
             DROP SCHEMA IF EXISTS payments CASCADE;
             DROP SCHEMA IF EXISTS reviews CASCADE;
             DROP SCHEMA IF EXISTS notifications CASCADE;
+            DROP SCHEMA IF EXISTS chat CASCADE;
+            DROP SCHEMA IF EXISTS content CASCADE;
             DROP SCHEMA IF EXISTS auth CASCADE;
         """)
-        
+
         # 1. Run supabase mock script first to create auth.users
         run_sql_file(cursor, repository_root / "infra" / "supabase_mock.sql")
-        
-        # 2. Run DDL files in sequence
+
+        # 2. Run base DDL and service-role bootstrap in dependency order
         sql_files = [
             repository_root / "imp files" / "01_identity_providers.sql",
             repository_root / "imp files" / "02_catalog_orders_appointments.sql",
             repository_root / "imp files" / "03_dispatch_captains_payments_reviews_notifications.sql",
+            repository_root / "infra" / "service_schemas.sql",
             repository_root / "infra" / "db_roles.sql",
         ]
-        
+
         for sf in sql_files:
             run_sql_file(cursor, sf)
 
