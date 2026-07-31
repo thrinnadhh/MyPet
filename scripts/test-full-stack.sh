@@ -37,7 +37,7 @@ else
   cat > "$ENV_FILE" <<'EOF'
 GATEWAY_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 INTERNAL_API_SECRET=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
-BANK_DATA_ENCRYPTION_KEY=bG9jYWwtZGV2LWJhbmsrZW5jcnlwdGlvbi1rZXktMzI=
+BANK_DATA_ENCRYPTION_KEY=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
 MEDICAL_REPORTS_BUCKET=mypet-local-medical-reports
 MEDICAL_REPORTS_REGION=ap-south-1
 MEDICAL_REPORTS_ACCESS_KEY=local-test-access-key
@@ -117,7 +117,7 @@ wait_for_service() {
   local container_id state body
 
   while (( SECONDS < deadline )); do
-    container_id="$("${COMPOSE[@]}" ps -q "$service")"
+    container_id="$("${COMPOSE[@]}" ps -aq "$service")"
     if [[ -n "$container_id" ]]; then
       state="$(docker inspect --format='{{.State.Status}}' "$container_id")"
       if [[ "$state" == "exited" || "$state" == "dead" ]]; then
@@ -172,7 +172,7 @@ kafka_init_exit="$(docker inspect --format='{{.State.ExitCode}}' "$kafka_init_id
 [[ "$kafka_init_exit" == "0" ]] || fail "Kafka topic initialization exited with $kafka_init_exit"
 pass "Kafka topic initialization completed successfully"
 
-schema_count="$(docker exec pawsnearme-postgres psql -U postgres -d pawsnearme -Atc "
+schema_count="$("${COMPOSE[@]}" exec -T postgres psql -U postgres -d pawsnearme -Atc "
 SELECT count(*)
 FROM information_schema.schemata
 WHERE schema_name IN (
@@ -182,7 +182,12 @@ WHERE schema_name IN (
 [[ "$schema_count" == "13" ]] || fail "Expected 13 application schemas, found $schema_count"
 pass "All 13 application schemas were bootstrapped"
 
-role_count="$(docker exec pawsnearme-postgres psql -U postgres -d pawsnearme -Atc "
+bootstrap_marker="$("${COMPOSE[@]}" exec -T postgres psql -U postgres -d pawsnearme -Atc "
+SELECT count(*) FROM public.bootstrap_status WHERE bootstrap_name = 'base-schema';")"
+[[ "$bootstrap_marker" == "1" ]] || fail "Database bootstrap completion marker is missing"
+pass "Database bootstrap completed before application startup"
+
+role_count="$("${COMPOSE[@]}" exec -T postgres psql -U postgres -d pawsnearme -Atc "
 SELECT count(*)
 FROM pg_roles
 WHERE rolname IN (
@@ -194,7 +199,7 @@ WHERE rolname IN (
 [[ "$role_count" == "13" ]] || fail "Expected 13 service database roles, found $role_count"
 pass "All 13 service database roles were created"
 
-critical_tables="$(docker exec pawsnearme-postgres psql -U postgres -d pawsnearme -Atc "
+critical_tables="$("${COMPOSE[@]}" exec -T postgres psql -U postgres -d pawsnearme -Atc "
 SELECT count(*)
 FROM (VALUES
   (to_regclass('identity.profiles')),
@@ -203,19 +208,29 @@ FROM (VALUES
   (to_regclass('orders.orders')),
   (to_regclass('appointments.appointments')),
   (to_regclass('captains.captain_profiles')),
+  (to_regclass('captains.captain_documents')),
   (to_regclass('payments.transactions')),
   (to_regclass('chat.conversations')),
   (to_regclass('content.promo_banners'))
 ) AS required_table(table_name)
 WHERE table_name IS NOT NULL;")"
-[[ "$critical_tables" == "9" ]] || fail "Expected 9 critical tables, found $critical_tables"
+[[ "$critical_tables" == "10" ]] || fail "Expected 10 critical tables, found $critical_tables"
 pass "Critical identity, commerce, care, delivery, payment, chat, and content tables exist"
+
+captain_columns="$("${COMPOSE[@]}" exec -T postgres psql -U postgres -d pawsnearme -Atc "
+SELECT count(*)
+FROM information_schema.columns
+WHERE table_schema = 'captains'
+  AND table_name = 'captain_profiles'
+  AND column_name IN ('bank_account', 'bank_ifsc', 'selfie_doc_url');")"
+[[ "$captain_columns" == "3" ]] || fail "Captain onboarding/bank columns were not bootstrapped"
+pass "Captain onboarding and encrypted-bank storage columns exist"
 
 expected_topics=(
   orders.events appointments.events payments.events providers.events
   dispatch.events reviews.events chat.events vaccination.events
 )
-topics="$(docker exec pawsnearme-kafka \
+topics="$("${COMPOSE[@]}" exec -T kafka \
   /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list)"
 for topic in "${expected_topics[@]}"; do
   printf '%s\n' "$topics" | grep -qx "$topic" || fail "Kafka topic is missing: $topic"
@@ -226,6 +241,30 @@ curl -fsS http://localhost:8080/actuator/health/readiness >/dev/null
 curl -fsS http://localhost:8090/actuator/health/readiness >/dev/null
 pass "Gateway and payment host readiness endpoints returned HTTP 200"
 
+local_user_id="11111111-1111-1111-1111-111111111111"
+local_jwt="$(python3 - <<'PY'
+import base64
+import json
+import time
+
+
+def encode(value):
+    raw = json.dumps(value, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+now = int(time.time())
+print(
+    f"{encode({'alg': 'none', 'typ': 'JWT'})}."
+    f"{encode({'sub': '11111111-1111-1111-1111-111111111111', 'iat': now, 'exp': now + 3600})}."
+)
+PY
+)"
+auth_headers=(
+  -H "Authorization: Bearer $local_jwt"
+  -H "X-User-Id: $local_user_id"
+  -H "X-User-Role: CUSTOMER"
+)
+
 curl -fsS http://localhost:8080/api/v1/content/banners \
   | python3 -m json.tool >/dev/null
 pass "Gateway → content-service banner listing succeeded"
@@ -234,26 +273,32 @@ curl -fsS http://localhost:8080/api/v1/content/guides/categories \
   | python3 -m json.tool >/dev/null
 pass "Gateway → content-service guide-category listing succeeded"
 
-curl -fsS http://localhost:8080/api/v1/payments/promotions \
+curl -fsS http://localhost:8080/api/v1/catalog/offerings \
   | python3 -m json.tool >/dev/null
-pass "Gateway → payment-service promotion listing succeeded"
+pass "Gateway → catalog-service offering listing succeeded"
 
-curl -fsS http://localhost:8080/api/v1/payments/cod/config \
+curl -fsS http://localhost:8080/api/v1/service-regions \
   | python3 -m json.tool >/dev/null
-pass "Gateway → payment-service COD configuration lookup succeeded"
+pass "Gateway → discovery-service service-region listing succeeded"
+
+curl -fsS "${auth_headers[@]}" \
+  http://localhost:8080/api/v1/payments/promotions \
+  | python3 -m json.tool >/dev/null
+pass "Authenticated gateway → payment-service promotion listing succeeded"
+
+curl -fsS "${auth_headers[@]}" \
+  http://localhost:8080/api/v1/payments/cod/config \
+  | python3 -m json.tool >/dev/null
+pass "Authenticated gateway → payment-service COD configuration lookup succeeded"
 
 protected_status="$(curl -sS -o /dev/null -w '%{http_code}' \
+  "${auth_headers[@]}" \
   -X POST http://localhost:8080/api/v1/content/banners \
   -H 'Content-Type: application/json' \
   --data '{"title":"unauthorized","subtitle":"must be blocked"}')"
-case "$protected_status" in
-  401|403)
-    pass "Gateway role guard blocked an unauthenticated content write (HTTP $protected_status)"
-    ;;
-  *)
-    fail "Protected content write returned unexpected HTTP $protected_status"
-    ;;
-esac
+[[ "$protected_status" == "403" ]] \
+  || fail "Protected content write returned unexpected HTTP $protected_status"
+pass "Gateway role guard blocked a CUSTOMER content write (HTTP 403)"
 
 cat >> "$REPORT" <<EOF
 
@@ -267,7 +312,7 @@ cat >> "$REPORT" <<EOF
 ## Final result
 
 **PASS** — clean database bootstrap, all infrastructure, all 13 backend applications,
-selected public read paths, payment/COD reads, and a protected write boundary passed.
+selected public reads, authenticated payment/COD reads, and a protected write boundary passed.
 EOF
 
 pass "Full-stack validation completed successfully"
