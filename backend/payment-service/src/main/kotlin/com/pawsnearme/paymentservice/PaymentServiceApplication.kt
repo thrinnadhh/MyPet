@@ -8,7 +8,7 @@ import org.springframework.scheduling.annotation.EnableScheduling
 
 @SpringBootApplication
 @EnableScheduling
-@ComponentScan(basePackages = ["com.pawsnearme.paymentservice", "com.pawsnearme.common.security"])
+@ComponentScan(basePackages = ["com.pawsnearme.paymentservice", "com.pawsnearme.common.security", "com.pawsnearme.common.idempotency"])
 class PaymentServiceApplication
 
 fun main(args: Array<String>) {

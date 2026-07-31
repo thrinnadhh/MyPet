@@ -14,7 +14,7 @@ dependencies {
     implementation("io.micrometer:micrometer-registry-prometheus")
 
     implementation(project(":common"))
-    implementation(platform("org.springframework.boot:spring-boot-dependencies:3.2.3"))
+    implementation(platform("org.springframework.boot:spring-boot-dependencies:3.5.14"))
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-validation")

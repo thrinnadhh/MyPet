@@ -191,12 +191,13 @@ class OrderService(
     private val providerServiceUrl: String,
     @Value("\${DISCOVERY_SERVICE_URL:http://localhost:8083}")
     private val discoveryServiceUrl: String,
-    @Value("\${gateway.trust.secret:}")
-    private val gatewayTrustSecret: String = "",
+    @Value("\${internal.api.secret:}")
+    private val internalServiceSecret: String = "",
     @Value("\${order.online-payments-enabled:false}")
     private val onlinePaymentsEnabled: Boolean = false,
     private val restTemplate: RestTemplate,
-    private val quoteStore: QuoteStore? = null
+    private val quoteStore: QuoteStore? = null,
+    private val compensationService: OrderCompensationService? = null
 ) {
     fun calculateQuote(request: CheckoutQuoteRequest): CheckoutQuoteResponse {
         validateItems(request.items, "Quote")
@@ -271,6 +272,8 @@ class OrderService(
             customerId = request.customerId ?: UUID(0, 0),
             providerId = request.providerId ?: UUID(0, 0),
             paymentMethod = paymentMethod,
+            deliveryAddressId = request.deliveryAddressId,
+            loyaltyRewardId = request.loyaltyRewardId,
             items = request.items.map { QuoteItemSnapshot(it.offeringId, it.quantity) }
         )
         quoteStore?.store(quoteToken, quoteSnapshot)
@@ -315,21 +318,30 @@ class OrderService(
                     "Request a new quote before placing your order."
             )
 
-        // Validate immutable snapshot bindings
-        if (snapshot.customerId != activeCustomerId && snapshot.customerId.toString() != "00000000-0000-0000-0000-000000000000") {
-            if (snapshot.customerId.mostSignificantBits != 0L && snapshot.customerId.leastSignificantBits != 0L) {
-                // Ignore dummy random IDs from backward compatibility helper, check matching customerId
-            }
+        // Enforce every security- and money-sensitive quote binding exactly.
+        if (snapshot.customerId != activeCustomerId) {
+            throw IllegalArgumentException("Quote token belongs to a different customer")
         }
-        if (snapshot.providerId != request.providerId && snapshot.items.isNotEmpty()) {
+        if (snapshot.providerId != request.providerId) {
             throw IllegalArgumentException("Quote token does not match order provider")
         }
-        if (snapshot.items.isNotEmpty()) {
-            val reqItemsMap = request.items.associate { it.offeringId to it.quantity }
-            val snapItemsMap = snapshot.items.associate { it.offeringId to it.quantity }
-            if (reqItemsMap != snapItemsMap) {
-                throw IllegalArgumentException("Order items do not match locked-in quote snapshot")
-            }
+        if (snapshot.deliveryAddressId != request.deliveryAddressId) {
+            throw IllegalArgumentException("Delivery address does not match the quote")
+        }
+        if (snapshot.loyaltyRewardId != request.loyaltyRewardId) {
+            throw IllegalArgumentException("Loyalty reward does not match the quote")
+        }
+        val normalizedCoupon = request.couponCode?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        if (snapshot.couponCode != normalizedCoupon) {
+            throw IllegalArgumentException("Coupon does not match the quote")
+        }
+        if (snapshot.paymentMethod != paymentMethod) {
+            throw IllegalArgumentException("Payment method does not match the quote")
+        }
+        val reqItemsMap = request.items.associate { it.offeringId to it.quantity }
+        val snapItemsMap = snapshot.items.associate { it.offeringId to it.quantity }
+        if (reqItemsMap != snapItemsMap || reqItemsMap.size != request.items.size) {
+            throw IllegalArgumentException("Order items do not match the locked quote")
         }
 
         val quote = calculateQuote(
@@ -346,7 +358,8 @@ class OrderService(
                 longitude = request.longitude
             )
         ).also { freshQuote ->
-            if (freshQuote.payableTotal.subtract(snapshot.total).abs() > BigDecimal("1.00")) {
+            quoteStore?.delete(freshQuote.quoteToken)
+            if (freshQuote.payableTotal.compareTo(snapshot.total) != 0) {
                 throw IllegalStateException("Price has changed since your quote. Please request a new quote.")
             }
         }
@@ -434,46 +447,21 @@ class OrderService(
 
             return savedOrder
         } catch (e: Exception) {
-            recordStockAndCouponCompensation(
-                orderId = savedOrderId,
-                customerId = activeCustomerId,
-                couponCode = if (couponReserved) request.couponCode else null,
-                reservedItems = reservedItems
-            )
-            if (couponReserved && !request.couponCode.isNullOrBlank() && savedOrderId != null) {
-                releaseCouponReservation(
-                    request.couponCode.trim().uppercase(),
-                    activeCustomerId,
-                    savedOrderId
-                )
+            try {
+                compensationService?.recordFailure(
+                    orderId = savedOrderId,
+                    customerId = activeCustomerId,
+                    couponCode = if (couponReserved) request.couponCode else null,
+                    items = reservedItems
+                ) ?: throw IllegalStateException("Durable compensation service is unavailable")
+            } catch (recordingFailure: Exception) {
+                logger.error("CRITICAL: Failed to durably record order compensation", recordingFailure)
+                throw IllegalStateException(
+                    "Order failed and compensation could not be recorded safely",
+                    recordingFailure
+                ).also { it.addSuppressed(e) }
             }
-            restoreReservedCatalogStock(reservedItems)
             throw e
-        }
-    }
-
-    private fun recordStockAndCouponCompensation(
-        orderId: UUID?,
-        customerId: UUID,
-        couponCode: String?,
-        reservedItems: List<OrderItemRequest>
-    ) {
-        try {
-            val payload = mapOf(
-                "orderId" to (orderId ?: UUID.randomUUID()),
-                "customerId" to customerId,
-                "couponCode" to couponCode,
-                "items" to reservedItems.map { mapOf("offeringId" to it.offeringId, "quantity" to it.quantity) }
-            )
-            outboxService.saveEvent(
-                aggregateType = "ORDER",
-                aggregateId = orderId ?: customerId,
-                eventType = "COMPENSATE_STOCK_AND_COUPON",
-                eventPayload = payload
-            )
-            logger.info("Durable compensation outbox event recorded for order {}", orderId)
-        } catch (ex: Exception) {
-            logger.warn("Could not record durable compensation outbox event: {}", ex.message)
         }
     }
 
@@ -643,8 +631,10 @@ class OrderService(
         if (quantity <= 0) {
             throw IllegalArgumentException("Quantity must be greater than zero")
         }
-        val url = "$baseUrl/api/v1/catalog/offerings/$offeringId/decrement-stock?quantity=$quantity"
-        val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
+        val url = "$baseUrl/api/v1/internal/catalog/offerings/$offeringId/decrement-stock?quantity=$quantity"
+        val headers = internalHeaders()
+        headers.set("X-Idempotency-Key", UUID.nameUUIDFromBytes("reserve:$offeringId:$quantity".toByteArray()).toString())
+        val entity = org.springframework.http.HttpEntity<Any>(headers)
         val response = restTemplate.exchange(
             url,
             org.springframework.http.HttpMethod.PUT,
@@ -673,8 +663,10 @@ class OrderService(
     private fun restoreReservedCatalogStock(items: List<OrderItemRequest>) {
         for (item in items.asReversed()) {
             try {
-                val url = "$catalogServiceUrl/api/v1/catalog/offerings/${item.offeringId}/restore-stock?quantity=${item.quantity}"
-                val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
+                val url = "$catalogServiceUrl/api/v1/internal/catalog/offerings/${item.offeringId}/restore-stock?quantity=${item.quantity}"
+                val headers = internalHeaders()
+                headers.set("X-Idempotency-Key", UUID.nameUUIDFromBytes("restore:${item.offeringId}:${item.quantity}".toByteArray()).toString())
+                val entity = org.springframework.http.HttpEntity<Any>(headers)
                 restTemplate.exchange(
                     url,
                     org.springframework.http.HttpMethod.PUT,
@@ -993,7 +985,7 @@ class OrderService(
             var name = item.offeringNameSnapshot
 
             try {
-                val url = "$catalogServiceUrl/api/v1/catalog/offerings/${item.offeringId}"
+                val url = "$catalogServiceUrl/api/v1/internal/catalog/offerings/${item.offeringId}"
                 val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
                 val response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, Map::class.java).body
                 if (response != null) {
@@ -1113,7 +1105,7 @@ class OrderService(
     )
 
     private fun fetchOfferingSnapshot(offeringId: UUID): CatalogOfferingSnapshot {
-        val url = "$catalogServiceUrl/api/v1/catalog/offerings/$offeringId"
+        val url = "$catalogServiceUrl/api/v1/internal/catalog/offerings/$offeringId"
         val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
         val response = try {
             restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, Map::class.java).body
@@ -1343,9 +1335,9 @@ class OrderService(
 
     private fun internalHeaders(): org.springframework.http.HttpHeaders {
         val headers = org.springframework.http.HttpHeaders()
-        if (gatewayTrustSecret.isNotBlank()) {
-            headers.set("X-Internal-Gateway-Secret", gatewayTrustSecret)
-            headers.set("X-Internal-Secret", gatewayTrustSecret)
+        if (internalServiceSecret.isNotBlank()) {
+            headers.set("X-Internal-Secret", internalServiceSecret)
+            headers.set("X-Service-Name", "order-service")
         }
         return headers
     }

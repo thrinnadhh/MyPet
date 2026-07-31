@@ -18,15 +18,11 @@ data class QuoteSnapshot(
     val customerId: UUID,
     val providerId: UUID,
     val paymentMethod: String,
-    val items: List<QuoteItemSnapshot> = emptyList()
+    val deliveryAddressId: UUID,
+    val loyaltyRewardId: UUID?,
+    val items: List<QuoteItemSnapshot>
 )
 
-/**
- * Stores and validates checkout quote tokens in Redis with a 15-minute TTL.
- *
- * Enforces immutable binding of total, customerId, providerId, paymentMethod,
- * and items snapshot to the token.
- */
 @Component
 class QuoteStore(
     private val redisTemplate: StringRedisTemplate,
@@ -37,51 +33,19 @@ class QuoteStore(
         private val TTL = Duration.ofMinutes(15)
     }
 
-    /** Persist a quote snapshot. Returns the stored token. */
     fun store(token: String, snapshot: QuoteSnapshot): String {
-        val payload = objectMapper.writeValueAsString(snapshot)
-        redisTemplate.opsForValue().set(key(token), payload, TTL)
+        redisTemplate.opsForValue().set(key(token), objectMapper.writeValueAsString(snapshot), TTL)
         return token
     }
 
-    /** Backward compatible helper overload. */
-    fun store(token: String, total: BigDecimal, couponCode: String?): String {
-        val dummyId = UUID.randomUUID()
-        return store(
-            token,
-            QuoteSnapshot(
-                total = total,
-                couponCode = couponCode,
-                customerId = dummyId,
-                providerId = dummyId,
-                paymentMethod = "CARD",
-                items = emptyList()
-            )
-        )
-    }
-
-    /**
-     * Validate a token and return the locked-in quote snapshot.
-     * Returns null if the token is expired, unknown, or was already consumed.
-     */
+    /** Atomic read-and-delete. A quote can authorize exactly one order attempt. */
     fun consume(token: String): QuoteSnapshot? {
         val raw = redisTemplate.opsForValue().getAndDelete(key(token)) ?: return null
-        return try {
-            objectMapper.readValue(raw, QuoteSnapshot::class.java)
-        } catch (e: Exception) {
-            val map = objectMapper.readValue(raw, Map::class.java)
-            val total = BigDecimal(map["total"] as String)
-            val couponCode = (map["couponCode"] as? String)?.takeIf { it.isNotBlank() }
-            val dummyId = UUID.randomUUID()
-            QuoteSnapshot(
-                total = total,
-                couponCode = couponCode,
-                customerId = dummyId,
-                providerId = dummyId,
-                paymentMethod = "CARD",
-                items = emptyList()
-            )
-        }
+        return objectMapper.readValue(raw, QuoteSnapshot::class.java)
+    }
+
+    fun delete(token: String) {
+        redisTemplate.delete(key(token))
     }
 
     private fun key(token: String) = "$KEY_PREFIX$token"

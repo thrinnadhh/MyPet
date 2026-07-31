@@ -3,6 +3,7 @@ package com.pawsnearme.paymentservice.scheduler
 import com.pawsnearme.paymentservice.service.PaymentService
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.springframework.stereotype.Component
 import java.time.LocalDate
 
@@ -11,6 +12,7 @@ class PayoutScheduler(private val paymentService: PaymentService) {
     private val logger = LoggerFactory.getLogger(PayoutScheduler::class.java)
 
     @Scheduled(cron = "\${payout.scheduler.cron:0 0 0 * * MON}")
+    @SchedulerLock(name = "paymentPayoutScheduler", lockAtMostFor = "PT30M", lockAtLeastFor = "PT1M")
     fun scheduleWeeklyPayouts() {
         val today = LocalDate.now()
         val end = today.minusDays(1) // Previous Sunday

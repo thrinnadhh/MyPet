@@ -1,0 +1,152 @@
+name: Apply production hardening
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - security/s24-s28-production-hardening
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: production-hardening-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply-and-verify:
+    if: ${{ !contains(github.event.head_commit.message || '', '[hardening-bot]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Check out hardening branch
+        uses: actions/checkout@v4
+        with:
+          ref: security/s24-s28-production-hardening
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            apps/customer-app/package-lock.json
+            apps/merchant-captain-app/package-lock.json
+
+      - name: Reconstruct and apply codemod
+        run: |
+          cat scripts/.hardening/part*.b64 | base64 --decode > scripts/apply_production_hardening.py
+          python3 -m py_compile scripts/apply_production_hardening.py
+          python3 scripts/apply_production_hardening.py
+          python3 -m py_compile scripts/apply_hardening_verification_fixes.py
+          python3 scripts/apply_hardening_verification_fixes.py
+          python3 -m py_compile scripts/apply_hardening_verification_fixes2.py
+          python3 scripts/apply_hardening_verification_fixes2.py
+          rm -rf scripts/.hardening
+
+      - name: Refresh merchant dependency lock
+        working-directory: apps/merchant-captain-app
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Backend verification
+        id: backend
+        continue-on-error: true
+        working-directory: backend
+        env:
+          INTERNAL_API_SECRET: ci-internal-service-secret
+        run: |
+          chmod +x gradlew
+          ./gradlew clean test --continue --no-daemon
+
+      - name: Customer app verification
+        id: customer
+        continue-on-error: true
+        working-directory: apps/customer-app
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+
+      - name: Merchant and captain app verification
+        id: merchant
+        continue-on-error: true
+        working-directory: apps/merchant-captain-app
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+
+      - name: Static production hardening gates
+        id: static
+        continue-on-error: true
+        run: bash scripts/check-production-hardening.sh
+
+      - name: Capture diagnostics
+        if: always()
+        run: |
+          git status --short > /tmp/hardening-status.txt
+          git diff --stat >> /tmp/hardening-status.txt
+          find backend -path '*/build/test-results/test/*.xml' -type f -print > /tmp/hardening-test-files.txt || true
+          test_files=$(cat /tmp/hardening-test-files.txt)
+          if [ -n "$test_files" ]; then
+            tar -czf /tmp/hardening-test-results.tgz $test_files
+          fi
+          git diff --binary > /tmp/production-hardening.patch || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-hardening-diagnostics-${{ github.run_attempt }}
+          path: |
+            /tmp/hardening-status.txt
+            /tmp/hardening-test-files.txt
+            /tmp/hardening-test-results.tgz
+            /tmp/production-hardening.patch
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Enforce complete verification
+        if: always()
+        run: |
+          echo "backend=${{ steps.backend.outcome }} customer=${{ steps.customer.outcome }} merchant=${{ steps.merchant.outcome }} static=${{ steps.static.outcome }}"
+          test "${{ steps.backend.outcome }}" = success
+          test "${{ steps.customer.outcome }}" = success
+          test "${{ steps.merchant.outcome }}" = success
+          test "${{ steps.static.outcome }}" = success
+
+      - name: Commit verified remediation
+        run: |
+          git config user.name "mypet-hardening-bot"
+          git config user.email "actions@users.noreply.github.com"
+          # Workflow files are updated separately through the GitHub connector because
+          # Actions tokens cannot grant themselves workflow-write permission.
+          git restore --source=HEAD -- .github/workflows
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No remediation changes to commit."
+            exit 0
+          fi
+          git commit -m "fix: apply Sprints 24-28 production hardening [hardening-bot]"
+          git push origin HEAD:security/s24-s28-production-hardening

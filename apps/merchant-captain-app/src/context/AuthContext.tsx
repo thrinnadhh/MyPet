@@ -65,7 +65,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setRole('MERCHANT');
       setActiveRole('PROVIDER');
       apiClient.setSessionToken(mockSession.access_token);
-      apiClient.setUserContext(mockUser.id, 'MERCHANT');
       setLoading(false);
       return;
     }
@@ -89,7 +88,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setActiveRole(resolveActiveRole(backendRole));
       
       apiClient.setSessionToken(nextSession?.access_token ?? null);
-      apiClient.setUserContext(nextSession?.user?.id ?? null, backendRole);
 
       if (nextSession) {
         try {
@@ -121,7 +119,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signOut = async () => {
     apiClient.setSessionToken(null);
-    apiClient.setUserContext(null, null);
     await supabase.auth.signOut();
   };
 

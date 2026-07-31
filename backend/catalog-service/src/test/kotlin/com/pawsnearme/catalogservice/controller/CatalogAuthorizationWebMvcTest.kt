@@ -5,6 +5,7 @@ import com.pawsnearme.catalogservice.dto.OfferingRequest
 import com.pawsnearme.catalogservice.model.Offering
 import com.pawsnearme.catalogservice.model.OfferingStatus
 import com.pawsnearme.catalogservice.service.CatalogService
+import com.pawsnearme.catalogservice.service.InternalStockMutationService
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
@@ -32,6 +33,9 @@ class CatalogAuthorizationWebMvcTest {
 
     @MockBean
     private lateinit var catalogService: CatalogService
+
+    @MockBean
+    private lateinit var internalStockMutationService: InternalStockMutationService
 
     private val providerId = UUID.randomUUID()
     private val ownerId = UUID.randomUUID()
@@ -153,7 +157,7 @@ class CatalogAuthorizationWebMvcTest {
     }
 
     @Test
-    fun `decrementStock - internal secret header succeeds with 200`() {
+    fun `decrementStock - internal secret cannot bypass merchant ownership`() {
         whenever(catalogService.getOfferingById(offeringId)).thenReturn(sampleOffering)
         whenever(catalogService.decrementStock(eq(offeringId), eq(2))).thenReturn(sampleOffering)
 
@@ -161,7 +165,7 @@ class CatalogAuthorizationWebMvcTest {
             put("/api/v1/catalog/offerings/$offeringId/decrement-stock?quantity=2")
                 .header("X-Internal-Secret", "dev-internal-secret")
         )
-            .andExpect(status().isOk)
+            .andExpect(status().isForbidden)
     }
 
     @Test
@@ -169,17 +173,25 @@ class CatalogAuthorizationWebMvcTest {
         mockMvc.perform(
             put("/api/v1/internal/catalog/offerings/$offeringId/decrement-stock?quantity=2")
                 .header("X-Internal-Secret", "wrong-secret")
+                .header("X-Service-Name", "order-service")
+                .header("X-Idempotency-Key", UUID.randomUUID().toString())
+                .header("X-Service-Name", "order-service")
+                .header("X-Idempotency-Key", UUID.randomUUID().toString())
         )
             .andExpect(status().isForbidden)
     }
 
     @Test
     fun `decrementStockInternal - valid internal secret succeeds with 200`() {
-        whenever(catalogService.decrementStock(eq(offeringId), eq(2))).thenReturn(sampleOffering)
+        val idempotencyKey = UUID.randomUUID()
+        whenever(internalStockMutationService.mutate(eq(idempotencyKey), eq(offeringId), eq(2), eq("DECREMENT")))
+            .thenReturn(sampleOffering)
 
         mockMvc.perform(
             put("/api/v1/internal/catalog/offerings/$offeringId/decrement-stock?quantity=2")
                 .header("X-Internal-Secret", "dev-internal-secret")
+                .header("X-Service-Name", "order-service")
+                .header("X-Idempotency-Key", idempotencyKey.toString())
         )
             .andExpect(status().isOk)
     }

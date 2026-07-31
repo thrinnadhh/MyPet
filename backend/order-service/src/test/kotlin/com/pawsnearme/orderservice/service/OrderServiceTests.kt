@@ -124,7 +124,7 @@ class OrderServiceTests {
         val offeringId = UUID.randomUUID()
         whenever(
             restTemplate.exchange(
-                eq("http://localhost:8082/api/v1/catalog/offerings/$offeringId"),
+                eq("http://localhost:8082/api/v1/internal/catalog/offerings/$offeringId"),
                 eq(org.springframework.http.HttpMethod.GET),
                 any<org.springframework.http.HttpEntity<Any>>(),
                 eq(Map::class.java)
@@ -149,7 +149,7 @@ class OrderServiceTests {
         val offeringId = UUID.randomUUID()
         whenever(
             restTemplate.exchange(
-                eq("http://localhost:8082/api/v1/catalog/offerings/$offeringId"),
+                eq("http://localhost:8082/api/v1/internal/catalog/offerings/$offeringId"),
                 eq(org.springframework.http.HttpMethod.GET),
                 any<org.springframework.http.HttpEntity<Any>>(),
                 eq(Map::class.java)
@@ -313,7 +313,7 @@ class OrderServiceTests {
         assertNotNull(result.cancelledAt)
         assertEquals("customer request", result.cancellationReason)
         verify(restTemplate).exchange(
-            eq("http://localhost:8082/api/v1/catalog/offerings/${items[0].offeringId}/restore-stock?quantity=2"),
+            eq("http://localhost:8082/api/v1/internal/catalog/offerings/${items[0].offeringId}/restore-stock?quantity=2"),
             eq(org.springframework.http.HttpMethod.PUT),
             anyOrNull(),
             eq(Map::class.java)
