@@ -48,7 +48,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8081
-      PROVIDER_PUBLIC_BASE_URL: ${PROVIDER_PUBLIC_BASE_URL:http://localhost:8080}
+      PROVIDER_PUBLIC_BASE_URL: ${PROVIDER_PUBLIC_BASE_URL:-http://localhost:8080}
 
   catalog-service:
     <<: *backend-common
@@ -169,7 +169,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8091
-      CHAT_PUBLIC_BASE_URL: ${CHAT_PUBLIC_BASE_URL:http://localhost:8091}
+      CHAT_PUBLIC_BASE_URL: ${CHAT_PUBLIC_BASE_URL:-http://localhost:8091}
 
   content-service:
     <<: *backend-common
@@ -218,7 +218,21 @@ services:
         condition: service_started
       discovery-service:
         condition: service_started
+      order-service:
+        condition: service_started
       appointment-service:
+        condition: service_started
+      dispatch-service:
+        condition: service_started
+      captain-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      review-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
+      chat-service:
         condition: service_started
       content-service:
         condition: service_started
