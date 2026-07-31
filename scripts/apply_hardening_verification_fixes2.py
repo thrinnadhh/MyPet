@@ -17,8 +17,16 @@ def write(path: str, text: str) -> None:
 gateway_test = "backend/api-gateway/src/test/kotlin/com/pawsnearme/apigateway/filter/AuthenticationHeaderFilterTests.kt"
 text = read(gateway_test)
 text = text.replace(
+    "import org.springframework.security.authentication.TestingAuthenticationToken\n",
+    "import org.springframework.security.authentication.UsernamePasswordAuthenticationToken\n",
+)
+text = text.replace(
     "TestingAuthenticationToken(jwt, null)",
+    "UsernamePasswordAuthenticationToken.authenticated(jwt, null, emptyList())",
+)
+text = text.replace(
     "TestingAuthenticationToken(jwt, null, emptyList())",
+    "UsernamePasswordAuthenticationToken.authenticated(jwt, null, emptyList())",
 )
 write(gateway_test, text)
 
