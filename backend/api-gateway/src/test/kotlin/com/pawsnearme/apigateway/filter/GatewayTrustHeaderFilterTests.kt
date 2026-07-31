@@ -14,7 +14,7 @@ class GatewayTrustHeaderFilterTests {
 
     @Test
     fun `replaces a forged gateway secret with the configured trusted secret`() {
-        val filter = GatewayTrustHeaderFilter(true, "0123456789abcdef")
+        val filter = GatewayTrustHeaderFilter("0123456789abcdef")
         val exchange = MockServerWebExchange.from(
             MockServerHttpRequest.get("/api/v1/catalog/offerings")
                 .header(GatewayTrustHeaderFilter.SECRET_HEADER, "forged-client-value")
@@ -34,8 +34,8 @@ class GatewayTrustHeaderFilterTests {
     }
 
     @Test
-    fun `does not inject a trust secret when gateway trust is disabled`() {
-        val filter = GatewayTrustHeaderFilter(false, "")
+    fun `does not inject a trust secret when no deployment secret is configured`() {
+        val filter = GatewayTrustHeaderFilter("")
         val exchange = MockServerWebExchange.from(
             MockServerHttpRequest.get("/actuator/health/readiness")
         )
@@ -54,22 +54,15 @@ class GatewayTrustHeaderFilterTests {
     }
 
     @Test
-    fun `fails closed when trust is enabled without a secret`() {
+    fun `rejects the development secret when downstream trust is active`() {
         assertThrows(IllegalArgumentException::class.java) {
-            GatewayTrustHeaderFilter(true, "")
-        }
-    }
-
-    @Test
-    fun `rejects the development secret when trust is enabled`() {
-        assertThrows(IllegalArgumentException::class.java) {
-            GatewayTrustHeaderFilter(true, "dev-secret-change-in-production")
+            GatewayTrustHeaderFilter("dev-secret-change-in-production")
         }
     }
 
     @Test
     fun `runs after normal route sanitizers and before downstream routing`() {
-        val filter = GatewayTrustHeaderFilter(true, "0123456789abcdef")
+        val filter = GatewayTrustHeaderFilter("0123456789abcdef")
 
         assertEquals(10_000, filter.order)
     }
