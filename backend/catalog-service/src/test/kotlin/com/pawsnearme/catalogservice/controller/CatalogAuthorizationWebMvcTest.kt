@@ -177,6 +177,8 @@ class CatalogAuthorizationWebMvcTest {
                 .header("X-Idempotency-Key", UUID.randomUUID().toString())
                 .header("X-Service-Name", "order-service")
                 .header("X-Idempotency-Key", UUID.randomUUID().toString())
+                .header("X-Service-Name", "order-service")
+                .header("X-Idempotency-Key", UUID.randomUUID().toString())
         )
             .andExpect(status().isForbidden)
     }
