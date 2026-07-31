@@ -79,6 +79,7 @@ if __name__ == "__main__":
             DROP SCHEMA IF EXISTS chat CASCADE;
             DROP SCHEMA IF EXISTS content CASCADE;
             DROP SCHEMA IF EXISTS auth CASCADE;
+            DROP TABLE IF EXISTS public.bootstrap_status;
         """)
 
         # 1. Run supabase mock script first to create auth.users
@@ -92,6 +93,7 @@ if __name__ == "__main__":
             repository_root / "infra" / "captain_onboarding_bootstrap.sql",
             repository_root / "infra" / "service_schemas.sql",
             repository_root / "infra" / "db_roles.sql",
+            repository_root / "infra" / "bootstrap_complete.sql",
         ]
 
         for sf in sql_files:
