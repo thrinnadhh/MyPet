@@ -19,10 +19,25 @@ SHEDLOCK_SCHEMAS = {
     "review-service": "reviews",
 }
 
+COMPOSE_SEARCH_PATHS = {
+    "provider-service": "providers,identity,public",
+    "catalog-service": "catalog,providers,identity,public",
+    "discovery-service": "providers,catalog,customer,public",
+    "order-service": "orders,providers,catalog,public",
+    "appointment-service": "appointments,catalog,providers,public",
+    "dispatch-service": "dispatch,orders,providers,public",
+    "captain-service": "captains,identity,public",
+    "notification-service": "notifications,appointments,catalog,public",
+    "review-service": "reviews,public",
+    "payment-service": "payments,orders,appointments,captains,providers,public",
+    "chat-service": "chat,identity,providers,public",
+    "content-service": "content,public",
+}
+
 failures: list[str] = []
 
 for service, schema in SHEDLOCK_SCHEMAS.items():
-    path = (
+    kotlin_path = (
         ROOT
         / "backend"
         / service
@@ -30,16 +45,49 @@ for service, schema in SHEDLOCK_SCHEMAS.items():
         / service.replace("-", "")
         / "config/ShedLockConfig.kt"
     )
-    if not path.is_file():
-        failures.append(f"missing ShedLock configuration: {path.relative_to(ROOT)}")
-        continue
-
-    content = path.read_text(encoding="utf-8")
-    expected = f'.withTableName("{schema}.shedlock")'
-    if expected not in content:
+    if not kotlin_path.is_file():
         failures.append(
-            f"{service} must use the schema-qualified lock table {schema}.shedlock"
+            f"missing ShedLock configuration: {kotlin_path.relative_to(ROOT)}"
         )
+    else:
+        content = kotlin_path.read_text(encoding="utf-8")
+        expected = f'.withTableName("{schema}.shedlock")'
+        if expected not in content:
+            failures.append(
+                f"{service} must use the schema-qualified lock table {schema}.shedlock"
+            )
+
+    migration_path = (
+        ROOT
+        / "backend"
+        / service
+        / "src/main/resources/db/migration/R__ensure_schema_shedlock.sql"
+    )
+    if not migration_path.is_file():
+        failures.append(
+            f"missing repeatable ShedLock migration: {migration_path.relative_to(ROOT)}"
+        )
+    else:
+        migration = migration_path.read_text(encoding="utf-8")
+        if f"CREATE TABLE IF NOT EXISTS {schema}.shedlock" not in migration:
+            failures.append(
+                f"{service} repeatable migration must create {schema}.shedlock"
+            )
+
+compose_path = ROOT / "infra/docker-compose.replicas.yml"
+if not compose_path.is_file():
+    failures.append("missing infra/docker-compose.replicas.yml")
+else:
+    compose = compose_path.read_text(encoding="utf-8")
+    for service, search_path in COMPOSE_SEARCH_PATHS.items():
+        expected = (
+            "DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?"
+            f"currentSchema={search_path}&stringtype=unspecified"
+        )
+        if expected not in compose:
+            failures.append(
+                f"{service} Compose DB_URL must preserve currentSchema={search_path}"
+            )
 
 payment_application = (
     ROOT
@@ -59,11 +107,17 @@ if not payment_application.is_file():
 else:
     content = payment_application.read_text(encoding="utf-8")
     if "@EntityScan" not in content or "@EnableJpaRepositories" not in content:
-        failures.append("payment-service must scan shared Outbox entities and repositories")
-    if content.count('"com.pawsnearme.common.outbox"') < 3:
         failures.append(
-            "payment-service must include common.outbox in entity, repository, and component scans"
+            "payment-service must scan shared persistence entities and repositories"
         )
+    for package in (
+        "com.pawsnearme.common.idempotency",
+        "com.pawsnearme.common.outbox",
+    ):
+        if content.count(f'"{package}"') < 3:
+            failures.append(
+                f"payment-service must include {package} in entity, repository, and component scans"
+            )
 
 if not payment_outbox_config.is_file():
     failures.append("payment-service is missing OutboxConfig.kt")
@@ -82,6 +136,7 @@ if failures:
     raise SystemExit(1)
 
 print(
-    "Runtime wiring checks passed for Payment Outbox and "
-    f"{len(SHEDLOCK_SCHEMAS)} schema-qualified ShedLock providers."
+    "Runtime wiring checks passed for Payment shared persistence, "
+    f"{len(SHEDLOCK_SCHEMAS)} ShedLock providers/migrations, and "
+    f"{len(COMPOSE_SEARCH_PATHS)} Compose database search paths."
 )
