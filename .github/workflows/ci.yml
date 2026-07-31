@@ -28,6 +28,9 @@ jobs:
       - name: Check Generated Artifacts
         run: scripts/check-no-generated-artifacts.sh
 
+      - name: Run Static Production Gates
+        run: bash scripts/check-production-hardening.sh
+
   mobile-validate:
     name: Mobile App Lint & Compile
     runs-on: ubuntu-latest
@@ -58,3 +61,4 @@ jobs:
           npm ci
           npm run typecheck
           npm run lint
+          npm test

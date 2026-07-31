@@ -1,0 +1,78 @@
+name: Production Release Gates
+
+on:
+  workflow_dispatch:
+    inputs:
+      staging_gateway_url:
+        description: HTTPS URL for the deployed staging API gateway
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release-verification:
+    name: Build, Test, and Live Release Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: gradle
+
+      - name: Run Complete Backend Suite
+        working-directory: backend
+        run: ./gradlew clean test --no-daemon
+
+      - name: Check Generated Artifacts
+        run: scripts/check-no-generated-artifacts.sh
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19'
+          cache: npm
+          cache-dependency-path: |
+            apps/customer-app/package-lock.json
+            apps/merchant-captain-app/package-lock.json
+
+      - name: Validate Customer App
+        working-directory: apps/customer-app
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test -- --runInBand
+
+      - name: Validate Merchant and Captain App
+        working-directory: apps/merchant-captain-app
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+
+      - name: Run Static Production Gates
+        run: bash scripts/check-production-hardening.sh
+
+      - name: Run Live Staging Release Gates
+        env:
+          RUN_LIVE_SMOKE_TESTS: 'true'
+          STAGING_GATEWAY_URL: ${{ inputs.staging_gateway_url }}
+        run: python3 backend/verify_release_gates.py
+
+      - name: Upload Release Gate Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-release-gate-report
+          path: backend/release-gate-report.json
+          if-no-files-found: warn
+          retention-days: 30
