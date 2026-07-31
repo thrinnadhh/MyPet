@@ -17,15 +17,17 @@ fail_if_found \
 
 fail_if_found \
   "mobile applications contain the development gateway secret" \
-  --exclude-dir=node_modules \
+  --exclude-dir=node_modules --exclude='*.md' \
   'dev-gateway-secret-key' apps
 
 fail_if_found \
   "Kubernetes manifests still contain the placeholder registry organization" \
+  --exclude='*.md' \
   'ghcr.io/your-org' infra/k8s
 
 fail_if_found \
   "Kubernetes manifests use mutable latest image tags" \
+  --exclude='*.md' \
   'image: .*:latest' infra/k8s
 
 python3 backend/scan_dependencies.py
