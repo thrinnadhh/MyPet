@@ -10,11 +10,18 @@ services:
       - POSTGRES_PASSWORD=postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./supabase_mock.sql:/docker-entrypoint-initdb.d/00_supabase_mock.sql:ro
+      - "../imp files/01_identity_providers.sql:/docker-entrypoint-initdb.d/01_identity_providers.sql:ro"
+      - "../imp files/02_catalog_orders_appointments.sql:/docker-entrypoint-initdb.d/02_catalog_orders_appointments.sql:ro"
+      - "../imp files/03_dispatch_captains_payments_reviews_notifications.sql:/docker-entrypoint-initdb.d/03_dispatch_captains_payments_reviews_notifications.sql:ro"
+      - ./service_schemas.sql:/docker-entrypoint-initdb.d/04_service_schemas.sql:ro
+      - ./db_roles.sql:/docker-entrypoint-initdb.d/05_db_roles.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d pawsnearme"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 12
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
