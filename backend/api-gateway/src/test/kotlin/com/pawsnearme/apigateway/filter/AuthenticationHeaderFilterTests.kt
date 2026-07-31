@@ -28,6 +28,9 @@ class AuthenticationHeaderFilterTests {
                 .header("X-Internal-Gateway-Secret", "forged")
                 .header("X-Internal-Secret", "forged")
                 .header("X-Service-Name", "order-service")
+                .header("X-Internal-Gateway-Secret", "forged")
+                .header("X-Internal-Secret", "forged")
+                .header("X-Service-Name", "order-service")
         )
         val capturedExchange = AtomicReference<org.springframework.web.server.ServerWebExchange>()
         val chain = GatewayFilterChain {
@@ -47,6 +50,9 @@ class AuthenticationHeaderFilterTests {
         assertNull(headers.getFirst("X-Internal-Gateway-Secret"))
         assertNull(headers.getFirst("X-Internal-Secret"))
         assertNull(headers.getFirst("X-Service-Name"))
+        assertNull(headers.getFirst("X-Internal-Gateway-Secret"))
+        assertNull(headers.getFirst("X-Internal-Secret"))
+        assertNull(headers.getFirst("X-Service-Name"))
     }
 
     @Test
@@ -59,6 +65,9 @@ class AuthenticationHeaderFilterTests {
                 .header("X-User-Full-Name", "Spoof Name")
                 .header("X-User-Phone", "+910000000000")
                 .header("X-Admin-Api-Key", "legacy-key")
+                .header("X-Internal-Gateway-Secret", "forged")
+                .header("X-Internal-Secret", "forged")
+                .header("X-Service-Name", "order-service")
                 .header("X-Internal-Gateway-Secret", "forged")
                 .header("X-Internal-Secret", "forged")
                 .header("X-Service-Name", "order-service")
@@ -96,6 +105,9 @@ class AuthenticationHeaderFilterTests {
         assertEquals("Real User", headers.getFirst("X-User-Full-Name"))
         assertEquals("+919999111111", headers.getFirst("X-User-Phone"))
         assertNull(headers.getFirst("X-Admin-Api-Key"))
+        assertNull(headers.getFirst("X-Internal-Gateway-Secret"))
+        assertNull(headers.getFirst("X-Internal-Secret"))
+        assertNull(headers.getFirst("X-Service-Name"))
         assertNull(headers.getFirst("X-Internal-Gateway-Secret"))
         assertNull(headers.getFirst("X-Internal-Secret"))
         assertNull(headers.getFirst("X-Service-Name"))
