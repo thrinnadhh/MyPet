@@ -74,6 +74,17 @@ for service, schema in SHEDLOCK_SCHEMAS.items():
                 f"{service} repeatable migration must create {schema}.shedlock"
             )
 
+order_versioned_repair = (
+    ROOT
+    / "backend/order-service/src/main/resources/db/migration/V9__ensure_orders_shedlock_schema.sql"
+)
+if not order_versioned_repair.is_file():
+    failures.append("order-service is missing its versioned ShedLock schema repair")
+else:
+    repair = order_versioned_repair.read_text(encoding="utf-8")
+    if "CREATE TABLE IF NOT EXISTS orders.shedlock" not in repair:
+        failures.append("order-service V9 must create orders.shedlock")
+
 compose_path = ROOT / "infra/docker-compose.replicas.yml"
 if not compose_path.is_file():
     failures.append("missing infra/docker-compose.replicas.yml")
@@ -130,13 +141,38 @@ else:
 if not payment_outbox_migration.is_file():
     failures.append("payment-service is missing V3__outbox.sql")
 
+gateway_filter = (
+    ROOT
+    / "backend/api-gateway/src/main/kotlin/com/pawsnearme/apigateway/filter/GatewayTrustHeaderFilter.kt"
+)
+gateway_filter_test = (
+    ROOT
+    / "backend/api-gateway/src/test/kotlin/com/pawsnearme/apigateway/filter/GatewayTrustHeaderFilterTests.kt"
+)
+
+if not gateway_filter.is_file():
+    failures.append("api-gateway is missing GatewayTrustHeaderFilter.kt")
+else:
+    content = gateway_filter.read_text(encoding="utf-8")
+    for required in (
+        'const val SECRET_HEADER = "X-Internal-Gateway-Secret"',
+        "headers.set(SECRET_HEADER, trustSecret)",
+        "TRUST_INJECTION_ORDER = 10_000",
+        "require(trustSecret.isNotBlank())",
+    ):
+        if required not in content:
+            failures.append(f"GatewayTrustHeaderFilter.kt is missing: {required}")
+
+if not gateway_filter_test.is_file():
+    failures.append("api-gateway is missing GatewayTrustHeaderFilterTests.kt")
+
 if failures:
     for failure in failures:
         print(f"ERROR: {failure}", file=sys.stderr)
     raise SystemExit(1)
 
 print(
-    "Runtime wiring checks passed for Payment shared persistence, "
-    f"{len(SHEDLOCK_SCHEMAS)} ShedLock providers/migrations, and "
+    "Runtime wiring checks passed for gateway trust injection, Payment shared "
+    f"persistence, {len(SHEDLOCK_SCHEMAS)} ShedLock providers/migrations, and "
     f"{len(COMPOSE_SEARCH_PATHS)} Compose database search paths."
 )
