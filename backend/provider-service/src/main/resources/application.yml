@@ -40,7 +40,7 @@ spring:
       group-id: provider-service-reviews
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonSerializer
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -49,7 +49,6 @@ spring:
 grpc:
   server:
     port: ${GRPC_PORT:9091}
-
 
 gateway:
   trust:
@@ -82,12 +81,9 @@ spring:
 # Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway
 # Enable in staging/production; leave disabled in local dev
 
-
 provider:
   public-base-url: ${PROVIDER_PUBLIC_BASE_URL:http://localhost:8081}
 
 internal:
   api:
-    secret: ${INTERNAL_API_SECRET:dev-internal-secret}
-
-
+    secret: ${INTERNAL_API_SECRET}
