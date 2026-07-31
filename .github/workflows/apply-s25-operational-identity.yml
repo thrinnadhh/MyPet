@@ -1,0 +1,77 @@
+name: Apply Sprint 25 operational identity
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/s25-operational-identity
+
+permissions:
+  contents: write
+
+concurrency:
+  group: s25-operational-identity
+  cancel-in-progress: true
+
+jobs:
+  apply-and-verify:
+    if: ${{ !contains(github.event.head_commit.message || '', '[s25-bot]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out Sprint 25 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/s25-operational-identity
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply inventory integration changes
+        run: |
+          python3 -m py_compile scripts/apply_s25_operational_identity.py
+          python3 scripts/apply_s25_operational_identity.py
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Verify backend
+        working-directory: backend
+        run: |
+          chmod +x gradlew
+          ./gradlew clean test --no-daemon
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/merchant-captain-app/package-lock.json
+
+      - name: Verify merchant and captain app
+        working-directory: apps/merchant-captain-app
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+
+      - name: Commit verified source changes
+        run: |
+          git config user.name "mypet-s25-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git restore --source=HEAD -- .github/workflows
+          git add apps/merchant-captain-app/src/app/inventory.tsx
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit."
+            exit 0
+          fi
+          git commit -m "fix(s25): connect inventory to authenticated provider identity [s25-bot]"
+          git push origin HEAD:agent/s25-operational-identity
