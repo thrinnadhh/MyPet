@@ -31,4 +31,5 @@ fail_if_found \
   'image: .*:latest' infra/k8s
 
 python3 scripts/check-flyway-migrations.py
+python3 scripts/check-runtime-wiring.py
 python3 backend/scan_dependencies.py
