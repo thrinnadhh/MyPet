@@ -50,7 +50,6 @@ grpc:
   server:
     port: ${GRPC_PORT:9091}
 
-
 gateway:
   trust:
     enabled: ${GATEWAY_TRUST_ENABLED:false}
@@ -82,12 +81,9 @@ spring:
 # Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway
 # Enable in staging/production; leave disabled in local dev
 
-
 provider:
   public-base-url: ${PROVIDER_PUBLIC_BASE_URL:http://localhost:8081}
 
 internal:
   api:
-    secret: ${INTERNAL_API_SECRET:dev-internal-secret}
-
-
+    secret: ${INTERNAL_API_SECRET}

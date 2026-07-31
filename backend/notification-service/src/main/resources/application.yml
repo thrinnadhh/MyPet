@@ -62,7 +62,6 @@ eureka:
     service-url:
       defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
 
-
 gateway:
   trust:
     enabled: ${GATEWAY_TRUST_ENABLED:false}
@@ -93,13 +92,10 @@ spring:
 # Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway
 # Enable in staging/production; leave disabled in local dev
 
-
 provider:
   service:
     url: ${PROVIDER_SERVICE_URL:http://localhost:8081}
 
 internal:
   api:
-    secret: ${INTERNAL_API_SECRET:dev-internal-secret}
-
-
+    secret: ${INTERNAL_API_SECRET}

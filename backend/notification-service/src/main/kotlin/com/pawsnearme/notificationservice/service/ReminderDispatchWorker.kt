@@ -2,6 +2,7 @@ package com.pawsnearme.notificationservice.service
 
 import com.pawsnearme.notificationservice.config.NotificationTemplateProperties
 import com.pawsnearme.notificationservice.model.ReminderDeliveryStatus
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
@@ -21,6 +22,11 @@ class ReminderDispatchWorker(
     private val log = LoggerFactory.getLogger(javaClass)
 
     @Scheduled(fixedDelay = 5_000)
+    @SchedulerLock(
+        name = "notification-dispatch-due-reminders",
+        lockAtMostFor = "PT2M",
+        lockAtLeastFor = "PT1S"
+    )
     fun dispatchDueReminders() {
         val due = transactionService.findDueReminders(Instant.now())
         if (due.isEmpty()) return
@@ -68,4 +74,3 @@ class ReminderDispatchWorker(
         }
     }
 }
-

@@ -4,6 +4,7 @@ import com.pawsnearme.contentservice.model.BannerBid
 import com.pawsnearme.contentservice.model.PromoBanner
 import com.pawsnearme.contentservice.repository.BannerBidRepository
 import com.pawsnearme.contentservice.repository.PromoBannerRepository
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpEntity
@@ -107,6 +108,11 @@ class BannerAuctionService(
     }
 
     @Scheduled(fixedDelay = 10_000)
+    @SchedulerLock(
+        name = "content-close-expired-banner-auctions",
+        lockAtMostFor = "PT2M",
+        lockAtLeastFor = "PT5S"
+    )
     fun closeExpiredAuctions() {
         val now = Instant.now()
         val expiredWindows = bidRepo.findExpiredWindowEnds(now)

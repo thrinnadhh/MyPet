@@ -3,6 +3,7 @@ package com.pawsnearme.notificationservice.service
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.notificationservice.event.VaccinationReminderEvent
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpEntity
@@ -20,13 +21,18 @@ class VaccinationReminderSyncWorker(
     private val vaccinationReminderScheduler: VaccinationReminderScheduler,
     @Value("\${provider.service.url:http://localhost:8081}")
     private val providerServiceUrl: String,
-    @Value("\${internal.api.secret:dev-internal-secret}")
+    @Value("\${internal.api.secret}")
     private val internalSecret: String,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val restTemplate = RestTemplate()
 
     @Scheduled(fixedDelay = 3_600_000, initialDelay = 30_000)
+    @SchedulerLock(
+        name = "notification-sync-vaccination-reminders",
+        lockAtMostFor = "PT30M",
+        lockAtLeastFor = "PT5M"
+    )
     fun syncEnabledReminders() {
         try {
             val headers = HttpHeaders().apply { set("X-Internal-Secret", internalSecret) }

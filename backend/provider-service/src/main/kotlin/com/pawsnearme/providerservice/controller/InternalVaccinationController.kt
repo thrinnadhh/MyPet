@@ -7,19 +7,22 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
+import java.security.MessageDigest
 
 @RestController
 @RequestMapping("/api/v1/internal")
 class InternalVaccinationController(
     private val vaccinationReminderRepository: VaccinationReminderRepository,
-    @Value("\${internal.api.secret:dev-internal-secret}")
+    @Value("\${internal.api.secret}")
     private val internalSecret: String,
 ) {
     @GetMapping("/vaccination-reminders")
     fun listEnabled(
         @RequestHeader("X-Internal-Secret") secret: String,
     ): ResponseEntity<List<Map<String, Any>>> {
-        if (secret != internalSecret) throw ProviderAccessDeniedException("Forbidden")
+        if (!MessageDigest.isEqual(secret.toByteArray(), internalSecret.toByteArray())) {
+            throw ProviderAccessDeniedException("Forbidden")
+        }
         val rows = vaccinationReminderRepository.findByEnabledTrue().map { reminder ->
             mapOf(
                 "reminderId" to reminder.reminderId.toString(),
