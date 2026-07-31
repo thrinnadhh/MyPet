@@ -292,8 +292,10 @@ curl -fsS http://localhost:8080/api/v1/content/guides/categories \
   | python3 -m json.tool >/dev/null
 pass "Gateway → content-service guide-category listing succeeded"
 
-curl -fsS http://localhost:8080/api/v1/catalog/offerings \
-  | python3 -m json.tool >/dev/null
+catalog_provider_id="22222222-2222-2222-2222-222222222222"
+curl -fsS \
+  "http://localhost:8080/api/v1/catalog/offerings?providerId=$catalog_provider_id" \
+  | python3 -c 'import json,sys; data=json.load(sys.stdin); assert isinstance(data, list), data'
 pass "Gateway → catalog-service offering listing succeeded"
 
 curl -fsS http://localhost:8080/api/v1/service-regions \
