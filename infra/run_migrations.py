@@ -63,7 +63,6 @@ if __name__ == "__main__":
         cursor = conn.cursor()
         print("Connected!")
 
-        # Reset schemas for a clean run
         print("Resetting database schemas...")
         cursor.execute("""
             DROP SCHEMA IF EXISTS identity CASCADE;
@@ -78,17 +77,20 @@ if __name__ == "__main__":
             DROP SCHEMA IF EXISTS notifications CASCADE;
             DROP SCHEMA IF EXISTS chat CASCADE;
             DROP SCHEMA IF EXISTS content CASCADE;
+            DROP SCHEMA IF EXISTS customer CASCADE;
             DROP SCHEMA IF EXISTS auth CASCADE;
             DROP TABLE IF EXISTS public.bootstrap_status;
         """)
 
-        # 1. Run supabase mock script first to create auth.users
         run_sql_file(cursor, repository_root / "infra" / "supabase_mock.sql")
 
-        # 2. Run base DDL and service-role bootstrap in dependency order
+        # Canonical service V1 migrations are the source of truth for the base
+        # identity, provider, catalog, order, and appointment schemas.
         sql_files = [
-            repository_root / "imp files" / "01_identity_providers.sql",
-            repository_root / "imp files" / "02_catalog_orders_appointments.sql",
+            repository_root / "backend" / "provider-service" / "src" / "main" / "resources" / "db" / "migration" / "V1__init_identity_providers.sql",
+            repository_root / "backend" / "catalog-service" / "src" / "main" / "resources" / "db" / "migration" / "V1__init_catalog.sql",
+            repository_root / "backend" / "order-service" / "src" / "main" / "resources" / "db" / "migration" / "V1__init_orders.sql",
+            repository_root / "backend" / "appointment-service" / "src" / "main" / "resources" / "db" / "migration" / "V1__init_appointments.sql",
             repository_root / "imp files" / "03_dispatch_captains_payments_reviews_notifications.sql",
             repository_root / "infra" / "captain_onboarding_bootstrap.sql",
             repository_root / "infra" / "service_schemas.sql",
