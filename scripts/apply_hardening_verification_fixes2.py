@@ -97,9 +97,18 @@ text = text.replace(
     "            .flatMap { authentication ->",
     "        val authenticationMono = exchange.getPrincipal<Authentication>()\n"
     "            .switchIfEmpty(ReactiveSecurityContextHolder.getContext().map { it.authentication })\n"
-    "            .filter { it.isAuthenticated }\n\n"
+    "            .filter { it.isAuthenticated }\n"
+    "            .cache()\n\n"
     "        return authenticationMono\n"
     "            .flatMap { authentication ->",
+)
+text = text.replace(
+    "            .switchIfEmpty(Mono.defer { chain.filter(sanitizedExchange) })",
+    "            .then(\n"
+    "                authenticationMono.hasElement().flatMap { hasAuthentication ->\n"
+    "                    if (hasAuthentication) Mono.empty() else chain.filter(sanitizedExchange)\n"
+    "                }\n"
+    "            )",
 )
 write(filter_path, text)
 
