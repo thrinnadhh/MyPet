@@ -87,3 +87,11 @@ provider:
 internal:
   api:
     secret: ${INTERNAL_API_SECRET}
+
+storage:
+  medical-reports:
+    bucket: ${MEDICAL_REPORTS_BUCKET}
+    region: ${MEDICAL_REPORTS_REGION:${AWS_REGION}}
+    url-ttl-seconds: ${MEDICAL_REPORTS_URL_TTL_SECONDS:900}
+    access-key: ${MEDICAL_REPORTS_ACCESS_KEY:}
+    secret-key: ${MEDICAL_REPORTS_SECRET_KEY:}
