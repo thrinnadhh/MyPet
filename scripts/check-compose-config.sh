@@ -26,7 +26,7 @@ COMPOSE=(
 
 "${COMPOSE[@]}" config > /dev/null
 
-mapfile -t services < <("${COMPOSE[@]}" config --services)
+services="$("${COMPOSE[@]}" config --services)"
 expected=(
   postgres redis kafka kafka-init-topics
   provider-service catalog-service discovery-service order-service
@@ -36,10 +36,11 @@ expected=(
 )
 
 for service in "${expected[@]}"; do
-  if ! printf '%s\n' "${services[@]}" | grep -qx "$service"; then
+  if ! printf '%s\n' "$services" | grep -qx "$service"; then
     echo "ERROR: rendered Compose config is missing service: $service" >&2
     exit 1
   fi
 done
 
-echo "Compose configuration rendered successfully (${#services[@]} services)."
+service_count="$(printf '%s\n' "$services" | awk 'NF { count++ } END { print count + 0 }')"
+echo "Compose configuration rendered successfully (${service_count} services)."
