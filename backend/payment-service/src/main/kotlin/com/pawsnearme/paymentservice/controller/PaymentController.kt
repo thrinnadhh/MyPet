@@ -64,13 +64,14 @@ class PaymentController(private val paymentService: PaymentService) {
     @PostMapping("/webhook")
     fun handleWebhook(
         @RequestBody payload: String,
-        @RequestHeader("X-Razorpay-Signature", required = false) signature: String?
+        @RequestHeader("X-Razorpay-Signature", required = false) signature: String?,
+        @RequestHeader("X-Razorpay-Event-Id", required = false) eventId: String? = null
     ): ResponseEntity<Any> {
         if (signature.isNullOrBlank()) {
             throw IllegalArgumentException("Missing signature header")
         }
-        paymentService.processWebhook(payload, signature)
-        return ResponseEntity.ok(mapOf("status" to "processed"))
+        val isNew = paymentService.processWebhook(payload, signature, eventId)
+        return ResponseEntity.ok(mapOf("status" to if (isNew) "processed" else "already_processed"))
     }
 
     @GetMapping("/transactions/{id}")

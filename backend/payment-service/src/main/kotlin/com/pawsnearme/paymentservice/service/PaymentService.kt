@@ -11,6 +11,8 @@ import jakarta.validation.constraints.Pattern
 import jakarta.validation.constraints.Size
 import com.pawsnearme.paymentservice.model.*
 import com.pawsnearme.paymentservice.repository.*
+import com.pawsnearme.common.idempotency.IdempotencyService
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -87,6 +89,8 @@ class PaymentService(
     private val platformCommissionLedgerRepository: PlatformCommissionLedgerRepository,
     private val couponReservationRepository: CouponReservationRepository,
     private val codConfigRepository: CodConfigRepository,
+    @Autowired(required = false)
+    private val idempotencyService: IdempotencyService? = null,
     @Value("\${RAZORPAY_KEY_ID:}")
     private val razorpayKeyId: String = "",
     @Value("\${RAZORPAY_KEY_SECRET:}")
@@ -357,10 +361,36 @@ class PaymentService(
     }
 
     @Transactional
-    fun processWebhook(payload: String, signature: String) {
+    fun transitionPayoutState(payout: Payout, targetStatus: String, razorpayTransferId: String? = null): Payout {
+        val validTransitions = mapOf(
+            "PENDING" to setOf("PROCESSING", "PAID", "FAILED"),
+            "PROCESSING" to setOf("PAID", "PROCESSED", "FAILED"),
+            "PAID" to setOf("REVERSED"),
+            "PROCESSED" to setOf("REVERSED")
+        )
+        val allowed = validTransitions[payout.status] ?: emptySet()
+        if (targetStatus !in allowed) {
+            throw IllegalStateException("Invalid payout state transition from ${payout.status} to $targetStatus")
+        }
+        payout.status = if (targetStatus == "PROCESSED") "PAID" else targetStatus
+        if (!razorpayTransferId.isNullOrBlank()) {
+            payout.razorpayTransferId = razorpayTransferId
+        }
+        if (targetStatus == "PAID" || targetStatus == "PROCESSED") {
+            payout.paidAt = Instant.now()
+        }
+        return payoutRepository.save(payout)
+    }
+
+    @Transactional
+    fun transitionPayoutState(payoutId: UUID, targetStatus: String, razorpayTransferId: String? = null): Payout {
+        val payout = getPayoutById(payoutId)
+        return transitionPayoutState(payout, targetStatus, razorpayTransferId)
+    }
+
+    @Transactional
+    fun processWebhook(payload: String, signature: String, eventIdHeader: String? = null): Boolean {
         if (razorpayWebhookSecret.isBlank()) {
-            // No webhook secret configured: block all webhook processing in production.
-            // Return 501 via exception to signal unconfigured state to the controller.
             throw IllegalStateException(
                 "Razorpay webhook secret is not configured. Set RAZORPAY_WEBHOOK_SECRET to enable webhook processing."
             )
@@ -374,42 +404,60 @@ class PaymentService(
             throw IllegalArgumentException("Invalid payload format")
         }
 
-        val eventType = eventMap["event"] as? String ?: return
-        if (eventType == "payment.captured") {
-            val payloadMap = eventMap["payload"] as? Map<*, *> ?: return
-            val paymentMap = payloadMap["payment"] as? Map<*, *> ?: return
-            val entityMap = paymentMap["entity"] as? Map<*, *> ?: return
+        val eventIdRaw = eventIdHeader ?: eventMap["id"] as? String ?: (eventMap["event"] as? String ?: "evt") + "_" + System.currentTimeMillis()
+        val deterministicUuid = try {
+            UUID.fromString(eventIdRaw)
+        } catch (e: Exception) {
+            UUID.nameUUIDFromBytes(eventIdRaw.toByteArray())
+        }
 
-            val paymentId = entityMap["id"] as? String ?: return
-            val orderId = entityMap["order_id"] as? String ?: return
+        if (idempotencyService != null && !idempotencyService.checkAndRecord(deterministicUuid)) {
+            logger.info("Webhook event {} already processed, skipping.", eventIdRaw)
+            return false
+        }
+
+        val eventType = eventMap["event"] as? String ?: return true
+        if (eventType == "payment.captured" || eventType == "payment.authorized") {
+            val payloadMap = eventMap["payload"] as? Map<*, *> ?: return true
+            val paymentMap = payloadMap["payment"] as? Map<*, *> ?: return true
+            val entityMap = paymentMap["entity"] as? Map<*, *> ?: return true
+
+            val paymentId = entityMap["id"] as? String ?: return true
+            val orderId = entityMap["order_id"] as? String ?: return true
             val amountInPaise = (entityMap["amount"] as? Number)?.toInt() ?: 0
 
             val transaction = transactionRepository.findByGatewayTransactionId(orderId)
-                ?: return
+                ?: return true
 
-            if (transaction.status == "SUCCESS") return
+            if (transaction.status == "SUCCESS") return true
 
             val expectedAmountInPaise = transaction.amount.multiply(BigDecimal("100")).setScale(0, java.math.RoundingMode.HALF_UP).toInt()
             if (amountInPaise != expectedAmountInPaise) {
                 logger.warn("Webhook payment amount mismatch. Expected {}, got {}", expectedAmountInPaise, amountInPaise)
-                return
+                return true
             }
 
             transaction.status = "SUCCESS"
             transaction.gatewayTransactionId = paymentId
             transactionRepository.save(transaction)
-        } else if (eventType == "transfer.reversed") {
-            val payloadMap = eventMap["payload"] as? Map<*, *> ?: return
-            val reversalMap = payloadMap["reversal"] as? Map<*, *> ?: return
-            val entityMap = reversalMap["entity"] as? Map<*, *> ?: return
+        } else if (eventType == "payout.processed" || eventType == "payout.paid") {
+            val payloadMap = eventMap["payload"] as? Map<*, *> ?: return true
+            val payoutMap = payloadMap["payout"] as? Map<*, *> ?: return true
+            val entityMap = payoutMap["entity"] as? Map<*, *> ?: return true
+            val transferId = entityMap["id"] as? String ?: return true
+            val payout = payoutRepository.findByRazorpayTransferId(transferId) ?: return true
+            transitionPayoutState(payout, "PAID", transferId)
+        } else if (eventType == "transfer.reversed" || eventType == "payout.reversed") {
+            val payloadMap = eventMap["payload"] as? Map<*, *> ?: return true
+            val reversalMap = (payloadMap["reversal"] ?: payloadMap["payout"]) as? Map<*, *> ?: return true
+            val entityMap = reversalMap["entity"] as? Map<*, *> ?: return true
 
-            val transferId = entityMap["transfer_id"] as? String ?: return
+            val transferId = (entityMap["transfer_id"] ?: entityMap["id"]) as? String ?: return true
             val amountInPaise = (entityMap["amount"] as? Number)?.toInt() ?: 0
             val reversedAmount = BigDecimal(amountInPaise).divide(BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP)
 
-            val payout = payoutRepository.findByRazorpayTransferId(transferId) ?: return
-            payout.status = "REVERSED"
-            payoutRepository.save(payout)
+            val payout = payoutRepository.findByRazorpayTransferId(transferId) ?: return true
+            transitionPayoutState(payout, "REVERSED", transferId)
 
             val linkedAccount = linkedAccountRepository.findByPayeeUserId(payout.payeeUserId)
             if (linkedAccount != null) {
@@ -417,6 +465,7 @@ class PaymentService(
                 linkedAccountRepository.save(linkedAccount)
             }
         }
+        return true
     }
 
     fun getTransactionById(transactionId: UUID): Transaction {

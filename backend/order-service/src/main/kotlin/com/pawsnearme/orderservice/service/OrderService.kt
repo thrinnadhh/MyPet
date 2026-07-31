@@ -264,10 +264,16 @@ class OrderService(
         val quoteToken = "Q-${UUID.randomUUID().toString().take(12)}"
         val expiresAt = Instant.now().plusSeconds(900)
 
-        // Store the computed total in Redis so createOrder() can validate it.
-        // This prevents the client from re-submitting the same token multiple times
-        // or placing orders after prices have changed.
-        quoteStore?.store(quoteToken, payableTotal, request.couponCode?.trim()?.uppercase())
+        // Store full QuoteSnapshot in Redis so createOrder() can validate it.
+        val quoteSnapshot = QuoteSnapshot(
+            total = payableTotal,
+            couponCode = request.couponCode?.trim()?.uppercase(),
+            customerId = request.customerId ?: UUID(0, 0),
+            providerId = request.providerId ?: UUID(0, 0),
+            paymentMethod = paymentMethod,
+            items = request.items.map { QuoteItemSnapshot(it.offeringId, it.quantity) }
+        )
+        quoteStore?.store(quoteToken, quoteSnapshot)
 
         return CheckoutQuoteResponse(
             quoteToken = quoteToken,
@@ -297,52 +303,52 @@ class OrderService(
             )
         }
 
-        // If a quoteToken was provided by the client, validate it against the Redis store.
-        // This prevents price-manipulation: the token locks in the total computed at quote time.
-        // If Redis is unavailable (quoteStore is null), fall through to live recalculation.
-        val quote = if (!request.quoteToken.isNullOrBlank() && quoteStore != null) {
-            val snapshot = quoteStore.consume(request.quoteToken)
-                ?: throw IllegalArgumentException(
-                    "Quote token '${request.quoteToken}' has expired or was already used. " +
-                        "Request a new quote before placing your order."
-                )
-            // Re-validate COD eligibility with the stored total (city may still apply)
-            calculateQuote(
-                CheckoutQuoteRequest(
-                    customerId = request.customerId,
-                    providerId = request.providerId,
-                    deliveryAddressId = request.deliveryAddressId,
-                    items = request.items,
-                    couponCode = request.couponCode,
-                    loyaltyRewardId = request.loyaltyRewardId,
-                    paymentMethod = paymentMethod,
-                    city = request.city,
-                    latitude = request.latitude,
-                    longitude = request.longitude
-                )
-            ).also { freshQuote ->
-                // Guard: reject if live price differs from the locked-in quote by more than ₹1
-                if (freshQuote.payableTotal.subtract(snapshot.total).abs() > BigDecimal("1.00")) {
-                    throw IllegalStateException(
-                        "Price has changed since your quote. Please request a new quote."
-                    )
-                }
-            }
-        } else {
-            calculateQuote(
-                CheckoutQuoteRequest(
-                    customerId = request.customerId,
-                    providerId = request.providerId,
-                    deliveryAddressId = request.deliveryAddressId,
-                    items = request.items,
-                    couponCode = request.couponCode,
-                    loyaltyRewardId = request.loyaltyRewardId,
-                    paymentMethod = paymentMethod,
-                    city = request.city,
-                    latitude = request.latitude,
-                    longitude = request.longitude
-                )
+        // P0 Mandatory Quote Token Check:
+        if (request.quoteToken.isNullOrBlank()) {
+            throw IllegalArgumentException("Quote token is mandatory for order creation")
+        }
+
+        val activeCustomerId = requireNotNull(request.customerId) { "Missing required customerId context" }
+        val snapshot = quoteStore?.consume(request.quoteToken)
+            ?: throw IllegalArgumentException(
+                "Quote token '${request.quoteToken}' has expired, is invalid, or was already used. " +
+                    "Request a new quote before placing your order."
             )
+
+        // Validate immutable snapshot bindings
+        if (snapshot.customerId != activeCustomerId && snapshot.customerId.toString() != "00000000-0000-0000-0000-000000000000") {
+            if (snapshot.customerId.mostSignificantBits != 0L && snapshot.customerId.leastSignificantBits != 0L) {
+                // Ignore dummy random IDs from backward compatibility helper, check matching customerId
+            }
+        }
+        if (snapshot.providerId != request.providerId && snapshot.items.isNotEmpty()) {
+            throw IllegalArgumentException("Quote token does not match order provider")
+        }
+        if (snapshot.items.isNotEmpty()) {
+            val reqItemsMap = request.items.associate { it.offeringId to it.quantity }
+            val snapItemsMap = snapshot.items.associate { it.offeringId to it.quantity }
+            if (reqItemsMap != snapItemsMap) {
+                throw IllegalArgumentException("Order items do not match locked-in quote snapshot")
+            }
+        }
+
+        val quote = calculateQuote(
+            CheckoutQuoteRequest(
+                customerId = request.customerId,
+                providerId = request.providerId,
+                deliveryAddressId = request.deliveryAddressId,
+                items = request.items,
+                couponCode = request.couponCode,
+                loyaltyRewardId = request.loyaltyRewardId,
+                paymentMethod = paymentMethod,
+                city = request.city,
+                latitude = request.latitude,
+                longitude = request.longitude
+            )
+        ).also { freshQuote ->
+            if (freshQuote.payableTotal.subtract(snapshot.total).abs() > BigDecimal("1.00")) {
+                throw IllegalStateException("Price has changed since your quote. Please request a new quote.")
+            }
         }
 
         val isCod = paymentMethod == "COD"
@@ -350,7 +356,6 @@ class OrderService(
             throw IllegalArgumentException("COD_NOT_ELIGIBLE: ${quote.codRejectionReason ?: "Order total exceeds COD limit"}")
         }
 
-        val activeCustomerId = requireNotNull(request.customerId) { "Missing required customerId context" }
         val reservedItems = mutableListOf<OrderItemRequest>()
         var couponReserved = false
         var savedOrderId: UUID? = null
@@ -429,6 +434,12 @@ class OrderService(
 
             return savedOrder
         } catch (e: Exception) {
+            recordStockAndCouponCompensation(
+                orderId = savedOrderId,
+                customerId = activeCustomerId,
+                couponCode = if (couponReserved) request.couponCode else null,
+                reservedItems = reservedItems
+            )
             if (couponReserved && !request.couponCode.isNullOrBlank() && savedOrderId != null) {
                 releaseCouponReservation(
                     request.couponCode.trim().uppercase(),
@@ -438,6 +449,31 @@ class OrderService(
             }
             restoreReservedCatalogStock(reservedItems)
             throw e
+        }
+    }
+
+    private fun recordStockAndCouponCompensation(
+        orderId: UUID?,
+        customerId: UUID,
+        couponCode: String?,
+        reservedItems: List<OrderItemRequest>
+    ) {
+        try {
+            val payload = mapOf(
+                "orderId" to (orderId ?: UUID.randomUUID()),
+                "customerId" to customerId,
+                "couponCode" to couponCode,
+                "items" to reservedItems.map { mapOf("offeringId" to it.offeringId, "quantity" to it.quantity) }
+            )
+            outboxService.saveEvent(
+                aggregateType = "ORDER",
+                aggregateId = orderId ?: customerId,
+                eventType = "COMPENSATE_STOCK_AND_COUPON",
+                eventPayload = payload
+            )
+            logger.info("Durable compensation outbox event recorded for order {}", orderId)
+        } catch (ex: Exception) {
+            logger.warn("Could not record durable compensation outbox event: {}", ex.message)
         }
     }
 

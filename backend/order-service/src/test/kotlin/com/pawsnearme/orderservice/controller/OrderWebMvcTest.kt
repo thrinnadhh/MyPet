@@ -170,6 +170,7 @@ class OrderWebMvcTest {
 
         val jsonRequest = """
             {
+              "quoteToken": "Q-TEST12345",
               "providerId": "$providerId",
               "deliveryAddressId": "$deliveryAddressId",
               "items": [
