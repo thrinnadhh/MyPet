@@ -85,6 +85,20 @@ else:
     if "CREATE TABLE IF NOT EXISTS orders.shedlock" not in repair:
         failures.append("order-service V9 must create orders.shedlock")
 
+order_build = ROOT / "backend/order-service/build.gradle.kts"
+if not order_build.is_file():
+    failures.append("order-service is missing build.gradle.kts")
+else:
+    build = order_build.read_text(encoding="utf-8")
+    for dependency in (
+        'implementation("org.flywaydb:flyway-core:10.1.0")',
+        'runtimeOnly("org.flywaydb:flyway-database-postgresql:10.1.0")',
+    ):
+        if dependency not in build:
+            failures.append(
+                f"order-service must execute packaged migrations via {dependency}"
+            )
+
 compose_path = ROOT / "infra/docker-compose.replicas.yml"
 if not compose_path.is_file():
     failures.append("missing infra/docker-compose.replicas.yml")
@@ -155,10 +169,11 @@ if not gateway_filter.is_file():
 else:
     content = gateway_filter.read_text(encoding="utf-8")
     for required in (
+        '@Value("\\${GATEWAY_SECRET:}")',
         'const val SECRET_HEADER = "X-Internal-Gateway-Secret"',
         "headers.set(SECRET_HEADER, trustSecret)",
+        "if (trustSecret.isBlank())",
         "TRUST_INJECTION_ORDER = 10_000",
-        "require(trustSecret.isNotBlank())",
     ):
         if required not in content:
             failures.append(f"GatewayTrustHeaderFilter.kt is missing: {required}")
