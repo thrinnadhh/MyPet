@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: production-hardening-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   apply-and-verify:
@@ -57,6 +57,8 @@ jobs:
           cat scripts/.hardening/part*.b64 | base64 --decode > scripts/apply_production_hardening.py
           python3 -m py_compile scripts/apply_production_hardening.py
           python3 scripts/apply_production_hardening.py
+          python3 -m py_compile scripts/apply_hardening_verification_fixes.py
+          python3 scripts/apply_hardening_verification_fixes.py
           rm -rf scripts/.hardening
 
       - name: Refresh merchant dependency lock
