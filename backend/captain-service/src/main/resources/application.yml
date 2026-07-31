@@ -44,11 +44,14 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
-
 gateway:
   trust:
     enabled: ${GATEWAY_TRUST_ENABLED:false}
     secret: ${GATEWAY_SECRET:dev-secret-change-in-production}
+
+security:
+  bank-data:
+    encryption-key: ${BANK_DATA_ENCRYPTION_KEY}
 
 management:
   endpoints:
@@ -73,8 +76,5 @@ spring:
   jpa:
     show-sql: false
 
-# Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway
-# Enable in staging/production; leave disabled in local dev
-
-
-
+# Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway.
+# BANK_DATA_ENCRYPTION_KEY must be a Base64-encoded 256-bit key supplied by a secret manager.
