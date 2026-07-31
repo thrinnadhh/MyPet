@@ -7,8 +7,9 @@ REPORT="${MYPET_SMOKE_REPORT:-$ROOT/build/reports/full-stack-smoke.md}"
 KEEP_STACK="${KEEP_STACK:-0}"
 TEMP_ENV=""
 PROBE_CONTAINER="${PROJECT_NAME}-probe"
+DIAGNOSTICS_DIR="$ROOT/build/reports/docker-diagnostics"
 
-mkdir -p "$(dirname "$REPORT")"
+mkdir -p "$(dirname "$REPORT")" "$DIAGNOSTICS_DIR"
 cat > "$REPORT" <<EOF
 # MyPet full-stack validation
 
@@ -55,13 +56,27 @@ COMPOSE=(
   -f "$ROOT/infra/docker-compose.local.yml"
 )
 
+save_diagnostics() {
+  "${COMPOSE[@]}" ps -a > "$DIAGNOSTICS_DIR/compose-ps.txt" 2>&1 || true
+  "${COMPOSE[@]}" logs --no-color --tail=500 > "$DIAGNOSTICS_DIR/compose-logs.txt" 2>&1 || true
+  for service in \
+    provider-service catalog-service discovery-service order-service \
+    appointment-service dispatch-service captain-service notification-service \
+    review-service payment-service chat-service content-service api-gateway postgres
+  do
+    "${COMPOSE[@]}" logs --no-color --tail=500 "$service" \
+      > "$DIAGNOSTICS_DIR/${service}.log" 2>&1 || true
+  done
+}
+
 show_diagnostics() {
+  save_diagnostics
   echo
   echo "===== Docker Compose status =====" >&2
-  "${COMPOSE[@]}" ps -a >&2 || true
+  cat "$DIAGNOSTICS_DIR/compose-ps.txt" >&2 || true
   echo
   echo "===== Recent Docker Compose logs =====" >&2
-  "${COMPOSE[@]}" logs --no-color --tail=200 >&2 || true
+  cat "$DIAGNOSTICS_DIR/compose-logs.txt" >&2 || true
 }
 
 cleanup() {
@@ -121,7 +136,9 @@ wait_for_service() {
     if [[ -n "$container_id" ]]; then
       state="$(docker inspect --format='{{.State.Status}}' "$container_id")"
       if [[ "$state" == "exited" || "$state" == "dead" ]]; then
-        "${COMPOSE[@]}" logs --no-color --tail=160 "$service" >&2 || true
+        "${COMPOSE[@]}" logs --no-color --tail=500 "$service" \
+          > "$DIAGNOSTICS_DIR/${service}.log" 2>&1 || true
+        cat "$DIAGNOSTICS_DIR/${service}.log" >&2 || true
         fail "$service exited before becoming ready"
         return 1
       fi
@@ -136,7 +153,9 @@ wait_for_service() {
     sleep 5
   done
 
-  "${COMPOSE[@]}" logs --no-color --tail=160 "$service" >&2 || true
+  "${COMPOSE[@]}" logs --no-color --tail=500 "$service" \
+    > "$DIAGNOSTICS_DIR/${service}.log" 2>&1 || true
+  cat "$DIAGNOSTICS_DIR/${service}.log" >&2 || true
   fail "$service did not become ready within 240 seconds"
 }
 
