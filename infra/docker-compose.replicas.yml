@@ -48,6 +48,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8081
+      SPRING_FLYWAY_TABLE: flyway_schema_history_provider
       PROVIDER_PUBLIC_BASE_URL: ${PROVIDER_PUBLIC_BASE_URL:-http://localhost:8080}
 
   catalog-service:
@@ -60,6 +61,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8082
+      SPRING_FLYWAY_TABLE: flyway_schema_history_catalog
 
   discovery-service:
     <<: *backend-common
@@ -71,6 +73,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8083
+      SPRING_FLYWAY_TABLE: flyway_schema_history_discovery
 
   order-service:
     <<: *backend-common
@@ -82,6 +85,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8084
+      SPRING_FLYWAY_TABLE: flyway_schema_history_order
       CATALOG_SERVICE_URL: http://catalog-service:8082
       PAYMENT_SERVICE_URL: http://payment-service:8090
       ORDER_AUTO_COMPLETE_HOURS: "1"
@@ -96,6 +100,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8085
+      SPRING_FLYWAY_TABLE: flyway_schema_history_appointment
       CATALOG_SERVICE_URL: http://catalog-service:8082
       PROVIDER_SERVICE_URL: http://provider-service:8081
 
@@ -109,6 +114,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8086
+      SPRING_FLYWAY_TABLE: flyway_schema_history_dispatch
       ORDER_SERVICE_URL: http://order-service:8084
 
   captain-service:
@@ -121,6 +127,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8087
+      SPRING_FLYWAY_TABLE: flyway_schema_history_captain
 
   notification-service:
     <<: *backend-common
@@ -132,6 +139,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8088
+      SPRING_FLYWAY_TABLE: flyway_schema_history_notification
       PROVIDER_SERVICE_URL: http://provider-service:8081
       NOTIFICATION_DELIVERY_MODE: EXPO_FCM
 
@@ -145,6 +153,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8089
+      SPRING_FLYWAY_TABLE: flyway_schema_history_review
 
   payment-service:
     <<: *backend-common
@@ -158,6 +167,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8090
+      SPRING_FLYWAY_TABLE: flyway_schema_history_payment
 
   chat-service:
     <<: *backend-common
@@ -169,6 +179,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8091
+      SPRING_FLYWAY_TABLE: flyway_schema_history_chat
       CHAT_PUBLIC_BASE_URL: ${CHAT_PUBLIC_BASE_URL:-http://localhost:8091}
 
   content-service:
@@ -181,6 +192,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8092
+      SPRING_FLYWAY_TABLE: flyway_schema_history_content
 
   api-gateway:
     build:
