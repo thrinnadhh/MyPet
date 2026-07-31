@@ -1,0 +1,29 @@
+services:
+  provider-service:
+    environment:
+      MEDICAL_REPORTS_BUCKET: ${MEDICAL_REPORTS_BUCKET:-mypet-local-medical-reports}
+      MEDICAL_REPORTS_REGION: ${MEDICAL_REPORTS_REGION:-ap-south-1}
+      MEDICAL_REPORTS_ACCESS_KEY: ${MEDICAL_REPORTS_ACCESS_KEY:-local-test-access-key}
+      MEDICAL_REPORTS_SECRET_KEY: ${MEDICAL_REPORTS_SECRET_KEY:-local-test-secret-key}
+
+  captain-service:
+    environment:
+      BANK_DATA_ENCRYPTION_KEY: ${BANK_DATA_ENCRYPTION_KEY:?BANK_DATA_ENCRYPTION_KEY must be set}
+
+  payment-service:
+    environment:
+      RAZORPAY_SANDBOX_MODE: "true"
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-rzp_test_local}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-local-test-secret}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-local-webhook-secret}
+
+  notification-service:
+    environment:
+      NOTIFICATION_DELIVERY_MODE: LOGGED_DEV
+
+  api-gateway:
+    environment:
+      SPRING_PROFILES_ACTIVE: local,docker
+      ALLOW_UNSIGNED_JWT: "true"
+      SUPABASE_JWT_SECRET: ""
+      SUPABASE_JWT_JWK_SET_URI: ""
