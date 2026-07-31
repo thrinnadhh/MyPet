@@ -1,6 +1,14 @@
 package com.pawsnearme.captainservice.model
 
-import jakarta.persistence.*
+import com.fasterxml.jackson.annotation.JsonIgnore
+import jakarta.persistence.Column
+import jakarta.persistence.Entity
+import jakarta.persistence.EnumType
+import jakarta.persistence.Enumerated
+import jakarta.persistence.GeneratedValue
+import jakarta.persistence.GenerationType
+import jakarta.persistence.Id
+import jakarta.persistence.Table
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
@@ -34,9 +42,11 @@ class CaptainProfile(
     @Column(name = "license_doc_url")
     var licenseDocUrl: String? = null,
 
+    @JsonIgnore
     @Column(name = "bank_account")
     var bankAccount: String? = null,
 
+    @JsonIgnore
     @Column(name = "bank_ifsc")
     var bankIfsc: String? = null,
 
