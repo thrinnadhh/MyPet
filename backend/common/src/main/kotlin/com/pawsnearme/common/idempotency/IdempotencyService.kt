@@ -8,20 +8,14 @@ import java.util.UUID
 class IdempotencyService(private val processedEventRepository: ProcessedEventRepository) {
 
     /**
-     * Checks if the event has already been processed. If not, records it.
-     * Returns true if the event is new, false if it is a duplicate.
+     * Atomically records a new event.
+     *
+     * Returns true only when this worker claimed the event. Duplicate events return
+     * false through PostgreSQL ON CONFLICT semantics. Database and infrastructure
+     * failures propagate so the message/webhook is retried instead of being
+     * incorrectly acknowledged as a duplicate.
      */
     @Transactional
-    fun checkAndRecord(eventId: UUID): Boolean {
-        if (processedEventRepository.existsById(eventId)) {
-            return false
-        }
-        try {
-            processedEventRepository.saveAndFlush(ProcessedEvent(eventId))
-            return true
-        } catch (e: Exception) {
-            // In case of parallel execution causing unique key violation
-            return false
-        }
-    }
+    fun checkAndRecord(eventId: UUID): Boolean =
+        processedEventRepository.insertIfAbsent(eventId) == 1
 }
