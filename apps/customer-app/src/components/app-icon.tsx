@@ -4,7 +4,8 @@ import { Text, type StyleProp, type ViewStyle } from 'react-native';
 export type AppIconName =
   | 'cart' | 'calendar' | 'check' | 'clock' | 'location' | 'paw' | 'store' | 'medical'
   | 'sparkle' | 'star' | 'history' | 'message' | 'support' | 'shield' | 'groom' | 'card'
-  | 'home' | 'search' | 'profile' | 'offline' | 'warning' | 'chevron' | 'heart' | 'close';
+  | 'home' | 'search' | 'profile' | 'offline' | 'warning' | 'chevron' | 'heart' | 'close'
+  | 'phone';
 
 const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: string }> = {
   cart: { ios: 'cart.fill', android: 'shopping_cart', fallback: 'C' },
@@ -31,6 +32,7 @@ const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: str
   chevron: { ios: 'chevron.right', android: 'chevron_right', fallback: '>' },
   heart: { ios: 'heart.fill', android: 'favorite', fallback: '♥' },
   close: { ios: 'xmark', android: 'close', fallback: '×' },
+  phone: { ios: 'phone.fill', android: 'call', fallback: 'P' },
 };
 
 export function AppIcon({ name, color, size = 18, style }: { name: AppIconName; color: string; size?: number; style?: StyleProp<ViewStyle> }) {
