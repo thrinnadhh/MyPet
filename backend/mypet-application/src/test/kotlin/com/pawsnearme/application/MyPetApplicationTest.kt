@@ -21,15 +21,15 @@ class MyPetApplicationTest {
     }
 
     @Test
-    fun `application exposes milestone edge database and module interface metadata`() {
+    fun `application exposes milestone edge database interfaces and workflow metadata`() {
         val response = restTemplate.getForEntity("/actuator/info", Map::class.java)
 
         assertEquals(HttpStatus.OK, response.statusCode)
         val appInfo = response.body?.get("app") as? Map<*, *>
         assertNotNull(appInfo)
         assertEquals("MyPet Application", appInfo?.get("name"))
-        assertEquals("M5", appInfo?.get("milestone"))
-        assertEquals("modular-monolith-typed-module-interfaces", appInfo?.get("architecture"))
+        assertEquals("M6", appInfo?.get("milestone"))
+        assertEquals("modular-monolith-events-and-durable-work", appInfo?.get("architecture"))
 
         val edgeInfo = response.body?.get("edgeSecurity") as? Map<*, *>
         assertNotNull(edgeInfo)
@@ -49,6 +49,18 @@ class MyPetApplicationTest {
         assertEquals("direct-when-present", interfaceInfo?.get("binding"))
         assertEquals("conditional-http-adapter", interfaceInfo?.get("fallback"))
         assertEquals(false, interfaceInfo?.get("transportKnowledgeInBusinessServices"))
+
+        val workflowInfo = response.body?.get("workflowRuntime") as? Map<*, *>
+        assertNotNull(workflowInfo)
+        assertEquals("M6", workflowInfo?.get("milestone"))
+        assertEquals("KAFKA_ONLY", workflowInfo?.get("deliveryMode"))
+        assertEquals(13, workflowInfo?.get("routeCount"))
+        assertEquals(3, workflowInfo?.get("directCallCount"))
+        assertEquals(3, workflowInfo?.get("inProcessEventCount"))
+        assertEquals(7, workflowInfo?.get("durableOutboxJobCount"))
+        assertEquals(true, workflowInfo?.get("kafkaRollbackRetained"))
+        assertEquals(6, (workflowInfo?.get("verifiedInProcessTopics") as? List<*>)?.size)
+        assertEquals(4, (workflowInfo?.get("pendingReplacementTopics") as? List<*>)?.size)
     }
 
     @Test
