@@ -99,7 +99,7 @@ class FeatureVerificationInfoContributor : InfoContributor {
                     mapOf(
                         "id" to domain.id,
                         "scenario" to domain.scenario,
-                        "evidence" to domain.evidence.map(Enum<*>::name).sorted()
+                        "evidence" to domain.evidence.map { it.name }.sorted()
                     )
                 },
                 "cutoverAuthorized" to false,
