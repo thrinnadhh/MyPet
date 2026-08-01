@@ -1,17 +1,20 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppIcon } from '@/components/app-icon';
+import { FeedbackBanner, FilterChip } from '@/components/foundation/primitives';
+import { ScreenShell } from '@/components/foundation/screen-shell';
+import { ThemedText } from '@/components/themed-text';
 import { AppCard } from '@/components/ui/app-card';
 import { PrimaryButton } from '@/components/ui/primary-button';
 import { TextField } from '@/components/ui/text-field';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing } from '@/constants/theme';
+import { palette } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
 import { supabase } from '@/utils/supabase';
+
+type SignupRole = 'MERCHANT' | 'CAPTAIN';
 
 export default function LoginScreen() {
   const theme = useTheme();
@@ -20,6 +23,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
+  const [signupRole, setSignupRole] = useState<SignupRole>('MERCHANT');
   const [loading, setLoading] = useState(false);
 
   const handleAuth = useCallback(async () => {
@@ -38,19 +42,19 @@ export default function LoginScreen() {
     try {
       if (isSignUp) {
         const { error } = await supabase.auth.signUp({
-          email,
+          email: email.trim(),
           password,
           options: {
             data: {
-              full_name: fullName,
-              role: 'MERCHANT',
+              full_name: fullName.trim(),
+              role: signupRole,
             },
           },
         });
         if (error) throw error;
         Alert.alert(t('common.success'), t('login.verificationSent'));
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
         if (error) throw error;
       }
     } catch (err: unknown) {
@@ -59,76 +63,120 @@ export default function LoginScreen() {
     } finally {
       setLoading(false);
     }
-  }, [email, password, fullName, isSignUp, t]);
+  }, [email, password, fullName, isSignUp, signupRole, t]);
+
+  const selectedRoleHint = signupRole === 'MERCHANT' ? t('login.merchantHint') : t('login.captainHint');
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.inner}>
-          <View style={[styles.hero, { backgroundColor: theme.ctaSoft, borderColor: theme.border }]}>
-            <View style={[styles.logoWrap, { backgroundColor: theme.cta }]}>
-              <AppIcon name="store" color="#FFFFFF" size={28} />
-            </View>
-            <ThemedText style={styles.brand}>{t('login.brand')}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.tagline}>
-              {isSignUp ? t('login.taglineSignUp') : t('login.taglineSignIn')}
-            </ThemedText>
+    <ScreenShell scroll={false} contentContainerStyle={styles.screen} testID="operational-login">
+      <View style={styles.inner}>
+        <View style={[styles.hero, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}>
+          <View style={[styles.logoWrap, { backgroundColor: theme.primary }]}>
+            <AppIcon name={signupRole === 'CAPTAIN' ? 'truck' : 'store'} color={palette.white} size={30} />
           </View>
+          <ThemedText style={styles.brand}>{t('login.brand')}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.tagline}>
+            {isSignUp ? t('login.taglineSignUp') : t('login.taglineSignIn')}
+          </ThemedText>
+        </View>
 
-          <AppCard>
-            <View style={styles.form}>
-              {isSignUp ? (
+        <AppCard style={styles.card}>
+          <View style={styles.form}>
+            {isSignUp ? (
+              <>
+                <ThemedText type="smallBold" themeColor="textSecondary">
+                  {t('login.accountType')}
+                </ThemedText>
+                <View style={styles.roleRow}>
+                  <FilterChip
+                    label={t('login.merchant')}
+                    selected={signupRole === 'MERCHANT'}
+                    icon="store"
+                    onPress={() => setSignupRole('MERCHANT')}
+                  />
+                  <FilterChip
+                    label={t('login.captain')}
+                    selected={signupRole === 'CAPTAIN'}
+                    icon="truck"
+                    onPress={() => setSignupRole('CAPTAIN')}
+                  />
+                </View>
+                <FeedbackBanner
+                  title={signupRole === 'MERCHANT' ? t('login.merchant') : t('login.captain')}
+                  message={selectedRoleHint}
+                  tone="info"
+                  icon={signupRole === 'MERCHANT' ? 'store' : 'truck'}
+                />
                 <TextField
-                  label={t('login.businessContactName')}
+                  label={signupRole === 'MERCHANT' ? t('login.businessContactName') : t('login.captainFullName')}
                   placeholder={t('login.namePlaceholder')}
                   value={fullName}
                   onChangeText={setFullName}
                   autoCapitalize="words"
+                  textContentType="name"
                 />
-              ) : null}
-              <TextField
-                label={t('login.email')}
-                placeholder={t('login.emailPlaceholder')}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <TextField
-                label={t('login.password')}
-                placeholder={t('login.passwordPlaceholder')}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <PrimaryButton
-                label={isSignUp ? t('login.registerBusiness') : t('login.logIn')}
-                onPress={() => void handleAuth()}
-                loading={loading}
-                variant="secondary"
-                style={styles.submit}
-              />
-            </View>
-          </AppCard>
+              </>
+            ) : null}
 
-          <PrimaryButton
-            label={isSignUp ? t('login.toggleToSignIn') : t('login.toggleToSignUp')}
-            onPress={() => setIsSignUp((prev) => !prev)}
-            variant="ghost"
-          />
-        </View>
-      </SafeAreaView>
-    </ThemedView>
+            <TextField
+              label={t('login.email')}
+              placeholder={t('login.emailPlaceholder')}
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="emailAddress"
+            />
+            <TextField
+              label={t('login.password')}
+              placeholder={t('login.passwordPlaceholder')}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType={isSignUp ? 'newPassword' : 'password'}
+              returnKeyType="done"
+              onSubmitEditing={() => void handleAuth()}
+            />
+            <PrimaryButton
+              label={
+                isSignUp
+                  ? signupRole === 'MERCHANT'
+                    ? t('login.registerBusiness')
+                    : t('login.registerCaptain')
+                  : t('login.logIn')
+              }
+              onPress={() => void handleAuth()}
+              loading={loading}
+              style={styles.submit}
+            />
+          </View>
+        </AppCard>
+
+        <PrimaryButton
+          label={isSignUp ? t('login.toggleToSignIn') : t('login.toggleToSignUp')}
+          onPress={() => setIsSignUp((previous) => !previous)}
+          variant="ghost"
+        />
+      </View>
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  safeArea: { flex: 1, justifyContent: 'center' },
-  inner: { paddingHorizontal: Spacing.four, gap: Spacing.three },
+  screen: {
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.four,
+  },
+  inner: {
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
+    gap: Spacing.three,
+  },
   hero: {
     borderWidth: 1,
     borderRadius: Radius.xl,
@@ -137,14 +185,20 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   logoWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     alignItems: 'center',
     justifyContent: 'center',
   },
   brand: { fontSize: 26, fontWeight: '900', textAlign: 'center' },
-  tagline: { textAlign: 'center', lineHeight: 20 },
-  form: { gap: Spacing.two },
-  submit: { marginTop: Spacing.two },
+  tagline: { textAlign: 'center', lineHeight: 20, maxWidth: 440 },
+  card: { padding: Spacing.four },
+  form: { gap: Spacing.three },
+  roleRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  submit: { marginTop: Spacing.one },
 });
