@@ -32,10 +32,8 @@ function formatAppointmentDate(value: string): string {
   }).format(new Date(value));
 }
 
-function formatAppointmentTime(start: string, end?: string): string {
-  const formatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
-  const startLabel = formatter.format(new Date(start));
-  return end ? `${startLabel} – ${formatter.format(new Date(end))}` : startLabel;
+function formatAppointmentTime(value: string): string {
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(value));
 }
 
 export default function AppointmentsScreen() {
@@ -250,9 +248,7 @@ export default function AppointmentsScreen() {
                   </View>
                   <View style={styles.infoRow}>
                     <AppIcon name="clock" size={18} color={theme.textSecondary} />
-                    <ThemedText style={styles.scheduleText}>
-                      {formatAppointmentTime(appt.slotStartsAt, appt.slotEndsAt)}
-                    </ThemedText>
+                    <ThemedText style={styles.scheduleText}>{formatAppointmentTime(appt.slotStartsAt)}</ThemedText>
                   </View>
                 </View>
 
