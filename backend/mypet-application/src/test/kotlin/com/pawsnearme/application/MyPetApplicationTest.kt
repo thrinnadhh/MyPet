@@ -59,8 +59,8 @@ class MyPetApplicationTest {
         assertEquals(3, workflowInfo?.get("inProcessEventCount"))
         assertEquals(7, workflowInfo?.get("durableOutboxJobCount"))
         assertEquals(true, workflowInfo?.get("kafkaRollbackRetained"))
-        assertEquals(6, (workflowInfo?.get("verifiedInProcessTopics") as? List<*>)?.size)
-        assertEquals(4, (workflowInfo?.get("pendingReplacementTopics") as? List<*>)?.size)
+        assertEquals(5, (workflowInfo?.get("verifiedInProcessTopics") as? List<*>)?.size)
+        assertEquals(5, (workflowInfo?.get("pendingReplacementTopics") as? List<*>)?.size)
     }
 
     @Test
