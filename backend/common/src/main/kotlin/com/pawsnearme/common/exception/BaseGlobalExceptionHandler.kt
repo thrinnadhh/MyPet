@@ -148,4 +148,11 @@ data class ErrorResponse(
     val timestamp: Instant = Instant.now(),
     val path: String? = null,
     val error: String = message
-)
+) {
+    /** Compatibility constructor for service-specific handlers not yet migrated. */
+    constructor(error: String) : this(
+        code = "ERROR",
+        message = error,
+        error = error
+    )
+}
