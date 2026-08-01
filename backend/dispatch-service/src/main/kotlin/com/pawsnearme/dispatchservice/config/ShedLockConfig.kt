@@ -9,17 +9,10 @@ import org.springframework.jdbc.core.JdbcTemplate
 import javax.sql.DataSource
 
 /**
- * Distributed lock for @Scheduled tasks.
+ * Distributed lock for scheduled dispatch and outbox work.
  *
- * Without this, every replica fires every scheduler concurrently, causing:
- *  - Duplicate Kafka events from OutboxPoller
- *  - Double-expired dispatch offers from checkOfferTimeouts
- *
- * ShedLock uses the shared PostgreSQL DB (shedlock table, auto-created)
- * as the lock store — no extra infrastructure required.
- *
- * lockAtMostFor: Maximum time a lock is held even if the owning node crashes.
- * lockAtLeastFor: Minimum lock duration to prevent rapid re-entry from fast-completing tasks.
+ * The lock table is managed by Flyway in the dispatch schema, allowing
+ * multiple replicas to coordinate without a shared public-table dependency.
  */
 @Configuration
 @EnableSchedulerLock(defaultLockAtMostFor = "PT30S")
@@ -30,6 +23,7 @@ class ShedLockConfig {
         JdbcTemplateLockProvider(
             JdbcTemplateLockProvider.Configuration.builder()
                 .withJdbcTemplate(JdbcTemplate(dataSource))
+                .withTableName("dispatch.shedlock")
                 .usingDbTime()
                 .build()
         )

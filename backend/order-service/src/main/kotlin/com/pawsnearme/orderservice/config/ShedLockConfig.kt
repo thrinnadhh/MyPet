@@ -15,7 +15,7 @@ import javax.sql.DataSource
  * fires on every instance simultaneously — causing each delivered order
  * to be auto-completed N times per minute (one per replica).
  *
- * Uses the shared PostgreSQL DB (shedlock table) as the lock store.
+ * Uses the order schema's migration-managed ShedLock table.
  */
 @Configuration
 @EnableSchedulerLock(defaultLockAtMostFor = "PT2M")
@@ -26,6 +26,7 @@ class ShedLockConfig {
         JdbcTemplateLockProvider(
             JdbcTemplateLockProvider.Configuration.builder()
                 .withJdbcTemplate(JdbcTemplate(dataSource))
+                .withTableName("orders.shedlock")
                 .usingDbTime()
                 .build()
         )

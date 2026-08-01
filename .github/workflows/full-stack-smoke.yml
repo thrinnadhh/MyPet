@@ -1,0 +1,52 @@
+name: Full Stack Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "infra/**"
+      - "scripts/**"
+      - ".github/workflows/full-stack-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-stack-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      COMPOSE_PARALLEL_LIMIT: "3"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Configure Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run complete backend and Docker validation
+        run: bash scripts/test-all.sh
+
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-stack-validation-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            build/reports/*.md
+            build/reports/docker-diagnostics/**
+            backend/*/build/reports/tests/test/**
+            backend/*/build/test-results/test/**

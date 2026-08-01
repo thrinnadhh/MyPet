@@ -13,7 +13,7 @@ dependencies {
 
     // Import BOMs for dependency version management
     implementation(platform("org.springframework.boot:spring-boot-dependencies:3.5.14"))
-    implementation(platform("org.springframework.cloud:spring-cloud-dependencies:2023.0.0"))
+    implementation(platform("org.springframework.cloud:spring-cloud-dependencies:2025.0.0"))
 
     implementation("org.springframework.cloud:spring-cloud-starter-gateway")
     implementation("org.springframework.boot:spring-boot-starter-actuator")

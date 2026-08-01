@@ -16,6 +16,7 @@ class ShedLockConfig {
         JdbcTemplateLockProvider(
             JdbcTemplateLockProvider.Configuration.builder()
                 .withJdbcTemplate(JdbcTemplate(dataSource))
+                .withTableName("payments.shedlock")
                 .usingDbTime()
                 .build()
         )

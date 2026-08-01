@@ -34,10 +34,15 @@ dependencies {
     // Redis — quote-token TTL store (prevents price-manipulation between quote and order)
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
 
-    
     // PostgreSQL
     runtimeOnly("org.postgresql:postgresql")
-    
+
+    // Flyway DB migrations. Order-service owns versioned schema changes just
+    // like the other persistence services; without these dependencies its
+    // migration files are packaged but never executed at runtime.
+    implementation("org.flywaydb:flyway-core:10.1.0")
+    runtimeOnly("org.flywaydb:flyway-database-postgresql:10.1.0")
+
     // Test dependencies
     testImplementation("com.h2database:h2")
     testImplementation("org.springframework.boot:spring-boot-starter-test")

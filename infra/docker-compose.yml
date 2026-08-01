@@ -1,7 +1,8 @@
 services:
   postgres:
-    image: postgis/postgis:15-3.3
-    container_name: pawsnearme-postgres
+    build:
+      context: ..
+      dockerfile: infra/postgres.Dockerfile
     ports:
       - "5433:5432"
     environment:
@@ -11,14 +12,20 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d pawsnearme"]
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -U postgres -d pawsnearme &&
+          psql -U postgres -d pawsnearme -tAc
+          "SELECT 1 FROM public.bootstrap_status WHERE bootstrap_name = 'base-schema'"
+          | grep -q 1
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 18
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
-    container_name: pawsnearme-redis
     command: redis-server --appendonly yes
     ports:
       - "6380:6379"
@@ -32,7 +39,6 @@ services:
 
   kafka:
     image: apache/kafka:3.7.0
-    container_name: pawsnearme-kafka
     ports:
       - "9092:9092"
     environment:
@@ -57,11 +63,10 @@ services:
 
   kafka-init-topics:
     image: apache/kafka:3.7.0
-    container_name: pawsnearme-kafka-init
     depends_on:
       kafka:
         condition: service_healthy
-    entrypoint: [ "sh", "-c", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic orders.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic appointments.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic payments.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic providers.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic dispatch.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic reviews.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic chat.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic vaccination.events --partitions 3 --replication-factor 1" ]
+    entrypoint: [ "sh", "-c", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic orders.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic appointments.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic payments.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic loyalty.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic providers.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic dispatch.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic reviews.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic chat.events --partitions 3 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic vaccination.events --partitions 3 --replication-factor 1" ]
 
 
 volumes:

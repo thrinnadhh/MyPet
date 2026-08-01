@@ -4,7 +4,6 @@ x-backend-common: &backend-common
     dockerfile: backend/Dockerfile
   environment: &backend-env
     SPRING_PROFILES_ACTIVE: docker
-    DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?stringtype=unspecified
     DB_USERNAME: postgres
     DB_PASSWORD: postgres
     DB_POOL_MAX_SIZE: 5
@@ -48,7 +47,9 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8081
-      PROVIDER_PUBLIC_BASE_URL: ${PROVIDER_PUBLIC_BASE_URL:http://localhost:8080}
+      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=providers,identity,public&stringtype=unspecified
+      SPRING_FLYWAY_TABLE: flyway_schema_history_provider
+      PROVIDER_PUBLIC_BASE_URL: ${PROVIDER_PUBLIC_BASE_URL:-http://localhost:8080}
 
   catalog-service:
     <<: *backend-common
@@ -60,6 +61,8 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8082
+      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=catalog,providers,identity,public&stringtype=unspecified
+      SPRING_FLYWAY_TABLE: flyway_schema_history_catalog
 
   discovery-service:
     <<: *backend-common
@@ -71,6 +74,8 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8083
+      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=providers,catalog,customer,public&stringtype=unspecified
+      SPRING_FLYWAY_TABLE: flyway_schema_history_discovery
 
   order-service:
     <<: *backend-common
@@ -82,6 +87,8 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8084
+      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=orders,providers,catalog,public&stringtype=unspecified
+      SPRING_FLYWAY_TABLE: flyway_schema_history_order
       CATALOG_SERVICE_URL: http://catalog-service:8082
       PAYMENT_SERVICE_URL: http://payment-service:8090
       ORDER_AUTO_COMPLETE_HOURS: "1"
@@ -96,6 +103,8 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8085
+      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=appointments,catalog,providers,public&stringtype=unspecified
+      SPRING_FLYWAY_TABLE: flyway_schema_history_appointment
       CATALOG_SERVICE_URL: http://catalog-service:8082
       PROVIDER_SERVICE_URL: http://provider-service:8081
 
@@ -109,6 +118,8 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8086
+      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=dispatch,orders,providers,public&stringtype=unspecified
+      SPRING_FLYWAY_TABLE: flyway_schema_history_dispatch
       ORDER_SERVICE_URL: http://order-service:8084
 
   captain-service:
@@ -121,6 +132,8 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8087
+      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=captains,identity,public&stringtype=unspecified
+      SPRING_FLYWAY_TABLE: flyway_schema_history_captain
 
   notification-service:
     <<: *backend-common
@@ -132,6 +145,8 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8088
+      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=notifications,appointments,catalog,public&stringtype=unspecified
+      SPRING_FLYWAY_TABLE: flyway_schema_history_notification
       PROVIDER_SERVICE_URL: http://provider-service:8081
       NOTIFICATION_DELIVERY_MODE: EXPO_FCM
 
@@ -145,6 +160,8 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8089
+      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=reviews,public&stringtype=unspecified
+      SPRING_FLYWAY_TABLE: flyway_schema_history_review
 
   payment-service:
     <<: *backend-common
@@ -158,6 +175,8 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8090
+      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=payments,orders,appointments,captains,providers,public&stringtype=unspecified
+      SPRING_FLYWAY_TABLE: flyway_schema_history_payment
 
   chat-service:
     <<: *backend-common
@@ -169,7 +188,9 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8091
-      CHAT_PUBLIC_BASE_URL: ${CHAT_PUBLIC_BASE_URL:http://localhost:8091}
+      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=chat,identity,providers,public&stringtype=unspecified
+      SPRING_FLYWAY_TABLE: flyway_schema_history_chat
+      CHAT_PUBLIC_BASE_URL: ${CHAT_PUBLIC_BASE_URL:-http://localhost:8091}
 
   content-service:
     <<: *backend-common
@@ -181,6 +202,8 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8092
+      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=content,public&stringtype=unspecified
+      SPRING_FLYWAY_TABLE: flyway_schema_history_content
 
   api-gateway:
     build:
@@ -218,7 +241,21 @@ services:
         condition: service_started
       discovery-service:
         condition: service_started
+      order-service:
+        condition: service_started
       appointment-service:
+        condition: service_started
+      dispatch-service:
+        condition: service_started
+      captain-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      review-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
+      chat-service:
         condition: service_started
       content-service:
         condition: service_started
