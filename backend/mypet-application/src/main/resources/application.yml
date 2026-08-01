@@ -12,8 +12,6 @@ spring:
 
 mypet:
   edge:
-    # M3 installs the complete application edge boundary while preserving the
-    # current api-gateway as the active production ingress and rollback path.
     enabled: ${MYPET_EDGE_ENABLED:false}
     jwt:
       jwk-set-uri: ${SUPABASE_JWT_JWK_SET_URI:https://your-project.supabase.co/rest/v1/auth/keys}
@@ -33,8 +31,6 @@ mypet:
       max-entries: ${MYPET_IDEMPOTENCY_MAX_ENTRIES:10000}
       max-body-bytes: ${MYPET_IDEMPOTENCY_MAX_BODY_BYTES:1048576}
   database:
-    # M4 is shadow-ready by default. Enabling it creates one PostgreSQL pool and
-    # runs each module's migrations against its original schema/history table.
     enabled: ${MYPET_DATABASE_ENABLED:false}
     url: ${MYPET_DB_URL:${DB_URL:}}
     username: ${MYPET_DB_USERNAME:${DB_USERNAME:}}
@@ -46,10 +42,11 @@ mypet:
     connect-retries: ${MYPET_FLYWAY_CONNECT_RETRIES:10}
     lock-retry-count: ${MYPET_FLYWAY_LOCK_RETRY_COUNT:50}
   events:
-    # KAFKA_ONLY remains the production and rollback default. DUAL_SHADOW emits
-    # non-executing in-process evidence while Kafka remains authoritative.
-    # IN_PROCESS_ONLY is rejected for topics without a verified bridge.
     delivery-mode: ${MYPET_EVENT_DELIVERY_MODE:KAFKA_ONLY}
+  scheduling:
+    # The consolidated API shell never owns periodic work by default. Existing
+    # standalone service binaries still default to ALL when this property is absent.
+    role: ${MYPET_SCHEDULING_ROLE:API}
 
 management:
   endpoints:
@@ -77,5 +74,5 @@ management:
 info:
   app:
     name: MyPet Application
-    milestone: M6
-    architecture: modular-monolith-events-and-durable-work
+    milestone: M7
+    architecture: modular-monolith-scheduler-consolidation
