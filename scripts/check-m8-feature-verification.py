@@ -65,6 +65,13 @@ if runner_path.is_file():
         "/status?status=IN_PROGRESS",
         "_original_request(method, path, actor, payload, expected=(400,))",
         '"unsupportedStatusRejected": True',
+        'message == "order was not placed"',
+        'details.get("status") == "ACCEPTED"',
+        'details.get("paymentMethod") == "COD"',
+        'details.get("paymentStatus") == "COD_PENDING"',
+        'details.get("acceptedAt") is not None',
+        "COD order did not enter the accepted placement state",
+        "matrix.require = contract_require",
         "published AppointmentBooked outbox event with slot_start",
         "appointment-outbox.txt",
         "catalog-offerings.txt",
@@ -128,5 +135,6 @@ if failures:
 
 print(
     "M8 verification completeness passed for "
-    f"{len(DOMAINS)} domains, scenario/runner syntax, evidence classes, async/commerce diagnostics and cutover guard."
+    f"{len(DOMAINS)} domains, scenario/runner syntax, COD placement, evidence classes, "
+    "async/commerce diagnostics and cutover guard."
 )
