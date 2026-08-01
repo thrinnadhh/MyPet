@@ -3,8 +3,11 @@ package com.pawsnearme.common.outbox
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.common.events.ModuleDomainEvent
 import com.pawsnearme.common.events.ModuleEventPublisher
+import com.pawsnearme.common.events.MyPetWorkflowCatalog
+import com.pawsnearme.common.events.SpringModuleEventPublisher
 import com.pawsnearme.common.events.WorkflowCatalog
 import org.apache.kafka.clients.producer.ProducerConfig
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.kafka.core.KafkaTemplate
 
 enum class OutboxDeliveryMode {
@@ -116,5 +119,19 @@ class RoutedOutboxEventPublisher(
         payload = payload,
         occurredAt = createdAt,
         shadow = shadow
+    )
+}
+
+object OutboxEventPublisherFactory {
+    fun create(
+        kafkaTemplate: KafkaTemplate<String, Any>,
+        objectMapper: ObjectMapper,
+        applicationEventPublisher: ApplicationEventPublisher,
+        deliveryMode: String?
+    ): OutboxEventPublisher = RoutedOutboxEventPublisher(
+        kafkaPublisher = KafkaOutboxEventPublisher(kafkaTemplate, objectMapper),
+        moduleEventPublisher = SpringModuleEventPublisher(applicationEventPublisher),
+        workflowCatalog = MyPetWorkflowCatalog.create(),
+        deliveryMode = OutboxDeliveryMode.parse(deliveryMode)
     )
 }
