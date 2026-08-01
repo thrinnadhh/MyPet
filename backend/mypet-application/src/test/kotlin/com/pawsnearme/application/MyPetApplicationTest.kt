@@ -21,15 +21,15 @@ class MyPetApplicationTest {
     }
 
     @Test
-    fun `application exposes milestone edge database interfaces and workflow metadata`() {
+    fun `application exposes milestone and consolidation metadata`() {
         val response = restTemplate.getForEntity("/actuator/info", Map::class.java)
 
         assertEquals(HttpStatus.OK, response.statusCode)
         val appInfo = response.body?.get("app") as? Map<*, *>
         assertNotNull(appInfo)
         assertEquals("MyPet Application", appInfo?.get("name"))
-        assertEquals("M6", appInfo?.get("milestone"))
-        assertEquals("modular-monolith-events-and-durable-work", appInfo?.get("architecture"))
+        assertEquals("M7", appInfo?.get("milestone"))
+        assertEquals("modular-monolith-scheduler-consolidation", appInfo?.get("architecture"))
 
         val edgeInfo = response.body?.get("edgeSecurity") as? Map<*, *>
         assertNotNull(edgeInfo)
@@ -55,12 +55,21 @@ class MyPetApplicationTest {
         assertEquals("M6", workflowInfo?.get("milestone"))
         assertEquals("KAFKA_ONLY", workflowInfo?.get("deliveryMode"))
         assertEquals(13, workflowInfo?.get("routeCount"))
-        assertEquals(3, workflowInfo?.get("directCallCount"))
-        assertEquals(3, workflowInfo?.get("inProcessEventCount"))
-        assertEquals(7, workflowInfo?.get("durableOutboxJobCount"))
         assertEquals(true, workflowInfo?.get("kafkaRollbackRetained"))
-        assertEquals(5, (workflowInfo?.get("verifiedInProcessTopics") as? List<*>)?.size)
-        assertEquals(5, (workflowInfo?.get("pendingReplacementTopics") as? List<*>)?.size)
+
+        val schedulerInfo = response.body?.get("schedulerRuntime") as? Map<*, *>
+        assertNotNull(schedulerInfo)
+        assertEquals("M7", schedulerInfo?.get("milestone"))
+        assertEquals("API", schedulerInfo?.get("role"))
+        assertEquals(false, schedulerInfo?.get("workersEnabled"))
+        assertEquals(14, schedulerInfo?.get("jobCount"))
+        assertEquals(8, schedulerInfo?.get("ownerCount"))
+        assertEquals(13, schedulerInfo?.get("fixedDelayJobCount"))
+        assertEquals(1, schedulerInfo?.get("cronJobCount"))
+        assertEquals("shared-jdbc-db-time", schedulerInfo?.get("lockProvider"))
+        assertEquals(true, schedulerInfo?.get("apiWorkerSplitSupported"))
+        assertEquals(8, (schedulerInfo?.get("lockTables") as? List<*>)?.size)
+        assertEquals(14, (schedulerInfo?.get("jobs") as? List<*>)?.size)
     }
 
     @Test
