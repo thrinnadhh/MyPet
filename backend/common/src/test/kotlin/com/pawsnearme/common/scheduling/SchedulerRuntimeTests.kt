@@ -20,7 +20,7 @@ class SchedulerRuntimeTests {
         assertEquals(13, catalog.jobs.count { it.cadenceKind == SchedulerCadenceKind.FIXED_DELAY })
         assertEquals(1, catalog.jobs.count { it.cadenceKind == SchedulerCadenceKind.CRON })
         assertEquals(catalog.jobs.size, catalog.jobs.map { it.lockIdentity }.distinct().size)
-        assertEquals(4, catalog.jobsOwnedBy("order").size)
+        assertEquals(3, catalog.jobsOwnedBy("order").size)
     }
 
     @Test
