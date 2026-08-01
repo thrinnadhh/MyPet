@@ -45,6 +45,11 @@ mypet:
     migrate-on-startup: ${MYPET_FLYWAY_MIGRATE_ON_STARTUP:true}
     connect-retries: ${MYPET_FLYWAY_CONNECT_RETRIES:10}
     lock-retry-count: ${MYPET_FLYWAY_LOCK_RETRY_COUNT:50}
+  events:
+    # KAFKA_ONLY remains the production and rollback default. DUAL_SHADOW emits
+    # non-executing in-process evidence while Kafka remains authoritative.
+    # IN_PROCESS_ONLY is rejected for topics without a verified bridge.
+    delivery-mode: ${MYPET_EVENT_DELIVERY_MODE:KAFKA_ONLY}
 
 management:
   endpoints:
@@ -72,5 +77,5 @@ management:
 info:
   app:
     name: MyPet Application
-    milestone: M5
-    architecture: modular-monolith-typed-module-interfaces
+    milestone: M6
+    architecture: modular-monolith-events-and-durable-work

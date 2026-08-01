@@ -2,7 +2,6 @@ package com.pawsnearme.common.outbox
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
-import org.apache.kafka.clients.producer.ProducerConfig
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
@@ -11,9 +10,22 @@ import java.time.Instant
 
 open class OutboxPoller(
     private val outboxRepository: OutboxRepository,
-    private val kafkaTemplate: KafkaTemplate<String, Any>,
-    private val objectMapper: ObjectMapper
+    private val eventPublisher: OutboxEventPublisher
 ) {
+    /**
+     * Compatibility constructor retained for every standalone service.
+     * It preserves the M0-M5 Kafka-only behavior unless a service opts into
+     * RoutedOutboxEventPublisher explicitly.
+     */
+    constructor(
+        outboxRepository: OutboxRepository,
+        kafkaTemplate: KafkaTemplate<String, Any>,
+        objectMapper: ObjectMapper
+    ) : this(
+        outboxRepository,
+        KafkaOutboxEventPublisher(kafkaTemplate, objectMapper)
+    )
+
     private val log = LoggerFactory.getLogger(javaClass)
 
     @Scheduled(fixedDelay = 1000)
@@ -25,53 +37,27 @@ open class OutboxPoller(
 
         log.debug("OutboxPoller: Found ${pending.size} unpublished events")
 
-        val serializerClass = kafkaTemplate.producerFactory.configurationProperties[ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG]
-        val serializerClassName = when (serializerClass) {
-            is Class<*> -> serializerClass.name
-            is String -> serializerClass
-            else -> ""
-        }
-        val isStringSerializer = serializerClassName.contains("StringSerializer")
-
         for (event in pending) {
-            val topic = getTopicForAggregateType(event.aggregateType)
-            val key = event.aggregateId.toString()
-
-            val payloadToSend: Any = if (isStringSerializer) {
-                event.payload
-            } else {
-                try {
-                    objectMapper.readValue(event.payload, Map::class.java)
-                } catch (e: Exception) {
-                    event.payload // fallback
-                }
-            }
-
             try {
-                // Send synchronously to guarantee publish success before marking publishedAt
-                kafkaTemplate.send(topic, key, payloadToSend).get()
+                val receipt = eventPublisher.publish(event)
                 event.publishedAt = Instant.now()
                 outboxRepository.save(event)
-                log.info("OutboxPoller: Published event ${event.eventId} to $topic")
+                log.info(
+                    "OutboxPoller: Published event {} to {} kafka={} inProcess={} shadow={}",
+                    event.eventId,
+                    receipt.topic,
+                    receipt.kafkaPublished,
+                    receipt.inProcessPublished,
+                    receipt.shadow
+                )
             } catch (e: Exception) {
-                log.error("OutboxPoller: Failed to publish event ${event.eventId} to $topic: ${e.message}", e)
-                // Stop processing to maintain ordering for partition
+                log.error(
+                    "OutboxPoller: Failed to publish event ${event.eventId}: ${e.message}",
+                    e
+                )
+                // Stop processing to maintain ordering for the current owner.
                 break
             }
-        }
-    }
-
-    private fun getTopicForAggregateType(aggregateType: String): String {
-        return when (aggregateType.uppercase()) {
-            "ORDER" -> "orders.events"
-            "DISPATCH" -> "dispatch.events"
-            "APPOINTMENT" -> "appointments.events"
-            "PROVIDER" -> "providers.events"
-            "REVIEW" -> "reviews.events"
-            "SUPPORT" -> "support.events"
-            "PAYMENT" -> "payments.events"
-            "CATALOG", "BILLING" -> "catalog.events"
-            else -> "${aggregateType.lowercase()}.events"
         }
     }
 }
