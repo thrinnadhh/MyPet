@@ -16,4 +16,5 @@ interface DispatchOfferRepository : JpaRepository<DispatchOffer, UUID> {
     fun findByJobIdAndResponseIsNull(jobId: UUID): DispatchOffer?
     fun findByJobIdAndCaptainId(jobId: UUID, captainId: UUID): DispatchOffer?
     fun findByCaptainIdAndResponseIsNull(captainId: UUID): List<DispatchOffer>
+    fun findByCaptainIdAndResponseOrderByRespondedAtDesc(captainId: UUID, response: String): List<DispatchOffer>
 }

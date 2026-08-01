@@ -152,7 +152,14 @@ class DispatchService @Autowired constructor(
             if (providerCoords == null) {
                 logger.error("Coordinates for order {} not found. Failing job.", currentJob.orderId)
                 currentJob.status = JobStatus.FAILED
+                currentJob.resolvedAt = Instant.now()
                 jobRepository.save(currentJob)
+                publishDispatchEvent(
+                    "DispatchJobFailed",
+                    currentJob,
+                    null,
+                    mapOf("reason" to "PROVIDER_COORDINATES_UNAVAILABLE")
+                )
                 return
             }
             val (lng, lat) = providerCoords
@@ -249,19 +256,21 @@ class DispatchService @Autowired constructor(
     }
 
     fun markPickedUp(jobId: UUID, captainId: UUID, proofCode: String?): DispatchJob {
-        val job = loadAcceptedJobForCaptain(jobId, captainId)
+        val job = loadAssignedJobForCaptain(jobId, captainId, setOf(JobStatus.ACCEPTED))
         if (proofCode.isNullOrBlank()) throw IllegalArgumentException("Pickup proof code is required")
         if (job.pickupOtp != null && job.pickupOtp != proofCode) {
             throw IllegalArgumentException("Invalid pickup verification OTP")
         }
 
         updateOrderStatus(job.orderId, "PICKED_UP", captainId, "Pickup proof verified by captain app")
-        publishDispatchEvent("DispatchJobPickedUp", job, captainId, mapOf("proof_status" to "VERIFIED"))
-        return jobRepository.save(job)
+        job.status = JobStatus.PICKED_UP
+        val savedJob = jobRepository.save(job)
+        publishDispatchEvent("DispatchJobPickedUp", savedJob, captainId, mapOf("proof_status" to "VERIFIED"))
+        return savedJob
     }
 
     fun markDelivered(jobId: UUID, captainId: UUID, proofCode: String?): DispatchJob {
-        val job = loadAcceptedJobForCaptain(jobId, captainId)
+        val job = loadAssignedJobForCaptain(jobId, captainId, setOf(JobStatus.PICKED_UP))
         if (proofCode.isNullOrBlank()) throw IllegalArgumentException("Delivery proof code is required")
         if (job.deliveryOtp != null && job.deliveryOtp != proofCode) {
             throw IllegalArgumentException("Invalid handover verification OTP")
@@ -323,11 +332,17 @@ class DispatchService @Autowired constructor(
         null
     }
 
-    private fun loadAcceptedJobForCaptain(jobId: UUID, captainId: UUID): DispatchJob {
+    private fun loadAssignedJobForCaptain(
+        jobId: UUID,
+        captainId: UUID,
+        allowedStatuses: Set<JobStatus>
+    ): DispatchJob {
         val job = jobRepository.findById(jobId)
             .orElseThrow { NoSuchElementException("Dispatch job not found for ID $jobId") }
-        if (job.status != JobStatus.ACCEPTED) {
-            throw IllegalStateException("Dispatch job must be ACCEPTED before delivery progress can be recorded")
+        if (job.status !in allowedStatuses) {
+            throw IllegalStateException(
+                "Dispatch job in state ${job.status} cannot perform this delivery transition"
+            )
         }
         val offer = offerRepository.findByJobIdAndCaptainId(jobId, captainId)
             ?: throw IllegalStateException("Authenticated captain is not assigned to this dispatch job")

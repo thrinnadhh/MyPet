@@ -102,6 +102,37 @@ def contract_request(
                 expected=(200,),
             )
 
+    # The production dispatch API no longer exposes proof codes or allows a
+    # captain to use the administrator's global order lookup. Keep the legacy
+    # scenario shape while exercising the captain-safe restart endpoint. Proof
+    # codes are read only from the isolated test database and never cross the
+    # HTTP boundary.
+    if method == "GET" and path.startswith("/api/v1/dispatch/jobs/by-order/"):
+        order_id = path.rsplit("/", 1)[-1]
+        jobs = _original_request(
+            "GET",
+            "/api/v1/dispatch/jobs/me",
+            actor,
+            expected=(200,),
+        )
+        job = next((item for item in jobs if str(item.get("orderId")) == order_id), None)
+        if job is None:
+            raise AssertionError(f"captain job for order {order_id} was not returned by /jobs/me")
+        proof_row = matrix.sql(
+            "SELECT coalesce(pickup_otp,'') || '|' || coalesce(delivery_otp,'') "
+            "FROM dispatch.dispatch_jobs "
+            f"WHERE job_id='{job['jobId']}'::uuid;"
+        )
+        pickup_proof, delivery_proof = proof_row.split("|", 1)
+        if not pickup_proof or not delivery_proof:
+            raise AssertionError(f"dispatch test proofs are missing for job {job['jobId']}")
+        return {
+            **job,
+            "pickupOtp": pickup_proof,
+            "deliveryOtp": delivery_proof,
+            "verifiedThroughCaptainView": True,
+        }
+
     return _original_request(method, path, actor, payload, expected)
 
 
