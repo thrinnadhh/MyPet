@@ -28,6 +28,10 @@ management:
   info:
     env:
       enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
 
 info:
   app:
