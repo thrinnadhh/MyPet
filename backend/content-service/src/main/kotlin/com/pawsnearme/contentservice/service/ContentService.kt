@@ -30,6 +30,12 @@ class ContentService(
         else guideRepo.findByPublishedTrueAndCategoryOrderByCreatedAtDesc(category)
 
     fun upsertBanner(banner: PromoBanner): PromoBanner {
+        // Direct content-management banners have no provider or auction bid and
+        // are publishable immediately. Auction submissions retain their own
+        // PENDING/WON lifecycle in BannerAuctionService.
+        if (banner.providerId == null && banner.bidAmount == null && banner.status == "PENDING_BID") {
+            banner.status = "ACTIVE"
+        }
         banner.updatedAt = Instant.now()
         return bannerRepo.save(banner)
     }
