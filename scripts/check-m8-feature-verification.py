@@ -65,10 +65,14 @@ if runner_path.is_file():
         "/status?status=IN_PROGRESS",
         "_original_request(method, path, actor, payload, expected=(400,))",
         '"unsupportedStatusRejected": True',
-        "CONFIRMED -> COMPLETED",
+        "published AppointmentBooked outbox event with slot_start",
+        "appointment-outbox.txt",
+        "notification-service.log",
+        "notification-consumer-group.txt",
+        "appointments-events.txt",
     ):
         if required not in runner:
-            failures.append(f"M8 runner is missing explicit contract mapping: {required}")
+            failures.append(f"M8 runner is missing explicit contract or diagnostic mapping: {required}")
 
 if catalog_path.is_file():
     catalog = catalog_path.read_text(encoding="utf-8")
@@ -114,5 +118,5 @@ if failures:
 
 print(
     "M8 verification completeness passed for "
-    f"{len(DOMAINS)} domains, scenario/runner syntax, evidence classes and cutover guard."
+    f"{len(DOMAINS)} domains, scenario/runner syntax, evidence classes, async diagnostics and cutover guard."
 )
