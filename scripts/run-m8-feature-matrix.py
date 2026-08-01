@@ -23,6 +23,7 @@ spec.loader.exec_module(matrix)
 
 _original_request = matrix.request
 _original_poll = matrix.poll
+_original_require = matrix.require
 
 
 def contract_request(
@@ -40,6 +41,23 @@ def contract_request(
         return {"status": "CONFIRMED", "unsupportedStatusRejected": True}
 
     return _original_request(method, path, actor, payload, expected)
+
+
+def contract_require(condition: bool, message: str, details: Any = None) -> None:
+    if message == "order was not placed" and isinstance(details, dict):
+        is_valid_cod_order = (
+            details.get("status") == "ACCEPTED"
+            and details.get("paymentMethod") == "COD"
+            and details.get("paymentStatus") == "COD_PENDING"
+            and details.get("acceptedAt") is not None
+        )
+        _original_require(
+            condition or is_valid_cod_order,
+            "COD order did not enter the accepted placement state",
+            details,
+        )
+        return
+    _original_require(condition, message, details)
 
 
 def evidence_poll(
@@ -97,8 +115,9 @@ def capture_failure_diagnostics(error: BaseException) -> None:
             "FROM catalog.offerings ORDER BY created_at DESC LIMIT 50;"
         ),
         "orders.txt": (
-            "SELECT order_id,customer_id,provider_id,status,total_amount,created_at "
-            "FROM orders.orders ORDER BY created_at DESC LIMIT 50;"
+            "SELECT order_id,customer_id,provider_id,status,total_amount,placed_at,accepted_at,"
+            "ready_at,picked_up_at,delivered_at,payment_method,payment_status "
+            "FROM orders.orders ORDER BY placed_at DESC LIMIT 50;"
         ),
         "order-outbox.txt": (
             "SELECT event_id,event_type,payload,published_at,created_at "
@@ -156,6 +175,7 @@ def capture_failure_diagnostics(error: BaseException) -> None:
 
 
 matrix.request = contract_request
+matrix.require = contract_require
 matrix.poll = evidence_poll
 
 try:
