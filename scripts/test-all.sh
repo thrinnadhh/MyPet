@@ -39,7 +39,7 @@ export KEEP_STACK=1
 
 bash "$ROOT/scripts/test-full-stack.sh"
 bash "$ROOT/scripts/test-feature-flows.sh"
-python3 "$ROOT/scripts/test-m8-feature-matrix.py"
+python3 "$ROOT/scripts/run-m8-feature-matrix.py"
 
 cat >> "$REPORT" <<'EOF'
 
