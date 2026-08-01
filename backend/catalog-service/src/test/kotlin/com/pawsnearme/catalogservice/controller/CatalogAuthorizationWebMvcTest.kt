@@ -9,6 +9,8 @@ import com.pawsnearme.catalogservice.service.InternalStockMutationService
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
+import org.mockito.kotlin.never
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
@@ -17,6 +19,7 @@ import org.springframework.http.MediaType
 import org.springframework.test.context.TestPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.math.BigDecimal
 import java.util.UUID
@@ -169,12 +172,37 @@ class CatalogAuthorizationWebMvcTest {
     }
 
     @Test
+    fun `getOfferingInternal - invalid service credential returns 403`() {
+        mockMvc.perform(
+            get("/api/v1/internal/catalog/offerings/$offeringId")
+                .header("X-Internal-Secret", "wrong-secret")
+                .header("X-Service-Name", "order-service")
+        )
+            .andExpect(status().isForbidden)
+
+        verify(catalogService, never()).getOfferingById(any())
+    }
+
+    @Test
+    fun `getOfferingInternal - valid order service credential returns offering`() {
+        whenever(catalogService.getOfferingById(offeringId)).thenReturn(sampleOffering)
+
+        mockMvc.perform(
+            get("/api/v1/internal/catalog/offerings/$offeringId")
+                .header("X-Internal-Secret", "dev-internal-secret")
+                .header("X-Service-Name", "order-service")
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.offeringId").value(offeringId.toString()))
+            .andExpect(jsonPath("$.providerId").value(providerId.toString()))
+            .andExpect(jsonPath("$.stockQuantity").value(50))
+    }
+
+    @Test
     fun `decrementStockInternal - invalid secret returns 403`() {
         mockMvc.perform(
             put("/api/v1/internal/catalog/offerings/$offeringId/decrement-stock?quantity=2")
                 .header("X-Internal-Secret", "wrong-secret")
-                .header("X-Service-Name", "order-service")
-                .header("X-Idempotency-Key", UUID.randomUUID().toString())
                 .header("X-Service-Name", "order-service")
                 .header("X-Idempotency-Key", UUID.randomUUID().toString())
         )
