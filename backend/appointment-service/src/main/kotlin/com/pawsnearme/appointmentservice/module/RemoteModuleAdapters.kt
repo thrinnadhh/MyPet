@@ -1,5 +1,6 @@
 package com.pawsnearme.appointmentservice.module
 
+import com.pawsnearme.appointmentservice.service.CatalogSlotSnapshot as LegacyCatalogSlotSnapshot
 import com.pawsnearme.common.module.CatalogModuleApi
 import com.pawsnearme.common.module.CatalogOfferingSnapshot
 import com.pawsnearme.common.module.CatalogSlotSnapshot
@@ -20,7 +21,6 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpMethod
 import org.springframework.web.client.RestOperations
 import java.math.BigDecimal
-import java.time.Instant
 import java.util.UUID
 
 @Configuration(proxyBeanMethods = false)
@@ -79,30 +79,35 @@ class RemoteCatalogModuleApi(
         throw UnsupportedOperationException("Appointment module does not mutate catalog stock")
 
     override fun slot(slotId: UUID): CatalogSlotSnapshot? = runCatching {
-        val response = restOperations.exchange(
+        restOperations.exchange(
             "$baseUrl/api/v1/catalog/slots/$slotId",
             HttpMethod.GET,
             HttpEntity<Any>(headers()),
-            Map::class.java
-        ).body ?: return@runCatching null
-        response.toSlot(slotId)
+            LegacyCatalogSlotSnapshot::class.java
+        ).body?.toModuleSnapshot(slotId)
     }.getOrNull()
 
     override fun updateSlotStatus(slotId: UUID, status: String): CatalogSlotSnapshot {
-        val response = restOperations.exchange(
-            "$baseUrl/api/v1/catalog/slots/$slotId/status?status=${status.trim().uppercase()}",
+        val normalizedStatus = status.trim().uppercase()
+        restOperations.exchange(
+            "$baseUrl/api/v1/catalog/slots/$slotId/status?status=$normalizedStatus",
             HttpMethod.PUT,
             HttpEntity<Any>(headers()),
-            Map::class.java
-        ).body ?: throw IllegalStateException("Catalog service returned an empty slot response")
-        return response.toSlot(slotId)
+            Void::class.java
+        )
+        return CatalogSlotSnapshot(
+            slotId = slotId,
+            slotStart = null,
+            slotEnd = null,
+            status = normalizedStatus
+        )
     }
 
-    private fun Map<*, *>.toSlot(fallbackId: UUID) = CatalogSlotSnapshot(
-        slotId = this["slotId"]?.toString()?.let(UUID::fromString) ?: fallbackId,
-        slotStart = this["slotStart"]?.toString()?.let(Instant::parse),
-        slotEnd = this["slotEnd"]?.toString()?.let(Instant::parse),
-        status = this["status"]?.toString() ?: "AVAILABLE"
+    private fun LegacyCatalogSlotSnapshot.toModuleSnapshot(fallbackId: UUID) = CatalogSlotSnapshot(
+        slotId = slotId ?: fallbackId,
+        slotStart = slotStart,
+        slotEnd = slotEnd,
+        status = status ?: "AVAILABLE"
     )
 
     private fun headers() = HttpHeaders().apply {
