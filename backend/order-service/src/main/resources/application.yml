@@ -6,7 +6,6 @@ order:
     hours-after-delivery: ${ORDER_AUTO_COMPLETE_HOURS:1}
   online-payments-enabled: ${ORDER_ONLINE_PAYMENTS_ENABLED:false}
 
-
 spring:
   application:
     name: order-service
@@ -38,17 +37,16 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-  redis:
-    host: ${REDIS_HOST:localhost}
-    port: ${REDIS_PORT:6379}
-    timeout: 2000ms
-
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
 
 gateway:
   trust:
     enabled: ${GATEWAY_TRUST_ENABLED:false}
     secret: ${GATEWAY_SECRET:dev-secret-change-in-production}
-
 
 management:
   endpoints:
@@ -117,5 +115,3 @@ resilience4j:
 
 # Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway
 # Enable in staging/production; leave disabled in local dev
-
-
