@@ -53,6 +53,7 @@ COMPOSE=(
   --env-file "$ENV_FILE"
   -f "$ROOT/infra/docker-compose.yml"
   -f "$ROOT/infra/docker-compose.replicas.yml"
+  -f "$ROOT/infra/docker-compose.m4.yml"
   -f "$ROOT/infra/docker-compose.local.yml"
 )
 
@@ -62,7 +63,8 @@ save_diagnostics() {
   for service in \
     provider-service catalog-service discovery-service order-service \
     appointment-service dispatch-service captain-service notification-service \
-    review-service payment-service chat-service content-service api-gateway postgres
+    review-service payment-service chat-service content-service api-gateway \
+    mypet-application postgres
   do
     "${COMPOSE[@]}" logs --no-color --tail=500 "$service" \
       > "$DIAGNOSTICS_DIR/${service}.log" 2>&1 || true
@@ -173,6 +175,7 @@ service_ports=(
   "chat-service:8091"
   "content-service:8092"
   "api-gateway:8080"
+  "mypet-application:8093"
 )
 
 for entry in "${service_ports[@]}"; do
@@ -236,6 +239,60 @@ WHERE table_name IS NOT NULL;")"
 [[ "$critical_tables" == "10" ]] || fail "Expected 10 critical tables, found $critical_tables"
 pass "Critical identity, commerce, care, delivery, payment, chat, and content tables exist"
 
+migration_history_count="$("${COMPOSE[@]}" exec -T postgres psql -U postgres -d pawsnearme -Atc "
+SELECT count(*)
+FROM (VALUES
+  (to_regclass('providers.flyway_schema_history_provider')),
+  (to_regclass('catalog.flyway_schema_history_catalog')),
+  (to_regclass('providers.flyway_schema_history_discovery')),
+  (to_regclass('orders.flyway_schema_history_order')),
+  (to_regclass('appointments.flyway_schema_history_appointment')),
+  (to_regclass('dispatch.flyway_schema_history_dispatch')),
+  (to_regclass('captains.flyway_schema_history_captain')),
+  (to_regclass('notifications.flyway_schema_history_notification')),
+  (to_regclass('reviews.flyway_schema_history_review')),
+  (to_regclass('payments.flyway_schema_history_payment')),
+  (to_regclass('chat.flyway_schema_history_chat')),
+  (to_regclass('content.flyway_schema_history_content'))
+) AS history_table(table_name)
+WHERE table_name IS NOT NULL;")"
+[[ "$migration_history_count" == "12" ]] \
+  || fail "Expected 12 isolated Flyway history tables, found $migration_history_count"
+pass "All twelve legacy Flyway history tables were retained"
+
+failed_migrations="$("${COMPOSE[@]}" exec -T postgres psql -U postgres -d pawsnearme -Atc "
+SELECT COALESCE(sum(failed), 0)
+FROM (
+  SELECT count(*) AS failed FROM providers.flyway_schema_history_provider WHERE NOT success
+  UNION ALL SELECT count(*) FROM catalog.flyway_schema_history_catalog WHERE NOT success
+  UNION ALL SELECT count(*) FROM providers.flyway_schema_history_discovery WHERE NOT success
+  UNION ALL SELECT count(*) FROM orders.flyway_schema_history_order WHERE NOT success
+  UNION ALL SELECT count(*) FROM appointments.flyway_schema_history_appointment WHERE NOT success
+  UNION ALL SELECT count(*) FROM dispatch.flyway_schema_history_dispatch WHERE NOT success
+  UNION ALL SELECT count(*) FROM captains.flyway_schema_history_captain WHERE NOT success
+  UNION ALL SELECT count(*) FROM notifications.flyway_schema_history_notification WHERE NOT success
+  UNION ALL SELECT count(*) FROM reviews.flyway_schema_history_review WHERE NOT success
+  UNION ALL SELECT count(*) FROM payments.flyway_schema_history_payment WHERE NOT success
+  UNION ALL SELECT count(*) FROM chat.flyway_schema_history_chat WHERE NOT success
+  UNION ALL SELECT count(*) FROM content.flyway_schema_history_content WHERE NOT success
+) AS failures;")"
+[[ "$failed_migrations" == "0" ]] || fail "Found $failed_migrations failed Flyway migrations"
+pass "Consolidated Flyway validation found no failed migration records"
+
+m4_info="$(docker exec "$PROBE_CONTAINER" \
+  wget -qO- http://mypet-application:8093/actuator/info)"
+printf '%s' "$m4_info" | python3 -c '
+import json, sys
+payload = json.load(sys.stdin)
+database = payload.get("databaseConsolidation", {})
+assert database.get("enabled") is True, database
+assert database.get("mode") == "application-owned", database
+assert database.get("phase") == "READY", database
+assert database.get("moduleCount") == 12, database
+assert len(database.get("modules", [])) == 12, database
+'
+pass "Consolidated application reports all twelve database owners READY"
+
 captain_columns="$("${COMPOSE[@]}" exec -T postgres psql -U postgres -d pawsnearme -Atc "
 SELECT count(*)
 FROM information_schema.columns
@@ -258,7 +315,8 @@ pass "All required Kafka event topics exist"
 
 curl -fsS http://localhost:8080/actuator/health/readiness >/dev/null
 curl -fsS http://localhost:8090/actuator/health/readiness >/dev/null
-pass "Gateway and payment host readiness endpoints returned HTTP 200"
+curl -fsS http://localhost:8093/actuator/health/readiness >/dev/null
+pass "Gateway, payment, and consolidated application readiness endpoints returned HTTP 200"
 
 local_user_id="11111111-1111-1111-1111-111111111111"
 local_jwt="$(python3 - <<'PY'
@@ -332,8 +390,9 @@ cat >> "$REPORT" <<EOF
 
 ## Final result
 
-**PASS** — clean database bootstrap, all infrastructure, all 13 backend applications,
-selected public reads, authenticated payment/COD reads, and a protected write boundary passed.
+**PASS** — clean database bootstrap, all infrastructure, all 13 distributed backend applications,
+the consolidated M4 database shadow, migration-history continuity, selected public reads,
+authenticated payment/COD reads, and a protected write boundary passed.
 EOF
 
 pass "Full-stack validation completed successfully"
