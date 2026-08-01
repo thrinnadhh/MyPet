@@ -80,34 +80,51 @@ Exit evidence:
 
 M2 merge commit: `8f18799364fa558587a6c6f33c198860e1d06aae`.
 
-### M3 — Security and gateway consolidation — in progress
+### M3 — Security and gateway consolidation — complete
 
-Install a servlet-native application edge boundary while preserving the separate gateway as active ingress and rollback path:
+Delivered a servlet-native application edge boundary while preserving the separate gateway as active ingress and rollback path:
 
-- validate Supabase JWTs with HS256 secrets or ES256/RS256 JWK sets;
-- restrict unsigned parsing to explicit local, dev or test profiles;
-- remove spoofable user/internal headers and derive identity only from a validated JWT;
-- reproduce the gateway's public-route and role-guard authorization matrix;
-- enforce explicit-origin credentialed CORS;
-- validate or generate `X-Request-Id` and return it on every edge-enabled response;
-- enforce configurable bounded token-bucket rate limiting;
-- replay successful unsafe requests carrying `Idempotency-Key` and reject conflicting reuse;
-- expose edge mode through `/actuator/info`;
-- keep `MYPET_EDGE_ENABLED=false` by default until traffic cutover.
+- Supabase JWT validation supports HS256 secrets and ES256/RS256 JWK sets;
+- unsigned parsing is restricted to explicit local, dev or test profiles;
+- spoofable user/internal headers are removed and identity is derived only from a validated JWT;
+- the gateway's public-route and role-guard authorization matrix is represented in the application;
+- explicit-origin credentialed CORS is enforced;
+- `X-Request-Id`, HTTP 429 rate limiting and bounded idempotency replay are application-owned;
+- edge mode is exposed through `/actuator/info`;
+- `MYPET_EDGE_ENABLED=false` remains the default until traffic cutover.
 
-Exit criteria:
+Exit evidence:
 
-- public, protected and role-restricted HTTP integration tests pass;
-- spoofed identity/internal headers never reach application handlers;
-- CORS preflight, request-ID, HTTP 429 and idempotency replay/conflict contracts pass;
-- edge-enabled startup fails closed when JWT verification is not configured;
-- `:mypet-application:test` and `:mypet-application:bootJar` pass;
-- complete backend, production-hardening, mobile and clean-volume smoke validation remains green;
-- no existing gateway route, service runtime, migration, Compose service or mobile contract is removed.
+- public, protected, role-restricted, CORS, request-ID, rate-limit and idempotency HTTP tests passed;
+- complete backend, generated-artifact, production-hardening and both mobile checks passed;
+- clean-volume Full Stack Smoke run `30683380626` passed;
+- Java & Mobile CI run `30683380636` passed.
 
-### M4 — Database consolidation
+M3 merge commit: `445cab6c7af8ec777746b460451e1df0a605d25d`.
 
-Run one application against the existing schemas while preserving migration history and ownership. Introduce an application-controlled Flyway strategy without rewriting production history.
+### M4 — Database consolidation — in progress
+
+Introduce one application-owned PostgreSQL connection and Flyway coordinator without rewriting production history:
+
+- package each service's unchanged SQL files under an application-only namespace such as `db/migration/provider`;
+- retain the original service migration files, versions and descriptions in place;
+- reuse the exact legacy schema and `flyway_schema_history_*` table for every owner;
+- preserve discovery ownership in the existing `providers` schema with its separate discovery history table;
+- run the twelve Flyway owners sequentially through one shared Hikari pool;
+- baseline existing non-empty schemas at version 1 exactly as the service configurations do;
+- disable Spring Boot's automatic datasource/Flyway configuration so the shell still starts without PostgreSQL when M4 is disabled;
+- expose migration phase, owner count and current versions through `/actuator/info` and readiness health;
+- add a Compose shadow runtime on port 8093 with edge ingress disabled;
+- keep every legacy service and its Flyway configuration operational for rollback.
+
+M4 exit criteria:
+
+- all twelve namespaced migration bundles are present in the application artifact;
+- each owner maps to its original schema and unique history table;
+- a clean-volume PostgreSQL run creates or reuses all twelve history tables with zero failed records;
+- `mypet-application` reports database phase `READY` and twelve completed owners;
+- the distributed services, gateway, APIs, mobile validation and production-hardening checks remain green;
+- no existing migration is renamed, deleted, reordered or edited solely for consolidation.
 
 ### M5 — Replace synchronous remote calls
 

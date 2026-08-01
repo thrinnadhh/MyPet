@@ -21,20 +21,27 @@ class MyPetApplicationTest {
     }
 
     @Test
-    fun `application exposes milestone and edge metadata through info endpoint`() {
+    fun `application exposes milestone edge and database metadata through info endpoint`() {
         val response = restTemplate.getForEntity("/actuator/info", Map::class.java)
 
         assertEquals(HttpStatus.OK, response.statusCode)
         val appInfo = response.body?.get("app") as? Map<*, *>
         assertNotNull(appInfo)
         assertEquals("MyPet Application", appInfo?.get("name"))
-        assertEquals("M3", appInfo?.get("milestone"))
-        assertEquals("modular-monolith-edge-security", appInfo?.get("architecture"))
+        assertEquals("M4", appInfo?.get("milestone"))
+        assertEquals("modular-monolith-database-consolidation", appInfo?.get("architecture"))
 
         val edgeInfo = response.body?.get("edgeSecurity") as? Map<*, *>
         assertNotNull(edgeInfo)
         assertEquals(false, edgeInfo?.get("enabled"))
         assertEquals("shadow-ready", edgeInfo?.get("mode"))
+
+        val databaseInfo = response.body?.get("databaseConsolidation") as? Map<*, *>
+        assertNotNull(databaseInfo)
+        assertEquals(false, databaseInfo?.get("enabled"))
+        assertEquals("shadow-ready", databaseInfo?.get("mode"))
+        assertEquals("DISABLED", databaseInfo?.get("phase"))
+        assertEquals(12, databaseInfo?.get("moduleCount"))
     }
 
     @Test

@@ -1,0 +1,37 @@
+services:
+  # M4 shadow runtime. It reuses the existing PostgreSQL database, schemas and
+  # Flyway history tables while the distributed services remain deployable.
+  mypet-application:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: mypet-application
+    ports:
+      - "8093:8093"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8093
+      MYPET_EDGE_ENABLED: "false"
+      MYPET_DATABASE_ENABLED: "true"
+      MYPET_DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=public&stringtype=unspecified
+      MYPET_DB_USERNAME: postgres
+      MYPET_DB_PASSWORD: postgres
+      MYPET_DB_POOL_MAX_SIZE: 5
+      MYPET_DB_POOL_MIN_IDLE: 1
+      MYPET_DB_CONNECTION_TIMEOUT_MS: 5000
+      MYPET_FLYWAY_MIGRATE_ON_STARTUP: "true"
+      MYPET_FLYWAY_CONNECT_RETRIES: 10
+      MYPET_FLYWAY_LOCK_RETRY_COUNT: 50
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+        reservations:
+          cpus: "0.25"
+          memory: 384M
