@@ -34,6 +34,13 @@ COMPOSE_SEARCH_PATHS = {
     "content-service": "content,public",
 }
 
+ORDER_MODULE_URLS = {
+    "CATALOG_SERVICE_URL": "http://catalog-service:8082",
+    "PAYMENT_SERVICE_URL": "http://payment-service:8090",
+    "PROVIDER_SERVICE_URL": "http://provider-service:8081",
+    "DISCOVERY_SERVICE_URL": "http://discovery-service:8083",
+}
+
 failures: list[str] = []
 
 shared_scheduler_runtime = (
@@ -142,6 +149,19 @@ else:
                 f"{service} Compose DB_URL must preserve currentSchema={search_path}"
             )
 
+    if "  order-service:" not in compose or "\n  appointment-service:" not in compose:
+        failures.append("Compose file is missing the order-service ownership block")
+    else:
+        order_block = compose.split("  order-service:", 1)[1].split(
+            "\n  appointment-service:", 1
+        )[0]
+        for variable, value in ORDER_MODULE_URLS.items():
+            expected = f"{variable}: {value}"
+            if expected not in order_block:
+                failures.append(
+                    f"order-service Compose wiring must set {expected}; localhost defaults are invalid in containers"
+                )
+
 payment_application = (
     ROOT
     / "backend/payment-service/src/main/kotlin/com/pawsnearme/paymentservice/PaymentServiceApplication.kt"
@@ -217,5 +237,6 @@ if failures:
 print(
     "Runtime wiring checks passed for gateway trust injection, Payment shared "
     f"persistence, {len(SHEDLOCK_SCHEMAS)} shared ShedLock declarations/migrations, "
-    f"and {len(COMPOSE_SEARCH_PATHS)} Compose database search paths."
+    f"{len(COMPOSE_SEARCH_PATHS)} Compose database search paths, and "
+    f"{len(ORDER_MODULE_URLS)} order module service URLs."
 )
