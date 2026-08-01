@@ -32,4 +32,5 @@ fail_if_found \
 
 python3 scripts/check-flyway-migrations.py
 python3 scripts/check-runtime-wiring.py
+python3 scripts/check-m8-feature-verification.py
 python3 backend/scan_dependencies.py
