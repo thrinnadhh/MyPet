@@ -2,7 +2,6 @@ package com.pawsnearme.application
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -34,13 +33,10 @@ class MyPetApplicationTest {
     }
 
     @Test
-    fun `application exposes prometheus through actuator discovery`() {
-        val response = restTemplate.getForEntity("/actuator", Map::class.java)
+    fun `application exposes prometheus scrape endpoint`() {
+        val response = restTemplate.getForEntity("/actuator/prometheus", String::class.java)
 
         assertEquals(HttpStatus.OK, response.statusCode)
-        val links = response.body?.get("_links") as? Map<*, *>
-        assertNotNull(links)
-        assertTrue(links?.containsKey("prometheus") == true)
     }
 
     private fun assertHealthEndpoint(path: String) {
