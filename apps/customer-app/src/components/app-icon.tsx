@@ -4,7 +4,7 @@ import { Text, type StyleProp, type ViewStyle } from 'react-native';
 export type AppIconName =
   | 'cart' | 'calendar' | 'check' | 'clock' | 'location' | 'paw' | 'store' | 'medical'
   | 'sparkle' | 'star' | 'history' | 'message' | 'support' | 'shield' | 'groom' | 'card'
-  | 'home' | 'search' | 'profile' | 'offline' | 'warning' | 'chevron';
+  | 'home' | 'search' | 'profile' | 'offline' | 'warning' | 'chevron' | 'heart' | 'close';
 
 const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: string }> = {
   cart: { ios: 'cart.fill', android: 'shopping_cart', fallback: 'C' },
@@ -29,10 +29,11 @@ const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: str
   offline: { ios: 'wifi.slash', android: 'wifi_off', fallback: '!' },
   warning: { ios: 'exclamationmark.triangle.fill', android: 'warning', fallback: '!' },
   chevron: { ios: 'chevron.right', android: 'chevron_right', fallback: '>' },
+  heart: { ios: 'heart.fill', android: 'favorite', fallback: '♥' },
+  close: { ios: 'xmark', android: 'close', fallback: '×' },
 };
 
 export function AppIcon({ name, color, size = 18, style }: { name: AppIconName; color: string; size?: number; style?: StyleProp<ViewStyle> }) {
-
   const symbol = SYMBOLS[name];
   return (
     <SymbolView
