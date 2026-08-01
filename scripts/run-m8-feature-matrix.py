@@ -92,6 +92,18 @@ def capture_failure_diagnostics(error: BaseException) -> None:
             "SELECT event_id,processed_at FROM notifications.processed_events "
             "ORDER BY processed_at DESC LIMIT 50;"
         ),
+        "catalog-offerings.txt": (
+            "SELECT offering_id,provider_id,name,price,status,stock_quantity,created_at "
+            "FROM catalog.offerings ORDER BY created_at DESC LIMIT 50;"
+        ),
+        "orders.txt": (
+            "SELECT order_id,customer_id,provider_id,status,total_amount,created_at "
+            "FROM orders.orders ORDER BY created_at DESC LIMIT 50;"
+        ),
+        "order-outbox.txt": (
+            "SELECT event_id,event_type,payload,published_at,created_at "
+            "FROM orders.outbox_events ORDER BY created_at DESC LIMIT 50;"
+        ),
     }
     for file_name, statement in queries.items():
         try:
@@ -100,7 +112,18 @@ def capture_failure_diagnostics(error: BaseException) -> None:
             value = f"diagnostic query failed: {diagnostic_error}"
         (DIAGNOSTICS / file_name).write_text(value, encoding="utf-8")
 
-    for service in ("appointment-service", "notification-service", "kafka"):
+    services = (
+        "api-gateway",
+        "appointment-service",
+        "notification-service",
+        "order-service",
+        "catalog-service",
+        "discovery-service",
+        "payment-service",
+        "dispatch-service",
+        "kafka",
+    )
+    for service in services:
         try:
             value = matrix.compose("logs", "--no-color", "--tail", "600", service)
         except Exception as diagnostic_error:
