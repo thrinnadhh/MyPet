@@ -82,7 +82,14 @@ class Order(
 
     @Column(name = "payment_status", nullable = false)
     var paymentStatus: String = "PENDING"
-)
+) {
+    @PrePersist
+    fun alignLifecycleTimestamps() {
+        if (status == OrderStatus.ACCEPTED && acceptedAt == null) {
+            acceptedAt = placedAt
+        }
+    }
+}
 
 @Entity
 @Table(name = "order_items", schema = "orders")
