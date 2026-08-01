@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - scripts/p2b_native_location_migration.py
+      - scripts/p2b_native_location_fix.py
       - .github/workflows/p2b-native-location-bootstrap.yml
 
 permissions:
@@ -30,7 +31,9 @@ jobs:
           cache-dependency-path: apps/merchant-captain-app/package-lock.json
 
       - name: Apply native location migration
-        run: python3 scripts/p2b_native_location_migration.py
+        run: |
+          python3 scripts/p2b_native_location_migration.py
+          python3 scripts/p2b_native_location_fix.py
 
       - name: Regenerate lockfile
         working-directory: apps/merchant-captain-app
@@ -47,6 +50,7 @@ jobs:
       - name: Remove one-time migration files
         run: |
           git rm scripts/p2b_native_location_migration.py
+          git rm scripts/p2b_native_location_fix.py
           git rm .github/workflows/p2b-native-location-bootstrap.yml
 
       - name: Commit generated implementation
