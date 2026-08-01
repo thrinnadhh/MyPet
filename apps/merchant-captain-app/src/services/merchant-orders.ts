@@ -1,17 +1,16 @@
+import {
+  type MerchantOrderAction,
+  type MerchantOrderStatus,
+} from '../contracts/merchant-order-lifecycle';
 import { apiClient } from './api-client';
 
-export type MerchantOrderStatus =
-  | 'PLACED'
-  | 'ACCEPTED'
-  | 'PREPARING'
-  | 'READY_FOR_PICKUP'
-  | 'ASSIGNED'
-  | 'REASSIGNED'
-  | 'PICKED_UP'
-  | 'DELIVERED'
-  | 'COMPLETED'
-  | 'REJECTED'
-  | 'CANCELLED';
+export {
+  isMerchantOrderActive,
+  merchantOrderActions,
+  type MerchantOrderAction,
+  type MerchantOrderActionDefinition,
+  type MerchantOrderStatus,
+} from '../contracts/merchant-order-lifecycle';
 
 export interface MerchantOrder {
   orderId: string;
@@ -35,37 +34,6 @@ export interface MerchantOrder {
   deliveredAt?: string | null;
   cancelledAt?: string | null;
   cancellationReason?: string | null;
-}
-
-export type MerchantOrderAction = 'ACCEPTED' | 'PREPARING' | 'READY_FOR_PICKUP' | 'REJECTED' | 'CANCELLED';
-
-export interface MerchantOrderActionDefinition {
-  status: MerchantOrderAction;
-  label: string;
-  destructive?: boolean;
-}
-
-export function merchantOrderActions(status: MerchantOrderStatus): MerchantOrderActionDefinition[] {
-  switch (status) {
-    case 'PLACED':
-      return [
-        { status: 'ACCEPTED', label: 'Accept order' },
-        { status: 'REJECTED', label: 'Reject order', destructive: true },
-      ];
-    case 'ACCEPTED':
-      return [
-        { status: 'PREPARING', label: 'Start packing' },
-        { status: 'CANCELLED', label: 'Cancel order', destructive: true },
-      ];
-    case 'PREPARING':
-      return [{ status: 'READY_FOR_PICKUP', label: 'Mark ready for pickup' }];
-    default:
-      return [];
-  }
-}
-
-export function isMerchantOrderActive(status: MerchantOrderStatus): boolean {
-  return !['DELIVERED', 'COMPLETED', 'REJECTED', 'CANCELLED'].includes(status);
 }
 
 export async function fetchMerchantOrders(providerId: string): Promise<MerchantOrder[]> {
