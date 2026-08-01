@@ -2,9 +2,15 @@ package com.pawsnearme.common.scheduling
 
 import net.javacrumbs.shedlock.core.LockProvider
 import net.javacrumbs.shedlock.provider.jdbctemplate.JdbcTemplateLockProvider
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory
+import org.springframework.beans.factory.support.BeanDefinitionRegistry
+import org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor
+import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Condition
 import org.springframework.context.annotation.ConditionContext
 import org.springframework.context.annotation.Conditional
+import org.springframework.context.annotation.Configuration
+import org.springframework.core.env.Environment
 import org.springframework.core.type.AnnotatedTypeMetadata
 import org.springframework.jdbc.core.JdbcTemplate
 import javax.sql.DataSource
@@ -25,13 +31,6 @@ enum class SchedulerRuntimeRole {
     }
 }
 
-/**
- * Activates a scheduled worker only when this process owns background work.
- *
- * Existing standalone services default to ALL, preserving production behavior.
- * API-only deployments set `mypet.scheduling.role=API`; dedicated workers use
- * `WORKER`. DISABLED is reserved for diagnostics and migration rollback.
- */
 @Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION)
 @Retention(AnnotationRetention.RUNTIME)
 @MustBeDocumented
@@ -43,6 +42,41 @@ class WorkerSchedulerCondition : Condition {
         SchedulerRuntimeRole.parse(
             context.environment.getProperty("mypet.scheduling.role")
         ).executesWorkers
+}
+
+/**
+ * Removes Spring's scheduled-method processor before singleton creation when
+ * this process is API-only or scheduling is disabled. Business services remain
+ * available; only periodic execution ownership moves to worker processes.
+ */
+class SchedulerRoleBeanDefinitionPostProcessor(
+    private val role: SchedulerRuntimeRole
+) : BeanDefinitionRegistryPostProcessor {
+    override fun postProcessBeanDefinitionRegistry(registry: BeanDefinitionRegistry) {
+        if (!role.executesWorkers && registry.containsBeanDefinition(SCHEDULED_PROCESSOR_BEAN_NAME)) {
+            registry.removeBeanDefinition(SCHEDULED_PROCESSOR_BEAN_NAME)
+        }
+    }
+
+    override fun postProcessBeanFactory(beanFactory: ConfigurableListableBeanFactory) = Unit
+
+    companion object {
+        const val SCHEDULED_PROCESSOR_BEAN_NAME =
+            "org.springframework.context.annotation.internalScheduledAnnotationProcessor"
+    }
+}
+
+@Configuration(proxyBeanMethods = false)
+class SchedulerRuntimeInfrastructureConfiguration {
+    companion object {
+        @Bean
+        @JvmStatic
+        fun schedulerRoleBeanDefinitionPostProcessor(
+            environment: Environment
+        ): SchedulerRoleBeanDefinitionPostProcessor = SchedulerRoleBeanDefinitionPostProcessor(
+            SchedulerRuntimeRole.parse(environment.getProperty("mypet.scheduling.role"))
+        )
+    }
 }
 
 enum class SchedulerCadenceKind {
@@ -116,7 +150,7 @@ object MyPetSchedulerCatalog {
             SchedulerJobDescriptor(
                 id = "order.compensation",
                 ownerModule = "order",
-                component = "OrderCompensationWorker",
+                component = "OrderCompensationService",
                 method = "runPending",
                 cadenceKind = SchedulerCadenceKind.FIXED_DELAY,
                 cadence = "${'$'}{order.compensation.poll-delay-ms:5000}ms",
@@ -126,7 +160,7 @@ object MyPetSchedulerCatalog {
             SchedulerJobDescriptor(
                 id = "appointment.expire-holds",
                 ownerModule = "appointment",
-                component = "AppointmentHoldCleanupWorker",
+                component = "AppointmentService",
                 method = "cleanupExpiredHolds",
                 cadenceKind = SchedulerCadenceKind.FIXED_DELAY,
                 cadence = "PT5S",
@@ -136,7 +170,7 @@ object MyPetSchedulerCatalog {
             SchedulerJobDescriptor(
                 id = "dispatch.offer-timeouts",
                 ownerModule = "dispatch",
-                component = "DispatchOfferTimeoutWorker",
+                component = "DispatchService",
                 method = "checkOfferTimeouts",
                 cadenceKind = SchedulerCadenceKind.FIXED_DELAY,
                 cadence = "PT5S",
@@ -166,7 +200,7 @@ object MyPetSchedulerCatalog {
             SchedulerJobDescriptor(
                 id = "content.close-banner-auctions",
                 ownerModule = "content",
-                component = "BannerAuctionWorker",
+                component = "BannerAuctionService",
                 method = "closeExpiredAuctions",
                 cadenceKind = SchedulerCadenceKind.FIXED_DELAY,
                 cadence = "PT10S",
