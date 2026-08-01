@@ -14,6 +14,7 @@ pluginManagement {
 
 rootProject.name = "pawsnearme-backend"
 
+include("mypet-application")
 include("api-gateway")
 include("provider-service")
 include("catalog-service")
