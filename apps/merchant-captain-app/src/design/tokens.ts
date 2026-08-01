@@ -1,59 +1,23 @@
 import { Platform } from 'react-native';
 
+import {
+  palette,
+  radii,
+  roleAccent,
+  spacing,
+  touchTarget,
+  type MyPetScheme,
+  type OperationalRole,
+} from '@/design/foundation';
+
+export { palette, radii, roleAccent, spacing, touchTarget } from '@/design/foundation';
+export type { MyPetScheme, OperationalRole } from '@/design/foundation';
+
 /**
- * Shared visual contract for the merchant and captain experiences.
- *
- * The core palette intentionally matches the customer application and the
- * approved Stitch "Premium Pet Commerce System" reference. Role accents are
- * additive: they help distinguish operational workflows without fragmenting
- * the MyPet brand.
+ * React Native-specific typography, elevation, and semantic theme values.
+ * Platform-independent constants live in `foundation.ts` so they can be
+ * validated by the lightweight Node test runner.
  */
-export const palette = {
-  royalBlue: '#004AC6',
-  royalBlueBright: '#2563EB',
-  royalBlueSoft: '#DBE1FF',
-  amber: '#FEA619',
-  amberSoft: '#FFDDB8',
-  emerald: '#10B981',
-  emeraldSoft: '#D1FAE5',
-  captainTeal: '#0F766E',
-  captainTealSoft: '#CCFBF1',
-  merchantOrange: '#C2410C',
-  merchantOrangeSoft: '#FFEDD5',
-  coolWhite: '#F8F9FF',
-  white: '#FFFFFF',
-  ink: '#0B1C30',
-  inkMuted: '#434655',
-  outline: '#C3C6D7',
-  error: '#BA1A1A',
-  errorSoft: '#FFDAD6',
-  darkSurface: '#111D2C',
-  darkCard: '#1B293A',
-  darkInk: '#EAF1FF',
-  darkMuted: '#C3C6D7',
-} as const;
-
-export const spacing = {
-  x1: 4,
-  x2: 8,
-  x3: 12,
-  x4: 16,
-  x5: 20,
-  x6: 24,
-  x8: 32,
-  x12: 48,
-} as const;
-
-export const radii = {
-  compact: 8,
-  control: 12,
-  card: 16,
-  feature: 24,
-  pill: 999,
-} as const;
-
-export const touchTarget = 48;
-
 export const fontFamilies = {
   regular: 'Inter_400Regular',
   medium: 'Inter_500Medium',
@@ -129,21 +93,6 @@ export const shadows = {
   }),
 } as const;
 
-export type MyPetScheme = 'light' | 'dark';
-export type OperationalRole = 'merchant' | 'captain' | 'admin';
-
-export function roleAccent(role: OperationalRole, scheme: MyPetScheme) {
-  if (scheme === 'dark') {
-    if (role === 'captain') return { accent: '#5EEAD4', accentSoft: '#134E4A' };
-    if (role === 'merchant') return { accent: '#FDBA74', accentSoft: '#7C2D12' };
-    return { accent: '#B4C5FF', accentSoft: '#263D70' };
-  }
-
-  if (role === 'captain') return { accent: palette.captainTeal, accentSoft: palette.captainTealSoft };
-  if (role === 'merchant') return { accent: palette.merchantOrange, accentSoft: palette.merchantOrangeSoft };
-  return { accent: palette.royalBlue, accentSoft: palette.royalBlueSoft };
-}
-
 export function themeFor(scheme: MyPetScheme) {
   return scheme === 'dark'
     ? {
@@ -181,3 +130,10 @@ export function themeFor(scheme: MyPetScheme) {
         errorSoft: palette.errorSoft,
       };
 }
+
+// Referenced here to keep re-exported contracts visible to TypeScript tooling.
+void radii;
+void roleAccent;
+void spacing;
+void touchTarget;
+void (null as OperationalRole | null);
