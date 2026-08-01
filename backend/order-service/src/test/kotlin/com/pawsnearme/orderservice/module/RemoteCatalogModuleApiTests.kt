@@ -2,6 +2,7 @@ package com.pawsnearme.orderservice.module
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.springframework.http.HttpMethod
 import org.springframework.http.MediaType
 import org.springframework.test.web.client.MockRestServiceServer
 import org.springframework.test.web.client.match.MockRestRequestMatchers.header
@@ -11,7 +12,6 @@ import org.springframework.test.web.client.response.MockRestResponseCreators.wit
 import org.springframework.web.client.RestTemplate
 import java.math.BigDecimal
 import java.util.UUID
-import org.springframework.http.HttpMethod
 
 class RemoteCatalogModuleApiTests {
     @Test
@@ -50,7 +50,7 @@ class RemoteCatalogModuleApiTests {
         assertEquals(offeringId, snapshot.offeringId)
         assertEquals(providerId, snapshot.providerId)
         assertEquals("M8 Dog Food", snapshot.name)
-        assertEquals(BigDecimal("199.00"), snapshot.price)
+        assertEquals(0, snapshot.price.compareTo(BigDecimal("199.00")))
         assertEquals("ACTIVE", snapshot.status)
         assertEquals(25, snapshot.stockQuantity)
         server.verify()
