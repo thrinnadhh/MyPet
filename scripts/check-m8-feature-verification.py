@@ -62,6 +62,10 @@ if runner_path.is_file():
         "/api/v1/appointments/hold",
         "expected == (400,)",
         "expected = (409,)",
+        "/status?status=IN_PROGRESS",
+        "_original_request(method, path, actor, payload, expected=(400,))",
+        '"unsupportedStatusRejected": True',
+        "CONFIRMED -> COMPLETED",
     ):
         if required not in runner:
             failures.append(f"M8 runner is missing explicit contract mapping: {required}")
