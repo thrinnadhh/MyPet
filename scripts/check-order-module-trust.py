@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce gateway trust on every order-service module HTTP call."""
+"""Enforce order-service module trust and container runtime bindings."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ TEST = (
     ROOT
     / "backend/order-service/src/test/kotlin/com/pawsnearme/orderservice/config/InfraConfigTests.kt"
 )
+APPLICATION_YML = ROOT / "backend/order-service/src/main/resources/application.yml"
 
 failures: list[str] = []
 
@@ -45,9 +46,26 @@ else:
         if required not in tests:
             failures.append(f"order-service outbound trust test is missing: {required}")
 
+if not APPLICATION_YML.is_file():
+    failures.append("order-service is missing application.yml")
+else:
+    application = APPLICATION_YML.read_text(encoding="utf-8")
+    for required in (
+        "  data:\n    redis:\n",
+        "host: ${REDIS_HOST:localhost}",
+        "port: ${REDIS_PORT:6379}",
+        "timeout: 2000ms",
+    ):
+        if required not in application:
+            failures.append(f"order-service Redis configuration is missing: {required}")
+    if "  redis:\n    host: ${REDIS_HOST:localhost}" in application:
+        failures.append(
+            "order-service must use spring.data.redis; spring.redis is ignored by the current Spring Boot runtime"
+        )
+
 if failures:
     for failure in failures:
         print(f"ERROR: {failure}", file=sys.stderr)
     raise SystemExit(1)
 
-print("Order-service outbound module gateway trust wiring is enforced.")
+print("Order-service outbound trust and Redis container wiring are enforced.")
