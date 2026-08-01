@@ -10,6 +10,7 @@ import com.pawsnearme.common.module.CatalogModuleApi
 import com.pawsnearme.common.module.PaymentModuleApi
 import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.common.outbox.OutboxService
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -73,7 +74,6 @@ class AppointmentService @Autowired constructor(
     private val paymentModule: PaymentModuleApi,
     private val holdDurationSeconds: Long = 300L
 ) {
-    /** Compatibility constructor retained for focused tests and distributed rollback tooling. */
     constructor(
         appointmentRepository: AppointmentRepository,
         appointmentStatusHistoryRepository: AppointmentStatusHistoryRepository,
@@ -303,6 +303,11 @@ class AppointmentService @Autowired constructor(
     }
 
     @Scheduled(fixedDelay = 5000)
+    @SchedulerLock(
+        name = "appointment_cleanupExpiredHolds",
+        lockAtMostFor = "PT30S",
+        lockAtLeastFor = "PT1S"
+    )
     fun cleanupExpiredHolds() {
         val cutoff = Instant.now().minusSeconds(holdDurationSeconds)
         appointmentRepository.findByStatusAndBookedAtBefore(AppointmentStatus.SLOT_HELD, cutoff).forEach { appointment ->
