@@ -39,26 +39,28 @@ Independent analysis and validation lanes may run concurrently. Writes to shared
 
 Baseline merge commit: `f8319834f94c6bea7e0181aba07c87327c860f42`.
 
-### M1 — Application shell — in progress
+### M1 — Application shell — complete
 
-Deliver a new `mypet-application` Spring Boot module that:
+- Added the independently bootable `mypet-application` module.
+- Added liveness, readiness, info and Prometheus actuator endpoints.
+- Added graceful shutdown and an HTTP readiness integration test.
+- Preserved the existing distributed deployment and mobile contracts.
 
-- starts independently without database, Redis, Kafka or business-module dependencies;
-- exposes liveness, readiness, info and Prometheus actuator endpoints;
-- supports graceful shutdown;
-- has an HTTP readiness integration test;
-- is built and tested by the existing Gradle CI suite.
+M1 merge commit: `01efdb22dcceb803341a2f11c38ab3bf7d48f819`.
 
-Exit criteria:
+### M2 — Internal modules — in progress
 
-- `:mypet-application:test` passes;
-- `:mypet-application:bootJar` succeeds;
-- existing backend and mobile checks remain green;
-- no existing service or Compose deployment is removed.
+Package the reusable portion of each business service as a separate `monolith` artifact while retaining every standalone boot JAR for rollback.
 
-### M2 — Internal modules
+M2 controls:
 
-Import existing business modules into the application as library dependencies, disable their independent boot entry points for the consolidated runtime, and enforce explicit module boundaries.
+- exclude standalone `*ServiceApplication` launchers from consolidated artifacts;
+- exclude service `application.yml` files and Flyway migrations;
+- assemble all 12 business-module artifacts in `mypet-application`;
+- keep database, Flyway, Kafka, Redis and gRPC auto-configuration dormant;
+- publish a typed module registry with package and schema ownership metadata;
+- verify marker availability, launcher exclusion and resource isolation in a booted integration test;
+- keep the M0 clean-volume distributed stack green.
 
 ### M3 — Security and gateway consolidation
 
