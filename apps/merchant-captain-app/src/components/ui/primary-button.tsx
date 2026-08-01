@@ -1,11 +1,9 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
-import { Radius, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { ActionButton, type ActionVariant } from '@/components/foundation/primitives';
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost';
+type ButtonVariant = Extract<ActionVariant, 'primary' | 'secondary' | 'ghost'>;
 
 export function PrimaryButton({
   label,
@@ -22,50 +20,14 @@ export function PrimaryButton({
   variant?: ButtonVariant;
   style?: StyleProp<ViewStyle>;
 }) {
-  const theme = useTheme();
-  const isDisabled = disabled || loading;
-
-  const backgroundColor =
-    variant === 'primary' ? theme.primary : variant === 'secondary' ? theme.ctaSoft : 'transparent';
-  const borderColor = variant === 'ghost' ? theme.border : 'transparent';
-  const textColor = variant === 'primary' ? '#FFFFFF' : variant === 'secondary' ? theme.cta : theme.primary;
-
   return (
-    <Pressable
+    <ActionButton
+      label={label}
       onPress={onPress}
-      disabled={isDisabled}
-      style={({ pressed }) => [
-        styles.button,
-        {
-          backgroundColor,
-          borderColor,
-          opacity: isDisabled ? 0.55 : pressed ? 0.9 : 1,
-        },
-        style,
-      ]}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-    >
-      {loading ? (
-        <ActivityIndicator color={textColor} />
-      ) : (
-        <ThemedText style={[styles.label, { color: textColor }]}>{label}</ThemedText>
-      )}
-    </Pressable>
+      disabled={disabled}
+      loading={loading}
+      variant={variant}
+      style={style}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  button: {
-    minHeight: 52,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.four,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-});

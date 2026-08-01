@@ -1,36 +1,46 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, useColorScheme, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, View, useWindowDimensions, type DimensionValue } from 'react-native';
 
-import { AppIcon } from '@/components/app-icon';
+import type { AppIconName } from '@/components/app-icon';
+import {
+  ActionButton,
+  AppBar,
+  FeedbackBanner,
+  MetricCard,
+  RoleBadge,
+  SectionHeader,
+} from '@/components/foundation/primitives';
+import { ScreenShell } from '@/components/foundation/screen-shell';
 import { OrderIncomingAlert } from '@/components/order-incoming-alert';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Colors, Radius, Shadows, Spacing } from '@/constants/theme';
+import { AppCard } from '@/components/ui/app-card';
 import { useAuth } from '@/context/AuthContext';
-import { useTranslation } from '@/i18n';
-import { appConfig } from '@/utils/app-config';
-import { fetchUnreadMerchantAlerts, markAlertRead } from '@/services/notifications';
+import { spacing, typography } from '@/design/tokens';
 import { playMerchantOrderAlertSound } from '@/hooks/usePushNotifications';
+import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from '@/i18n';
+import { fetchUnreadMerchantAlerts, markAlertRead } from '@/services/notifications';
+import { appConfig } from '@/utils/app-config';
 
 const ACTIONS = [
-  { id: 'approval', labelKey: 'home.providerApproval', valueKey: 'home.providerApprovalValue', tone: 'warning' },
-  { id: 'catalog', labelKey: 'home.catalogReadiness', valueKey: 'home.catalogReadinessValue', tone: 'success' },
-  { id: 'orders', labelKey: 'home.openOrders', valueKey: 'home.openOrdersValue', tone: 'cta' },
-  { id: 'billing', labelKey: 'home.posSync', valueKey: 'home.posSyncValue', tone: 'success' },
+  { id: 'approval', labelKey: 'home.providerApproval', valueKey: 'home.providerApprovalValue', tone: 'warning', icon: 'shield' },
+  { id: 'catalog', labelKey: 'home.catalogReadiness', valueKey: 'home.catalogReadinessValue', tone: 'success', icon: 'inventory' },
+  { id: 'orders', labelKey: 'home.openOrders', valueKey: 'home.openOrdersValue', tone: 'primary', icon: 'cart' },
+  { id: 'billing', labelKey: 'home.posSync', valueKey: 'home.posSyncValue', tone: 'success', icon: 'wallet' },
 ] as const;
 
-const LIVE_TASK_KEYS = [
-  'home.task1',
-  'home.task2',
-  'home.task3',
-  'home.task4',
-] as const;
+const LIVE_TASK_KEYS = ['home.task1', 'home.task2', 'home.task3', 'home.task4'] as const;
+
+type QuickAction = {
+  labelKey: string;
+  icon: AppIconName;
+  route: string;
+};
 
 export default function Index() {
-  const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
-  const colors = Colors[scheme];
+  const { width } = useWindowDimensions();
+  const theme = useTheme();
   const { user, role, activeRole, session } = useAuth();
   const { t } = useTranslation();
   const router = useRouter();
@@ -72,206 +82,180 @@ export default function Index() {
     return t('home.greetingEvening');
   }, [t]);
 
-  const toneColor = (tone: (typeof ACTIONS)[number]['tone']) => {
-    if (tone === 'warning') return colors.warning;
-    if (tone === 'success') return colors.success;
-    return colors.cta;
-  };
+  const workspaceLabel =
+    activeRole === 'ADMIN'
+      ? t('home.adminRoom')
+      : activeRole === 'PROVIDER'
+        ? t('home.merchantRoom')
+        : t('home.captainHome');
+
+  const roleBadge = activeRole === 'ADMIN' ? 'admin' : activeRole === 'PROVIDER' ? 'merchant' : 'captain';
+  const cardWidth: DimensionValue = width >= 920 ? '23.5%' : width >= 620 ? '48%' : '100%';
+
+  const quickActions = useMemo<QuickAction[]>(() => {
+    const shared: QuickAction[] = [
+      { labelKey: 'home.messages', icon: 'message', route: '/chat' },
+      { labelKey: 'home.payouts', icon: 'wallet', route: '/earnings' },
+      { labelKey: 'home.legal', icon: 'shield', route: '/legal' },
+    ];
+
+    if (activeRole === 'ADMIN') {
+      return [
+        { labelKey: 'home.superAdmin', icon: 'shield', route: '/admin' },
+        { labelKey: 'home.bookings', icon: 'calendar', route: '/explore' },
+        { labelKey: 'home.inventory', icon: 'inventory', route: '/inventory' },
+        ...shared,
+      ];
+    }
+
+    if (activeRole === 'PROVIDER') {
+      return [
+        { labelKey: 'home.onboarding', icon: 'store', route: '/onboarding' },
+        { labelKey: 'home.inventory', icon: 'inventory', route: '/inventory' },
+        { labelKey: 'home.bookings', icon: 'calendar', route: '/explore' },
+        ...shared,
+        ...(role === 'ADMIN' || appConfig.allowDemoMode
+          ? [{ labelKey: 'home.superAdmin', icon: 'shield' as const, route: '/admin' }]
+          : []),
+      ];
+    }
+
+    return [
+      { labelKey: 'home.onboarding', icon: 'truck', route: '/captain-onboarding' },
+      { labelKey: 'home.bookings', icon: 'truck', route: '/delivery' },
+      ...shared,
+    ];
+  }, [activeRole, role]);
 
   return (
-    <ThemedView style={[styles.container, { backgroundColor: colors.background }]}>
-      <SafeAreaView style={styles.safeArea}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          <View style={[styles.hero, { backgroundColor: colors.primarySoft, borderColor: colors.border }]}>
-            <View style={styles.heroCopy}>
-              <ThemedText type="small" style={{ color: colors.textSecondary, fontWeight: '800' }}>
-              {activeRole === 'ADMIN'
-                ? t('home.adminRoom')
-                : activeRole === 'PROVIDER'
-                  ? t('home.merchantRoom')
-                  : t('home.captainHome')}
-              </ThemedText>
-              <ThemedText style={[styles.heroTitle, { color: colors.text }]}>
-                {greeting}
-              </ThemedText>
-              <ThemedText type="small" style={{ color: colors.textSecondary }} numberOfLines={1}>
-                {user?.email ?? t('home.signedInOperator')}
-              </ThemedText>
-            </View>
-            <View style={[styles.liveBadge, { backgroundColor: colors.muted }]}>
-              <View style={[styles.liveDot, { backgroundColor: appConfig.allowDemoMode ? colors.warning : colors.success }]} />
-              <ThemedText type="small" style={{ color: colors.text, fontWeight: '900' }}>
-                {appConfig.allowDemoMode ? t('common.demo') : t('common.live')}
-              </ThemedText>
-            </View>
-          </View>
+    <ScreenShell
+      header={
+        <AppBar
+          eyebrow={workspaceLabel}
+          title={greeting}
+          subtitle={user?.email ?? t('home.signedInOperator')}
+          action={<RoleBadge role={roleBadge} />}
+        />
+      }
+      testID="operational-home"
+    >
+      <FeedbackBanner
+        tone={appConfig.allowDemoMode ? 'warning' : 'success'}
+        title={appConfig.allowDemoMode ? t('common.demo') : t('common.live')}
+        message={
+          appConfig.allowDemoMode
+            ? 'Demo data is enabled for this workspace. Live actions remain clearly separated.'
+            : 'Connected to the live MyPet operational services.'
+        }
+        icon={appConfig.allowDemoMode ? 'sparkle' : 'check'}
+      />
 
-          {activeRole === 'PROVIDER' && incomingOrder ? (
-            <OrderIncomingAlert
-              visible
-              orderId={incomingOrder.id}
-              amount={incomingOrder.amount}
-              onAccept={() => {
-                setIncomingOrder(null);
-                router.push('/explore' as never);
-              }}
-              onDismiss={() => setIncomingOrder(null)}
+      {activeRole === 'PROVIDER' && incomingOrder ? (
+        <OrderIncomingAlert
+          visible
+          orderId={incomingOrder.id}
+          amount={incomingOrder.amount}
+          onAccept={() => {
+            setIncomingOrder(null);
+            router.push('/explore' as never);
+          }}
+          onDismiss={() => setIncomingOrder(null)}
+        />
+      ) : null}
+
+      <View style={styles.metricGrid}>
+        {ACTIONS.map((action) => (
+          <MetricCard
+            key={action.id}
+            label={t(action.labelKey)}
+            value={t(action.valueKey)}
+            tone={action.tone}
+            icon={action.icon}
+            style={{ width: cardWidth }}
+          />
+        ))}
+      </View>
+
+      <AppCard style={styles.sectionCard}>
+        <SectionHeader title={t('home.today')} subtitle={t('home.operationalChecklist')} />
+        <View style={styles.taskList}>
+          {LIVE_TASK_KEYS.map((taskKey, index) => (
+            <View key={taskKey} style={styles.taskRow} accessible accessibilityLabel={`${index + 1}. ${t(taskKey)}`}>
+              <View style={[styles.taskNumber, { backgroundColor: theme.primarySoft }]}>
+                <ThemedText type="smallBold">{index + 1}</ThemedText>
+              </View>
+              <ThemedText style={styles.taskText}>{t(taskKey)}</ThemedText>
+            </View>
+          ))}
+        </View>
+      </AppCard>
+
+      <View style={styles.sectionStack}>
+        <SectionHeader title="Workspace shortcuts" subtitle="Role-safe actions for the current operational mode" />
+        <View style={styles.quickActions}>
+          {quickActions.map((item) => (
+            <ActionButton
+              key={`${item.labelKey}-${item.route}`}
+              label={t(item.labelKey)}
+              icon={item.icon}
+              variant="secondary"
+              onPress={() => router.push(item.route as never)}
+              style={styles.quickAction}
             />
-          ) : null}
+          ))}
+        </View>
+      </View>
 
-          <View style={styles.metricsGrid}>
-            {ACTIONS.map((action) => (
-              <View key={action.id} style={[styles.metricCard, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
-                <ThemedText type="small" style={{ color: colors.textSecondary }}>{t(action.labelKey)}</ThemedText>
-                <ThemedText style={[styles.metricValue, { color: toneColor(action.tone) }]}>{t(action.valueKey)}</ThemedText>
-              </View>
-            ))}
-          </View>
-
-          <View style={[styles.panel, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
-            <View style={styles.panelHeader}>
-              <View>
-                <ThemedText style={[styles.panelTitle, { color: colors.text }]}>{t('home.today')}</ThemedText>
-                <ThemedText type="small" style={{ color: colors.textSecondary }}>{t('home.operationalChecklist')}</ThemedText>
-              </View>
-              <AppIcon name="calendar" color={colors.primary} size={22} />
-            </View>
-            {LIVE_TASK_KEYS.map((taskKey, index) => (
-              <View key={taskKey} style={styles.taskRow}>
-                <View style={[styles.taskNumber, { backgroundColor: colors.muted }]}>
-                  <ThemedText type="small" style={{ color: colors.text, fontWeight: '900' }}>{index + 1}</ThemedText>
-                </View>
-                <ThemedText style={{ color: colors.text, flex: 1 }}>{t(taskKey)}</ThemedText>
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.quickActions}>
-            {[
-              { labelKey: 'home.onboarding', icon: 'store', route: '/onboarding' },
-              { labelKey: 'home.healthGuides', icon: 'shield', route: '/inventory' },
-              { labelKey: 'home.inventory', icon: 'cart', route: '/inventory' },
-              { labelKey: 'home.bookings', icon: 'calendar', route: '/explore' },
-              { labelKey: 'home.messages', icon: 'message', route: '/explore' },
-              { labelKey: 'home.payouts', icon: 'wallet', route: '/earnings' },
-              { labelKey: 'home.legal', icon: 'shield', route: '/legal' },
-              ...(role === 'ADMIN' || appConfig.allowDemoMode
-                ? [{ labelKey: 'home.superAdmin', icon: 'shield', route: '/admin' }]
-                : []),
-            ].map((item) => (
-              <TouchableOpacity
-                key={item.labelKey}
-                style={[styles.quickAction, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}
-                activeOpacity={0.75}
-                onPress={() => router.push(item.route as never)}
-                accessibilityRole="button"
-                accessibilityLabel={t(item.labelKey)}
-              >
-                <AppIcon name={item.icon as never} color={colors.cta} size={20} />
-                <ThemedText type="small" style={{ color: colors.text, fontWeight: '900' }}>{t(item.labelKey)}</ThemedText>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={[styles.launchPanel, { backgroundColor: colors.muted }]}>
-            <ThemedText style={[styles.panelTitle, { color: colors.text }]}>{t('home.launchReadiness')}</ThemedText>
-            <ThemedText type="small" style={{ color: colors.textSecondary }}>
-              {t('home.launchReadinessBody')}
-            </ThemedText>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    </ThemedView>
+      <FeedbackBanner
+        title={t('home.launchReadiness')}
+        message={t('home.launchReadinessBody')}
+        tone="info"
+        icon="shield"
+      />
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  safeArea: { flex: 1 },
-  scrollContent: {
-    padding: Spacing.four,
-    paddingBottom: Spacing.six,
-    gap: Spacing.four,
-  },
-  hero: {
-    minHeight: 124,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    padding: Spacing.four,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: Spacing.three,
-    ...Shadows.card,
-  },
-  heroCopy: { flex: 1, gap: Spacing.one },
-  heroTitle: { fontSize: 28, fontWeight: '900' },
-  liveBadge: {
-    minHeight: 36,
-    borderRadius: 18,
-    paddingHorizontal: Spacing.three,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-  },
-  liveDot: { width: 8, height: 8, borderRadius: 4 },
-  metricsGrid: {
+  metricGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.two,
+    gap: spacing.x3,
   },
-  metricCard: {
-    width: '48%',
-    minHeight: 96,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    padding: Spacing.three,
-    justifyContent: 'space-between',
+  sectionCard: {
+    padding: spacing.x4,
+    gap: spacing.x4,
   },
-  metricValue: { fontSize: 20, fontWeight: '900' },
-  panel: {
-    borderWidth: 1,
-    borderRadius: Radius.lg,
-    padding: Spacing.three,
-    gap: Spacing.three,
+  sectionStack: {
+    gap: spacing.x3,
   },
-  panelHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  taskList: {
+    gap: spacing.x2,
   },
-  panelTitle: { fontSize: 18, fontWeight: '900' },
   taskRow: {
-    minHeight: 48,
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
+    gap: spacing.x3,
   },
   taskNumber: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  taskText: {
+    flex: 1,
+    ...typography.body,
   },
   quickActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.two,
+    gap: spacing.x2,
   },
   quickAction: {
-    width: '48%',
-    minHeight: 86,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    padding: Spacing.three,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-  },
-  launchPanel: {
-    borderRadius: Radius.lg,
-    padding: Spacing.three,
-    gap: Spacing.one,
+    flexGrow: 1,
+    flexBasis: 180,
   },
 });

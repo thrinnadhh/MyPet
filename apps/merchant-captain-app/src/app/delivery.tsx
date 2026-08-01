@@ -1,24 +1,22 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  TouchableOpacity, 
-  TextInput, 
-  Alert, 
-  ActivityIndicator, 
-  useColorScheme, 
-  Platform,
-  ScrollView,
-  Modal,
-  Linking
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+
 import { AppIcon } from '@/components/app-icon';
-import { Spacing, Colors } from '@/constants/theme';
+import {
+  ActionButton,
+  AppBar,
+  FeedbackBanner,
+  RoleBadge,
+  StatusBadge,
+} from '@/components/foundation/primitives';
+import { ScreenShell } from '@/components/foundation/screen-shell';
+import { ThemedText } from '@/components/themed-text';
+import { AppCard } from '@/components/ui/app-card';
+import { TextField } from '@/components/ui/text-field';
 import { useAuth } from '@/context/AuthContext';
+import { radii, spacing, touchTarget, typography } from '@/design/tokens';
+import { useTheme } from '@/hooks/use-theme';
 import { appConfig } from '@/utils/app-config';
 
 interface DispatchOffer {
@@ -34,707 +32,490 @@ interface DispatchOffer {
 interface ActiveDelivery {
   jobId: string;
   orderId: string;
-  storeName: string;
-  storeAddress: string;
-  storeLat: number | null;
-  storeLng: number | null;
-  customerName: string;
-  customerAddress: string;
-  customerLat: number | null;
-  customerLng: number | null;
   deliveryFee: number | null;
 }
 
+interface Coordinates {
+  latitude: number;
+  longitude: number;
+}
+
+type DeliveryStep = 1 | 2 | 3 | 4;
+
+const DEMO_COORDINATES: Coordinates = { latitude: 13.6288, longitude: 79.4192 };
+
+function shortOrderId(orderId: string): string {
+  return orderId.slice(0, 8).toUpperCase();
+}
+
+async function responseError(response: Response, fallback: string): Promise<string> {
+  const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+  return body?.error ?? body?.message ?? fallback;
+}
+
+function browserCoordinates(): Promise<Coordinates | null> {
+  if (Platform.OS !== 'web') return Promise.resolve(null);
+  const browser = globalThis as unknown as {
+    navigator?: {
+      geolocation?: {
+        getCurrentPosition: (
+          success: (position: { coords: { latitude: number; longitude: number } }) => void,
+          failure: () => void,
+          options?: { enableHighAccuracy?: boolean; timeout?: number; maximumAge?: number },
+        ) => void;
+      };
+    };
+  };
+
+  const geolocation = browser.navigator?.geolocation;
+  if (!geolocation) return Promise.resolve(null);
+
+  return new Promise((resolve) => {
+    geolocation.getCurrentPosition(
+      (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 },
+    );
+  });
+}
+
 export default function DeliveryScreen() {
-  const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
-  const colors = Colors[scheme];
-  const { user, session } = useAuth();
+  const theme = useTheme();
   const router = useRouter();
+  const { user, session } = useAuth();
 
   const [isOnline, setIsOnline] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeOffer, setActiveOffer] = useState<DispatchOffer | null>(null);
   const [offerCountdown, setOfferCountdown] = useState(30);
   const [activeDelivery, setActiveDelivery] = useState<ActiveDelivery | null>(null);
-  
-  // Delivery Stepper State: 1 = En Route to Store, 2 = Arrived at Store/Pickup verification, 3 = En Route to Customer, 4 = Handover verification
-  const [deliveryStep, setDeliveryStep] = useState(1);
-  const [pickupOtp, setPickupOtp] = useState('');
-  const [deliveryOtp, setDeliveryOtp] = useState('');
-  const [verifyingOtp, setVerifyingOtp] = useState(false);
+  const [deliveryStep, setDeliveryStep] = useState<DeliveryStep>(1);
+  const [pickupProof, setPickupProof] = useState('');
+  const [handoverProof, setHandoverProof] = useState('');
+  const [verifyingProof, setVerifyingProof] = useState(false);
 
-  const authHeaders = useCallback((contentType = false) => {
-    const headers: Record<string, string> = {};
-    if (contentType) {
-      headers['Content-Type'] = 'application/json';
-    }
-    if (user?.id) {
-      headers['X-User-Id'] = user.id;
-    }
-    if (session?.access_token) {
-      headers.Authorization = `Bearer ${session.access_token}`;
-    }
-    return headers;
-  }, [session, user]);
+  const authHeaders = useCallback(
+    (json = false): Record<string, string> => {
+      const headers: Record<string, string> = {};
+      if (json) headers['Content-Type'] = 'application/json';
+      if (user?.id) headers['X-User-Id'] = user.id;
+      if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+      return headers;
+    },
+    [session, user],
+  );
 
-  const shortOrderId = (orderId: string) => orderId.slice(0, 8).toUpperCase();
+  const getCoordinates = useCallback(async (): Promise<Coordinates | null> => {
+    const browserLocation = await browserCoordinates();
+    if (browserLocation) return browserLocation;
+    return appConfig.allowDemoMode ? DEMO_COORDINATES : null;
+  }, []);
 
-  const buildActiveDelivery = (offer: DispatchOffer): ActiveDelivery => ({
-    jobId: offer.jobId,
-    orderId: offer.orderId,
-    storeName: `Pickup for order ${shortOrderId(offer.orderId)}`,
-    storeAddress: 'Pickup details are linked to the accepted order.',
-    storeLat: null,
-    storeLng: null,
-    customerName: `Customer order ${shortOrderId(offer.orderId)}`,
-    customerAddress: 'Customer address is managed by the order workflow.',
-    customerLat: null,
-    customerLng: null,
-    deliveryFee: null
-  });
+  const updateLocation = useCallback(async () => {
+    const coordinates = await getCoordinates();
+    if (!coordinates) return false;
+    const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/captains/location`, {
+      method: 'PUT',
+      headers: authHeaders(true),
+      body: JSON.stringify({ longitude: coordinates.longitude, latitude: coordinates.latitude }),
+    });
+    return response.ok;
+  }, [authHeaders, getCoordinates]);
 
-  // --- Toggle Online/Offline ---
   const toggleOnline = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
       const nextOnline = !isOnline;
-      // Coordinates for provider/delivery center location reporting (Delhi center in this case)
-      const lat = 28.6139;
-      const lng = 77.2090;
+      const coordinates = nextOnline ? await getCoordinates() : null;
+      if (nextOnline && !coordinates) {
+        Alert.alert(
+          'Location access required',
+          'This mobile build does not yet include the native location module. MyPet will not publish fabricated coordinates. Use the web build with browser location, or enable demo mode for sandbox testing.',
+        );
+        return;
+      }
 
       const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/captains/status`, {
         method: 'PUT',
         headers: authHeaders(true),
         body: JSON.stringify({
           online: nextOnline,
-          longitude: lng,
-          latitude: lat
-        })
+          longitude: coordinates?.longitude ?? null,
+          latitude: coordinates?.latitude ?? null,
+        }),
       });
-      const data = await response.json();
-      if (response.ok) {
-        setIsOnline(nextOnline);
-        if (!nextOnline) {
-          setActiveOffer(null);
-        }
-      } else {
-        Alert.alert('Status Change Failed', data.error || 'Check internet connection');
+
+      if (!response.ok) {
+        throw new Error(await responseError(response, 'Could not update captain availability.'));
       }
-    } catch (err) {
-      console.warn("Online status toggle error:", err);
-      if (appConfig.allowDemoMode) {
-        setIsOnline(!isOnline);
-      } else {
-        Alert.alert('Status Change Failed', 'Could not reach captain service. Please retry when the service is available.');
-      }
+
+      setIsOnline(nextOnline);
+      if (!nextOnline) setActiveOffer(null);
+    } catch (error: unknown) {
+      Alert.alert('Status change failed', error instanceof Error ? error.message : 'Please check your connection.');
     } finally {
       setLoading(false);
     }
-  }, [authHeaders, isOnline, user]);
+  }, [authHeaders, getCoordinates, isOnline, user]);
 
-  // --- Periodically Poll Location Coordinate Updates ---
   useEffect(() => {
-    if (!isOnline || !user) return;
-
-    const interval = setInterval(async () => {
-      try {
-        // Mock slight movements around Delhi center
-        const randomShift = (Math.random() - 0.5) * 0.005;
-        const lat = 28.6139 + randomShift;
-        const lng = 77.2090 + randomShift;
-
-        await fetch(`${appConfig.apiBaseUrl}/api/v1/captains/location`, {
-          method: 'PUT',
-          headers: authHeaders(true),
-          body: JSON.stringify({
-            longitude: lng,
-            latitude: lat
-          })
-        });
-      } catch (err) {
-        console.log("Failed to report periodic location update:", err);
-      }
-    }, 20000);
-
+    if (!isOnline || !user) return undefined;
+    const interval = setInterval(() => void updateLocation(), 20000);
     return () => clearInterval(interval);
-  }, [authHeaders, isOnline, user]);
+  }, [isOnline, updateLocation, user]);
 
-  // --- Periodically Check for Incoming Job Offers ---
   useEffect(() => {
-    if (!isOnline || !user || activeDelivery || activeOffer) return;
+    if (!isOnline || !user || activeDelivery || activeOffer) return undefined;
 
-    const offerPoll = setInterval(async () => {
+    const poll = async () => {
       try {
-        const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/dispatch/offers`, {
-          headers: authHeaders()
-        });
-        const data: DispatchOffer[] = await response.json();
-        if (response.ok && data.length > 0) {
-          const offer = data[0];
-          setActiveOffer(offer);
+        const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/dispatch/offers`, { headers: authHeaders() });
+        if (!response.ok) return;
+        const offers = (await response.json()) as DispatchOffer[];
+        const next = offers.find((offer) => offer.response === null);
+        if (next) {
+          setActiveOffer(next);
           setOfferCountdown(30);
         }
-      } catch (err) {
-        // Silent catch
+      } catch {
+        // Polling failures are represented by the next retry; no false offer is created.
       }
-    }, 4000);
+    };
 
-    return () => clearInterval(offerPoll);
-  }, [authHeaders, isOnline, user, activeDelivery, activeOffer]);
+    void poll();
+    const interval = setInterval(() => void poll(), 4000);
+    return () => clearInterval(interval);
+  }, [activeDelivery, activeOffer, authHeaders, isOnline, user]);
 
-  // --- Job Offer Countdown Timer ---
   useEffect(() => {
-    if (!activeOffer) return;
-
+    if (!activeOffer) return undefined;
     const timer = setInterval(() => {
-      setOfferCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
+      setOfferCountdown((value) => {
+        if (value <= 1) {
           setActiveOffer(null);
           return 0;
         }
-        return prev - 1;
+        return value - 1;
       });
     }, 1000);
-
     return () => clearInterval(timer);
   }, [activeOffer]);
 
-  // --- Respond to Dispatch Offer ---
-  const respondToOffer = useCallback(async (responseType: 'ACCEPTED' | 'REJECTED') => {
-    if (!activeOffer) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`${appConfig.apiBaseUrl}/api/v1/dispatch/offers/${activeOffer.offerId}/respond?response=${responseType}`, {
-        method: 'POST',
-        headers: authHeaders()
-      });
-      if (res.ok) {
-        if (responseType === 'ACCEPTED') {
-          setActiveDelivery(buildActiveDelivery(activeOffer));
+  const respondToOffer = useCallback(
+    async (answer: 'ACCEPTED' | 'REJECTED') => {
+      if (!activeOffer) return;
+      setLoading(true);
+      try {
+        const response = await fetch(
+          `${appConfig.apiBaseUrl}/api/v1/dispatch/offers/${activeOffer.offerId}/respond?response=${answer}`,
+          { method: 'POST', headers: authHeaders() },
+        );
+        if (!response.ok) throw new Error(await responseError(response, 'The offer may have expired.'));
+        if (answer === 'ACCEPTED') {
+          setActiveDelivery({ jobId: activeOffer.jobId, orderId: activeOffer.orderId, deliveryFee: null });
           setDeliveryStep(1);
         }
         setActiveOffer(null);
-      } else {
-        Alert.alert('Response Failed', 'Offer might have timed out');
+      } catch (error: unknown) {
+        Alert.alert('Offer response failed', error instanceof Error ? error.message : 'Please try again.');
         setActiveOffer(null);
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.warn("Response failed:", err);
-      if (responseType === 'ACCEPTED' && appConfig.allowDemoMode) {
-        setActiveDelivery(buildActiveDelivery(activeOffer));
-        setDeliveryStep(1);
-      } else if (!appConfig.allowDemoMode) {
-        Alert.alert('Response Failed', 'Could not reach dispatch. Please retry when the service is available.');
-      }
-      setActiveOffer(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [activeOffer, authHeaders]);
+    },
+    [activeOffer, authHeaders],
+  );
 
-  // --- Map Deep Linking Navigator ---
-  const handleNavigate = useCallback((lat: number, lng: number, label: string) => {
-    const scheme = Platform.select({ ios: 'maps:0,0?q=', android: 'geo:0,0?q=', default: 'https://maps.google.com/?q=' });
-    const url = `${scheme}${lat},${lng}(${label})`;
-    Linking.openURL(url);
-  }, []);
-
-  // --- Confirm Store Arrival ---
-  const handleArriveAtStore = useCallback(() => {
-    setDeliveryStep(2);
-  }, []);
-
-  // --- Verify Store Pickup ---
-  const handleVerifyPickup = useCallback(async () => {
-    if (!activeDelivery) return;
-    if (pickupOtp !== '1234') {
-      Alert.alert('Verification Error', 'Invalid pickup verification OTP.');
-      return;
-    }
-    setVerifyingOtp(true);
-    try {
-      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/dispatch/jobs/${activeDelivery.jobId}/pickup`, {
-        method: 'POST',
-        headers: authHeaders(true),
-        body: JSON.stringify({ proofCode: pickupOtp })
-      });
-      if (response.ok) {
-        setDeliveryStep(3);
-      } else {
-        Alert.alert('Error', 'Failed to update order status to Picked Up.');
+  const submitProof = useCallback(
+    async (kind: 'pickup' | 'deliver', proofCode: string) => {
+      if (!activeDelivery) return;
+      const cleaned = proofCode.trim();
+      if (cleaned.length < 4) {
+        Alert.alert('Verification code required', 'Enter the code provided by the merchant or customer.');
+        return;
       }
-    } catch (err) {
-      if (appConfig.allowDemoMode) {
-        setDeliveryStep(3);
-      } else {
-        Alert.alert('Error', 'Could not confirm pickup. Please retry when the service is available.');
-      }
-    } finally {
-      setVerifyingOtp(false);
-    }
-  }, [activeDelivery, authHeaders, pickupOtp]);
 
-  // --- Confirm Customer Arrival ---
-  const handleArriveAtCustomer = useCallback(() => {
-    setDeliveryStep(4);
-  }, []);
+      setVerifyingProof(true);
+      try {
+        const response = await fetch(
+          `${appConfig.apiBaseUrl}/api/v1/dispatch/jobs/${activeDelivery.jobId}/${kind}`,
+          {
+            method: 'POST',
+            headers: authHeaders(true),
+            body: JSON.stringify({ proofCode: cleaned }),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(await responseError(response, 'The verification code was rejected.'));
+        }
 
-  // --- Verify Handover and Complete Delivery ---
-  const handleCompleteDelivery = useCallback(async () => {
-    if (!activeDelivery) return;
-    if (deliveryOtp !== '5678') {
-      Alert.alert('Verification Error', 'Invalid handover verification OTP.');
-      return;
-    }
-    setVerifyingOtp(true);
-    try {
-      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/dispatch/jobs/${activeDelivery.jobId}/deliver`, {
-        method: 'POST',
-        headers: authHeaders(true),
-        body: JSON.stringify({ proofCode: deliveryOtp })
-      });
-      if (response.ok) {
-        Alert.alert('Success', 'Order delivered successfully! Earnings added.');
-        setActiveDelivery(null);
-      } else {
-        Alert.alert('Error', 'Failed to finalize delivery.');
+        if (kind === 'pickup') {
+          setPickupProof('');
+          setDeliveryStep(3);
+        } else {
+          setHandoverProof('');
+          setActiveDelivery(null);
+          setDeliveryStep(1);
+          Alert.alert('Delivery completed', 'The order was delivered and the server recorded the handover.');
+        }
+      } catch (error: unknown) {
+        Alert.alert('Verification failed', error instanceof Error ? error.message : 'Please verify the code and retry.');
+      } finally {
+        setVerifyingProof(false);
       }
-    } catch (err) {
-      if (appConfig.allowDemoMode) {
-        Alert.alert('Success', 'Offline Sandbox: Order delivered successfully!');
-        setActiveDelivery(null);
-      } else {
-        Alert.alert('Error', 'Could not finalize delivery. Please retry when the service is available.');
-      }
-    } finally {
-      setVerifyingOtp(false);
-    }
-  }, [activeDelivery, authHeaders, deliveryOtp]);
+    },
+    [activeDelivery, authHeaders],
+  );
+
+  const progress = useMemo(() => (activeDelivery ? deliveryStep / 4 : 0), [activeDelivery, deliveryStep]);
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          {/* Header */}
-          <View style={styles.header}>
-            <ThemedText type="subtitle">Delivery Operations</ThemedText>
-            <ThemedText type="small" style={{ color: colors.textSecondary }}>
-              Ride and earn with PawsNearMe Captains 🚴
-            </ThemedText>
+    <ScreenShell
+      header={
+        <AppBar
+          eyebrow="CAPTAIN WORKSPACE"
+          title="Delivery operations"
+          subtitle="Accept dispatch offers and complete verified handovers"
+          action={<RoleBadge role="captain" />}
+        />
+      }
+      testID="captain-delivery"
+    >
+      <FeedbackBanner
+        tone={appConfig.allowDemoMode ? 'warning' : isOnline ? 'success' : 'info'}
+        title={appConfig.allowDemoMode ? 'Sandbox location mode' : isOnline ? 'Online and discoverable' : 'Currently offline'}
+        message={
+          appConfig.allowDemoMode
+            ? 'Demo coordinates are used only because demo mode is explicitly enabled.'
+            : isOnline
+              ? 'Location updates are sent from the browser geolocation source.'
+              : 'MyPet never sends placeholder coordinates in production.'
+        }
+        icon={appConfig.allowDemoMode ? 'sparkle' : isOnline ? 'check' : 'location'}
+      />
+
+      <AppCard style={styles.onboardingCard}>
+        <View style={[styles.roundIcon, { backgroundColor: theme.primarySoft }]}>
+          <AppIcon name="shield" color={theme.primary} size={22} />
+        </View>
+        <View style={styles.flex}>
+          <ThemedText style={styles.cardTitle}>Captain verification</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            Complete identity, vehicle, selfie, and bank verification before going online.
+          </ThemedText>
+        </View>
+        <ActionButton label="Open" variant="ghost" onPress={() => router.push('/captain-onboarding' as never)} />
+      </AppCard>
+
+      {activeDelivery ? (
+        <AppCard style={styles.deliveryCard}>
+          <View style={styles.cardHeader}>
+            <View style={styles.flex}>
+              <ThemedText style={styles.cardTitle}>Order #{shortOrderId(activeDelivery.orderId)}</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">Active delivery job</ThemedText>
+            </View>
+            <StatusBadge label={`STEP ${deliveryStep} OF 4`} tone="info" />
           </View>
 
-          <TouchableOpacity
-            style={[styles.onboardCard, { backgroundColor: colors.muted, borderColor: colors.border }]}
-            onPress={() => router.push('/captain-onboarding' as never)}
-            accessibilityRole="button"
-            accessibilityLabel="Complete captain onboarding"
-          >
-            <AppIcon name="truck" color={colors.cta} size={22} />
-            <View style={{ flex: 1, gap: 2 }}>
-              <ThemedText style={{ fontWeight: '900' }}>Complete captain onboarding</ThemedText>
-              <ThemedText type="small" style={{ color: colors.textSecondary }}>
-                Upload Aadhar, license, RC, selfie, and bank details for approval.
+          <View style={[styles.progressTrack, { backgroundColor: theme.muted }]} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 4, now: deliveryStep }}>
+            <View style={[styles.progressFill, { backgroundColor: theme.primary, width: `${progress * 100}%` }]} />
+          </View>
+
+          {deliveryStep === 1 ? (
+            <View style={styles.stepContent}>
+              <View style={[styles.stepIcon, { backgroundColor: theme.primarySoft }]}>
+                <AppIcon name="store" color={theme.primary} size={28} />
+              </View>
+              <ThemedText style={styles.stepTitle}>Travel to the pickup store</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>
+                Pickup address and navigation require the order-detail location contract. Do not navigate using placeholder data.
               </ThemedText>
+              <ActionButton label="I have arrived" icon="check" onPress={() => setDeliveryStep(2)} />
             </View>
-          </TouchableOpacity>
+          ) : null}
 
-          {/* Stepper View if Active Delivery exists */}
-          {activeDelivery ? (
-            <View style={[styles.card, { backgroundColor: colors.backgroundElement }]}>
-                <View style={styles.cardHeader}>
-                  <ThemedText style={{ fontWeight: '700', fontSize: 16 }}>Active Delivery Job</ThemedText>
-                <ThemedText style={{ color: colors.cta, fontWeight: '700' }}>
-                  {activeDelivery.deliveryFee === null ? 'Earning pending' : `₹${activeDelivery.deliveryFee.toFixed(2)}`}
-                </ThemedText>
+          {deliveryStep === 2 ? (
+            <View style={styles.stepContent}>
+              <View style={[styles.stepIcon, { backgroundColor: theme.primarySoft }]}>
+                <AppIcon name="inventory" color={theme.primary} size={28} />
               </View>
-
-              <View style={{ marginVertical: Spacing.two, gap: Spacing.two }}>
-                <View style={styles.stepIndicator}>
-                  <View style={[styles.stepDot, { backgroundColor: deliveryStep >= 1 ? colors.primary : '#ccc' }]} />
-                  <View style={[styles.stepLine, { backgroundColor: deliveryStep >= 2 ? colors.primary : '#ccc' }]} />
-                  <View style={[styles.stepDot, { backgroundColor: deliveryStep >= 2 ? colors.primary : '#ccc' }]} />
-                  <View style={[styles.stepLine, { backgroundColor: deliveryStep >= 3 ? colors.primary : '#ccc' }]} />
-                  <View style={[styles.stepDot, { backgroundColor: deliveryStep >= 3 ? colors.primary : '#ccc' }]} />
-                  <View style={[styles.stepLine, { backgroundColor: deliveryStep >= 4 ? colors.primary : '#ccc' }]} />
-                  <View style={[styles.stepDot, { backgroundColor: deliveryStep >= 4 ? colors.primary : '#ccc' }]} />
-                </View>
-
-                {deliveryStep === 1 && (
-                  <View style={styles.stepContent}>
-                    <ThemedText style={{ fontWeight: '600' }}>Step 1: Ride to Pet Store</ThemedText>
-                    <ThemedText type="small" style={{ marginVertical: Spacing.one }}>{activeDelivery.storeName}</ThemedText>
-                    <ThemedText type="small" style={{ color: colors.textSecondary }}>{activeDelivery.storeAddress}</ThemedText>
-                    <View style={styles.actionRow}>
-                      <TouchableOpacity 
-                        style={[styles.btnSecondary, { borderColor: colors.primary }]}
-                        onPress={() => {
-                          if (activeDelivery.storeLat !== null && activeDelivery.storeLng !== null) {
-                            handleNavigate(activeDelivery.storeLat, activeDelivery.storeLng, activeDelivery.storeName);
-                          }
-                        }}
-                        disabled={activeDelivery.storeLat === null || activeDelivery.storeLng === null}
-                      >
-                        <View style={styles.navButtonContent}>
-                          <AppIcon name="location" color={colors.primary} size={15} />
-                          <ThemedText type="smallBold" style={{ color: colors.primary }}>Navigate</ThemedText>
-                        </View>
-                      </TouchableOpacity>
-                      <TouchableOpacity 
-                        style={[styles.btnPrimary, { backgroundColor: colors.primary }]}
-                        onPress={handleArriveAtStore}
-                      >
-                        <ThemedText type="smallBold" style={{ color: '#fff' }}>I Have Arrived</ThemedText>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-
-                {deliveryStep === 2 && (
-                  <View style={styles.stepContent}>
-                    <ThemedText style={{ fontWeight: '600' }}>Step 2: Collect & Verify Items</ThemedText>
-                    <ThemedText type="small" style={{ color: colors.textSecondary, marginVertical: Spacing.one }}>
-                      Ask the merchant for the pickup verification code (Dev OTP: 1234)
-                    </ThemedText>
-                    <TextInput
-                      placeholder="Enter Pickup OTP"
-                      placeholderTextColor={colors.textSecondary}
-                      keyboardType="number-pad"
-                      maxLength={4}
-                      style={[styles.input, { backgroundColor: colors.backgroundSelected, color: colors.text }]}
-                      value={pickupOtp}
-                      onChangeText={setPickupOtp}
-                    />
-                    <TouchableOpacity 
-                      style={[styles.btnPrimary, { backgroundColor: colors.cta, width: '100%', marginTop: Spacing.two }]}
-                      onPress={handleVerifyPickup}
-                      disabled={verifyingOtp}
-                    >
-                      {verifyingOtp ? (
-                        <ActivityIndicator color="#fff" />
-                      ) : (
-                        <ThemedText type="smallBold" style={{ color: '#fff' }}>Confirm Pickup</ThemedText>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                )}
-
-                {deliveryStep === 3 && (
-                  <View style={styles.stepContent}>
-                    <ThemedText style={{ fontWeight: '600' }}>Step 3: Deliver to Customer</ThemedText>
-                    <ThemedText type="small" style={{ marginVertical: Spacing.one }}>{activeDelivery.customerName}</ThemedText>
-                    <ThemedText type="small" style={{ color: colors.textSecondary }}>{activeDelivery.customerAddress}</ThemedText>
-                    <View style={styles.actionRow}>
-                      <TouchableOpacity 
-                        style={[styles.btnSecondary, { borderColor: colors.primary }]}
-                        onPress={() => {
-                          if (activeDelivery.customerLat !== null && activeDelivery.customerLng !== null) {
-                            handleNavigate(activeDelivery.customerLat, activeDelivery.customerLng, activeDelivery.customerName);
-                          }
-                        }}
-                        disabled={activeDelivery.customerLat === null || activeDelivery.customerLng === null}
-                      >
-                        <View style={styles.navButtonContent}>
-                          <AppIcon name="location" color={colors.primary} size={15} />
-                          <ThemedText type="smallBold" style={{ color: colors.primary }}>Navigate</ThemedText>
-                        </View>
-                      </TouchableOpacity>
-                      <TouchableOpacity 
-                        style={[styles.btnPrimary, { backgroundColor: colors.primary }]}
-                        onPress={handleArriveAtCustomer}
-                      >
-                        <ThemedText type="smallBold" style={{ color: '#fff' }}>I Have Arrived</ThemedText>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-
-                {deliveryStep === 4 && (
-                  <View style={styles.stepContent}>
-                    <ThemedText style={{ fontWeight: '600' }}>Step 4: Verify Handover</ThemedText>
-                    <ThemedText type="small" style={{ color: colors.textSecondary, marginVertical: Spacing.one }}>
-                      Ask the customer for the handover verification code (Dev OTP: 5678)
-                    </ThemedText>
-                    <TextInput
-                      placeholder="Enter Handover OTP"
-                      placeholderTextColor={colors.textSecondary}
-                      keyboardType="number-pad"
-                      maxLength={4}
-                      style={[styles.input, { backgroundColor: colors.backgroundSelected, color: colors.text }]}
-                      value={deliveryOtp}
-                      onChangeText={setDeliveryOtp}
-                    />
-                    <TouchableOpacity 
-                      style={[styles.btnPrimary, { backgroundColor: colors.cta, width: '100%', marginTop: Spacing.two }]}
-                      onPress={handleCompleteDelivery}
-                      disabled={verifyingOtp}
-                    >
-                      {verifyingOtp ? (
-                        <ActivityIndicator color="#fff" />
-                      ) : (
-                        <ThemedText type="smallBold" style={{ color: '#fff' }}>Complete Delivery</ThemedText>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
+              <ThemedText style={styles.stepTitle}>Verify pickup</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>
+                Enter the merchant-issued proof code. Validation is performed by the dispatch service.
+              </ThemedText>
+              <TextField
+                label="Pickup verification code"
+                placeholder="Enter merchant code"
+                value={pickupProof}
+                onChangeText={setPickupProof}
+                keyboardType="number-pad"
+                maxLength={8}
+                autoComplete="one-time-code"
+              />
+              <ActionButton
+                label="Confirm pickup"
+                icon="check"
+                loading={verifyingProof}
+                onPress={() => void submitProof('pickup', pickupProof)}
+              />
             </View>
-          ) : (
-            // Offline / Idle View
-            <View style={styles.idleContainer}>
-              <View style={[styles.statusCard, { backgroundColor: colors.backgroundElement }]}>
-                <View style={styles.statusRow}>
-                  <View style={[styles.indicatorDot, { backgroundColor: isOnline ? colors.cta : '#ff3b30' }]} />
-                  <ThemedText style={{ fontWeight: '700' }}>
-                    {isOnline ? 'Online & Waiting' : 'Offline'}
-                  </ThemedText>
-                </View>
-                <ThemedText type="small" style={{ color: colors.textSecondary, marginTop: Spacing.one }}>
-                  {isOnline 
-                    ? 'Your current GPS coordinates are periodically reported to Dispatch Service. Please keep the app open to receive local delivery jobs.' 
-                    : 'Switch online to start getting notifications for nearby orders ready for delivery.'}
-                </ThemedText>
+          ) : null}
+
+          {deliveryStep === 3 ? (
+            <View style={styles.stepContent}>
+              <View style={[styles.stepIcon, { backgroundColor: theme.primarySoft }]}>
+                <AppIcon name="truck" color={theme.primary} size={28} />
               </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.toggleBtn, 
-                  { backgroundColor: isOnline ? '#ff3b30' : colors.primary }
-                ]}
-                onPress={toggleOnline}
-                disabled={loading}
-                activeOpacity={0.8}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <ThemedText style={styles.btnText}>
-                    {isOnline ? 'Go Offline ⛔' : 'Go Online 🚴'}
-                  </ThemedText>
-                )}
-              </TouchableOpacity>
+              <ThemedText style={styles.stepTitle}>Travel to the customer</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>
+                Customer address remains protected until the connected order-detail contract returns an authorized destination.
+              </ThemedText>
+              <ActionButton label="I have arrived" icon="location" onPress={() => setDeliveryStep(4)} />
             </View>
-          )}
-        </ScrollView>
-      </SafeAreaView>
+          ) : null}
 
-      {/* Incoming Job offer Modal */}
+          {deliveryStep === 4 ? (
+            <View style={styles.stepContent}>
+              <View style={[styles.stepIcon, { backgroundColor: theme.successSoft }]}>
+                <AppIcon name="check" color={theme.success} size={28} />
+              </View>
+              <ThemedText style={styles.stepTitle}>Verify handover</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>
+                Enter the customer-issued proof code. The server decides whether delivery can be completed.
+              </ThemedText>
+              <TextField
+                label="Handover verification code"
+                placeholder="Enter customer code"
+                value={handoverProof}
+                onChangeText={setHandoverProof}
+                keyboardType="number-pad"
+                maxLength={8}
+                autoComplete="one-time-code"
+              />
+              <ActionButton
+                label="Complete delivery"
+                icon="check"
+                loading={verifyingProof}
+                onPress={() => void submitProof('deliver', handoverProof)}
+              />
+            </View>
+          ) : null}
+        </AppCard>
+      ) : (
+        <AppCard style={styles.availabilityCard}>
+          <View style={styles.cardHeader}>
+            <View style={styles.statusTitleRow}>
+              <View style={[styles.statusDot, { backgroundColor: isOnline ? theme.success : theme.textSecondary }]} />
+              <ThemedText style={styles.cardTitle}>{isOnline ? 'Online and waiting' : 'Offline'}</ThemedText>
+            </View>
+            <StatusBadge label={isOnline ? 'ONLINE' : 'OFFLINE'} tone={isOnline ? 'success' : 'neutral'} />
+          </View>
+          <ThemedText type="small" themeColor="textSecondary">
+            {isOnline
+              ? 'Dispatch offers are checked every four seconds. Keep this workspace active while accepting jobs.'
+              : 'Go online only when location access is available and you are ready to accept delivery work.'}
+          </ThemedText>
+          <ActionButton
+            label={isOnline ? 'Go offline' : 'Go online'}
+            variant={isOnline ? 'destructive' : 'primary'}
+            icon={isOnline ? 'xmark' : 'location'}
+            loading={loading}
+            onPress={() => void toggleOnline()}
+          />
+        </AppCard>
+      )}
+
       <Modal
-        animationType="fade"
-        transparent={true}
         visible={activeOffer !== null}
+        transparent
+        animationType="fade"
         onRequestClose={() => setActiveOffer(null)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalContent, { backgroundColor: colors.backgroundElement }]}>
-            <View style={styles.modalHeader}>
-              <ThemedText style={{ fontWeight: 'bold', fontSize: 18 }}>Incoming Job Offer! 🚨</ThemedText>
-              <ThemedText style={styles.countdownTimer}>{offerCountdown}s</ThemedText>
-            </View>
-            
-            <View style={{ marginVertical: Spacing.three, gap: Spacing.two }}>
-              <ThemedText style={{ fontWeight: '600' }}>
-                Order: {activeOffer ? shortOrderId(activeOffer.orderId) : 'Pending'}
-              </ThemedText>
-              <ThemedText type="small" style={{ color: colors.textSecondary }}>Pickup and delivery details unlock after accepting.</ThemedText>
-              <ThemedText style={{ fontWeight: '600', marginTop: Spacing.one }}>Earning records after delivery completion</ThemedText>
+          <View style={[styles.offerCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]} accessibilityViewIsModal>
+            <View style={styles.cardHeader}>
+              <View style={styles.flex}>
+                <ThemedText style={styles.offerTitle}>Incoming dispatch offer</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Order #{activeOffer ? shortOrderId(activeOffer.orderId) : ''}
+                </ThemedText>
+              </View>
+              <StatusBadge label={`${offerCountdown}s`} tone={offerCountdown <= 10 ? 'danger' : 'warning'} />
             </View>
 
-            <View style={styles.offerProgressBar}>
-              <View style={[styles.offerProgressFill, { width: `${(offerCountdown / 30) * 100}%`, backgroundColor: colors.primary }]} />
+            <View style={[styles.progressTrack, { backgroundColor: theme.muted }]}>
+              <View
+                style={[
+                  styles.progressFill,
+                  { backgroundColor: offerCountdown <= 10 ? theme.danger : theme.primary, width: `${(offerCountdown / 30) * 100}%` },
+                ]}
+              />
             </View>
 
-            <View style={styles.modalActionRow}>
-              <TouchableOpacity 
-                style={[styles.modalBtnReject, { borderColor: '#ff3b30' }]}
-                onPress={() => respondToOffer('REJECTED')}
-              >
-                <ThemedText style={{ color: '#ff3b30', fontWeight: 'bold' }}>Decline</ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.modalBtnAccept, { backgroundColor: colors.cta }]}
-                onPress={() => respondToOffer('ACCEPTED')}
-              >
-                <ThemedText style={{ color: '#fff', fontWeight: 'bold' }}>Accept Job</ThemedText>
-              </TouchableOpacity>
+            <ThemedText type="small" themeColor="textSecondary">
+              Pickup and customer location details must come from the authorized order-detail contract after acceptance. Earnings are recorded after server-confirmed delivery.
+            </ThemedText>
+
+            <View style={styles.offerActions}>
+              <ActionButton
+                label="Decline"
+                variant="ghost"
+                disabled={loading}
+                onPress={() => void respondToOffer('REJECTED')}
+                style={styles.offerAction}
+              />
+              <ActionButton
+                label="Accept job"
+                icon="check"
+                loading={loading}
+                onPress={() => void respondToOffer('ACCEPTED')}
+                style={styles.offerAction}
+              />
             </View>
+
+            <Pressable
+              onPress={() => setActiveOffer(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Close dispatch offer"
+              style={({ pressed }) => [styles.modalClose, pressed && styles.pressed]}
+            >
+              <AppIcon name="xmark" color={theme.textSecondary} size={20} />
+            </Pressable>
           </View>
         </View>
       </Modal>
-    </ThemedView>
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-    paddingBottom: Spacing.five,
-  },
-  header: {
-    marginBottom: Spacing.four,
-  },
-  onboardCard: {
+  flex: { flex: 1 },
+  onboardingCard: {
+    minHeight: 104,
+    padding: spacing.x4,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
-    borderWidth: 1,
-    borderRadius: Spacing.two,
-    padding: Spacing.three,
-    marginBottom: Spacing.three,
+    gap: spacing.x3,
   },
-  idleContainer: {
-    gap: Spacing.three,
-    marginTop: Spacing.two,
-  },
-  statusCard: {
-    padding: Spacing.three,
-    borderRadius: Spacing.two,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-  },
-  indicatorDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  toggleBtn: {
-    height: 52,
-    borderRadius: Spacing.two,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  btnText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  card: {
-    padding: Spacing.three,
-    borderRadius: Spacing.two,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
-    paddingBottom: Spacing.two,
-    marginBottom: Spacing.two,
-  },
-  stepIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: Spacing.two,
-  },
-  stepDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-  },
-  stepLine: {
-    flex: 1,
-    height: 3,
-  },
-  stepContent: {
-    gap: Spacing.one,
-    paddingTop: Spacing.one,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: Spacing.two,
-    marginTop: Spacing.three,
-  },
-  btnPrimary: {
-    flex: 1,
-    height: 48,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  btnSecondary: {
-    flex: 1,
-    height: 48,
-    borderRadius: 8,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  navButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.one,
-  },
-  input: {
-    height: 48,
-    borderRadius: 8,
-    paddingHorizontal: Spacing.two,
-    fontSize: 14,
-    marginTop: Spacing.one,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: Spacing.four,
-  },
-  modalContent: {
-    width: '100%',
-    maxWidth: 400,
-    borderRadius: Spacing.three,
-    padding: Spacing.four,
-    elevation: 5,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  countdownTimer: {
-    fontWeight: 'bold',
-    fontSize: 18,
-    color: '#ff9500',
-  },
-  offerProgressBar: {
-    height: 4,
-    backgroundColor: 'rgba(0,0,0,0.1)',
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginBottom: Spacing.three,
-  },
-  offerProgressFill: {
-    height: '100%',
-  },
-  modalActionRow: {
-    flexDirection: 'row',
-    gap: Spacing.two,
-  },
-  modalBtnAccept: {
-    flex: 1,
-    height: 48,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalBtnReject: {
-    flex: 1,
-    height: 48,
-    borderRadius: 8,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  roundIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  cardTitle: { ...typography.title, fontSize: 18, lineHeight: 24 },
+  deliveryCard: { padding: spacing.x4, gap: spacing.x4 },
+  availabilityCard: { padding: spacing.x4, gap: spacing.x4 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.x3 },
+  statusTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.x2 },
+  statusDot: { width: 12, height: 12, borderRadius: 6 },
+  progressTrack: { height: 8, borderRadius: 4, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 4 },
+  stepContent: { alignItems: 'center', gap: spacing.x3, paddingVertical: spacing.x4 },
+  stepIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
+  stepTitle: { ...typography.title, textAlign: 'center' },
+  centerText: { textAlign: 'center', maxWidth: 520 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(11,28,48,0.58)', alignItems: 'center', justifyContent: 'center', padding: spacing.x4 },
+  offerCard: { width: '100%', maxWidth: 520, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.feature, padding: spacing.x6, gap: spacing.x4 },
+  offerTitle: { ...typography.title },
+  offerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
+  offerAction: { flexGrow: 1, flexBasis: 160 },
+  modalClose: { position: 'absolute', top: -touchTarget / 2, right: 0, width: touchTarget, height: touchTarget, alignItems: 'center', justifyContent: 'center' },
+  pressed: { opacity: 0.82 },
 });

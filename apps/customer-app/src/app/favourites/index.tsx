@@ -1,113 +1,234 @@
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { FlatList, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-
+import { Image, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { AppIcon } from '@/components/app-icon';
-import { FilterChip } from '@/components/foundation/primitives';
+import { FilterChip, SectionHeader, StateView } from '@/components/foundation/primitives';
 import { ThemedText } from '@/components/themed-text';
 import { PrimaryButton } from '@/components/ui/primary-button';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useCart } from '@/context/CartContext';
 import { useFavourites } from '@/context/FavouritesContext';
-import { radii, shadows, spacing, typography } from '@/design/tokens';
+import { radii, shadows, spacing, touchTarget, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
-import { SAMPLE_PRODUCTS, SHOPS_DATA, type CommerceProduct, type ShopProfileData } from '@/services/catalog-data';
+import { SAMPLE_PRODUCTS, SHOPS_DATA } from '@/services/catalog-data';
+
+type FavouriteTab = 'ALL' | 'PRODUCTS' | 'SHOPS';
 
 export default function FavouritesScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const { favourites, toggleFavourite } = useFavourites();
-  const { addToCart } = useCart();
+  const { width } = useWindowDimensions();
+  const { favourites, loading, toggleFavourite } = useFavourites();
+  const { addToCart, items, updateQuantity } = useCart();
+  const [activeTab, setActiveTab] = useState<FavouriteTab>('ALL');
 
-  const [activeTab, setActiveTab] = useState<'ALL' | 'PRODUCTS' | 'SHOPS'>('ALL');
-
-  // Filter items
-  const favProducts = useMemo(() => {
-    const prodFavs = favourites.filter((f) => f.targetType.toUpperCase() === 'PRODUCT');
-    return SAMPLE_PRODUCTS.filter((p) => prodFavs.some((f) => f.targetId === p.id));
+  const favouriteProducts = useMemo(() => {
+    const productIds = new Set(
+      favourites.filter((favourite) => favourite.targetType === 'PRODUCT').map((favourite) => favourite.targetId),
+    );
+    return SAMPLE_PRODUCTS.filter((product) => productIds.has(product.id));
   }, [favourites]);
 
-  const favShops = useMemo(() => {
-    const shopFavs = favourites.filter((f) => f.targetType.toUpperCase() === 'SHOP');
-    return Object.values(SHOPS_DATA).filter((s) => shopFavs.some((f) => f.targetId === s.id));
+  const favouriteShops = useMemo(() => {
+    const shopIds = new Set(
+      favourites.filter((favourite) => favourite.targetType === 'SHOP').map((favourite) => favourite.targetId),
+    );
+    return Object.values(SHOPS_DATA).filter((shop) => shopIds.has(shop.id));
   }, [favourites]);
 
-  const displayCount = favProducts.length + favShops.length;
+  const totalCount = favouriteProducts.length + favouriteShops.length;
+  const showProducts = activeTab === 'ALL' || activeTab === 'PRODUCTS';
+  const showShops = activeTab === 'ALL' || activeTab === 'SHOPS';
+  const selectedCount = activeTab === 'PRODUCTS' ? favouriteProducts.length : activeTab === 'SHOPS' ? favouriteShops.length : totalCount;
+  const cardWidth = width >= 780 ? '48.8%' : '100%';
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScreenHeader title="My Favourites" subtitle={`${displayCount} saved items & shops`} />
+      <ScreenHeader title="My favourites" subtitle={`${totalCount} saved product${totalCount === 1 ? '' : 's'} and shops`} />
 
-      {/* Filter Tabs */}
-      <View style={styles.tabRow}>
-        <FilterChip label={`All (${displayCount})`} selected={activeTab === 'ALL'} onPress={() => setActiveTab('ALL')} />
-        <FilterChip label={`Products (${favProducts.length})`} selected={activeTab === 'PRODUCTS'} onPress={() => setActiveTab('PRODUCTS')} />
-        <FilterChip label={`Shops (${favShops.length})`} selected={activeTab === 'SHOPS'} onPress={() => setActiveTab('SHOPS')} />
-      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
+        <FilterChip label={`All (${totalCount})`} selected={activeTab === 'ALL'} onPress={() => setActiveTab('ALL')} />
+        <FilterChip
+          label={`Products (${favouriteProducts.length})`}
+          selected={activeTab === 'PRODUCTS'}
+          onPress={() => setActiveTab('PRODUCTS')}
+        />
+        <FilterChip
+          label={`Shops (${favouriteShops.length})`}
+          selected={activeTab === 'SHOPS'}
+          onPress={() => setActiveTab('SHOPS')}
+        />
+      </ScrollView>
 
-      {displayCount === 0 ? (
-        <View style={styles.emptyState}>
-          <AppIcon name="warning" color={theme.textSecondary} size={48} />
-          <ThemedText style={styles.emptyTitle}>No Favourites Saved Yet</ThemedText>
-          <ThemedText style={{ color: theme.textSecondary, fontSize: 13, textAlign: 'center' }}>
-            Tap the heart icon on any product or shop profile to save it here for quick access.
-          </ThemedText>
-          <PrimaryButton label="Explore Products" onPress={() => router.push('/category/food' as never)} />
-        </View>
+      {loading ? (
+        <StateView kind="loading" title="Loading favourites" message="Restoring your saved products and shops." />
+      ) : selectedCount === 0 ? (
+        <StateView
+          kind="empty"
+          title={totalCount === 0 ? 'No favourites saved yet' : `No saved ${activeTab.toLowerCase()}`}
+          message={
+            totalCount === 0
+              ? 'Tap the heart on a product or shop to keep it available here.'
+              : 'Choose another favourites category to see your saved items.'
+          }
+          actionLabel={totalCount === 0 ? 'Explore pet supplies' : 'Show all favourites'}
+          onAction={() => {
+            if (totalCount === 0) router.push('/commerce/food-nutrition' as never);
+            else setActiveTab('ALL');
+          }}
+        />
       ) : (
-        <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
-          {/* Fav Shops Section */}
-          {(activeTab === 'ALL' || activeTab === 'SHOPS') && favShops.length > 0 && (
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          {showShops && favouriteShops.length > 0 ? (
             <View style={styles.section}>
-              <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Saved Shops</ThemedText>
-              {favShops.map((shop) => (
-                <Pressable
-                  key={shop.id}
-                  onPress={() => router.push(`/shop/${shop.id}` as never)}
-                  style={[styles.shopCard, shadows.raised, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
-                >
-                  <Image source={{ uri: shop.heroImageUrl }} style={styles.shopThumb} resizeMode="cover" />
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <ThemedText style={{ fontWeight: '700', fontSize: 15, color: theme.text }}>{shop.name}</ThemedText>
-                    <ThemedText style={{ fontSize: 12, color: theme.textSecondary }}>{shop.tagline}</ThemedText>
-                    <StatusBadge label={shop.rating} color={theme.warning} />
-                  </View>
-                  <Pressable onPress={() => void toggleFavourite('SHOP', shop.id)} style={{ padding: 4 }}>
-                    <AppIcon name="check" color={theme.danger} size={22} />
+              <SectionHeader title="Saved shops" />
+              <View style={styles.grid}>
+                {favouriteShops.map((shop) => (
+                  <Pressable
+                    key={shop.id}
+                    onPress={() => router.push(`/shop/${shop.id}` as never)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${shop.name}. ${shop.tagline}. Rated ${shop.rating}.`}
+                    style={({ pressed }) => [
+                      styles.shopCard,
+                      shadows.card,
+                      { width: cardWidth, backgroundColor: theme.backgroundElement, borderColor: theme.border },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Image source={{ uri: shop.heroImageUrl }} style={styles.shopImage} resizeMode="cover" />
+                    <View style={styles.shopBody}>
+                      <View style={styles.cardTopRow}>
+                        <View style={styles.flex}>
+                          <ThemedText style={styles.cardTitle} numberOfLines={1}>{shop.name}</ThemedText>
+                          <ThemedText type="small" themeColor="textSecondary" numberOfLines={2}>{shop.tagline}</ThemedText>
+                        </View>
+                        <Pressable
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            void toggleFavourite('SHOP', shop.id);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${shop.name} from favourites`}
+                          accessibilityState={{ selected: true }}
+                          style={({ pressed }) => [styles.heartButton, { backgroundColor: theme.backgroundElement }, pressed && styles.pressed]}
+                        >
+                          <AppIcon name="heart" color={theme.danger} size={21} />
+                        </Pressable>
+                      </View>
+                      <View style={styles.metaRow}>
+                        <StatusBadge label={shop.rating} color={theme.warning} />
+                        <ThemedText type="small" themeColor="textSecondary">{shop.deliveryEta}</ThemedText>
+                      </View>
+                      <View style={styles.addressRow}>
+                        <AppIcon name="location" color={theme.textSecondary} size={16} />
+                        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.flex}>
+                          {shop.address}
+                        </ThemedText>
+                      </View>
+                    </View>
                   </Pressable>
-                </Pressable>
-              ))}
+                ))}
+              </View>
             </View>
-          )}
+          ) : null}
 
-          {/* Fav Products Section */}
-          {(activeTab === 'ALL' || activeTab === 'PRODUCTS') && favProducts.length > 0 && (
+          {showProducts && favouriteProducts.length > 0 ? (
             <View style={styles.section}>
-              <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Saved Products</ThemedText>
-              {favProducts.map((prod) => (
-                <Pressable
-                  key={prod.id}
-                  onPress={() => router.push(`/commerce/product-detail?id=${prod.id}` as never)}
-                  style={[styles.prodCard, shadows.raised, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
-                >
-                  <Image source={{ uri: prod.imageUrl }} style={styles.prodThumb} resizeMode="cover" />
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <ThemedText style={{ fontSize: 11, color: theme.textSecondary }}>{prod.brand}</ThemedText>
-                    <ThemedText style={{ fontWeight: '700', fontSize: 14, color: theme.text }} numberOfLines={1}>{prod.name}</ThemedText>
-                    <ThemedText style={{ fontWeight: '800', fontSize: 15, color: theme.primary }}>₹{prod.price}</ThemedText>
-                  </View>
-                  <View style={{ gap: 8, alignItems: 'flex-end' }}>
-                    <Pressable onPress={() => void toggleFavourite('PRODUCT', prod.id)} style={{ padding: 4 }}>
-                      <AppIcon name="check" color={theme.danger} size={20} />
+              <SectionHeader title="Saved products" />
+              <View style={styles.grid}>
+                {favouriteProducts.map((product) => {
+                  const cartItem = items.find((item) => item.product.id === product.id);
+                  const quantity = cartItem?.quantity ?? 0;
+
+                  return (
+                    <Pressable
+                      key={product.id}
+                      onPress={() => router.push(`/commerce/product-detail?id=${product.id}` as never)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${product.name}. ${product.brand}. ₹${product.price}.`}
+                      style={({ pressed }) => [
+                        styles.productCard,
+                        shadows.card,
+                        { width: cardWidth, backgroundColor: theme.backgroundElement, borderColor: theme.border },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <View style={[styles.productImageWrap, { backgroundColor: theme.muted }]}>
+                        <Image source={{ uri: product.imageUrl }} style={styles.productImage} resizeMode="cover" />
+                        <Pressable
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            void toggleFavourite('PRODUCT', product.id);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${product.name} from favourites`}
+                          accessibilityState={{ selected: true }}
+                          style={({ pressed }) => [styles.heartButton, styles.productHeart, { backgroundColor: theme.backgroundElement }, pressed && styles.pressed]}
+                        >
+                          <AppIcon name="heart" color={theme.danger} size={21} />
+                        </Pressable>
+                      </View>
+
+                      <View style={styles.productBody}>
+                        <ThemedText type="small" themeColor="textSecondary">{product.brand}</ThemedText>
+                        <ThemedText style={styles.cardTitle} numberOfLines={2}>{product.name}</ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                          {product.providerName} · {product.deliveryTime}
+                        </ThemedText>
+
+                        <View style={styles.productFooter}>
+                          <View style={styles.flex}>
+                            <ThemedText style={[styles.price, { color: theme.primary }]}>₹{product.price}</ThemedText>
+                            <ThemedText type="small" style={{ color: product.inStock ? theme.success : theme.danger, fontWeight: '700' }}>
+                              {product.inStock ? 'In stock' : 'Out of stock'}
+                            </ThemedText>
+                          </View>
+
+                          {quantity > 0 ? (
+                            <View style={[styles.stepper, { backgroundColor: theme.primarySoft, borderColor: theme.primary }]}>
+                              <Pressable
+                                onPress={(event) => {
+                                  event.stopPropagation();
+                                  updateQuantity(product.id, undefined, quantity - 1);
+                                }}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Decrease ${product.name} quantity`}
+                                style={({ pressed }) => [styles.stepButton, pressed && styles.pressed]}
+                              >
+                                <ThemedText style={{ color: theme.primary, fontWeight: '900' }}>−</ThemedText>
+                              </Pressable>
+                              <ThemedText style={{ color: theme.primary, fontWeight: '900', minWidth: 22, textAlign: 'center' }}>{quantity}</ThemedText>
+                              <Pressable
+                                onPress={(event) => {
+                                  event.stopPropagation();
+                                  updateQuantity(product.id, undefined, quantity + 1);
+                                }}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Increase ${product.name} quantity`}
+                                style={({ pressed }) => [styles.stepButton, pressed && styles.pressed]}
+                              >
+                                <ThemedText style={{ color: theme.primary, fontWeight: '900' }}>+</ThemedText>
+                              </Pressable>
+                            </View>
+                          ) : (
+                            <PrimaryButton
+                              label="Add"
+                              disabled={!product.inStock}
+                              onPress={() => addToCart(product, product.variants[0])}
+                              style={styles.addButton}
+                            />
+                          )}
+                        </View>
+                      </View>
                     </Pressable>
-                    <PrimaryButton label="ADD" onPress={() => addToCart(prod, prod.variants[0])} />
-                  </View>
-                </Pressable>
-              ))}
+                  );
+                })}
+              </View>
             </View>
-          )}
+          ) : null}
         </ScrollView>
       )}
     </View>
@@ -115,15 +236,46 @@ export default function FavouritesScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: spacing.x3 },
-  tabRow: { flexDirection: 'row', gap: spacing.x2, marginBottom: spacing.x3 },
-  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.x6, gap: spacing.x3 },
-  emptyTitle: { ...typography.headline, fontSize: 18, marginTop: 8 },
-  listContent: { gap: spacing.x4, paddingBottom: spacing.x6 },
+  container: { flex: 1, paddingHorizontal: spacing.x4, paddingTop: spacing.x2 },
+  flex: { flex: 1 },
+  tabRow: { gap: spacing.x2, paddingRight: spacing.x4, paddingBottom: spacing.x3 },
+  content: { gap: spacing.x6, paddingBottom: spacing.x8 },
   section: { gap: spacing.x3 },
-  sectionTitle: { ...typography.headline, fontSize: 16, fontWeight: '700' },
-  shopCard: { flexDirection: 'row', alignItems: 'center', padding: spacing.x3, borderRadius: radii.card, borderWidth: 1, gap: spacing.x3 },
-  shopThumb: { width: 60, height: 60, borderRadius: radii.compact },
-  prodCard: { flexDirection: 'row', alignItems: 'center', padding: spacing.x3, borderRadius: radii.card, borderWidth: 1, gap: spacing.x3 },
-  prodThumb: { width: 70, height: 70, borderRadius: radii.compact },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x3 },
+  shopCard: {
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.card,
+  },
+  shopImage: { width: '100%', height: 150 },
+  shopBody: { padding: spacing.x3, gap: spacing.x2 },
+  cardTopRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.x2 },
+  cardTitle: { ...typography.label, fontSize: 15, lineHeight: 21 },
+  heartButton: {
+    width: touchTarget,
+    height: touchTarget,
+    borderRadius: touchTarget / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.card,
+  },
+  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.x2 },
+  addressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.x2 },
+  productCard: {
+    minHeight: 154,
+    flexDirection: 'row',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.card,
+    overflow: 'hidden',
+  },
+  productImageWrap: { width: 124, position: 'relative' },
+  productImage: { width: '100%', height: '100%' },
+  productHeart: { position: 'absolute', top: spacing.x1, right: spacing.x1 },
+  productBody: { flex: 1, padding: spacing.x3, gap: spacing.x1 },
+  productFooter: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.x2, marginTop: 'auto' },
+  price: { ...typography.title, fontSize: 18, lineHeight: 24 },
+  stepper: { minHeight: touchTarget, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: radii.compact },
+  stepButton: { width: touchTarget, height: touchTarget, alignItems: 'center', justifyContent: 'center' },
+  addButton: { minWidth: 82, minHeight: touchTarget, paddingHorizontal: spacing.x3 },
+  pressed: { opacity: 0.82 },
 });

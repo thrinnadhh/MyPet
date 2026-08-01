@@ -1,7 +1,7 @@
 import { SymbolView } from 'expo-symbols';
 import { Text, type StyleProp, type ViewStyle } from 'react-native';
 
-type AppIconName =
+export type AppIconName =
   | 'cart'
   | 'calendar'
   | 'check'
