@@ -19,18 +19,28 @@ class DispatchRemoteModuleConfiguration {
     fun remoteOrderModuleApi(
         restOperations: RestOperations,
         @Value("\${ORDER_SERVICE_URL:http://localhost:8084}") baseUrl: String,
-        @Value("\${gateway.trust.secret:}") gatewayTrustSecret: String
-    ): OrderModuleApi = RemoteOrderModuleApi(restOperations, baseUrl, gatewayTrustSecret)
+        @Value("\${gateway.trust.secret:}") gatewayTrustSecret: String,
+        @Value("\${internal.api.secret:}") internalApiSecret: String
+    ): OrderModuleApi = RemoteOrderModuleApi(
+        restOperations,
+        baseUrl,
+        gatewayTrustSecret,
+        internalApiSecret
+    )
 }
 
 class RemoteOrderModuleApi(
     private val restOperations: RestOperations,
     private val baseUrl: String,
-    private val gatewayTrustSecret: String
+    private val gatewayTrustSecret: String,
+    private val internalApiSecret: String = ""
 ) : OrderModuleApi {
     override fun updateStatus(orderId: UUID, status: String, actorId: UUID, note: String?) {
+        require(internalApiSecret.isNotBlank()) {
+            "INTERNAL_API_SECRET is required for dispatch-to-order lifecycle updates"
+        }
         val url = UriComponentsBuilder
-            .fromUriString("$baseUrl/api/v1/orders/$orderId/status")
+            .fromUriString("$baseUrl/internal/api/v1/orders/$orderId/status")
             .queryParam("status", status.trim().uppercase())
             .apply { if (!note.isNullOrBlank()) queryParam("note", note) }
             .build().encode().toUriString()
@@ -38,8 +48,8 @@ class RemoteOrderModuleApi(
             if (gatewayTrustSecret.isNotBlank()) {
                 set("X-Internal-Gateway-Secret", gatewayTrustSecret)
             }
-            set("X-User-Id", actorId.toString())
-            set("X-User-Role", "CAPTAIN")
+            set("X-Internal-Api-Secret", internalApiSecret)
+            set("X-Captain-Id", actorId.toString())
         }
         restOperations.exchange(url, HttpMethod.PUT, HttpEntity<Any>(headers), Any::class.java)
     }
