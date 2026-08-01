@@ -84,7 +84,8 @@ def capture_failure_diagnostics(error: BaseException) -> None:
             "FROM appointments.outbox_events ORDER BY created_at DESC LIMIT 20;"
         ),
         "notification-reminders.txt": (
-            "SELECT id,user_id,reference_type,reference_id,fire_at,template_code,fired,delivery_status "
+            "SELECT reminder_id,user_id,reference_type,reference_id,fire_at,template_code,"
+            "fired,delivery_status,created_at "
             "FROM notifications.scheduled_reminders ORDER BY created_at DESC LIMIT 50;"
         ),
         "notification-processed-events.txt": (
