@@ -34,6 +34,15 @@ def contract_request(
     # the public conflict semantic without weakening the double-book assertion.
     if method == "POST" and path == "/api/v1/appointments/hold" and expected == (400,):
         expected = (409,)
+
+    # The shipped merchant client supports CONFIRMED -> COMPLETED directly and
+    # does not expose an IN_PROGRESS state. Retain the scenario's negative probe
+    # as a contract check: unsupported enum values must return HTTP 400, then the
+    # graph proceeds to the real COMPLETED transition on the next request.
+    if method == "PUT" and "/status?status=IN_PROGRESS" in path and expected == (200,):
+        _original_request(method, path, actor, payload, expected=(400,))
+        return {"status": "CONFIRMED", "unsupportedStatusRejected": True}
+
     return _original_request(method, path, actor, payload, expected)
 
 
