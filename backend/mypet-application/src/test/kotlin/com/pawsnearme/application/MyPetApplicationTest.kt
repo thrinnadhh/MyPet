@@ -1,7 +1,6 @@
 package com.pawsnearme.application
 
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -38,7 +37,8 @@ class MyPetApplicationTest {
         val response = restTemplate.getForEntity("/actuator/prometheus", String::class.java)
 
         assertEquals(HttpStatus.OK, response.statusCode)
-        assertFalse(response.body.isNullOrBlank())
+        assertEquals("text", response.headers.contentType?.type)
+        assertEquals("plain", response.headers.contentType?.subtype)
     }
 
     private fun assertHealthEndpoint(path: String) {
