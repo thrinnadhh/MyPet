@@ -67,7 +67,16 @@ if runner_path.is_file():
         '"unsupportedStatusRejected": True',
         "published AppointmentBooked outbox event with slot_start",
         "appointment-outbox.txt",
-        'for service in ("appointment-service", "notification-service", "kafka")',
+        "catalog-offerings.txt",
+        "orders.txt",
+        "order-outbox.txt",
+        'services = (',
+        '"api-gateway"',
+        '"order-service"',
+        '"catalog-service"',
+        '"discovery-service"',
+        '"payment-service"',
+        '"dispatch-service"',
         'f"{service}.log"',
         "notification-consumer-group.txt",
         "appointments-events.txt",
@@ -119,5 +128,5 @@ if failures:
 
 print(
     "M8 verification completeness passed for "
-    f"{len(DOMAINS)} domains, scenario/runner syntax, evidence classes, async diagnostics and cutover guard."
+    f"{len(DOMAINS)} domains, scenario/runner syntax, evidence classes, async/commerce diagnostics and cutover guard."
 )
