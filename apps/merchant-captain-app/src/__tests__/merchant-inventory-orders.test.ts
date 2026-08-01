@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { merchantOrderActions } from '../services/merchant-orders';
+import { merchantOrderActions } from '../contracts/merchant-order-lifecycle';
 
 function source(path: string): string {
   return readFileSync(join(process.cwd(), path), 'utf8');
