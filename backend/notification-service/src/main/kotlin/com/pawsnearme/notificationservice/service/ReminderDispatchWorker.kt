@@ -1,5 +1,6 @@
 package com.pawsnearme.notificationservice.service
 
+import com.pawsnearme.common.scheduling.WorkerScheduler
 import com.pawsnearme.notificationservice.config.NotificationTemplateProperties
 import com.pawsnearme.notificationservice.model.ReminderDeliveryStatus
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
@@ -8,12 +9,8 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import java.time.Instant
 
-/**
- * Polls every 5 seconds for due reminders and dispatches them.
- * Message text is resolved from [NotificationTemplateProperties] (application.yml),
- * so new template types require only a config change, not a code change.
- */
 @Service
+@WorkerScheduler
 class ReminderDispatchWorker(
     private val transactionService: ReminderTransactionService,
     private val deliveryAdapter: NotificationDeliveryAdapter,

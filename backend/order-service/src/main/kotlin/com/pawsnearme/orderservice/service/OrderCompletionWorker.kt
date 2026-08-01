@@ -1,5 +1,6 @@
 package com.pawsnearme.orderservice.service
 
+import com.pawsnearme.common.scheduling.WorkerScheduler
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
@@ -11,6 +12,7 @@ import java.time.Instant
 import java.util.UUID
 
 @Service
+@WorkerScheduler
 class OrderCompletionWorker(
     private val orderRepository: OrderRepository,
     private val orderService: OrderService,

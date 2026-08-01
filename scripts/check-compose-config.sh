@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$(mktemp)"
 CONFIG_JSON="$(mktemp)"
-trap 'rm -f "$ENV_FILE" "$CONFIG_JSON"' EXIT
+M7_CONFIG_JSON="$(mktemp)"
+trap 'rm -f "$ENV_FILE" "$CONFIG_JSON" "$M7_CONFIG_JSON"' EXIT
 
 cat > "$ENV_FILE" <<'EOF'
 GATEWAY_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
@@ -26,8 +27,18 @@ COMPOSE=(
   -f "$ROOT/infra/docker-compose.local.yml"
 )
 
+M7_COMPOSE=(
+  docker compose
+  --env-file "$ENV_FILE"
+  -f "$ROOT/infra/docker-compose.yml"
+  -f "$ROOT/infra/docker-compose.replicas.yml"
+  -f "$ROOT/infra/docker-compose.m7.yml"
+)
+
 "${COMPOSE[@]}" config > /dev/null
 "${COMPOSE[@]}" config --format json > "$CONFIG_JSON"
+"${M7_COMPOSE[@]}" config > /dev/null
+"${M7_COMPOSE[@]}" config --format json > "$M7_CONFIG_JSON"
 
 services="$("${COMPOSE[@]}" config --services)"
 expected=(
@@ -45,12 +56,14 @@ for service in "${expected[@]}"; do
   fi
 done
 
-python3 - "$CONFIG_JSON" <<'PY'
+python3 - "$CONFIG_JSON" "$M7_CONFIG_JSON" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     config = json.load(handle)
+with open(sys.argv[2], encoding="utf-8") as handle:
+    m7_config = json.load(handle)
 
 expected = {
     "provider-service": "flyway_schema_history_provider",
@@ -88,7 +101,47 @@ if str(m4_environment.get("MYPET_EDGE_ENABLED", "")).lower() != "false":
 if "pawsnearme" not in str(m4_environment.get("MYPET_DB_URL", "")):
     raise SystemExit("ERROR: M4 shadow runtime must target the existing pawsnearme database")
 
-print(f"Flyway history is isolated across {len(actual)} legacy owners and M4 is shadow-enabled.")
+scheduler_owners = {
+    "provider-service",
+    "order-service",
+    "appointment-service",
+    "dispatch-service",
+    "notification-service",
+    "review-service",
+    "payment-service",
+    "content-service",
+}
+
+# The default clean-volume stack must retain the M0-M6 ALL behavior by leaving
+# the scheduling role unset. This is the rollback path exercised by smoke tests.
+for service in scheduler_owners:
+    environment = config["services"][service].get("environment", {})
+    if "MYPET_SCHEDULING_ROLE" in environment:
+        raise SystemExit(
+            f"ERROR: default stack must leave {service} scheduling role unset; "
+            f"found {environment['MYPET_SCHEDULING_ROLE']!r}"
+        )
+
+# The optional M7 overlay must move periodic execution out of every API owner.
+for service in scheduler_owners:
+    environment = m7_config["services"][service].get("environment", {})
+    role = str(environment.get("MYPET_SCHEDULING_ROLE", "")).upper()
+    if role != "API":
+        raise SystemExit(
+            f"ERROR: M7 overlay must set {service} MYPET_SCHEDULING_ROLE=API; found {role!r}"
+        )
+
+for service in set(expected) - scheduler_owners:
+    environment = m7_config["services"][service].get("environment", {})
+    if "MYPET_SCHEDULING_ROLE" in environment:
+        raise SystemExit(
+            f"ERROR: M7 overlay must not assign scheduler ownership to {service}"
+        )
+
+print(
+    f"Flyway history is isolated across {len(actual)} legacy owners; "
+    f"M4 is shadow-enabled; M7 assigns API mode to {len(scheduler_owners)} scheduler owners."
+)
 PY
 
 service_count="$(printf '%s\n' "$services" | awk 'NF { count++ } END { print count + 0 }')"

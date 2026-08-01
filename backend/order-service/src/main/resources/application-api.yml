@@ -1,0 +1,4 @@
+# API instances serve requests but never register @Scheduled methods.
+mypet:
+  scheduling:
+    role: ${MYPET_SCHEDULING_ROLE:API}

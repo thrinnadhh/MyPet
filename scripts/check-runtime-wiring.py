@@ -36,6 +36,24 @@ COMPOSE_SEARCH_PATHS = {
 
 failures: list[str] = []
 
+shared_scheduler_runtime = (
+    ROOT
+    / "backend/common/src/main/kotlin/com/pawsnearme/common/scheduling/SchedulerRuntime.kt"
+)
+if not shared_scheduler_runtime.is_file():
+    failures.append("missing shared scheduler runtime")
+else:
+    shared_content = shared_scheduler_runtime.read_text(encoding="utf-8")
+    for required in (
+        "object SchedulerLockProviderFactory",
+        "JdbcTemplateLockProvider(",
+        ".usingDbTime()",
+        "SchedulerRoleBeanDefinitionPostProcessor",
+        "MyPetSchedulerCatalog",
+    ):
+        if required not in shared_content:
+            failures.append(f"shared scheduler runtime is missing {required}")
+
 for service, schema in SHEDLOCK_SCHEMAS.items():
     kotlin_path = (
         ROOT
@@ -51,10 +69,20 @@ for service, schema in SHEDLOCK_SCHEMAS.items():
         )
     else:
         content = kotlin_path.read_text(encoding="utf-8")
-        expected = f'.withTableName("{schema}.shedlock")'
-        if expected not in content:
+        required_fragments = (
+            f"mypet.scheduling.lock-table:{schema}.shedlock",
+            "SchedulerLockProviderFactory.create",
+            "SchedulerRuntimeInfrastructureConfiguration",
+            "@EnableSchedulerLock",
+        )
+        for required in required_fragments:
+            if required not in content:
+                failures.append(
+                    f"{service} ShedLock config is missing {required}"
+                )
+        if "JdbcTemplateLockProvider(" in content:
             failures.append(
-                f"{service} must use the schema-qualified lock table {schema}.shedlock"
+                f"{service} must delegate JDBC lock-provider construction to common"
             )
 
     migration_path = (
@@ -188,6 +216,6 @@ if failures:
 
 print(
     "Runtime wiring checks passed for gateway trust injection, Payment shared "
-    f"persistence, {len(SHEDLOCK_SCHEMAS)} ShedLock providers/migrations, and "
-    f"{len(COMPOSE_SEARCH_PATHS)} Compose database search paths."
+    f"persistence, {len(SHEDLOCK_SCHEMAS)} shared ShedLock declarations/migrations, "
+    f"and {len(COMPOSE_SEARCH_PATHS)} Compose database search paths."
 )

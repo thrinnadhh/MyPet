@@ -1,30 +1,24 @@
 package com.pawsnearme.dispatchservice.config
 
+import com.pawsnearme.common.scheduling.SchedulerLockProviderFactory
+import com.pawsnearme.common.scheduling.SchedulerRuntimeInfrastructureConfiguration
+import com.pawsnearme.common.scheduling.WorkerScheduler
 import net.javacrumbs.shedlock.core.LockProvider
-import net.javacrumbs.shedlock.provider.jdbctemplate.JdbcTemplateLockProvider
 import net.javacrumbs.shedlock.spring.annotation.EnableSchedulerLock
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.context.annotation.Import
 import javax.sql.DataSource
 
-/**
- * Distributed lock for scheduled dispatch and outbox work.
- *
- * The lock table is managed by Flyway in the dispatch schema, allowing
- * multiple replicas to coordinate without a shared public-table dependency.
- */
 @Configuration
-@EnableSchedulerLock(defaultLockAtMostFor = "PT30S")
+@Import(SchedulerRuntimeInfrastructureConfiguration::class)
+@EnableSchedulerLock(defaultLockAtMostFor = "PT30M")
 class ShedLockConfig {
-
     @Bean
-    fun lockProvider(dataSource: DataSource): LockProvider =
-        JdbcTemplateLockProvider(
-            JdbcTemplateLockProvider.Configuration.builder()
-                .withJdbcTemplate(JdbcTemplate(dataSource))
-                .withTableName("dispatch.shedlock")
-                .usingDbTime()
-                .build()
-        )
+    @WorkerScheduler
+    fun lockProvider(
+        dataSource: DataSource,
+        @Value("\${mypet.scheduling.lock-table:dispatch.shedlock}") tableName: String
+    ): LockProvider = SchedulerLockProviderFactory.create(dataSource, tableName)
 }

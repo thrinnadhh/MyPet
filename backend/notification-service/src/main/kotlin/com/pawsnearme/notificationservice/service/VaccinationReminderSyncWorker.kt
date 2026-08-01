@@ -1,6 +1,7 @@
 package com.pawsnearme.notificationservice.service
 
 import com.pawsnearme.common.module.ProviderModuleApi
+import com.pawsnearme.common.scheduling.WorkerScheduler
 import com.pawsnearme.notificationservice.event.VaccinationReminderEvent
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.slf4j.LoggerFactory
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service
 import java.util.UUID
 
 @Service
+@WorkerScheduler
 class VaccinationReminderSyncWorker(
     private val vaccinationReminderScheduler: VaccinationReminderScheduler,
     private val providerModule: ProviderModuleApi
