@@ -2,6 +2,7 @@ package com.pawsnearme.contentservice.service
 
 import com.pawsnearme.contentservice.model.GuideArticle
 import com.pawsnearme.contentservice.model.GuideWriter
+import com.pawsnearme.contentservice.model.PromoBanner
 import com.pawsnearme.contentservice.repository.GuideArticleRepository
 import com.pawsnearme.contentservice.repository.GuideWriterRepository
 import com.pawsnearme.contentservice.repository.PromoBannerRepository
@@ -19,6 +20,38 @@ class ContentServiceTests {
     private val service = ContentService(bannerRepo, guideRepo, writerRepo)
 
     private val merchantId = UUID.randomUUID()
+
+    @Test
+    fun `upsertBanner - direct admin content becomes active`() {
+        whenever(bannerRepo.save(any())).thenAnswer { it.getArgument<PromoBanner>(0) }
+
+        val saved = service.upsertBanner(
+            PromoBanner(
+                title = "Admin banner",
+                subtitle = "Published immediately",
+                active = true,
+            )
+        )
+
+        assertEquals("ACTIVE", saved.status)
+        verify(bannerRepo).save(check { assertEquals("ACTIVE", it.status) })
+    }
+
+    @Test
+    fun `upsertBanner - auction content retains pending lifecycle`() {
+        whenever(bannerRepo.save(any())).thenAnswer { it.getArgument<PromoBanner>(0) }
+        val providerId = UUID.randomUUID()
+
+        val saved = service.upsertBanner(
+            PromoBanner(
+                title = "Merchant bid",
+                subtitle = "Pending auction",
+                providerId = providerId,
+            )
+        )
+
+        assertEquals("PENDING_BID", saved.status)
+    }
 
     @Test
     fun `upsertGuide - merchant without writer grant - rejected`() {
