@@ -27,3 +27,11 @@ test('operational home is role-aware and uses the shared design shell', () => {
   assert.equal(home.includes('<RoleBadge role={roleBadge}'), true);
   assert.equal(home.includes('activeRole ==='), true);
 });
+
+test('operational deep links are checked before restricted screens render', () => {
+  const layout = source('src/app/_layout.tsx');
+  assert.equal(layout.includes("pathname.startsWith('/admin')"), true);
+  assert.equal(layout.includes("pathname.startsWith('/delivery')"), true);
+  assert.equal(layout.includes("pathname.startsWith('/inventory')"), true);
+  assert.equal(layout.includes('kind="unauthorized"'), true);
+});
