@@ -102,7 +102,7 @@ export default function DeliveryScreen() {
       if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
       return headers;
     },
-    [session?.access_token, user?.id],
+    [session, user],
   );
 
   const getCoordinates = useCallback(async (): Promise<Coordinates | null> => {
