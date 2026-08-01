@@ -1,7 +1,7 @@
 package com.pawsnearme.notificationservice.model
 
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -9,27 +9,24 @@ import java.util.UUID
 
 class ScheduledReminderPersistenceTests {
     @Test
-    fun `assigned UUID reminder is new until persisted`() {
+    fun `new reminder leaves ID null so Spring Data uses persist`() {
         val reminder = reminder()
 
-        assertNotNull(reminder.id)
-        assertTrue(reminder.isNew(), "Spring Data must call persist for a newly constructed reminder")
-
-        reminder.markPersisted()
-
-        assertFalse(reminder.isNew(), "Loaded or persisted reminders must use managed update semantics")
+        assertNull(
+            reminder.id,
+            "A newly constructed reminder must not look like an existing detached entity"
+        )
     }
 
     @Test
-    fun `separate reminder instances remain independently new`() {
-        val first = reminder()
-        val second = reminder()
+    fun `persisted reminder can carry its generated UUID`() {
+        val reminder = reminder()
+        val generatedId = UUID.randomUUID()
 
-        first.markPersisted()
+        reminder.id = generatedId
 
-        assertFalse(first.isNew())
-        assertTrue(second.isNew())
-        assertTrue(first.id != second.id)
+        assertEquals(generatedId, reminder.id)
+        assertTrue(reminder.id != null)
     }
 
     private fun reminder() = ScheduledReminder(
