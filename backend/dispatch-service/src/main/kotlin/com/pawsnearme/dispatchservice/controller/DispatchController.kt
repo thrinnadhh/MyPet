@@ -22,6 +22,16 @@ data class DispatchOfferDTO(
     val orderId: UUID
 )
 
+data class DispatchJobView(
+    val jobId: UUID,
+    val orderId: UUID,
+    val status: JobStatus,
+    val attemptCount: Int,
+    val createdAt: Instant,
+    val resolvedAt: Instant?,
+    val assignedAt: Instant?
+)
+
 data class DeliveryProofRequest(
     val proofCode: String? = null
 )
@@ -41,7 +51,7 @@ class DispatchController(
         @RequestParam response: String
     ): ResponseEntity<Any> {
         if (xUserId.isNullOrBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated captain context."))
+            return unauthorizedCaptain()
         }
         if (response != "ACCEPTED" && response != "REJECTED") {
             throw IllegalArgumentException("Invalid response. Must be ACCEPTED or REJECTED.")
@@ -56,7 +66,7 @@ class DispatchController(
         @RequestHeader(value = "X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Any> {
         if (xUserId.isNullOrBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated captain context."))
+            return unauthorizedCaptain()
         }
         val finalCaptainId = UUID.fromString(xUserId)
         val offers = offerRepository.findByCaptainIdAndResponseIsNull(finalCaptainId)
@@ -77,23 +87,49 @@ class DispatchController(
         return ResponseEntity.ok(dtos)
     }
 
+    /**
+     * Authenticated captain history and restart-resume source.
+     * OTP values never leave the dispatch service.
+     */
+    @GetMapping("/jobs/me")
+    fun getMyJobs(
+        @RequestHeader(value = "X-User-Id", required = false) xUserId: String?
+    ): ResponseEntity<Any> {
+        if (xUserId.isNullOrBlank()) return unauthorizedCaptain()
+        val captainId = UUID.fromString(xUserId)
+        val jobs = offerRepository
+            .findByCaptainIdAndResponseOrderByRespondedAtDesc(captainId, "ACCEPTED")
+            .mapNotNull { offer ->
+                jobRepository.findById(offer.jobId).orElse(null)?.let { job ->
+                    toView(job, offer.respondedAt)
+                }
+            }
+        return ResponseEntity.ok(jobs)
+    }
+
+    /** Administrative queue only; captains use /jobs/me. */
     @GetMapping("/jobs")
     fun listJobs(
+        @RequestHeader(value = "X-User-Role", required = false) role: String?,
         @RequestParam(required = false) status: JobStatus?
-    ): ResponseEntity<List<DispatchJob>> {
+    ): ResponseEntity<Any> {
+        if (role != "ADMIN") return adminOnly()
         val jobs = jobRepository.findAll()
             .filter { status == null || it.status == status }
             .sortedByDescending { it.createdAt }
+            .map { toView(it, acceptedOfferFor(it)?.respondedAt) }
         return ResponseEntity.ok(jobs)
     }
 
     @GetMapping("/jobs/by-order/{orderId}")
     fun getJobByOrderId(
+        @RequestHeader(value = "X-User-Role", required = false) role: String?,
         @PathVariable orderId: UUID
     ): ResponseEntity<Any> {
+        if (role != "ADMIN") return adminOnly()
         val job = jobRepository.findByOrderId(orderId)
             ?: throw NoSuchElementException("Job for order $orderId not found")
-        return ResponseEntity.ok(job)
+        return ResponseEntity.ok(toView(job, acceptedOfferFor(job)?.respondedAt))
     }
 
     @PostMapping("/jobs/{jobId}/pickup")
@@ -102,12 +138,10 @@ class DispatchController(
         @PathVariable jobId: UUID,
         @RequestBody request: DeliveryProofRequest
     ): ResponseEntity<Any> {
-        if (xUserId.isNullOrBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated captain context."))
-        }
+        if (xUserId.isNullOrBlank()) return unauthorizedCaptain()
         val captainId = UUID.fromString(xUserId)
         val updated = dispatchService.markPickedUp(jobId, captainId, request.proofCode)
-        return ResponseEntity.ok(updated)
+        return ResponseEntity.ok(toView(updated, acceptedOfferFor(updated)?.respondedAt))
     }
 
     @PostMapping("/jobs/{jobId}/deliver")
@@ -116,17 +150,39 @@ class DispatchController(
         @PathVariable jobId: UUID,
         @RequestBody request: DeliveryProofRequest
     ): ResponseEntity<Any> {
-        if (xUserId.isNullOrBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated captain context."))
-        }
+        if (xUserId.isNullOrBlank()) return unauthorizedCaptain()
         val captainId = UUID.fromString(xUserId)
         val updated = dispatchService.markDelivered(jobId, captainId, request.proofCode)
-        return ResponseEntity.ok(updated)
+        return ResponseEntity.ok(toView(updated, acceptedOfferFor(updated)?.respondedAt))
     }
 
     @PostMapping("/admin/check-timeouts")
-    fun checkTimeouts(): ResponseEntity<Any> {
+    fun checkTimeouts(
+        @RequestHeader(value = "X-User-Role", required = false) role: String?
+    ): ResponseEntity<Any> {
+        if (role != "ADMIN") return adminOnly()
         dispatchService.checkOfferTimeouts()
         return ResponseEntity.ok(mapOf("status" to "success"))
     }
+
+    private fun acceptedOfferFor(job: DispatchJob) = job.jobId
+        ?.let { offerRepository.findByJobId(it).firstOrNull { offer -> offer.response == "ACCEPTED" } }
+
+    private fun toView(job: DispatchJob, assignedAt: Instant?): DispatchJobView = DispatchJobView(
+        jobId = requireNotNull(job.jobId),
+        orderId = job.orderId,
+        status = job.status,
+        attemptCount = job.attemptCount,
+        createdAt = job.createdAt,
+        resolvedAt = job.resolvedAt,
+        assignedAt = assignedAt
+    )
+
+    private fun unauthorizedCaptain(): ResponseEntity<Any> = ResponseEntity
+        .status(HttpStatus.UNAUTHORIZED)
+        .body(mapOf("code" to "CAPTAIN_CONTEXT_REQUIRED", "message" to "Missing authenticated captain context."))
+
+    private fun adminOnly(): ResponseEntity<Any> = ResponseEntity
+        .status(HttpStatus.FORBIDDEN)
+        .body(mapOf("code" to "ADMIN_REQUIRED", "message" to "Administrator access is required."))
 }
