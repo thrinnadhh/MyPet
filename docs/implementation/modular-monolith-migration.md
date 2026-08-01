@@ -57,10 +57,27 @@ Exit evidence:
 - clean-volume Full Stack Smoke run `30679851793` passed without removing any existing service or Compose deployment.
 
 M1 merge commit: `01efdb22dcceb803341a2f11c38ab3bf7d48f819`.
+M1 closure merge commit: `93bf1672d7b300d934bba589f1fb7ed1493cf055`.
 
-### M2 — Internal modules
+### M2 — Internal modules — in progress
 
-Import existing business modules into the application as library dependencies, disable their independent boot entry points for the consolidated runtime, and enforce explicit module boundaries.
+Link the twelve business services into `mypet-application` as explicit library modules while preserving the distributed runtime:
+
+- each module owns a stable descriptor containing its id, base package and legacy application class;
+- `mypet-application` depends on each module non-transitively so business jars are packaged without prematurely activating database, Redis, Kafka, gRPC, scheduler or service-specific dependencies;
+- component scanning remains restricted to `com.pawsnearme.application`, keeping every legacy service `@SpringBootApplication` dormant in the consolidated JVM;
+- an immutable application-owned catalog exposes linked module ids through `/actuator/info`;
+- architecture tests reject direct business-service Gradle dependencies and direct access to another module's repository package;
+- existing service boot jars and Compose deployments remain unchanged.
+
+Exit criteria:
+
+- the consolidated catalog contains exactly provider, catalog, discovery, order, appointment, dispatch, captain, notification, review, payment, chat and content;
+- every legacy application class resource is present in the consolidated runtime classpath;
+- only `MyPetApplication` is registered as a Spring Boot application bean;
+- `mypet-application` starts without PostgreSQL, Redis, Kafka or gRPC infrastructure;
+- `:mypet-application:test` and `:mypet-application:bootJar` pass;
+- complete backend, production-hardening, mobile and clean-volume smoke validation remains green.
 
 ### M3 — Security and gateway consolidation
 
