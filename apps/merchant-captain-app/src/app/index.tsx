@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { StyleSheet, View, useWindowDimensions, type DimensionValue } from 'react-native';
 
 import type { AppIconName } from '@/components/app-icon';
 import {
@@ -18,6 +18,7 @@ import { AppCard } from '@/components/ui/app-card';
 import { useAuth } from '@/context/AuthContext';
 import { spacing, typography } from '@/design/tokens';
 import { playMerchantOrderAlertSound } from '@/hooks/usePushNotifications';
+import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
 import { fetchUnreadMerchantAlerts, markAlertRead } from '@/services/notifications';
 import { appConfig } from '@/utils/app-config';
@@ -39,6 +40,7 @@ type QuickAction = {
 
 export default function Index() {
   const { width } = useWindowDimensions();
+  const theme = useTheme();
   const { user, role, activeRole, session } = useAuth();
   const { t } = useTranslation();
   const router = useRouter();
@@ -88,7 +90,7 @@ export default function Index() {
         : t('home.captainHome');
 
   const roleBadge = activeRole === 'ADMIN' ? 'admin' : activeRole === 'PROVIDER' ? 'merchant' : 'captain';
-  const cardWidth = width >= 920 ? '23.5%' : width >= 620 ? '48%' : '100%';
+  const cardWidth: DimensionValue = width >= 920 ? '23.5%' : width >= 620 ? '48%' : '100%';
 
   const quickActions = useMemo<QuickAction[]>(() => {
     const shared: QuickAction[] = [
@@ -179,7 +181,7 @@ export default function Index() {
         <View style={styles.taskList}>
           {LIVE_TASK_KEYS.map((taskKey, index) => (
             <View key={taskKey} style={styles.taskRow} accessible accessibilityLabel={`${index + 1}. ${t(taskKey)}`}>
-              <View style={styles.taskNumber}>
+              <View style={[styles.taskNumber, { backgroundColor: theme.primarySoft }]}>
                 <ThemedText type="smallBold">{index + 1}</ThemedText>
               </View>
               <ThemedText style={styles.taskText}>{t(taskKey)}</ThemedText>
@@ -242,7 +244,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0, 74, 198, 0.10)',
   },
   taskText: {
     flex: 1,
