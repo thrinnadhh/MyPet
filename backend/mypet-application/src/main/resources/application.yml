@@ -32,6 +32,19 @@ mypet:
       ttl-seconds: ${MYPET_IDEMPOTENCY_TTL_SECONDS:900}
       max-entries: ${MYPET_IDEMPOTENCY_MAX_ENTRIES:10000}
       max-body-bytes: ${MYPET_IDEMPOTENCY_MAX_BODY_BYTES:1048576}
+  database:
+    # M4 is shadow-ready by default. Enabling it creates one PostgreSQL pool and
+    # runs each module's migrations against its original schema/history table.
+    enabled: ${MYPET_DATABASE_ENABLED:false}
+    url: ${MYPET_DB_URL:${DB_URL:}}
+    username: ${MYPET_DB_USERNAME:${DB_USERNAME:}}
+    password: ${MYPET_DB_PASSWORD:${DB_PASSWORD:}}
+    maximum-pool-size: ${MYPET_DB_POOL_MAX_SIZE:5}
+    minimum-idle: ${MYPET_DB_POOL_MIN_IDLE:1}
+    connection-timeout-ms: ${MYPET_DB_CONNECTION_TIMEOUT_MS:5000}
+    migrate-on-startup: ${MYPET_FLYWAY_MIGRATE_ON_STARTUP:true}
+    connect-retries: ${MYPET_FLYWAY_CONNECT_RETRIES:10}
+    lock-retry-count: ${MYPET_FLYWAY_LOCK_RETRY_COUNT:50}
 
 management:
   endpoints:
@@ -59,5 +72,5 @@ management:
 info:
   app:
     name: MyPet Application
-    milestone: M3
-    architecture: modular-monolith-edge-security
+    milestone: M4
+    architecture: modular-monolith-database-consolidation
