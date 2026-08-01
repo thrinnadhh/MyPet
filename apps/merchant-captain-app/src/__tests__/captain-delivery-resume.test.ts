@@ -7,7 +7,7 @@ import {
   deliveryStepForStatus,
   isActiveCaptainJob,
   type CaptainDeliveryJob,
-} from '../services/captain-deliveries';
+} from '../contracts/captain-delivery-lifecycle';
 
 function source(path: string): string {
   return readFileSync(join(process.cwd(), path), 'utf8');
