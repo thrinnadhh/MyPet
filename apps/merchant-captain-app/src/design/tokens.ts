@@ -1,14 +1,6 @@
 import { Platform } from 'react-native';
 
-import {
-  palette,
-  radii,
-  roleAccent,
-  spacing,
-  touchTarget,
-  type MyPetScheme,
-  type OperationalRole,
-} from '@/design/foundation';
+import { palette, type MyPetScheme } from '@/design/foundation';
 
 export { palette, radii, roleAccent, spacing, touchTarget } from '@/design/foundation';
 export type { MyPetScheme, OperationalRole } from '@/design/foundation';
@@ -130,10 +122,3 @@ export function themeFor(scheme: MyPetScheme) {
         errorSoft: palette.errorSoft,
       };
 }
-
-// Referenced here to keep re-exported contracts visible to TypeScript tooling.
-void radii;
-void roleAccent;
-void spacing;
-void touchTarget;
-void (null as OperationalRole | null);
