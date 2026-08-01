@@ -22,6 +22,7 @@ COMPOSE=(
   --env-file "$ENV_FILE"
   -f "$ROOT/infra/docker-compose.yml"
   -f "$ROOT/infra/docker-compose.replicas.yml"
+  -f "$ROOT/infra/docker-compose.m4.yml"
   -f "$ROOT/infra/docker-compose.local.yml"
 )
 
@@ -34,7 +35,7 @@ expected=(
   provider-service catalog-service discovery-service order-service
   appointment-service dispatch-service captain-service notification-service
   review-service payment-service chat-service content-service api-gateway
-  prometheus grafana
+  mypet-application prometheus grafana
 )
 
 for service in "${expected[@]}"; do
@@ -79,7 +80,15 @@ for service, table in expected.items():
 if len(set(actual.values())) != len(actual):
     raise SystemExit("ERROR: Flyway history tables must be unique per service")
 
-print(f"Flyway history is isolated across {len(actual)} services.")
+m4_environment = config["services"]["mypet-application"].get("environment", {})
+if str(m4_environment.get("MYPET_DATABASE_ENABLED", "")).lower() != "true":
+    raise SystemExit("ERROR: M4 shadow runtime must enable database consolidation")
+if str(m4_environment.get("MYPET_EDGE_ENABLED", "")).lower() != "false":
+    raise SystemExit("ERROR: M4 shadow runtime must not replace the API gateway")
+if "pawsnearme" not in str(m4_environment.get("MYPET_DB_URL", "")):
+    raise SystemExit("ERROR: M4 shadow runtime must target the existing pawsnearme database")
+
+print(f"Flyway history is isolated across {len(actual)} legacy owners and M4 is shadow-enabled.")
 PY
 
 service_count="$(printf '%s\n' "$services" | awk 'NF { count++ } END { print count + 0 }')"
