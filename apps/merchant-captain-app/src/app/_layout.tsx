@@ -6,7 +6,7 @@ import AppTabs from '@/components/app-tabs';
 import { AppBar, StateView } from '@/components/foundation/primitives';
 import { ScreenShell } from '@/components/foundation/screen-shell';
 import { ThemedText } from '@/components/themed-text';
-import { AuthProvider, useAuth, type AppRole } from '@/context/AuthContext';
+import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { LocaleProvider } from '@/context/LocaleContext';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { useTheme } from '@/hooks/use-theme';
@@ -14,7 +14,7 @@ import { appConfig } from '@/utils/app-config';
 import '@/i18n';
 import LoginScreen from './login';
 
-function canAccessPath(pathname: string, role: AppRole): boolean {
+function canAccessPath(pathname: string, role: string | null): boolean {
   if (pathname.startsWith('/admin')) return role === 'ADMIN' || appConfig.allowDemoMode;
   if (pathname.startsWith('/delivery') || pathname.startsWith('/captain-onboarding')) return role === 'CAPTAIN';
   if (pathname.startsWith('/inventory') || pathname.startsWith('/onboarding') || pathname.startsWith('/explore')) {
