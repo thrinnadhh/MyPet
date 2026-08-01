@@ -129,34 +129,64 @@ Exit evidence:
 
 M4 merge commit: `3220485ef7a988b8e8d1a6d179bf3a1048395ed3`.
 
-### M5 — Replace synchronous remote calls — in progress
+### M5 — Replace synchronous remote calls — complete
 
-Replace transport knowledge in business services with typed module capabilities while retaining standalone-service rollback:
+Delivered transport-neutral module capabilities while retaining distributed rollback:
 
-- define transport-neutral catalog, provider, payment, discovery and order contracts in `common`;
-- expose direct facades from the owning business modules;
-- provide conditional HTTP adapters only when a direct module facade is absent;
-- route order checkout, stock reservation and restoration, payment verification, promotions, COD, serviceability and loyalty through typed ports;
-- route appointment slot updates, provider ownership and payment verification through typed ports;
-- route dispatch order status changes, content provider ownership and notification reminder synchronization through typed ports;
-- keep public controllers, DTOs, URLs and HTTP status behavior stable;
-- keep external Razorpay and Expo/FCM integrations unchanged;
-- expose contract inventory and binding mode through `/actuator/info`;
-- enforce architecture tests that reject HTTP path/client execution from migrated business services.
+- catalog, provider, payment, discovery and order capabilities are defined in `common`;
+- owning modules expose direct Spring facades;
+- standalone services receive conditional HTTP adapters when direct facades are absent;
+- order, appointment, dispatch, content and notification business services no longer execute internal HTTP routes;
+- external Razorpay and Expo/FCM integrations remain unchanged;
+- contract inventory and binding mode are exposed through `/actuator/info`;
+- architecture tests reject transport execution from migrated business services.
 
-M5 exit criteria:
+Exit evidence:
 
-- all migrated business services compile without service URL fields or HTTP client calls;
-- direct facades and distributed HTTP adapters implement the same typed contracts;
-- existing order, appointment, dispatch, content and notification tests remain green;
+- complete backend, typed-contract and transport-boundary tests passed;
+- generated-artifact and production-hardening checks passed;
+- customer and merchant/captain mobile validation passed;
+- Java & Mobile CI run `30687169023` passed;
+- Full Stack Smoke run `30687169021` passed;
+- distributed fallback adapters remained operational.
+
+M5 merge commit: `ff6b701019b1e6643452cfef8b7bb3cb3f252228`.
+
+### M6 — Events and background work — in progress
+
+Classify asynchronous work and install guarded replacements without removing the Kafka rollback path:
+
+- direct consistency work remains on M5 typed module calls;
+- projection and cache fan-out is classified as an in-process domain event;
+- notification, reminder, dispatch and externally visible side effects remain durable outbox jobs;
+- the common outbox poller delegates publication to a transport-neutral publisher;
+- `KAFKA_ONLY` remains the default in every standalone service;
+- `DUAL_SHADOW` emits a non-executing module event while Kafka remains authoritative;
+- `IN_PROCESS_ONLY` is rejected unless the topic has a verified consumer bridge;
+- existing Kafka listeners remain available as rollback adapters;
+- in-process bridges reuse the existing listener business handlers instead of duplicating logic;
+- vaccination reminder events are persisted to the provider outbox instead of sent directly;
+- workflow classification, replacement readiness and delivery mode are exposed through `/actuator/info`.
+
+M6 cutover controls:
+
+- shadow events must never invoke business handlers;
+- in-process bridges activate only when delivery mode is exactly `IN_PROCESS_ONLY`;
+- an outbox record is marked published only after the selected publisher returns successfully;
+- a failure stops the owner poller to preserve event ordering;
+- topics without verified replacement remain Kafka-only;
+- no Kafka topic, retry topic, DLQ, consumer group, migration, public API or Compose service is removed.
+
+M6 exit criteria:
+
+- workflow catalog validation and outbox routing tests pass;
+- every current Kafka consumer topic has a guarded in-process bridge or is explicitly marked pending;
+- all six outbox owners default to Kafka and support routed publication;
+- vaccination reminders use the durable outbox path;
+- actuator reports direct-call, in-process-event and durable-job counts;
 - complete backend, generated-artifact and production-hardening checks pass;
-- both mobile applications pass lint/type validation;
-- clean-volume Full Stack Smoke proves the distributed fallback adapters remain operational;
-- no public API, database migration, Kafka topic, Compose service or mobile contract is removed.
-
-### M6 — Events and background work
-
-Classify workflows into direct calls, in-process domain events and durable outbox jobs. Remove Kafka only after every consumer workflow has a verified replacement.
+- both mobile applications remain green;
+- clean-volume Full Stack Smoke proves the distributed Kafka path remains operational.
 
 ### M7 — Scheduled jobs
 
