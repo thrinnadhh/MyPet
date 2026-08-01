@@ -1,11 +1,17 @@
 package com.pawsnearme.notificationservice.service
 
 import com.pawsnearme.notificationservice.config.NotificationTemplateProperties
-import com.pawsnearme.notificationservice.model.ScheduledReminder
 import com.pawsnearme.notificationservice.model.ReminderDeliveryStatus
+import com.pawsnearme.notificationservice.model.ScheduledReminder
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.Assertions.*
-import org.mockito.kotlin.*
+import org.mockito.kotlin.any
+import org.mockito.kotlin.eq
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
+import org.mockito.kotlin.times
+import org.mockito.kotlin.verify
+import org.mockito.kotlin.whenever
 import java.time.Instant
 import java.util.UUID
 
@@ -26,9 +32,9 @@ class ReminderDispatchWorkerTests {
         fireAt = Instant.now().minusSeconds(60),
         fired = false,
         templateCode = templateCode
-    )
+    ).also { assertNotNull(it.id) }
 
-    // ── dispatchDueReminders ──────────────────────────────────────────────────
+    private fun ScheduledReminder.persistedId(): UUID = requireNotNull(id)
 
     @Test
     fun `dispatchDueReminders - no due reminders - does not record attempts`() {
@@ -50,10 +56,10 @@ class ReminderDispatchWorkerTests {
 
         worker.dispatchDueReminders()
 
-        verify(transactionService).markAttempted(eq(r1.id), eq(ReminderDeliveryStatus.ATTEMPTED), any())
-        verify(transactionService).markAttempted(eq(r2.id), eq(ReminderDeliveryStatus.ATTEMPTED), any())
-        verify(transactionService).markDelivered(eq(r1.id), eq(ReminderDeliveryStatus.DELIVERED), eq("TEST"), any())
-        verify(transactionService).markDelivered(eq(r2.id), eq(ReminderDeliveryStatus.DELIVERED), eq("TEST"), any())
+        verify(transactionService).markAttempted(eq(r1.persistedId()), eq(ReminderDeliveryStatus.ATTEMPTED), any())
+        verify(transactionService).markAttempted(eq(r2.persistedId()), eq(ReminderDeliveryStatus.ATTEMPTED), any())
+        verify(transactionService).markDelivered(eq(r1.persistedId()), eq(ReminderDeliveryStatus.DELIVERED), eq("TEST"), any())
+        verify(transactionService).markDelivered(eq(r2.persistedId()), eq(ReminderDeliveryStatus.DELIVERED), eq("TEST"), any())
     }
 
     @Test
@@ -65,7 +71,7 @@ class ReminderDispatchWorkerTests {
         worker.dispatchDueReminders()
 
         verify(transactionService, times(1)).markDelivered(
-            eq(reminder.id),
+            eq(reminder.persistedId()),
             eq(ReminderDeliveryStatus.DELIVERED_LOGGED),
             eq("LOGGED_DEV"),
             any()
@@ -82,8 +88,14 @@ class ReminderDispatchWorkerTests {
 
         worker.dispatchDueReminders()
 
-        verify(transactionService).markAttempted(eq(reminder.id), eq(ReminderDeliveryStatus.ATTEMPTED), any())
-        verify(transactionService).markFailed(eq(reminder.id), eq(ReminderDeliveryStatus.FAILED), eq("TEST"), eq(true), eq("network"))
-        verify(transactionService, never()).markDelivered(eq(reminder.id), any(), any(), any())
+        verify(transactionService).markAttempted(eq(reminder.persistedId()), eq(ReminderDeliveryStatus.ATTEMPTED), any())
+        verify(transactionService).markFailed(
+            eq(reminder.persistedId()),
+            eq(ReminderDeliveryStatus.FAILED),
+            eq("TEST"),
+            eq(true),
+            eq("network")
+        )
+        verify(transactionService, never()).markDelivered(eq(reminder.persistedId()), any(), any(), any())
     }
 }

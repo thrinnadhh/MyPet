@@ -1,6 +1,5 @@
 package com.pawsnearme.appointmentservice.module
 
-import com.pawsnearme.appointmentservice.service.CatalogSlotSnapshot as LegacyCatalogSlotSnapshot
 import com.pawsnearme.common.module.CatalogModuleApi
 import com.pawsnearme.common.module.CatalogOfferingSnapshot
 import com.pawsnearme.common.module.CatalogSlotSnapshot
@@ -21,6 +20,7 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpMethod
 import org.springframework.web.client.RestOperations
 import java.math.BigDecimal
+import java.time.Instant
 import java.util.UUID
 
 @Configuration(proxyBeanMethods = false)
@@ -79,12 +79,19 @@ class RemoteCatalogModuleApi(
         throw UnsupportedOperationException("Appointment module does not mutate catalog stock")
 
     override fun slot(slotId: UUID): CatalogSlotSnapshot? = runCatching {
-        restOperations.exchange(
+        val response = restOperations.exchange(
             "$baseUrl/api/v1/catalog/slots/$slotId",
             HttpMethod.GET,
             HttpEntity<Any>(headers()),
-            LegacyCatalogSlotSnapshot::class.java
-        ).body?.toModuleSnapshot(slotId)
+            Map::class.java
+        ).body ?: return@runCatching null
+
+        CatalogSlotSnapshot(
+            slotId = response["slotId"]?.toString()?.let(UUID::fromString) ?: slotId,
+            slotStart = response["slotStart"]?.toString()?.let(::parseInstant),
+            slotEnd = response["slotEnd"]?.toString()?.let(::parseInstant),
+            status = response["status"]?.toString() ?: "AVAILABLE"
+        )
     }.getOrNull()
 
     override fun updateSlotStatus(slotId: UUID, status: String): CatalogSlotSnapshot {
@@ -102,13 +109,6 @@ class RemoteCatalogModuleApi(
             status = normalizedStatus
         )
     }
-
-    private fun LegacyCatalogSlotSnapshot.toModuleSnapshot(fallbackId: UUID) = CatalogSlotSnapshot(
-        slotId = slotId ?: fallbackId,
-        slotStart = slotStart,
-        slotEnd = slotEnd,
-        status = status ?: "AVAILABLE"
-    )
 
     private fun headers() = HttpHeaders().apply {
         if (gatewayTrustSecret.isNotBlank()) set("X-Internal-Gateway-Secret", gatewayTrustSecret)
@@ -176,6 +176,9 @@ class RemotePaymentModuleApi(
     override fun recordOrderDelivered(orderId: UUID, customerId: UUID, providerId: UUID, netAmount: BigDecimal) = Unit
     override fun recordOrderRefunded(orderId: UUID, customerId: UUID, providerId: UUID) = Unit
 }
+
+private fun parseInstant(value: String): Instant = runCatching { Instant.parse(value) }
+    .getOrElse { throw IllegalStateException("Remote catalog returned an invalid slot timestamp: $value", it) }
 
 private fun decimal(value: Any?): BigDecimal = when (value) {
     is BigDecimal -> value

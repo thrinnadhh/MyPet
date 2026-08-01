@@ -31,7 +31,10 @@ class ReminderDispatchWorker(
         log.info("Dispatching ${due.size} due reminder(s)")
         due.forEach { reminder ->
             try {
-                transactionService.markAttempted(reminder.id, ReminderDeliveryStatus.ATTEMPTED, Instant.now())
+                val reminderId = requireNotNull(reminder.id) {
+                    "Persisted reminder for ${reminder.referenceId} has no reminder ID"
+                }
+                transactionService.markAttempted(reminderId, ReminderDeliveryStatus.ATTEMPTED, Instant.now())
                 val result = deliveryAdapter.deliver(
                     NotificationDeliveryRequest(
                         userId = reminder.userId,
@@ -47,11 +50,11 @@ class ReminderDispatchWorker(
                     } else {
                         ReminderDeliveryStatus.DELIVERED
                     }
-                    transactionService.markDelivered(reminder.id, deliveredStatus, result.provider, Instant.now())
-                    log.info("Delivered reminder {} via {} for user {}", reminder.id, result.provider, reminder.userId)
+                    transactionService.markDelivered(reminderId, deliveredStatus, result.provider, Instant.now())
+                    log.info("Delivered reminder {} via {} for user {}", reminderId, result.provider, reminder.userId)
                 } else {
                     transactionService.markFailed(
-                        reminder.id,
+                        reminderId,
                         ReminderDeliveryStatus.FAILED,
                         result.provider,
                         result.retryable,
@@ -59,7 +62,7 @@ class ReminderDispatchWorker(
                     )
                     log.warn(
                         "Reminder {} delivery failed via {} retryable={} reason={}",
-                        reminder.id,
+                        reminderId,
                         result.provider,
                         result.retryable,
                         result.failureReason

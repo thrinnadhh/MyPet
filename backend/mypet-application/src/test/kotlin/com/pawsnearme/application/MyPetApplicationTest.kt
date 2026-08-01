@@ -28,8 +28,8 @@ class MyPetApplicationTest {
         val appInfo = response.body?.get("app") as? Map<*, *>
         assertNotNull(appInfo)
         assertEquals("MyPet Application", appInfo?.get("name"))
-        assertEquals("M7", appInfo?.get("milestone"))
-        assertEquals("modular-monolith-scheduler-consolidation", appInfo?.get("architecture"))
+        assertEquals("M8", appInfo?.get("milestone"))
+        assertEquals("modular-monolith-full-feature-verification", appInfo?.get("architecture"))
 
         val edgeInfo = response.body?.get("edgeSecurity") as? Map<*, *>
         assertNotNull(edgeInfo)
@@ -70,6 +70,15 @@ class MyPetApplicationTest {
         assertEquals(true, schedulerInfo?.get("apiWorkerSplitSupported"))
         assertEquals(8, (schedulerInfo?.get("lockTables") as? List<*>)?.size)
         assertEquals(14, (schedulerInfo?.get("jobs") as? List<*>)?.size)
+
+        val verificationInfo = response.body?.get("featureVerification") as? Map<*, *>
+        assertNotNull(verificationInfo)
+        assertEquals("M8", verificationInfo?.get("milestone"))
+        assertEquals("clean-volume-connected-matrix", verificationInfo?.get("mode"))
+        assertEquals(14, verificationInfo?.get("domainCount"))
+        assertEquals(false, verificationInfo?.get("cutoverAuthorized"))
+        assertEquals(true, verificationInfo?.get("legacyRollbackRequired"))
+        assertEquals(14, (verificationInfo?.get("domains") as? List<*>)?.size)
     }
 
     @Test

@@ -73,7 +73,6 @@ class AppointmentServiceTests {
             appointmentRepository.existsBySlotIdAndStatusNotIn(eq(slotId), any())
         ).thenReturn(true)
 
-        // Cleanup delete should be called after failure
         val ex = assertThrows<IllegalStateException> { service.bookAppointment(bookRequest()) }
         assertTrue(ex.message!!.contains("already booked or held"))
     }
@@ -126,6 +125,7 @@ class AppointmentServiceTests {
     @Test
     fun `confirmAppointment - books held slot clears hold key and publishes event contracts`() {
         val appointment = appointment(status = AppointmentStatus.SLOT_HELD, payAtClinic = true)
+        val slotStart = Instant.parse("2026-07-05T10:00:00Z")
         whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appointment))
         whenever(redisTemplate.hasKey("hold:slots:$slotId")).thenReturn(true)
         whenever(appointmentRepository.save(any())).thenAnswer { invocation -> invocation.getArgument<Appointment>(0) }
@@ -133,8 +133,17 @@ class AppointmentServiceTests {
             eq("http://localhost:8082/api/v1/catalog/slots/$slotId"),
             eq(org.springframework.http.HttpMethod.GET),
             any<org.springframework.http.HttpEntity<Any>>(),
-            eq(CatalogSlotSnapshot::class.java)
-        )).thenReturn(org.springframework.http.ResponseEntity.ok(CatalogSlotSnapshot(slotId = slotId, slotStart = Instant.parse("2026-07-05T10:00:00Z"))))
+            eq(Map::class.java)
+        )).thenReturn(
+            org.springframework.http.ResponseEntity.ok(
+                mapOf(
+                    "slotId" to slotId.toString(),
+                    "slotStart" to slotStart.toString(),
+                    "slotEnd" to slotStart.plusSeconds(1800).toString(),
+                    "status" to "HELD"
+                )
+            )
+        )
         whenever(restOperations.exchange(
             eq("http://localhost:8082/api/v1/catalog/slots/$slotId/status?status=BOOKED"),
             eq(org.springframework.http.HttpMethod.PUT),
@@ -161,7 +170,7 @@ class AppointmentServiceTests {
                 assertEquals(customerId, it.actorId)
                 assertEquals(appointmentId, it.appointmentId)
                 assertEquals(slotId, it.slotId)
-                assertEquals("2026-07-05T10:00:00Z", it.slotStart)
+                assertEquals(slotStart.toString(), it.slotStart)
             }
         )
     }

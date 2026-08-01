@@ -4,6 +4,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
 
 /**
  * Base global exception handler for Spring WebMVC microservices.
@@ -19,6 +20,16 @@ open class BaseGlobalExceptionHandler {
         return ResponseEntity
             .status(HttpStatus.BAD_REQUEST)
             .body(ErrorResponse(ex.message ?: "Bad request"))
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException::class)
+    fun handleTypeMismatch(ex: MethodArgumentTypeMismatchException): ResponseEntity<ErrorResponse> {
+        val value = ex.value?.toString() ?: "null"
+        val message = "Invalid value '$value' for parameter '${ex.name}'."
+        logger.warn("Bad request parameter: {}", message)
+        return ResponseEntity
+            .status(HttpStatus.BAD_REQUEST)
+            .body(ErrorResponse(message))
     }
 
     @ExceptionHandler(NoSuchElementException::class)

@@ -30,6 +30,11 @@ class ReviewServiceTests {
     // ── submitReview ──────────────────────────────────────────────────────────
 
     @Test
+    fun `new review leaves generated identifier unset`() {
+        assertNull(buildReview().id)
+    }
+
+    @Test
     fun `submitReview - duplicate review - throws IllegalStateException`() {
         val review = buildReview()
         whenever(reviewRepo.existsByTargetTypeAndTargetId(review.targetType, review.targetId)).thenReturn(true)
@@ -42,7 +47,9 @@ class ReviewServiceTests {
     fun `submitReview - success - saves and publishes Kafka event`() {
         val review = buildReview()
         whenever(reviewRepo.existsByTargetTypeAndTargetId(review.targetType, review.targetId)).thenReturn(false)
-        whenever(reviewRepo.save(any())).thenReturn(review.copy(createdAt = Instant.now()))
+        whenever(reviewRepo.save(any())).thenReturn(
+            review.copy(id = UUID.randomUUID(), createdAt = Instant.now())
+        )
 
         val result = service.submitReview(review)
 
@@ -64,7 +71,7 @@ class ReviewServiceTests {
         whenever(reviewRepo.save(any<Review>())).thenAnswer { invocation ->
             val r = invocation.getArgument<Review>(0)
             assertNotNull(r.createdAt, "createdAt must be set before save")
-            r.copy(createdAt = Instant.now())
+            r.copy(id = UUID.randomUUID(), createdAt = Instant.now())
         }
 
         service.submitReview(review)

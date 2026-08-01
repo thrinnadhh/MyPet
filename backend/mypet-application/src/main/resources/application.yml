@@ -44,8 +44,8 @@ mypet:
   events:
     delivery-mode: ${MYPET_EVENT_DELIVERY_MODE:KAFKA_ONLY}
   scheduling:
-    # The consolidated API shell never owns periodic work by default. Existing
-    # standalone service binaries still default to ALL when this property is absent.
+    # M8 verifies the existing deployment without authorizing cutover. The
+    # consolidated API shell therefore remains API-only by default.
     role: ${MYPET_SCHEDULING_ROLE:API}
 
 management:
@@ -74,5 +74,5 @@ management:
 info:
   app:
     name: MyPet Application
-    milestone: M7
-    architecture: modular-monolith-scheduler-consolidation
+    milestone: M8
+    architecture: modular-monolith-full-feature-verification

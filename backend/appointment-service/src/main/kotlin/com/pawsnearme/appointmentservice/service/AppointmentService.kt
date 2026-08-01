@@ -188,6 +188,7 @@ class AppointmentService @Autowired constructor(
                 slotId = request.slotId,
                 petId = request.petId,
                 priceAmount = request.priceAmount,
+                payAtClinic = request.payAtClinic,
                 status = AppointmentStatus.CONFIRMED
             )
             val saved = try {
@@ -231,6 +232,7 @@ class AppointmentService @Autowired constructor(
                         slotId = request.slotId,
                         petId = request.petId,
                         priceAmount = request.priceAmount,
+                        payAtClinic = request.payAtClinic,
                         status = AppointmentStatus.SLOT_HELD
                     )
                 )

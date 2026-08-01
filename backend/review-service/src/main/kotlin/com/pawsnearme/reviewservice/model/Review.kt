@@ -12,7 +12,7 @@ data class Review(
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "review_id")
-    val id: UUID = UUID.randomUUID(),
+    val id: UUID? = null,
 
     /** The customer who left the review. */
     @Column(name = "customer_id", nullable = false)

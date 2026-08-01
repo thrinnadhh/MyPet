@@ -1,6 +1,13 @@
 package com.pawsnearme.notificationservice.model
 
-import jakarta.persistence.*
+import jakarta.persistence.Column
+import jakarta.persistence.Entity
+import jakarta.persistence.EnumType
+import jakarta.persistence.Enumerated
+import jakarta.persistence.GeneratedValue
+import jakarta.persistence.GenerationType
+import jakarta.persistence.Id
+import jakarta.persistence.Table
 import java.time.Instant
 import java.util.UUID
 
@@ -21,7 +28,7 @@ data class ScheduledReminder(
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "reminder_id")
-    val id: UUID = UUID.randomUUID(),
+    var id: UUID? = null,
 
     /** The customer/user to notify. */
     @Column(name = "user_id", nullable = false)
