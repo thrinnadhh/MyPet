@@ -2,20 +2,17 @@ package com.pawsnearme.orderservice.service
 
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.pawsnearme.common.module.CatalogModuleApi
+import com.pawsnearme.common.module.PaymentModuleApi
+import com.pawsnearme.common.module.StockMutationCommand
 import com.pawsnearme.orderservice.model.OrderCompensation
 import com.pawsnearme.orderservice.repository.OrderCompensationRepository
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Value
-import org.springframework.http.HttpEntity
-import org.springframework.http.HttpHeaders
-import org.springframework.http.HttpMethod
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
-import org.springframework.web.client.RestTemplate
-import org.springframework.web.util.UriComponentsBuilder
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
@@ -24,10 +21,8 @@ import java.util.UUID
 class OrderCompensationService(
     private val repository: OrderCompensationRepository,
     private val objectMapper: ObjectMapper,
-    private val restTemplate: RestTemplate,
-    @Value("\${CATALOG_SERVICE_URL:http://localhost:8082}") private val catalogServiceUrl: String,
-    @Value("\${PAYMENT_SERVICE_URL:http://localhost:8090}") private val paymentServiceUrl: String,
-    @Value("\${internal.api.secret:}") private val internalSecret: String
+    private val catalogModule: CatalogModuleApi,
+    private val paymentModule: PaymentModuleApi
 ) {
     data class Item(val offeringId: UUID, val quantity: Int)
 
@@ -62,21 +57,19 @@ class OrderCompensationService(
                 compensation.payloadJson, object : TypeReference<List<Item>>() {}
             )
             items.forEach { item ->
-                val headers = internalHeaders()
                 val keyMaterial = "compensate:${compensation.compensationId}:${item.offeringId}:${item.quantity}"
-                headers.set("X-Idempotency-Key", UUID.nameUUIDFromBytes(keyMaterial.toByteArray()).toString())
-                val url = "$catalogServiceUrl/api/v1/internal/catalog/offerings/${item.offeringId}/restore-stock?quantity=${item.quantity}"
-                restTemplate.exchange(url, HttpMethod.PUT, HttpEntity<Any>(headers), Map::class.java)
+                catalogModule.restoreStock(
+                    StockMutationCommand(
+                        offeringId = item.offeringId,
+                        quantity = item.quantity,
+                        idempotencyKey = UUID.nameUUIDFromBytes(keyMaterial.toByteArray())
+                    )
+                )
             }
             val coupon = compensation.couponCode
             val orderId = compensation.orderId
             if (!coupon.isNullOrBlank() && orderId != null) {
-                val url = UriComponentsBuilder.fromUriString("$paymentServiceUrl/api/v1/payments/promotions/release")
-                    .queryParam("code", coupon)
-                    .queryParam("userId", compensation.customerId)
-                    .queryParam("orderId", orderId)
-                    .build().encode().toUriString()
-                restTemplate.postForEntity(url, HttpEntity<Any>(internalHeaders()), Map::class.java)
+                paymentModule.releaseCoupon(coupon, compensation.customerId, orderId)
             }
             compensation.status = "COMPENSATED"
             compensation.lastError = null
@@ -90,12 +83,6 @@ class OrderCompensationService(
         }
         compensation.updatedAt = Instant.now()
         repository.save(compensation)
-    }
-
-    private fun internalHeaders(): HttpHeaders = HttpHeaders().also {
-        require(internalSecret.isNotBlank()) { "Internal service secret is not configured" }
-        it.set("X-Internal-Secret", internalSecret)
-        it.set("X-Service-Name", "order-service")
     }
 
     companion object {

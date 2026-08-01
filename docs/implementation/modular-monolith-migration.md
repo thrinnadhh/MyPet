@@ -46,14 +46,14 @@ Delivered a new `mypet-application` Spring Boot module that:
 - starts independently without database, Redis, Kafka or business-module dependencies;
 - exposes liveness, readiness, info and Prometheus actuator endpoints;
 - supports graceful shutdown;
-- verifies the actuator contracts through real HTTP integration tests;
+- verifies actuator contracts through real HTTP integration tests;
 - is built and tested by the existing Gradle CI suite.
 
 Exit evidence:
 
 - `:mypet-application:test` passed;
 - `:mypet-application:bootJar` succeeded;
-- the complete backend, production-hardening and both mobile validation suites passed;
+- complete backend, production-hardening and both mobile validation suites passed;
 - clean-volume Full Stack Smoke passed without removing any existing service or Compose deployment.
 
 M1 merge commit: `01efdb22dcceb803341a2f11c38ab3bf7d48f819`.
@@ -64,10 +64,10 @@ M1 closure merge commit: `93bf1672d7b300d934bba589f1fb7ed1493cf055`.
 Delivered explicit internal-module boundaries while preserving the distributed runtime:
 
 - each module owns a stable descriptor containing its id, base package and legacy application class;
-- `mypet-application` depends on each module non-transitively, so business jars are packaged without activating database, Redis, Kafka, gRPC, scheduler or service-specific dependencies;
-- component scanning remains restricted to `com.pawsnearme.application`, keeping every legacy service `@SpringBootApplication` dormant in the consolidated JVM;
+- `mypet-application` depends on every module non-transitively so business jars are packaged without activating infrastructure;
+- component scanning remains restricted to `com.pawsnearme.application`, keeping legacy boot entry points dormant;
 - an immutable application-owned catalog exposes linked module ids through `/actuator/info`;
-- architecture tests reject direct business-service Gradle dependencies and direct access to another module's repository package;
+- architecture tests reject direct business-service Gradle dependencies and cross-module repository access;
 - existing service boot jars and Compose deployments remain unchanged.
 
 Exit evidence:
@@ -86,10 +86,10 @@ Delivered a servlet-native application edge boundary while preserving the separa
 
 - Supabase JWT validation supports HS256 secrets and ES256/RS256 JWK sets;
 - unsigned parsing is restricted to explicit local, dev or test profiles;
-- spoofable user/internal headers are removed and identity is derived only from a validated JWT;
-- the gateway's public-route and role-guard authorization matrix is represented in the application;
+- spoofable user/internal headers are removed and identity derives only from a validated JWT;
+- public-route and role-guard authorization behavior is represented in the application;
 - explicit-origin credentialed CORS is enforced;
-- `X-Request-Id`, HTTP 429 rate limiting and bounded idempotency replay are application-owned;
+- request IDs, HTTP 429 rate limiting and bounded idempotency replay are application-owned;
 - edge mode is exposed through `/actuator/info`;
 - `MYPET_EDGE_ENABLED=false` remains the default until traffic cutover.
 
@@ -102,33 +102,57 @@ Exit evidence:
 
 M3 merge commit: `445cab6c7af8ec777746b460451e1df0a605d25d`.
 
-### M4 — Database consolidation — in progress
+### M4 — Database consolidation — complete
 
-Introduce one application-owned PostgreSQL connection and Flyway coordinator without rewriting production history:
+Delivered one application-owned PostgreSQL connection and Flyway coordinator without rewriting production history:
 
-- package each service's unchanged SQL files under an application-only namespace such as `db/migration/provider`;
-- retain the original service migration files, versions and descriptions in place;
-- reuse the exact legacy schema and `flyway_schema_history_*` table for every owner;
-- preserve discovery ownership in the existing `providers` schema with its separate discovery history table;
-- run the twelve Flyway owners sequentially through one shared Hikari pool;
-- baseline existing non-empty schemas at version 1 exactly as the service configurations do;
-- disable Spring Boot's automatic datasource/Flyway configuration so the shell still starts without PostgreSQL when M4 is disabled;
-- expose migration phase, owner count and current versions through `/actuator/info` and readiness health;
-- add a Compose shadow runtime on port 8093 with edge ingress disabled;
-- keep every legacy service and its Flyway configuration operational for rollback.
+- each service's unchanged SQL files are copied under an application-only migration namespace;
+- original service migrations, versions and descriptions remain in place;
+- every owner reuses its exact legacy schema and `flyway_schema_history_*` table;
+- discovery remains a distinct migration owner inside the existing `providers` schema;
+- twelve Flyway owners execute sequentially through one shared Hikari pool;
+- existing non-empty schemas retain version-1 baseline behavior;
+- automatic datasource/Flyway configuration is disabled so the shell still starts without PostgreSQL when M4 is off;
+- migration phase, owner count and current versions are exposed through actuator info and readiness health;
+- a Compose shadow runtime operates on port 8093 while every legacy service remains available for rollback;
+- `MYPET_DATABASE_ENABLED=false` remains the default.
 
-M4 exit criteria:
+Exit evidence:
 
-- all twelve namespaced migration bundles are present in the application artifact;
-- each owner maps to its original schema and unique history table;
-- a clean-volume PostgreSQL run creates or reuses all twelve history tables with zero failed records;
-- `mypet-application` reports database phase `READY` and twelve completed owners;
-- the distributed services, gateway, APIs, mobile validation and production-hardening checks remain green;
-- no existing migration is renamed, deleted, reordered or edited solely for consolidation.
+- all twelve namespaced migration bundles were packaged;
+- each owner mapped to its original schema and unique history table;
+- clean-volume PostgreSQL validation retained all 13 schemas and all twelve history tables;
+- zero failed Flyway records were found;
+- `mypet-application` reported database phase `READY` with twelve completed owners;
+- Java & Mobile CI run `30684353525` passed;
+- Full Stack Smoke run `30684353527` passed.
 
-### M5 — Replace synchronous remote calls
+M4 merge commit: `3220485ef7a988b8e8d1a6d179bf3a1048395ed3`.
 
-Replace internal REST/gRPC calls with typed module interfaces. Keep public controllers and request/response contracts stable.
+### M5 — Replace synchronous remote calls — in progress
+
+Replace transport knowledge in business services with typed module capabilities while retaining standalone-service rollback:
+
+- define transport-neutral catalog, provider, payment, discovery and order contracts in `common`;
+- expose direct facades from the owning business modules;
+- provide conditional HTTP adapters only when a direct module facade is absent;
+- route order checkout, stock reservation and restoration, payment verification, promotions, COD, serviceability and loyalty through typed ports;
+- route appointment slot updates, provider ownership and payment verification through typed ports;
+- route dispatch order status changes, content provider ownership and notification reminder synchronization through typed ports;
+- keep public controllers, DTOs, URLs and HTTP status behavior stable;
+- keep external Razorpay and Expo/FCM integrations unchanged;
+- expose contract inventory and binding mode through `/actuator/info`;
+- enforce architecture tests that reject HTTP path/client execution from migrated business services.
+
+M5 exit criteria:
+
+- all migrated business services compile without service URL fields or HTTP client calls;
+- direct facades and distributed HTTP adapters implement the same typed contracts;
+- existing order, appointment, dispatch, content and notification tests remain green;
+- complete backend, generated-artifact and production-hardening checks pass;
+- both mobile applications pass lint/type validation;
+- clean-volume Full Stack Smoke proves the distributed fallback adapters remain operational;
+- no public API, database migration, Kafka topic, Compose service or mobile contract is removed.
 
 ### M6 — Events and background work
 

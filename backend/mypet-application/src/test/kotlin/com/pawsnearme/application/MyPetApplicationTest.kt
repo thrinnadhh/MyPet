@@ -21,15 +21,15 @@ class MyPetApplicationTest {
     }
 
     @Test
-    fun `application exposes milestone edge and database metadata through info endpoint`() {
+    fun `application exposes milestone edge database and module interface metadata`() {
         val response = restTemplate.getForEntity("/actuator/info", Map::class.java)
 
         assertEquals(HttpStatus.OK, response.statusCode)
         val appInfo = response.body?.get("app") as? Map<*, *>
         assertNotNull(appInfo)
         assertEquals("MyPet Application", appInfo?.get("name"))
-        assertEquals("M4", appInfo?.get("milestone"))
-        assertEquals("modular-monolith-database-consolidation", appInfo?.get("architecture"))
+        assertEquals("M5", appInfo?.get("milestone"))
+        assertEquals("modular-monolith-typed-module-interfaces", appInfo?.get("architecture"))
 
         val edgeInfo = response.body?.get("edgeSecurity") as? Map<*, *>
         assertNotNull(edgeInfo)
@@ -42,18 +42,23 @@ class MyPetApplicationTest {
         assertEquals("shadow-ready", databaseInfo?.get("mode"))
         assertEquals("DISABLED", databaseInfo?.get("phase"))
         assertEquals(12, databaseInfo?.get("moduleCount"))
+
+        val interfaceInfo = response.body?.get("moduleInterfaces") as? Map<*, *>
+        assertNotNull(interfaceInfo)
+        assertEquals(5, interfaceInfo?.get("count"))
+        assertEquals("direct-when-present", interfaceInfo?.get("binding"))
+        assertEquals("conditional-http-adapter", interfaceInfo?.get("fallback"))
+        assertEquals(false, interfaceInfo?.get("transportKnowledgeInBusinessServices"))
     }
 
     @Test
     fun `application exposes prometheus scrape endpoint`() {
         val response = restTemplate.getForEntity("/actuator/prometheus", String::class.java)
-
         assertEquals(HttpStatus.OK, response.statusCode)
     }
 
     private fun assertHealthEndpoint(path: String) {
         val response = restTemplate.getForEntity(path, Map::class.java)
-
         assertEquals(HttpStatus.OK, response.statusCode)
         assertNotNull(response.body)
         assertEquals("UP", response.body?.get("status"))

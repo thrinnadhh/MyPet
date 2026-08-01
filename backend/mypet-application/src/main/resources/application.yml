@@ -72,5 +72,5 @@ management:
 info:
   app:
     name: MyPet Application
-    milestone: M4
-    architecture: modular-monolith-database-consolidation
+    milestone: M5
+    architecture: modular-monolith-typed-module-interfaces

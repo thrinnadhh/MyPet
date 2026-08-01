@@ -1,41 +1,41 @@
 package com.pawsnearme.dispatchservice.service
 
-import org.slf4j.LoggerFactory
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.common.idempotency.IdempotencyService
+import com.pawsnearme.common.module.OrderModuleApi
 import com.pawsnearme.common.outbox.OutboxService
 import com.pawsnearme.dispatchservice.model.*
+import com.pawsnearme.dispatchservice.module.RemoteOrderModuleApi
 import com.pawsnearme.dispatchservice.repository.*
 import jakarta.persistence.EntityManager
-import org.springframework.orm.ObjectOptimisticLockingFailureException
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.geo.Distance
 import org.springframework.data.geo.Metrics
 import org.springframework.data.geo.Point as RedisPoint
 import org.springframework.data.redis.connection.RedisGeoCommands
 import org.springframework.data.redis.domain.geo.GeoReference
 import org.springframework.data.redis.core.StringRedisTemplate
-import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.annotation.RetryableTopic
+import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.retrytopic.TopicSuffixingStrategy
+import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.retry.annotation.Backoff
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
-import org.springframework.web.client.RestTemplate
 import org.springframework.web.client.RestOperations
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
+import org.springframework.web.client.RestTemplate
 import java.time.Instant
 import java.util.UUID
 
 @Service
 @Transactional
-class DispatchService(
+class DispatchService @Autowired constructor(
     private val jobRepository: DispatchJobRepository,
     private val offerRepository: DispatchOfferRepository,
     private val redisTemplate: StringRedisTemplate,
@@ -43,22 +43,38 @@ class DispatchService(
     private val entityManager: EntityManager,
     private val outboxService: OutboxService,
     private val idempotencyService: IdempotencyService,
-    @Value("\${ORDER_SERVICE_URL:http://localhost:8084}")
-    private val orderServiceBaseUrl: String = "http://localhost:8084",
-    @Value("\${gateway.trust.secret:}")
-    private val gatewayTrustSecret: String = "",
-    private val restTemplate: RestOperations = RestTemplate()
+    private val orderModule: OrderModuleApi
 ) {
+    /** Compatibility constructor retained for focused legacy tests and rollback tooling. */
+    constructor(
+        jobRepository: DispatchJobRepository,
+        offerRepository: DispatchOfferRepository,
+        redisTemplate: StringRedisTemplate,
+        kafkaTemplate: KafkaTemplate<String, Any>,
+        entityManager: EntityManager,
+        outboxService: OutboxService,
+        idempotencyService: IdempotencyService,
+        orderServiceBaseUrl: String = "http://localhost:8084",
+        gatewayTrustSecret: String = "",
+        restTemplate: RestOperations = RestTemplate()
+    ) : this(
+        jobRepository,
+        offerRepository,
+        redisTemplate,
+        kafkaTemplate,
+        entityManager,
+        outboxService,
+        idempotencyService,
+        RemoteOrderModuleApi(restTemplate, orderServiceBaseUrl, gatewayTrustSecret)
+    )
 
     private val objectMapper = ObjectMapper()
-    private val orderServiceUrl = "$orderServiceBaseUrl/api/v1/orders"
 
     companion object {
         private val logger = LoggerFactory.getLogger(DispatchService::class.java)
         private const val GEO_KEY = "captains:locations"
     }
 
-    // --- Kafka Listener for Orders ---
     @RetryableTopic(
         attempts = "3",
         backoff = Backoff(delay = 1000, multiplier = 2.0),
@@ -75,27 +91,26 @@ class DispatchService(
         }
 
         val eventIdStr = event["eventId"] as? String ?: event["event_id"] as? String ?: return
-        val eventId = try { UUID.fromString(eventIdStr) } catch(e: Exception) { return }
+        val eventId = try {
+            UUID.fromString(eventIdStr)
+        } catch (e: Exception) {
+            return
+        }
 
-        // Idempotency check
         if (!idempotencyService.checkAndRecord(eventId)) {
             logger.info("Duplicate event ignored: {}", eventId)
             return
         }
 
-        val toStatus = event["toStatus"] as? String
-
-        if (toStatus == "READY_FOR_PICKUP") {
+        if (event["toStatus"] as? String == "READY_FOR_PICKUP") {
             val orderIdStr = event["orderId"] as? String ?: return
             val orderId = UUID.fromString(orderIdStr)
             logger.info("Received READY_FOR_PICKUP for order {}. Starting dispatch...", orderId)
-            // Start dispatch process
             startDispatchProcess(orderId)
         }
     }
 
     fun startDispatchProcess(orderId: UUID): DispatchJob {
-        // Prevent duplicate jobs
         val existing = jobRepository.findByOrderId(orderId)
         if (existing != null) return existing
 
@@ -111,16 +126,6 @@ class DispatchService(
         return savedJob
     }
 
-    /**
-     * Iteratively advances dispatch assignment for [job].
-     *
-     * The previous implementation used direct recursion when no captain was available,
-     * which could overflow the call-stack when geo-lookup returned empty results
-     * across all maxAttempts (common during low-captain hours).
-     *
-     * This iterative version loops until a candidate is found or maxAttempts is
-     * exhausted, without consuming additional stack frames.
-     */
     fun triggerNextOffer(job: DispatchJob) {
         var currentJob = job
 
@@ -134,11 +139,15 @@ class DispatchService(
                     currentJob.orderId,
                     currentJob.maxAttempts
                 )
-                publishDispatchEvent("DispatchJobFailed", currentJob, null, mapOf("reason" to "MAX_ATTEMPTS_EXHAUSTED"))
+                publishDispatchEvent(
+                    "DispatchJobFailed",
+                    currentJob,
+                    null,
+                    mapOf("reason" to "MAX_ATTEMPTS_EXHAUSTED")
+                )
                 return
             }
 
-            // 1. Get provider coordinates from DB
             val providerCoords = getProviderCoordinates(currentJob.orderId)
             if (providerCoords == null) {
                 logger.error("Coordinates for order {} not found. Failing job.", currentJob.orderId)
@@ -148,7 +157,6 @@ class DispatchService(
             }
             val (lng, lat) = providerCoords
 
-            // 2. Query Redis Geo for active captains within 5 km
             val results = try {
                 val args = RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs()
                     .includeDistance()
@@ -166,14 +174,11 @@ class DispatchService(
             }
 
             val onlineCaptains = results?.content?.map { UUID.fromString(it.content.name) } ?: emptyList()
-
-            // 3. Find candidates who haven't rejected/timed-out this job yet
             val existingOffers = offerRepository.findByJobId(currentJob.jobId!!)
             val attemptedCaptains = existingOffers.map { it.captainId }.toSet()
             val candidate = onlineCaptains.firstOrNull { it !in attemptedCaptains }
 
             if (candidate != null) {
-                // Create offer and advance job status
                 val offer = DispatchOffer(
                     jobId = currentJob.jobId!!,
                     captainId = candidate,
@@ -190,20 +195,18 @@ class DispatchService(
                     mapOf("offer_id" to offer.offerId.toString(), "offer_rank" to offer.offerRank)
                 )
                 logger.info("Offered Job {} to Captain {}.", currentJob.jobId, candidate)
-                return   // wait for captain response; scheduler drives next iteration
-            } else {
-                // No captain available this attempt — try next attempt within this loop
-                currentJob.attemptCount += 1
-                currentJob = jobRepository.save(currentJob)
-                logger.debug(
-                    "No candidate for job {} on attempt {}. Retrying in loop.",
-                    currentJob.jobId,
-                    currentJob.attemptCount
-                )
+                return
             }
+
+            currentJob.attemptCount += 1
+            currentJob = jobRepository.save(currentJob)
+            logger.debug(
+                "No candidate for job {} on attempt {}. Retrying in loop.",
+                currentJob.jobId,
+                currentJob.attemptCount
+            )
         }
     }
-
 
     fun respondToOffer(offerId: UUID, response: String, captainId: UUID): DispatchOffer {
         val offer = offerRepository.findById(offerId)
@@ -212,7 +215,6 @@ class DispatchService(
         if (offer.captainId != captainId) {
             throw IllegalStateException("Offer does not belong to authenticated captain")
         }
-
         if (offer.response != null) {
             throw IllegalStateException("Offer already responded with ${offer.response}")
         }
@@ -227,31 +229,28 @@ class DispatchService(
         }
 
         val job = jobRepository.findById(offer.jobId).get()
-
         if (response == "ACCEPTED") {
             job.status = JobStatus.ACCEPTED
             jobRepository.save(job)
-
             updateOrderStatus(job.orderId, "ASSIGNED", offer.captainId, "Captain accepted dispatch offer")
-
-            // Publish accepted event
-            publishDispatchEvent("DispatchJobAccepted", job, offer.captainId, mapOf("offer_id" to offer.offerId.toString()))
-
+            publishDispatchEvent(
+                "DispatchJobAccepted",
+                job,
+                offer.captainId,
+                mapOf("offer_id" to offer.offerId.toString())
+            )
             logger.info("Job {} ACCEPTED by Captain {}.", job.jobId, offer.captainId)
         } else {
             job.status = JobStatus.PENDING_ASSIGNMENT
             jobRepository.save(job)
             triggerNextOffer(job)
         }
-
         return savedOffer
     }
 
     fun markPickedUp(jobId: UUID, captainId: UUID, proofCode: String?): DispatchJob {
         val job = loadAcceptedJobForCaptain(jobId, captainId)
-        if (proofCode.isNullOrBlank()) {
-            throw IllegalArgumentException("Pickup proof code is required")
-        }
+        if (proofCode.isNullOrBlank()) throw IllegalArgumentException("Pickup proof code is required")
         if (job.pickupOtp != null && job.pickupOtp != proofCode) {
             throw IllegalArgumentException("Invalid pickup verification OTP")
         }
@@ -263,9 +262,7 @@ class DispatchService(
 
     fun markDelivered(jobId: UUID, captainId: UUID, proofCode: String?): DispatchJob {
         val job = loadAcceptedJobForCaptain(jobId, captainId)
-        if (proofCode.isNullOrBlank()) {
-            throw IllegalArgumentException("Delivery proof code is required")
-        }
+        if (proofCode.isNullOrBlank()) throw IllegalArgumentException("Delivery proof code is required")
         if (job.deliveryOtp != null && job.deliveryOtp != proofCode) {
             throw IllegalArgumentException("Invalid handover verification OTP")
         }
@@ -278,52 +275,52 @@ class DispatchService(
         return savedJob
     }
 
-    // --- Expiry / Timeout Scheduler ---
     @Scheduled(fixedDelay = 5000)
     @SchedulerLock(name = "dispatch_checkOfferTimeouts", lockAtMostFor = "PT25S", lockAtLeastFor = "PT5S")
     fun checkOfferTimeouts() {
         val activeJobs = jobRepository.findByStatus(JobStatus.OFFERED)
         for (job in activeJobs) {
             val pendingOffer = offerRepository.findByJobIdAndResponseIsNull(job.jobId!!)
-            if (pendingOffer != null) {
-                // If offer is older than 30 seconds, time it out!
-                if (Instant.now().isAfter(pendingOffer.offeredAt.plusSeconds(30))) {
-                    try {
-                        pendingOffer.response = "TIMED_OUT"
-                        pendingOffer.respondedAt = Instant.now()
-                        offerRepository.saveAndFlush(pendingOffer)
-                    } catch (e: ObjectOptimisticLockingFailureException) {
-                        logger.info("Offer {} was resolved by the captain just before timeout; skipping reassignment.", pendingOffer.offerId)
-                        continue
-                    }
-
-                    job.status = JobStatus.PENDING_ASSIGNMENT
-                    jobRepository.save(job)
-
-                    logger.info("Offer {} to Captain {} TIMED OUT. Retrying assignment.", pendingOffer.offerId, pendingOffer.captainId)
-                    triggerNextOffer(job)
+            if (pendingOffer != null && Instant.now().isAfter(pendingOffer.offeredAt.plusSeconds(30))) {
+                try {
+                    pendingOffer.response = "TIMED_OUT"
+                    pendingOffer.respondedAt = Instant.now()
+                    offerRepository.saveAndFlush(pendingOffer)
+                } catch (e: ObjectOptimisticLockingFailureException) {
+                    logger.info(
+                        "Offer {} was resolved by the captain just before timeout; skipping reassignment.",
+                        pendingOffer.offerId
+                    )
+                    continue
                 }
+
+                job.status = JobStatus.PENDING_ASSIGNMENT
+                jobRepository.save(job)
+                logger.info(
+                    "Offer {} to Captain {} TIMED OUT. Retrying assignment.",
+                    pendingOffer.offerId,
+                    pendingOffer.captainId
+                )
+                triggerNextOffer(job)
             }
         }
     }
 
-    private fun getProviderCoordinates(orderId: UUID): Pair<Double, Double>? {
-        return try {
-            val query = entityManager.createNativeQuery("""
+    private fun getProviderCoordinates(orderId: UUID): Pair<Double, Double>? = try {
+        val query = entityManager.createNativeQuery(
+            """
                 SELECT ST_X(CAST(p.geo_location AS geometry)) as lng, ST_Y(CAST(p.geo_location AS geometry)) as lat
                 FROM orders.orders o
                 JOIN providers.providers p ON o.provider_id = p.provider_id
                 WHERE o.order_id = :orderId
-            """)
-            query.setParameter("orderId", orderId)
-            val result = query.singleResult as Array<*>
-            val lng = (result[0] as Number).toDouble()
-            val lat = (result[1] as Number).toDouble()
-            Pair(lng, lat)
-        } catch (e: Exception) {
-            logger.warn("Failed to fetch coordinates for order {}: {}", orderId, e.message, e)
-            null
-        }
+            """.trimIndent()
+        )
+        query.setParameter("orderId", orderId)
+        val result = query.singleResult as Array<*>
+        Pair((result[0] as Number).toDouble(), (result[1] as Number).toDouble())
+    } catch (e: Exception) {
+        logger.warn("Failed to fetch coordinates for order {}: {}", orderId, e.message, e)
+        null
     }
 
     private fun loadAcceptedJobForCaptain(jobId: UUID, captainId: UUID): DispatchJob {
@@ -341,24 +338,7 @@ class DispatchService(
     }
 
     private fun updateOrderStatus(orderId: UUID, status: String, captainId: UUID, note: String) {
-        val headers = internalHeaders()
-        headers.set("X-User-Id", captainId.toString())
-        val entity = org.springframework.http.HttpEntity<Any>(headers)
-        val encodedNote = URLEncoder.encode(note, StandardCharsets.UTF_8)
-        restTemplate.exchange(
-            "$orderServiceUrl/$orderId/status?status=$status&note=$encodedNote",
-            org.springframework.http.HttpMethod.PUT,
-            entity,
-            Any::class.java
-        )
-    }
-
-    private fun internalHeaders(): org.springframework.http.HttpHeaders {
-        val headers = org.springframework.http.HttpHeaders()
-        if (gatewayTrustSecret.isNotBlank()) {
-            headers.set("X-Internal-Gateway-Secret", gatewayTrustSecret)
-        }
-        return headers
+        orderModule.updateStatus(orderId, status, captainId, note)
     }
 
     private fun publishDispatchEvent(
@@ -380,7 +360,7 @@ class DispatchService(
             "attempt_count" to job.attemptCount
         )
         event.putAll(attributes)
-        
+
         outboxService.saveEvent(
             eventId = eventId,
             aggregateType = "DISPATCH",

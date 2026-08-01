@@ -1,7 +1,17 @@
 package com.pawsnearme.orderservice.service
 
+import com.pawsnearme.common.module.CatalogModuleApi
+import com.pawsnearme.common.module.CouponReservationCommand
+import com.pawsnearme.common.module.DiscoveryModuleApi
+import com.pawsnearme.common.module.PaymentModuleApi
+import com.pawsnearme.common.module.ProviderModuleApi
+import com.pawsnearme.common.module.StockMutationCommand
 import com.pawsnearme.common.outbox.OutboxService
 import com.pawsnearme.orderservice.model.*
+import com.pawsnearme.orderservice.module.RemoteCatalogModuleApi
+import com.pawsnearme.orderservice.module.RemoteDiscoveryModuleApi
+import com.pawsnearme.orderservice.module.RemotePaymentModuleApi
+import com.pawsnearme.orderservice.module.RemoteProviderModuleApi
 import com.pawsnearme.orderservice.repository.*
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker
 import io.github.resilience4j.retry.annotation.Retry
@@ -14,12 +24,11 @@ import jakarta.validation.constraints.NotEmpty
 import jakarta.validation.constraints.Pattern
 import jakarta.validation.constraints.Size
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Value
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.RestTemplate
-import org.springframework.web.util.UriComponentsBuilder
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
@@ -49,7 +58,6 @@ data class OrderItemRequest(
     @field:Max(99)
     val quantity: Int
 )
-
 
 data class CheckoutQuoteRequest(
     val customerId: UUID? = null,
@@ -116,7 +124,6 @@ data class CreateOrderRequest(
     val longitude: Double? = null
 )
 
-
 data class OrderPlacedEvent(
     val eventId: UUID = UUID.randomUUID(),
     val eventType: String = "OrderPlaced",
@@ -173,7 +180,7 @@ data class SupportCaseEvent(
 )
 
 @Service
-class OrderService(
+class OrderService @Autowired constructor(
     private val orderRepository: OrderRepository,
     private val orderItemRepository: OrderItemRepository,
     private val orderStatusHistoryRepository: OrderStatusHistoryRepository,
@@ -183,22 +190,53 @@ class OrderService(
     private val invoiceRepository: InvoiceRepository,
     private val supportCaseRepository: SupportCaseRepository,
     private val outboxService: OutboxService,
-    @Value("\${CATALOG_SERVICE_URL:http://localhost:8082}")
-    private val catalogServiceUrl: String,
-    @Value("\${PAYMENT_SERVICE_URL:http://localhost:8090}")
-    private val paymentServiceUrl: String,
-    @Value("\${PROVIDER_SERVICE_URL:http://localhost:8081}")
-    private val providerServiceUrl: String,
-    @Value("\${DISCOVERY_SERVICE_URL:http://localhost:8083}")
-    private val discoveryServiceUrl: String,
-    @Value("\${internal.api.secret:}")
-    private val internalServiceSecret: String = "",
-    @Value("\${order.online-payments-enabled:false}")
+    private val catalogModule: CatalogModuleApi,
+    private val paymentModule: PaymentModuleApi,
+    private val providerModule: ProviderModuleApi,
+    private val discoveryModule: DiscoveryModuleApi,
     private val onlinePaymentsEnabled: Boolean = false,
-    private val restTemplate: RestTemplate,
     private val quoteStore: QuoteStore? = null,
     private val compensationService: OrderCompensationService? = null
 ) {
+    /** Compatibility constructor retained for focused tests and distributed rollback tooling. */
+    constructor(
+        orderRepository: OrderRepository,
+        orderItemRepository: OrderItemRepository,
+        orderStatusHistoryRepository: OrderStatusHistoryRepository,
+        kafkaTemplate: KafkaTemplate<String, Any>,
+        systemConfigRepository: SystemConfigRepository,
+        disputeRepository: DisputeRepository,
+        invoiceRepository: InvoiceRepository,
+        supportCaseRepository: SupportCaseRepository,
+        outboxService: OutboxService,
+        catalogServiceUrl: String,
+        paymentServiceUrl: String,
+        providerServiceUrl: String,
+        discoveryServiceUrl: String,
+        internalServiceSecret: String = "",
+        onlinePaymentsEnabled: Boolean = false,
+        restTemplate: RestTemplate,
+        quoteStore: QuoteStore? = null,
+        compensationService: OrderCompensationService? = null
+    ) : this(
+        orderRepository,
+        orderItemRepository,
+        orderStatusHistoryRepository,
+        kafkaTemplate,
+        systemConfigRepository,
+        disputeRepository,
+        invoiceRepository,
+        supportCaseRepository,
+        outboxService,
+        RemoteCatalogModuleApi(restTemplate, catalogServiceUrl, internalServiceSecret),
+        RemotePaymentModuleApi(restTemplate, paymentServiceUrl, internalServiceSecret),
+        RemoteProviderModuleApi(restTemplate, providerServiceUrl, internalServiceSecret),
+        RemoteDiscoveryModuleApi(restTemplate, discoveryServiceUrl),
+        onlinePaymentsEnabled,
+        quoteStore,
+        compensationService
+    )
+
     fun calculateQuote(request: CheckoutQuoteRequest): CheckoutQuoteResponse {
         validateItems(request.items, "Quote")
         val paymentMethod = normalizePaymentMethod(request.paymentMethod)
@@ -218,35 +256,24 @@ class OrderService(
             if (availableStock < item.quantity) {
                 throw IllegalArgumentException("Insufficient stock for offering ${item.offeringId}")
             }
-            val lineTotal = offering.price.multiply(BigDecimal(item.quantity))
-            subtotal = subtotal.add(lineTotal)
+            subtotal = subtotal.add(offering.price.multiply(BigDecimal(item.quantity)))
         }
 
-        var couponDiscount = BigDecimal.ZERO
-        if (!request.couponCode.isNullOrBlank()) {
-            couponDiscount = validateCouponDiscount(
-                request.couponCode.trim().uppercase(),
-                subtotal,
-                request.providerId
-            )
+        val couponDiscount = if (!request.couponCode.isNullOrBlank()) {
+            validateCouponDiscount(request.couponCode.trim().uppercase(), subtotal, request.providerId)
+        } else {
+            BigDecimal.ZERO
         }
-
         val itemDiscount = BigDecimal.ZERO
         val loyaltyDiscount = BigDecimal.ZERO
-
         val deliveryFee = if (subtotal >= BigDecimal("500.00")) BigDecimal.ZERO else BigDecimal("49.00")
-
-        val taxableBase = subtotal.subtract(couponDiscount).subtract(itemDiscount).subtract(loyaltyDiscount).max(BigDecimal.ZERO)
+        val taxableBase = subtotal.subtract(couponDiscount).max(BigDecimal.ZERO)
         val tax = taxableBase.multiply(BigDecimal("0.05")).setScale(2, java.math.RoundingMode.HALF_UP)
         val roundOff = BigDecimal.ZERO
-
         val payableTotal = subtotal
             .subtract(couponDiscount)
-            .subtract(itemDiscount)
-            .subtract(loyaltyDiscount)
             .add(deliveryFee)
             .add(tax)
-            .add(roundOff)
             .setScale(2, java.math.RoundingMode.HALF_UP)
 
         if (payableTotal < BigDecimal.ZERO) {
@@ -255,7 +282,6 @@ class OrderService(
 
         var isCodAvailable = true
         var codRejectionReason: String? = null
-
         if (paymentMethod == "COD") {
             val codCheck = checkCodEligibility(payableTotal, request.city, request.providerId)
             isCodAvailable = codCheck.first
@@ -264,19 +290,19 @@ class OrderService(
 
         val quoteToken = "Q-${UUID.randomUUID().toString().take(12)}"
         val expiresAt = Instant.now().plusSeconds(900)
-
-        // Store full QuoteSnapshot in Redis so createOrder() can validate it.
-        val quoteSnapshot = QuoteSnapshot(
-            total = payableTotal,
-            couponCode = request.couponCode?.trim()?.uppercase(),
-            customerId = request.customerId ?: UUID(0, 0),
-            providerId = request.providerId ?: UUID(0, 0),
-            paymentMethod = paymentMethod,
-            deliveryAddressId = request.deliveryAddressId,
-            loyaltyRewardId = request.loyaltyRewardId,
-            items = request.items.map { QuoteItemSnapshot(it.offeringId, it.quantity) }
+        quoteStore?.store(
+            quoteToken,
+            QuoteSnapshot(
+                total = payableTotal,
+                couponCode = request.couponCode?.trim()?.uppercase(),
+                customerId = request.customerId ?: UUID(0, 0),
+                providerId = request.providerId,
+                paymentMethod = paymentMethod,
+                deliveryAddressId = request.deliveryAddressId,
+                loyaltyRewardId = request.loyaltyRewardId,
+                items = request.items.map { QuoteItemSnapshot(it.offeringId, it.quantity) }
+            )
         )
-        quoteStore?.store(quoteToken, quoteSnapshot)
 
         return CheckoutQuoteResponse(
             quoteToken = quoteToken,
@@ -301,12 +327,8 @@ class OrderService(
         validateItems(request.items, "Order")
         val paymentMethod = normalizePaymentMethod(request.paymentMethod)
         if (paymentMethod != "COD" && !onlinePaymentsEnabled) {
-            throw IllegalStateException(
-                "Online checkout is temporarily unavailable. Select cash on delivery."
-            )
+            throw IllegalStateException("Online checkout is temporarily unavailable. Select cash on delivery.")
         }
-
-        // P0 Mandatory Quote Token Check:
         if (request.quoteToken.isNullOrBlank()) {
             throw IllegalArgumentException("Quote token is mandatory for order creation")
         }
@@ -318,26 +340,13 @@ class OrderService(
                     "Request a new quote before placing your order."
             )
 
-        // Enforce every security- and money-sensitive quote binding exactly.
-        if (snapshot.customerId != activeCustomerId) {
-            throw IllegalArgumentException("Quote token belongs to a different customer")
-        }
-        if (snapshot.providerId != request.providerId) {
-            throw IllegalArgumentException("Quote token does not match order provider")
-        }
-        if (snapshot.deliveryAddressId != request.deliveryAddressId) {
-            throw IllegalArgumentException("Delivery address does not match the quote")
-        }
-        if (snapshot.loyaltyRewardId != request.loyaltyRewardId) {
-            throw IllegalArgumentException("Loyalty reward does not match the quote")
-        }
+        if (snapshot.customerId != activeCustomerId) throw IllegalArgumentException("Quote token belongs to a different customer")
+        if (snapshot.providerId != request.providerId) throw IllegalArgumentException("Quote token does not match order provider")
+        if (snapshot.deliveryAddressId != request.deliveryAddressId) throw IllegalArgumentException("Delivery address does not match the quote")
+        if (snapshot.loyaltyRewardId != request.loyaltyRewardId) throw IllegalArgumentException("Loyalty reward does not match the quote")
         val normalizedCoupon = request.couponCode?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
-        if (snapshot.couponCode != normalizedCoupon) {
-            throw IllegalArgumentException("Coupon does not match the quote")
-        }
-        if (snapshot.paymentMethod != paymentMethod) {
-            throw IllegalArgumentException("Payment method does not match the quote")
-        }
+        if (snapshot.couponCode != normalizedCoupon) throw IllegalArgumentException("Coupon does not match the quote")
+        if (snapshot.paymentMethod != paymentMethod) throw IllegalArgumentException("Payment method does not match the quote")
         val reqItemsMap = request.items.associate { it.offeringId to it.quantity }
         val snapItemsMap = snapshot.items.associate { it.offeringId to it.quantity }
         if (reqItemsMap != snapItemsMap || reqItemsMap.size != request.items.size) {
@@ -374,35 +383,29 @@ class OrderService(
         var savedOrderId: UUID? = null
 
         try {
-            val orderItemsToSave = mutableListOf<OrderItem>()
-
-            for (item in request.items) {
-                val cartEntry = decrementCatalogStock(item.offeringId, item.quantity, catalogServiceUrl)
-                reservedItems.add(item)
-                orderItemsToSave.add(cartEntry)
+            val orderItemsToSave = request.items.map { item ->
+                decrementCatalogStock(item.offeringId, item.quantity).also { reservedItems.add(item) }
             }
-
             val initialStatus = if (isCod) OrderStatus.ACCEPTED else OrderStatus.PLACED
             val paymentStatus = if (isCod) "COD_PENDING" else "PENDING"
-
-            val order = Order(
-                customerId = activeCustomerId,
-                providerId = request.providerId,
-                deliveryAddressId = request.deliveryAddressId,
-                status = initialStatus,
-                subtotalAmount = quote.subtotal,
-                deliveryFee = quote.deliveryFee,
-                discountAmount = quote.couponDiscount.add(quote.itemDiscount).add(quote.loyaltyDiscount),
-                taxAmount = quote.tax,
-                totalAmount = quote.payableTotal,
-                couponCode = quote.couponCode,
-                paymentMethod = paymentMethod,
-                paymentStatus = paymentStatus
+            val savedOrder = orderRepository.save(
+                Order(
+                    customerId = activeCustomerId,
+                    providerId = request.providerId,
+                    deliveryAddressId = request.deliveryAddressId,
+                    status = initialStatus,
+                    subtotalAmount = quote.subtotal,
+                    deliveryFee = quote.deliveryFee,
+                    discountAmount = quote.couponDiscount.add(quote.itemDiscount).add(quote.loyaltyDiscount),
+                    taxAmount = quote.tax,
+                    totalAmount = quote.payableTotal,
+                    couponCode = quote.couponCode,
+                    paymentMethod = paymentMethod,
+                    paymentStatus = paymentStatus
+                )
             )
-            val savedOrder = orderRepository.save(order)
             savedOrderId = savedOrder.orderId
-
-            for (item in orderItemsToSave) {
+            orderItemsToSave.forEach { item ->
                 item.orderId = savedOrder.orderId!!
                 orderItemRepository.save(item)
             }
@@ -412,7 +415,7 @@ class OrderService(
                     quote.couponCode,
                     quote.subtotal,
                     request.providerId,
-                    request.customerId,
+                    activeCustomerId,
                     savedOrder.orderId!!
                 )
                 couponReserved = true
@@ -421,14 +424,7 @@ class OrderService(
                 }
             }
 
-            logStatusChange(
-                savedOrder.orderId!!,
-                null,
-                initialStatus,
-                savedOrder.customerId,
-                "Order placed successfully"
-            )
-
+            logStatusChange(savedOrder.orderId!!, null, initialStatus, savedOrder.customerId, "Order placed successfully")
             val event = OrderPlacedEvent(
                 orderId = savedOrder.orderId!!,
                 actorId = savedOrder.customerId,
@@ -444,9 +440,8 @@ class OrderService(
                 eventType = "OrderPlaced",
                 eventPayload = event
             )
-
             return savedOrder
-        } catch (e: Exception) {
+        } catch (error: Exception) {
             try {
                 compensationService?.recordFailure(
                     orderId = savedOrderId,
@@ -459,108 +454,59 @@ class OrderService(
                 throw IllegalStateException(
                     "Order failed and compensation could not be recorded safely",
                     recordingFailure
-                ).also { it.addSuppressed(e) }
+                ).also { it.addSuppressed(error) }
             }
-            throw e
+            throw error
         }
     }
 
     fun confirmOrder(orderId: UUID, paymentId: UUID?): Order {
         val order = orderRepository.findById(orderId)
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
-
-        if (order.status == OrderStatus.ACCEPTED) {
-            return order
-        }
-
+        if (order.status == OrderStatus.ACCEPTED) return order
         if (order.status != OrderStatus.PLACED) {
             throw IllegalStateException("Order is not in PLACED state. Current state: ${order.status}")
         }
 
-        val paymentIdToUse = paymentId
-            ?: throw IllegalArgumentException("Payment ID is required to confirm order")
-
+        val paymentIdToUse = paymentId ?: throw IllegalArgumentException("Payment ID is required to confirm order")
         try {
-            val url = "$paymentServiceUrl/api/v1/payments/transactions/$paymentIdToUse"
-            val headers = internalHeaders()
-            headers.set("X-User-Role", "ADMIN")
-            val entity = org.springframework.http.HttpEntity<Any>(headers)
-            val response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, Map::class.java)
-            val tx = response.body ?: throw IllegalStateException("Payment transaction $paymentIdToUse not found")
-
-            val status = tx["status"] as? String
-
-            if (status != "SUCCESS") {
-                throw IllegalStateException("Payment status is $status, but expected SUCCESS to confirm order")
+            val transaction = paymentModule.transaction(paymentIdToUse)
+                ?: throw IllegalStateException("Payment transaction $paymentIdToUse not found")
+            if (transaction.status != "SUCCESS") {
+                throw IllegalStateException("Payment status is ${transaction.status}, but expected SUCCESS to confirm order")
             }
-            // Use BigDecimal.compareTo() to avoid floating-point rounding errors
-            // when comparing monetary amounts (e.g. 999.95 as Double != 999.95 exactly).
-            val paymentAmount = when (val raw = tx["amount"]) {
-                is BigDecimal -> raw
-                is Number -> BigDecimal(raw.toString())
-                else -> throw IllegalStateException("Cannot parse payment amount from transaction response")
-            }
-            if (paymentAmount.compareTo(order.totalAmount) != 0) {
+            if (transaction.amount.compareTo(order.totalAmount) != 0) {
                 throw IllegalStateException(
-                    "Payment amount \u20b9$paymentAmount does not match order total \u20b9${order.totalAmount}"
+                    "Payment amount ₹${transaction.amount} does not match order total ₹${order.totalAmount}"
                 )
             }
-        } catch (e: Exception) {
-            throw IllegalStateException("Payment verification failed: ${e.message}", e)
+        } catch (error: Exception) {
+            throw IllegalStateException("Payment verification failed: ${error.message}", error)
         }
 
-        if (order.couponCode != null) {
-            redeemCouponReservation(order.couponCode!!, order.customerId, order.orderId!!)
-        }
-
+        order.couponCode?.let { redeemCouponReservation(it, order.customerId, order.orderId!!) }
         val oldStatus = order.status
         order.status = OrderStatus.ACCEPTED
         order.paymentId = paymentIdToUse
         order.paymentStatus = "SUCCESS"
         order.acceptedAt = Instant.now()
         val saved = orderRepository.save(order)
-
         logStatusChange(saved.orderId!!, oldStatus, OrderStatus.ACCEPTED, saved.customerId, "Order confirmed and paid")
-
-        val event = OrderStatusChangedEvent(
-            eventType = "OrderStatusChanged",
-            orderId = saved.orderId!!,
-            actorId = saved.customerId,
-            fromStatus = oldStatus.name,
-            toStatus = OrderStatus.ACCEPTED.name,
-            totalAmount = saved.totalAmount,
-            deliveryFee = saved.deliveryFee,
-            captainId = saved.captainId,
-            providerId = saved.providerId,
-            merchantOwnerUserId = fetchProviderOwnerUserId(saved.providerId),
-        )
-        outboxService.saveEvent(
-            eventId = event.eventId,
-            aggregateType = "ORDER",
-            aggregateId = saved.orderId!!,
-            eventType = "OrderStatusChanged",
-            eventPayload = event
-        )
-
+        publishOrderStatusEvent(saved, oldStatus, OrderStatus.ACCEPTED, saved.customerId)
         return saved
     }
 
     fun updateOrderStatus(orderId: UUID, newStatus: OrderStatus, changedBy: UUID, note: String? = null): Order {
         val order = orderRepository.findById(orderId)
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
-        
         val oldStatus = order.status
-        if (oldStatus == newStatus) {
-            return order
-        }
+        if (oldStatus == newStatus) return order
         if (oldStatus in setOf(OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.REJECTED)) {
             throw IllegalStateException("Order in terminal state $oldStatus cannot transition to $newStatus")
         }
-        if (shouldRestoreReservedStock(oldStatus, newStatus)) {
-            restoreOrderCatalogStock(orderId)
-        }
+        if (shouldRestoreReservedStock(oldStatus, newStatus)) restoreOrderCatalogStock(orderId)
         order.status = newStatus
-        
+
         when (newStatus) {
             OrderStatus.ACCEPTED -> order.acceptedAt = Instant.now()
             OrderStatus.ASSIGNED, OrderStatus.REASSIGNED -> order.captainId = changedBy
@@ -568,120 +514,115 @@ class OrderService(
             OrderStatus.PICKED_UP -> order.picked_upAt = Instant.now()
             OrderStatus.DELIVERED -> {
                 if (order.paymentMethod == "COD") {
-                    order.couponCode?.let {
-                        redeemCouponReservation(it, order.customerId, order.orderId!!)
-                    }
+                    order.couponCode?.let { redeemCouponReservation(it, order.customerId, order.orderId!!) }
                     order.paymentStatus = "COD_COLLECTED"
                 }
                 order.deliveredAt = Instant.now()
                 generateInvoiceForOrder(order)
                 notifyLoyaltyOrderDelivered(order)
             }
-            OrderStatus.COMPLETED -> { /* terminal state */ }
             OrderStatus.CANCELLED -> {
                 order.cancelledAt = Instant.now()
                 order.cancellationReason = note
             }
-            else -> {}
+            else -> Unit
         }
-        
+
         val updatedOrder = orderRepository.save(order)
         logStatusChange(orderId, oldStatus, newStatus, changedBy, note)
+        publishOrderStatusEvent(updatedOrder, oldStatus, newStatus, changedBy)
+        return updatedOrder
+    }
 
+    private fun publishOrderStatusEvent(order: Order, oldStatus: OrderStatus, newStatus: OrderStatus, actorId: UUID) {
         val event = OrderStatusChangedEvent(
-            eventType = when (newStatus) {
-                OrderStatus.CANCELLED -> "OrderCancelled"
-                else -> "OrderStatusChanged"
-            },
-            orderId = orderId,
-            actorId = changedBy,
+            eventType = if (newStatus == OrderStatus.CANCELLED) "OrderCancelled" else "OrderStatusChanged",
+            orderId = order.orderId!!,
+            actorId = actorId,
             fromStatus = oldStatus.name,
             toStatus = newStatus.name,
-            totalAmount = updatedOrder.totalAmount,
-            deliveryFee = updatedOrder.deliveryFee,
-            captainId = updatedOrder.captainId,
-            providerId = updatedOrder.providerId,
-            merchantOwnerUserId = fetchProviderOwnerUserId(updatedOrder.providerId),
+            totalAmount = order.totalAmount,
+            deliveryFee = order.deliveryFee,
+            captainId = order.captainId,
+            providerId = order.providerId,
+            merchantOwnerUserId = fetchProviderOwnerUserId(order.providerId)
         )
         outboxService.saveEvent(
             eventId = event.eventId,
             aggregateType = "ORDER",
-            aggregateId = orderId,
+            aggregateId = order.orderId!!,
             eventType = event.eventType,
             eventPayload = event
         )
-
-        return updatedOrder
     }
 
-    private fun logStatusChange(orderId: UUID, fromStatus: OrderStatus?, toStatus: OrderStatus, changedByUserId: UUID, note: String?) {
-        val history = OrderStatusHistory(
-            orderId = orderId,
-            fromStatus = fromStatus,
-            toStatus = toStatus,
-            changedByUserId = changedByUserId,
-            note = note
+    private fun logStatusChange(
+        orderId: UUID,
+        fromStatus: OrderStatus?,
+        toStatus: OrderStatus,
+        changedByUserId: UUID,
+        note: String?
+    ) {
+        orderStatusHistoryRepository.save(
+            OrderStatusHistory(
+                orderId = orderId,
+                fromStatus = fromStatus,
+                toStatus = toStatus,
+                changedByUserId = changedByUserId,
+                note = note
+            )
         )
-        orderStatusHistoryRepository.save(history)
     }
 
     @CircuitBreaker(name = "catalogService", fallbackMethod = "decrementCatalogStockFallback")
     @Retry(name = "catalogService")
-    private fun decrementCatalogStock(offeringId: UUID, quantity: Int, baseUrl: String): OrderItem {
-        if (quantity <= 0) {
-            throw IllegalArgumentException("Quantity must be greater than zero")
-        }
-        val url = "$baseUrl/api/v1/internal/catalog/offerings/$offeringId/decrement-stock?quantity=$quantity"
-        val headers = internalHeaders()
-        headers.set("X-Idempotency-Key", UUID.nameUUIDFromBytes("reserve:$offeringId:$quantity".toByteArray()).toString())
-        val entity = org.springframework.http.HttpEntity<Any>(headers)
-        val response = restTemplate.exchange(
-            url,
-            org.springframework.http.HttpMethod.PUT,
-            entity,
-            Map::class.java
-        ).body ?: throw IllegalStateException("Catalog service returned empty response")
-
-        val price = parseCatalogPrice(response["price"])
-        val name = response["name"] as? String ?: "Pet Product"
-
+    private fun decrementCatalogStock(offeringId: UUID, quantity: Int): OrderItem {
+        require(quantity > 0) { "Quantity must be greater than zero" }
+        val snapshot = catalogModule.reserveStock(
+            StockMutationCommand(
+                offeringId = offeringId,
+                quantity = quantity,
+                idempotencyKey = UUID.nameUUIDFromBytes("reserve:$offeringId:$quantity".toByteArray())
+            )
+        )
         return OrderItem(
             orderId = UUID.randomUUID(),
             offeringId = offeringId,
-            offeringNameSnapshot = name,
-            unitPriceSnapshot = price,
+            offeringNameSnapshot = snapshot.name,
+            unitPriceSnapshot = snapshot.price,
             quantity = quantity,
-            lineTotal = price.multiply(BigDecimal(quantity))
+            lineTotal = snapshot.price.multiply(BigDecimal(quantity))
         )
     }
 
-    fun decrementCatalogStockFallback(offeringId: UUID, quantity: Int, baseUrl: String, e: Throwable): OrderItem {
-        logger.error("Catalog Service decrement call failed (Circuit Breaker fallback active): ${e.message}")
-        throw IllegalStateException("Catalog service is currently unavailable (circuit open). Please try again later.", e)
+    @Suppress("unused")
+    fun decrementCatalogStockFallback(offeringId: UUID, quantity: Int, error: Throwable): OrderItem {
+        logger.error("Catalog module reservation failed (circuit breaker fallback active): {}", error.message)
+        throw IllegalStateException("Catalog service is currently unavailable (circuit open). Please try again later.", error)
     }
 
     private fun restoreReservedCatalogStock(items: List<OrderItemRequest>) {
-        for (item in items.asReversed()) {
+        items.asReversed().forEach { item ->
             try {
-                val url = "$catalogServiceUrl/api/v1/internal/catalog/offerings/${item.offeringId}/restore-stock?quantity=${item.quantity}"
-                val headers = internalHeaders()
-                headers.set("X-Idempotency-Key", UUID.nameUUIDFromBytes("restore:${item.offeringId}:${item.quantity}".toByteArray()).toString())
-                val entity = org.springframework.http.HttpEntity<Any>(headers)
-                restTemplate.exchange(
-                    url,
-                    org.springframework.http.HttpMethod.PUT,
-                    entity,
-                    Map::class.java
+                catalogModule.restoreStock(
+                    StockMutationCommand(
+                        offeringId = item.offeringId,
+                        quantity = item.quantity,
+                        idempotencyKey = UUID.nameUUIDFromBytes(
+                            "restore:${item.offeringId}:${item.quantity}".toByteArray()
+                        )
+                    )
                 )
-            } catch (e: Exception) {
-                logger.error("WARNING: Failed to restore catalog stock for offering ${item.offeringId}: ${e.message}")
+            } catch (error: Exception) {
+                logger.error("WARNING: Failed to restore catalog stock for offering {}: {}", item.offeringId, error.message)
             }
         }
     }
 
     private fun restoreOrderCatalogStock(orderId: UUID) {
-        val orderItems = orderItemRepository.findByOrderId(orderId)
-        restoreReservedCatalogStock(orderItems.map { OrderItemRequest(it.offeringId, it.quantity) })
+        restoreReservedCatalogStock(
+            orderItemRepository.findByOrderId(orderId).map { OrderItemRequest(it.offeringId, it.quantity) }
+        )
     }
 
     private fun shouldRestoreReservedStock(oldStatus: OrderStatus, newStatus: OrderStatus): Boolean {
@@ -689,20 +630,9 @@ class OrderService(
         return newStatus in releasingStatuses && oldStatus !in releasingStatuses
     }
 
-    private fun parseCatalogPrice(value: Any?): BigDecimal {
-        return when (value) {
-            is BigDecimal -> value
-            is Number -> BigDecimal.valueOf(value.toDouble())
-            is String -> value.toBigDecimal()
-            else -> throw IllegalStateException("Catalog service returned invalid offering price")
-        }
-    }
-
-    fun getDisputeRefundMode(): String {
-        return systemConfigRepository.findById("dispute_refund_mode")
-            .map { it.configValue }
-            .orElse("MANUAL")
-    }
+    fun getDisputeRefundMode(): String = systemConfigRepository.findById("dispute_refund_mode")
+        .map { it.configValue }
+        .orElse("MANUAL")
 
     fun updateDisputeRefundMode(value: String): String {
         if (value != "MANUAL" && value != "AUTOMATED") {
@@ -717,52 +647,30 @@ class OrderService(
     }
 
     fun createDispute(orderId: UUID, reason: String): Dispute {
-        if (!orderRepository.existsById(orderId)) {
-            throw IllegalArgumentException("Order with ID $orderId not found")
-        }
-        val dispute = Dispute(
-            orderId = orderId,
-            status = "OPEN",
-            reason = reason
-        )
-        return disputeRepository.save(dispute)
+        if (!orderRepository.existsById(orderId)) throw IllegalArgumentException("Order with ID $orderId not found")
+        return disputeRepository.save(Dispute(orderId = orderId, status = "OPEN", reason = reason))
     }
 
-    fun listDisputes(): List<Dispute> {
-        return disputeRepository.findAll()
-    }
+    fun listDisputes(): List<Dispute> = disputeRepository.findAll()
 
-    fun getInvoiceByOrderId(orderId: UUID): Invoice {
-        return invoiceRepository.findByOrderId(orderId)
-            .orElseThrow { NoSuchElementException("Invoice not found for order $orderId") }
-    }
+    fun getInvoiceByOrderId(orderId: UUID): Invoice = invoiceRepository.findByOrderId(orderId)
+        .orElseThrow { NoSuchElementException("Invoice not found for order $orderId") }
 
     fun resolveDispute(disputeId: UUID, decision: String, resolutionNotes: String?): Dispute {
         val dispute = disputeRepository.findById(disputeId)
             .orElseThrow { NoSuchElementException("Dispute not found for ID $disputeId") }
-
-        if (dispute.status != "OPEN") {
-            throw IllegalStateException("Dispute is already resolved")
-        }
-
+        if (dispute.status != "OPEN") throw IllegalStateException("Dispute is already resolved")
         dispute.status = decision
         dispute.resolutionNotes = resolutionNotes
         dispute.resolvedAt = Instant.now()
         val savedDispute = disputeRepository.save(dispute)
-
-        if (decision == "RESOLVED") {
-            val mode = getDisputeRefundMode()
-            if (mode == "AUTOMATED") {
-                triggerPaymentRefund(dispute.orderId)
-            }
+        if (decision == "RESOLVED" && getDisputeRefundMode() == "AUTOMATED") {
+            triggerPaymentRefund(dispute.orderId)
         }
-
         return savedDispute
     }
 
-    fun listSupportCases(): List<SupportCase> {
-        return supportCaseRepository.findAllByOrderByCreatedAtDesc()
-    }
+    fun listSupportCases(): List<SupportCase> = supportCaseRepository.findAllByOrderByCreatedAtDesc()
 
     fun createSupportCase(
         title: String,
@@ -772,24 +680,19 @@ class OrderService(
         entityId: UUID?,
         createdByUserId: UUID?
     ): SupportCase {
-        if (title.isBlank()) {
-            throw IllegalArgumentException("Support case title is required")
-        }
-        if (detail.isBlank()) {
-            throw IllegalArgumentException("Support case detail is required")
-        }
-
-        val normalizedActionType = normalizeSupportActionType(actionType)
-        val supportCase = SupportCase(
-            title = title.trim(),
-            detail = detail.trim(),
-            actionType = normalizedActionType,
-            entityType = entityType?.trim()?.uppercase()?.ifBlank { null },
-            entityId = entityId,
-            status = "OPEN",
-            createdByUserId = createdByUserId
+        require(title.isNotBlank()) { "Support case title is required" }
+        require(detail.isNotBlank()) { "Support case detail is required" }
+        val saved = supportCaseRepository.save(
+            SupportCase(
+                title = title.trim(),
+                detail = detail.trim(),
+                actionType = normalizeSupportActionType(actionType),
+                entityType = entityType?.trim()?.uppercase()?.ifBlank { null },
+                entityId = entityId,
+                status = "OPEN",
+                createdByUserId = createdByUserId
+            )
         )
-        val saved = supportCaseRepository.save(supportCase)
         publishSupportCaseEvent("SupportCaseOpened", saved)
         return saved
     }
@@ -797,11 +700,7 @@ class OrderService(
     fun resolveSupportCase(supportCaseId: UUID, resolutionNotes: String?, actorId: UUID?): SupportCase {
         val supportCase = supportCaseRepository.findById(supportCaseId)
             .orElseThrow { NoSuchElementException("Support case not found for ID $supportCaseId") }
-
-        if (supportCase.status != "OPEN") {
-            throw IllegalStateException("Support case is already resolved")
-        }
-
+        if (supportCase.status != "OPEN") throw IllegalStateException("Support case is already resolved")
         supportCase.status = "RESOLVED"
         supportCase.resolutionNotes = resolutionNotes
         supportCase.resolvedAt = Instant.now()
@@ -812,20 +711,18 @@ class OrderService(
 
     private fun normalizeSupportActionType(actionType: String): String {
         val normalized = actionType.trim().uppercase()
-        val allowed = setOf(
-            "INFO_REQUEST",
-            "REFUND_ESCALATION",
-            "PAYOUT_CLAIM_REVIEW",
-            "CUSTOMER_CALLBACK",
-            "GENERAL"
-        )
+        val allowed = setOf("INFO_REQUEST", "REFUND_ESCALATION", "PAYOUT_CLAIM_REVIEW", "CUSTOMER_CALLBACK", "GENERAL")
         if (normalized !in allowed) {
             throw IllegalArgumentException("Invalid support action type. Allowed: ${allowed.joinToString(", ")}")
         }
         return normalized
     }
 
-    private fun publishSupportCaseEvent(eventType: String, supportCase: SupportCase, actorId: UUID? = supportCase.createdByUserId) {
+    private fun publishSupportCaseEvent(
+        eventType: String,
+        supportCase: SupportCase,
+        actorId: UUID? = supportCase.createdByUserId
+    ) {
         val event = SupportCaseEvent(
             eventType = eventType,
             supportCaseId = supportCase.supportCaseId!!,
@@ -844,36 +741,26 @@ class OrderService(
 
     private fun triggerPaymentRefund(orderId: UUID) {
         try {
-            val url = "$paymentServiceUrl/api/v1/payments/refund?orderId=$orderId"
-            val headers = internalHeaders()
-            headers.set("X-User-Role", "ADMIN")
-            val entity = org.springframework.http.HttpEntity<Any>(headers)
-            restTemplate.postForEntity(url, entity, String::class.java)
-            logger.info("Dispute System: Triggered automated refund for order $orderId")
-        } catch (e: Exception) {
-            logger.error("WARNING: Failed to call payment-service refund endpoint: ${e.message}")
+            paymentModule.refundOrder(orderId)
+            logger.info("Dispute System: Triggered automated refund for order {}", orderId)
+        } catch (error: Exception) {
+            logger.error("WARNING: Failed to invoke payment refund for order {}: {}", orderId, error.message)
         }
     }
 
     private fun generateInvoiceForOrder(order: Order) {
         if (!invoiceRepository.findByOrderId(order.orderId!!).isPresent) {
-            val subtotal = order.subtotalAmount
-            val tax = order.taxAmount
-            val total = order.totalAmount
-
-            val year = java.time.LocalDate.now().year
-            val suffix = order.orderId.toString().substring(0, 8).uppercase()
-            val invoiceNumber = "INV-$year-$suffix"
-
-            val invoice = Invoice(
-                orderId = order.orderId!!,
-                invoiceNumber = invoiceNumber,
-                subtotalAmount = subtotal,
-                taxAmount = tax,
-                totalAmount = total
+            val invoiceNumber = "INV-${java.time.LocalDate.now().year}-${order.orderId.toString().substring(0, 8).uppercase()}"
+            invoiceRepository.save(
+                Invoice(
+                    orderId = order.orderId!!,
+                    invoiceNumber = invoiceNumber,
+                    subtotalAmount = order.subtotalAmount,
+                    taxAmount = order.taxAmount,
+                    totalAmount = order.totalAmount
+                )
             )
-            invoiceRepository.save(invoice)
-            logger.info("Invoicing: Generated invoice $invoiceNumber for order ${order.orderId}")
+            logger.info("Invoicing: Generated invoice {} for order {}", invoiceNumber, order.orderId)
         }
     }
 
@@ -891,15 +778,17 @@ class OrderService(
 
     fun getOrdersByProviderWithAuth(providerId: UUID, callerId: UUID, callerRole: String?): List<Order> {
         val normalizedRole = callerRole?.uppercase()
-        val isAdmin = normalizedRole == "ADMIN"
-        val isProviderOwner = normalizedRole == "MERCHANT" && fetchProviderOwnerUserId(providerId) == callerId
-        if (!isAdmin && !isProviderOwner) {
-            throw OrderAccessDeniedException("Access denied to provider orders.")
-        }
+        val allowed = normalizedRole == "ADMIN" ||
+            (normalizedRole == "MERCHANT" && fetchProviderOwnerUserId(providerId) == callerId)
+        if (!allowed) throw OrderAccessDeniedException("Access denied to provider orders.")
         return orderRepository.findByProviderId(providerId)
     }
 
-    fun getCustomerOrderSummariesWithAuth(customerId: UUID, callerId: UUID, callerRole: String?): List<CustomerOrderSummary> {
+    fun getCustomerOrderSummariesWithAuth(
+        customerId: UUID,
+        callerId: UUID,
+        callerRole: String?
+    ): List<CustomerOrderSummary> {
         assertCanAccessCustomerOrders(customerId, callerId, callerRole)
         return getCustomerOrderSummaries(customerId)
     }
@@ -913,37 +802,25 @@ class OrderService(
     ): Order {
         val order = orderRepository.findById(orderId)
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
-        val normalizedRole = callerRole?.uppercase()
-        val allowed = when (normalizedRole) {
+        val allowed = when (callerRole?.uppercase()) {
             "ADMIN" -> true
-            "MERCHANT" -> {
-                fetchProviderOwnerUserId(order.providerId) == callerId &&
-                    newStatus in setOf(
-                        OrderStatus.ACCEPTED,
-                        OrderStatus.PREPARING,
-                        OrderStatus.READY_FOR_PICKUP,
-                        OrderStatus.CANCELLED,
-                        OrderStatus.REJECTED
-                    )
-            }
-            "CAPTAIN" -> {
-                order.captainId == callerId &&
-                    newStatus in setOf(OrderStatus.PICKED_UP, OrderStatus.DELIVERED)
-            }
+            "MERCHANT" -> fetchProviderOwnerUserId(order.providerId) == callerId &&
+                newStatus in setOf(
+                    OrderStatus.ACCEPTED,
+                    OrderStatus.PREPARING,
+                    OrderStatus.READY_FOR_PICKUP,
+                    OrderStatus.CANCELLED,
+                    OrderStatus.REJECTED
+                )
+            "CAPTAIN" -> order.captainId == callerId &&
+                newStatus in setOf(OrderStatus.PICKED_UP, OrderStatus.DELIVERED)
             else -> false
         }
-        if (!allowed) {
-            throw OrderAccessDeniedException("Access denied for this order status transition.")
-        }
+        if (!allowed) throw OrderAccessDeniedException("Access denied for this order status transition.")
         return updateOrderStatus(orderId, newStatus, callerId, note)
     }
 
-    fun confirmOrderWithAuth(
-        orderId: UUID,
-        paymentId: UUID?,
-        callerId: UUID,
-        callerRole: String?
-    ): Order {
+    fun confirmOrderWithAuth(orderId: UUID, paymentId: UUID?, callerId: UUID, callerRole: String?): Order {
         val order = orderRepository.findById(orderId)
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
         assertCanAccessOrder(order, callerId, callerRole)
@@ -953,112 +830,80 @@ class OrderService(
     fun cancelOrder(orderId: UUID, callerId: UUID, callerRole: String?, reason: String?): Order {
         val order = orderRepository.findById(orderId)
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
-
         assertCanAccessOrder(order, callerId, callerRole)
-
-        val cancellable = setOf(OrderStatus.PLACED, OrderStatus.ACCEPTED)
-        if (order.status !in cancellable) {
+        if (order.status !in setOf(OrderStatus.PLACED, OrderStatus.ACCEPTED)) {
             throw IllegalStateException("Order in status ${order.status} cannot be cancelled.")
         }
-
-        if (order.couponCode != null) {
-            releaseCouponReservation(order.couponCode!!, order.customerId, order.orderId!!)
-        }
-
+        order.couponCode?.let { releaseCouponReservation(it, order.customerId, order.orderId!!) }
         return updateOrderStatus(orderId, OrderStatus.CANCELLED, callerId, reason ?: "Cancelled by user")
     }
 
     fun revalidateReorder(orderId: UUID, callerId: UUID, callerRole: String?): ReorderValidationResponse {
         val order = orderRepository.findById(orderId)
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
-
         assertCanAccessOrder(order, callerId, callerRole)
 
-        val items = orderItemRepository.findByOrderId(orderId)
-        val validatedItems = mutableListOf<ReorderValidationItem>()
         var allAvailable = true
-
-        for (item in items) {
+        val validatedItems = orderItemRepository.findByOrderId(orderId).map { item ->
             var available = true
-            var msg: String? = null
+            var message: String? = null
             var currentPrice = item.unitPriceSnapshot
             var name = item.offeringNameSnapshot
-
             try {
-                val url = "$catalogServiceUrl/api/v1/internal/catalog/offerings/${item.offeringId}"
-                val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
-                val response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, Map::class.java).body
-                if (response != null) {
-                    val status = response["status"] as? String ?: "ACTIVE"
-                    val stock = (response["stockQuantity"] as? Number)?.toInt() ?: 0
-                    currentPrice = parseCatalogPrice(response["price"])
-                    name = response["name"] as? String ?: name
-
-                    if (status != "ACTIVE") {
-                        available = false
-                        msg = "Offering is no longer active"
-                    } else if (stock < item.quantity) {
-                        available = false
-                        msg = "Insufficient stock ($stock available)"
-                    }
-                } else {
+                val offering = catalogModule.offering(item.offeringId)
+                currentPrice = offering.price
+                name = offering.name
+                val stock = offering.stockQuantity ?: 0
+                if (offering.status != "ACTIVE") {
                     available = false
-                    msg = "Offering not found in catalog"
+                    message = "Offering is no longer active"
+                } else if (stock < item.quantity) {
+                    available = false
+                    message = "Insufficient stock ($stock available)"
                 }
-            } catch (e: Exception) {
-                logger.warn("Reorder offering check failed for {}: {}", item.offeringId, e.message)
+            } catch (error: Exception) {
+                logger.warn("Reorder offering check failed for {}: {}", item.offeringId, error.message)
+                available = false
+                message = "Offering could not be verified"
             }
-
             if (!available) allAvailable = false
-            validatedItems.add(
-                ReorderValidationItem(
-                    offeringId = item.offeringId,
-                    offeringName = name,
-                    unitPrice = currentPrice,
-                    quantity = item.quantity,
-                    isAvailable = available,
-                    message = msg
-                )
+            ReorderValidationItem(
+                offeringId = item.offeringId,
+                offeringName = name,
+                unitPrice = currentPrice,
+                quantity = item.quantity,
+                isAvailable = available,
+                message = message
             )
         }
 
-        val isServiceable = true // Provider active
         return ReorderValidationResponse(
             originalOrderId = orderId,
             providerId = order.providerId,
-            isProviderServiceable = isServiceable,
+            isProviderServiceable = true,
             items = validatedItems,
-            canReorder = allAvailable && isServiceable
+            canReorder = allAvailable
         )
     }
 
     private fun assertCanAccessOrder(order: Order, callerId: UUID, callerRole: String?) {
         val isAdmin = callerRole?.uppercase() == "ADMIN"
         val isCustomer = order.customerId == callerId
-        val isProviderOwner = if (callerRole?.uppercase() == "MERCHANT") {
-            val ownerId = fetchProviderOwnerUserId(order.providerId)
-            ownerId == callerId
-        } else {
-            false
-        }
+        val isProviderOwner = callerRole?.uppercase() == "MERCHANT" &&
+            fetchProviderOwnerUserId(order.providerId) == callerId
         if (!isAdmin && !isCustomer && !isProviderOwner) {
             throw OrderAccessDeniedException("Access denied to order data.")
         }
     }
 
     private fun assertCanAccessCustomerOrders(targetCustomerId: UUID, callerId: UUID, callerRole: String?) {
-        val isAdmin = callerRole?.uppercase() == "ADMIN"
-        val isCustomer = targetCustomerId == callerId
-        if (!isAdmin && !isCustomer) {
+        if (callerRole?.uppercase() != "ADMIN" && targetCustomerId != callerId) {
             throw OrderAccessDeniedException("Access denied to customer order history.")
         }
     }
 
-    fun getCustomerOrderSummaries(customerId: UUID): List<CustomerOrderSummary> {
-
-        return orderRepository.findByCustomerId(customerId).map { order ->
-            val items = orderItemRepository.findByOrderId(order.orderId!!)
-            val history = orderStatusHistoryRepository.findByOrderId(order.orderId!!)
+    fun getCustomerOrderSummaries(customerId: UUID): List<CustomerOrderSummary> =
+        orderRepository.findByCustomerId(customerId).map { order ->
             CustomerOrderSummary(
                 orderId = order.orderId!!,
                 providerId = order.providerId,
@@ -1066,25 +911,18 @@ class OrderService(
                 flowStep = mapFlowStep(order.status),
                 totalAmount = order.totalAmount,
                 placedAt = order.placedAt,
-                items = items.map { it.offeringNameSnapshot },
-                statusHistory = history.map {
+                items = orderItemRepository.findByOrderId(order.orderId!!).map { it.offeringNameSnapshot },
+                statusHistory = orderStatusHistoryRepository.findByOrderId(order.orderId!!).map {
                     OrderStatusHistoryEntry(it.fromStatus, it.toStatus, it.changedAt, it.note)
-                },
+                }
             )
         }.sortedByDescending { it.placedAt }
-    }
 
-    private fun fetchProviderOwnerUserId(providerId: UUID): UUID? {
-        return try {
-            val url = "$providerServiceUrl/api/v1/providers/$providerId"
-            val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
-            val response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, Map::class.java)
-            val owner = response.body?.get("ownerUserId") as? String ?: return null
-            UUID.fromString(owner)
-        } catch (e: Exception) {
-            logger.warn("Could not resolve provider owner for {}: {}", providerId, e.message)
-            null
-        }
+    private fun fetchProviderOwnerUserId(providerId: UUID): UUID? = try {
+        providerModule.ownerUserId(providerId)
+    } catch (error: Exception) {
+        logger.warn("Could not resolve provider owner for {}: {}", providerId, error.message)
+        null
     }
 
     private fun mapFlowStep(status: OrderStatus): String = when (status) {
@@ -1097,65 +935,28 @@ class OrderService(
         else -> "placed"
     }
 
-    private data class CatalogOfferingSnapshot(
-        val providerId: UUID,
-        val price: BigDecimal,
-        val status: String,
-        val stockQuantity: Int?
-    )
-
-    private fun fetchOfferingSnapshot(offeringId: UUID): CatalogOfferingSnapshot {
-        val url = "$catalogServiceUrl/api/v1/internal/catalog/offerings/$offeringId"
-        val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
-        val response = try {
-            restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, Map::class.java).body
-        } catch (e: Exception) {
-            logger.warn("Catalog lookup failed for {}: {}", offeringId, e.message)
-            throw IllegalStateException("Catalog service is unavailable. Please try checkout again.", e)
-        } ?: throw IllegalStateException("Catalog service returned an empty offering response")
-
-        val responseProviderId = response["providerId"]?.toString()?.let {
-            runCatching { UUID.fromString(it) }.getOrNull()
-        } ?: throw IllegalStateException("Catalog service returned an invalid provider")
-
-        return CatalogOfferingSnapshot(
-            providerId = responseProviderId,
-            price = parseCatalogPrice(response["price"]),
-            status = response["status"]?.toString()?.uppercase()
-                ?: throw IllegalStateException("Catalog service returned an invalid offering status"),
-            stockQuantity = (response["stockQuantity"] as? Number)?.toInt()
-        )
+    private fun fetchOfferingSnapshot(offeringId: UUID) = try {
+        catalogModule.offering(offeringId)
+    } catch (error: Exception) {
+        logger.warn("Catalog lookup failed for {}: {}", offeringId, error.message)
+        throw IllegalStateException("Catalog service is unavailable. Please try checkout again.", error)
     }
 
     private fun validateCouponDiscount(code: String, subtotal: BigDecimal, providerId: UUID): BigDecimal {
-        val url = UriComponentsBuilder
-            .fromUriString("$paymentServiceUrl/api/v1/payments/promotions/validate")
-            .queryParam("code", code)
-            .queryParam("orderValue", subtotal)
-            .queryParam("providerId", providerId)
-            .build()
-            .encode()
-            .toUriString()
-        val entity = org.springframework.http.HttpEntity<Any>(internalHeaders())
         val promo = try {
-            restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, Map::class.java).body
-        } catch (e: Exception) {
-            logger.info("Coupon validation rejected code {}: {}", code, e.message)
+            paymentModule.promotionTerms(code, subtotal, providerId)
+        } catch (error: Exception) {
+            logger.info("Coupon validation rejected code {}: {}", code, error.message)
             throw IllegalArgumentException("Coupon is invalid, expired, or not applicable to this order")
-        } ?: throw IllegalArgumentException("Coupon validation returned no result")
-
-        val discountType = promo["discountType"]?.toString()?.uppercase()
-        val discountValue = parseCatalogPrice(promo["discountValue"])
-        return when (discountType) {
+        }
+        return when (promo.discountType.uppercase()) {
             "PERCENTAGE" -> {
-                val raw = subtotal
-                    .multiply(discountValue)
+                val raw = subtotal.multiply(promo.discountValue)
                     .divide(BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP)
-                val maximum = promo["maxDiscountAmount"]?.let(::parseCatalogPrice)
-                maximum?.let(raw::min) ?: raw
+                promo.maxDiscountAmount?.let(raw::min) ?: raw
             }
-            "FLAT" -> discountValue.min(subtotal)
-            else -> throw IllegalStateException("Payment service returned an invalid coupon type")
+            "FLAT" -> promo.discountValue.min(subtotal)
+            else -> throw IllegalStateException("Payment module returned an invalid coupon type")
         }
     }
 
@@ -1165,97 +966,45 @@ class OrderService(
         providerId: UUID,
         userId: UUID,
         orderId: UUID
-    ): BigDecimal {
-        val url = "$paymentServiceUrl/api/v1/payments/promotions/reserve"
-        val headers = internalHeaders()
-        headers.set("X-User-Role", "CUSTOMER")
-        headers.set("X-User-Id", userId.toString())
-        val body = mapOf(
-            "code" to code,
-            "orderValue" to subtotal,
-            "providerId" to providerId,
-            "userId" to userId,
-            "orderId" to orderId
+    ): BigDecimal = try {
+        paymentModule.reserveCoupon(
+            CouponReservationCommand(
+                code = code,
+                orderValue = subtotal,
+                providerId = providerId,
+                userId = userId,
+                orderId = orderId
+            )
         )
-        val entity = org.springframework.http.HttpEntity(body, headers)
-        val response = try {
-            restTemplate.postForEntity(url, entity, Map::class.java).body
-        } catch (e: Exception) {
-            logger.info("Coupon reservation rejected code {} for order {}: {}", code, orderId, e.message)
-            throw IllegalArgumentException("Coupon could not be reserved. Please request a new quote.")
-        } ?: throw IllegalStateException("Payment service returned an empty coupon reservation")
-
-        return parseCatalogPrice(response["discountAmount"])
+    } catch (error: Exception) {
+        logger.info("Coupon reservation rejected code {} for order {}: {}", code, orderId, error.message)
+        throw IllegalArgumentException("Coupon could not be reserved. Please request a new quote.")
     }
 
     private fun releaseCouponReservation(code: String, userId: UUID, orderId: UUID) {
         try {
-            val url = UriComponentsBuilder
-                .fromUriString("$paymentServiceUrl/api/v1/payments/promotions/release")
-                .queryParam("code", code)
-                .queryParam("userId", userId)
-                .queryParam("orderId", orderId)
-                .build()
-                .encode()
-                .toUriString()
-            val headers = internalHeaders()
-            headers.set("X-User-Role", "CUSTOMER")
-            headers.set("X-User-Id", userId.toString())
-            restTemplate.postForEntity(url, org.springframework.http.HttpEntity<Any>(headers), Map::class.java)
-        } catch (e: Exception) {
-            logger.error("Failed to release coupon reservation for order {}: {}", orderId, e.message)
+            paymentModule.releaseCoupon(code, userId, orderId)
+        } catch (error: Exception) {
+            logger.error("Failed to release coupon reservation for order {}: {}", orderId, error.message)
         }
     }
 
     private fun redeemCouponReservation(code: String, userId: UUID, orderId: UUID) {
-        val url = UriComponentsBuilder
-            .fromUriString("$paymentServiceUrl/api/v1/payments/promotions/redeem")
-            .queryParam("code", code)
-            .queryParam("userId", userId)
-            .queryParam("orderId", orderId)
-            .build()
-            .encode()
-            .toUriString()
-        val headers = internalHeaders()
-        headers.set("X-User-Role", "ADMIN")
-        restTemplate.postForEntity(
-            url,
-            org.springframework.http.HttpEntity<Any>(headers),
-            Map::class.java
-        )
+        paymentModule.redeemCoupon(code, userId, orderId)
     }
 
-    private fun checkCodEligibility(amount: BigDecimal, city: String?, providerId: UUID?): Pair<Boolean, String?> {
-        return try {
-            val url = "$paymentServiceUrl/api/v1/payments/cod/check"
-            val headers = internalHeaders()
-            val body = mapOf(
-                "amount" to amount,
-                "city" to city,
-                "providerId" to providerId
-            )
-            val entity = org.springframework.http.HttpEntity(body, headers)
-            val response = restTemplate.postForEntity(url, entity, Map::class.java).body
-            val isEligible = response?.get("isEligible") as? Boolean
-                ?: throw IllegalStateException("Payment service returned an invalid COD response")
-            val reason = response?.get("reason") as? String
-            Pair(isEligible, reason)
-        } catch (e: Exception) {
-            logger.warn("COD eligibility check failed: {}", e.message)
-            Pair(false, "Cash on delivery is temporarily unavailable")
+    private fun checkCodEligibility(amount: BigDecimal, city: String?, providerId: UUID?): Pair<Boolean, String?> =
+        try {
+            paymentModule.codEligibility(amount, city, providerId).let { it.eligible to it.reason }
+        } catch (error: Exception) {
+            logger.warn("COD eligibility check failed: {}", error.message)
+            false to "Cash on delivery is temporarily unavailable"
         }
-    }
 
     private fun validateItems(items: List<OrderItemRequest>, subject: String) {
-        if (items.isEmpty()) {
-            throw IllegalArgumentException("$subject must contain at least one item")
-        }
-        if (items.size > 50) {
-            throw IllegalArgumentException("$subject cannot contain more than 50 line items")
-        }
-        if (items.any { it.quantity !in 1..99 }) {
-            throw IllegalArgumentException("Item quantities must be between 1 and 99")
-        }
+        if (items.isEmpty()) throw IllegalArgumentException("$subject must contain at least one item")
+        if (items.size > 50) throw IllegalArgumentException("$subject cannot contain more than 50 line items")
+        if (items.any { it.quantity !in 1..99 }) throw IllegalArgumentException("Item quantities must be between 1 and 99")
         if (items.map { it.offeringId }.distinct().size != items.size) {
             throw IllegalArgumentException("Duplicate offering IDs are not allowed")
         }
@@ -1263,83 +1012,41 @@ class OrderService(
 
     private fun normalizePaymentMethod(paymentMethod: String?): String {
         val normalized = paymentMethod?.trim()?.uppercase() ?: "CARD"
-        if (normalized !in setOf("CARD", "UPI", "COD")) {
-            throw IllegalArgumentException("Unsupported payment method")
-        }
+        if (normalized !in setOf("CARD", "UPI", "COD")) throw IllegalArgumentException("Unsupported payment method")
         return normalized
     }
 
     private fun validateServiceability(city: String?, latitude: Double?, longitude: Double?) {
-        if (latitude == null && longitude != null || latitude != null && longitude == null) {
+        if ((latitude == null) != (longitude == null)) {
             throw IllegalArgumentException("Latitude and longitude must be provided together")
         }
-        if (city.isNullOrBlank() && latitude == null) {
-            return
+        if (city.isNullOrBlank() && latitude == null) return
+        val result = try {
+            discoveryModule.checkServiceability(city, latitude, longitude)
+        } catch (error: Exception) {
+            logger.warn("Serviceability lookup failed: {}", error.message)
+            throw IllegalStateException("Delivery serviceability could not be verified. Please try again.", error)
         }
-
-        val checkUrl = UriComponentsBuilder
-            .fromUriString("$discoveryServiceUrl/api/v1/service-regions/check")
-            .apply {
-                if (!city.isNullOrBlank()) queryParam("city", city.trim())
-                if (latitude != null) queryParam("latitude", latitude)
-                if (longitude != null) queryParam("longitude", longitude)
-            }
-            .build()
-            .encode()
-            .toUriString()
-        val response = try {
-            restTemplate.getForObject(checkUrl, Map::class.java)
-        } catch (e: Exception) {
-            logger.warn("Serviceability lookup failed: {}", e.message)
-            throw IllegalStateException("Delivery serviceability could not be verified. Please try again.", e)
-        }
-        val serviceable = response?.get("serviceable") as? Boolean
-            ?: throw IllegalStateException("Discovery service returned an invalid serviceability response")
-        if (!serviceable) {
-            throw IllegalArgumentException("UNSERVICEABLE_REGION: Location is outside active service regions")
+        if (!result.serviceable) {
+            throw IllegalArgumentException("UNSERVICEABLE_REGION: ${result.reason ?: "Location is outside active service regions"}")
         }
     }
 
     private fun notifyLoyaltyOrderDelivered(order: Order) {
         try {
-            val url = "$paymentServiceUrl/api/v1/loyalty/events/order-delivered"
-            val headers = internalHeaders()
-            val body = mapOf(
-                "orderId" to order.orderId,
-                "customerId" to order.customerId,
-                "providerId" to order.providerId,
-                "netAmount" to order.totalAmount
-            )
-            val entity = org.springframework.http.HttpEntity(body, headers)
-            restTemplate.postForEntity(url, entity, Map::class.java)
-        } catch (e: Exception) {
-            logger.warn("Could not notify loyalty service for delivered order {}: {}", order.orderId, e.message)
+            paymentModule.recordOrderDelivered(order.orderId!!, order.customerId, order.providerId, order.totalAmount)
+        } catch (error: Exception) {
+            logger.warn("Could not notify loyalty module for delivered order {}: {}", order.orderId, error.message)
         }
     }
 
+    @Suppress("unused")
     private fun notifyLoyaltyOrderRefunded(order: Order) {
         try {
-            val url = "$paymentServiceUrl/api/v1/loyalty/events/order-refunded"
-            val headers = internalHeaders()
-            val body = mapOf(
-                "orderId" to order.orderId,
-                "customerId" to order.customerId,
-                "providerId" to order.providerId
-            )
-            val entity = org.springframework.http.HttpEntity(body, headers)
-            restTemplate.postForEntity(url, entity, Map::class.java)
-        } catch (e: Exception) {
-            logger.warn("Could not notify loyalty service for refunded order {}: {}", order.orderId, e.message)
+            paymentModule.recordOrderRefunded(order.orderId!!, order.customerId, order.providerId)
+        } catch (error: Exception) {
+            logger.warn("Could not notify loyalty module for refunded order {}: {}", order.orderId, error.message)
         }
-    }
-
-    private fun internalHeaders(): org.springframework.http.HttpHeaders {
-        val headers = org.springframework.http.HttpHeaders()
-        if (internalServiceSecret.isNotBlank()) {
-            headers.set("X-Internal-Secret", internalServiceSecret)
-            headers.set("X-Service-Name", "order-service")
-        }
-        return headers
     }
 
     companion object {
