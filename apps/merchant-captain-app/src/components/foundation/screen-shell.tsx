@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  type RefreshControlProps,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
@@ -20,7 +21,7 @@ interface ScreenShellProps extends PropsWithChildren {
   footer?: ReactNode;
   testID?: string;
   contentContainerStyle?: StyleProp<ViewStyle>;
-  refreshControl?: ReactElement;
+  refreshControl?: ReactElement<RefreshControlProps>;
 }
 
 export function ScreenShell({
