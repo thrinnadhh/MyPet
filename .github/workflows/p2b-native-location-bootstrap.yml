@@ -1,9 +1,9 @@
 name: P2B Native Captain Location Bootstrap
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/p2b-native-captain-location
+      - main
     paths:
       - scripts/p2b_native_location_migration.py
       - .github/workflows/p2b-native-location-bootstrap.yml
@@ -13,10 +13,10 @@ permissions:
 
 jobs:
   migrate-and-validate:
-    if: github.actor != 'github-actions[bot]'
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout branch
+      - name: Checkout implementation branch
         uses: actions/checkout@v4
         with:
           ref: agent/p2b-native-captain-location
