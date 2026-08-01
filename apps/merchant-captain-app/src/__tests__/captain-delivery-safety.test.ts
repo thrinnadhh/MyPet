@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import test from 'node:test';
 
-const deliverySource = readFileSync(
-  fileURLToPath(new URL('../app/delivery.tsx', import.meta.url)),
-  'utf8',
-);
+const deliverySource = readFileSync(join(process.cwd(), 'src/app/delivery.tsx'), 'utf8');
 
 test('captain delivery does not embed fixed production OTPs', () => {
   assert.equal(deliverySource.includes("pickupOtp !== '1234'"), false);
@@ -20,8 +17,8 @@ test('captain delivery does not publish the old hardcoded Delhi location', () =>
   assert.equal(deliverySource.includes('Mock slight movements'), false);
 });
 
-test('captain delivery sends proof codes to the dispatch service', () => {
-  assert.match(deliverySource, /proofCode: cleaned/);
-  assert.match(deliverySource, /\/pickup|kind/);
-  assert.match(deliverySource, /\/deliver|kind/);
+test('captain delivery submits proof codes to dispatch', () => {
+  assert.equal(deliverySource.includes('proofCode: cleaned'), true);
+  assert.equal(deliverySource.includes("submitProof('pickup'"), true);
+  assert.equal(deliverySource.includes("submitProof('deliver'"), true);
 });
