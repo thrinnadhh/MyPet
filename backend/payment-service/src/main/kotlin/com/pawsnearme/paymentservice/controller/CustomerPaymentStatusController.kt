@@ -3,12 +3,12 @@ package com.pawsnearme.paymentservice.controller
 import com.pawsnearme.paymentservice.repository.TransactionRepository
 import org.springframework.http.ResponseEntity
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
@@ -29,9 +29,16 @@ class CustomerPaymentStatusService(
     private val transactionRepository: TransactionRepository
 ) {
     @Transactional(readOnly = true)
-    fun latestForReference(referenceId: UUID): CustomerPaymentStatusView {
+    fun latestForReference(
+        referenceId: UUID,
+        requesterId: String?,
+        requesterRole: String?
+    ): CustomerPaymentStatusView {
         val transaction = transactionRepository.findFirstByReferenceIdOrderByCreatedAtDesc(referenceId)
             ?: throw NoSuchElementException("Payment transaction not found for reference ID $referenceId")
+        if (requesterRole != "ADMIN" && requesterId != transaction.userId.toString()) {
+            throw PaymentAccessDeniedException("Access denied for payment status")
+        }
         return CustomerPaymentStatusView(
             transactionId = requireNotNull(transaction.transactionId),
             referenceId = transaction.referenceId,
@@ -55,25 +62,7 @@ class CustomerPaymentStatusController(
         @PathVariable referenceId: UUID,
         @RequestHeader("X-User-Id", required = false) xUserId: String?,
         @RequestHeader("X-User-Role", required = false) xUserRole: String?
-    ): ResponseEntity<CustomerPaymentStatusView> {
-        val view = paymentStatusService.latestForReference(referenceId)
-        if (xUserRole != "ADMIN" && xUserId != paymentOwner(view).toString()) {
-            throw PaymentAccessDeniedException("Access denied for payment status")
-        }
-        return ResponseEntity.ok(view)
-    }
-
-    private fun paymentOwner(view: CustomerPaymentStatusView): UUID {
-        // Owner is checked from the persisted transaction without exposing it in the DTO.
-        return paymentStatusServiceOwner(view.transactionId)
-    }
-
-    private fun paymentStatusServiceOwner(transactionId: UUID): UUID =
-        paymentStatusService.ownerForTransaction(transactionId)
+    ): ResponseEntity<CustomerPaymentStatusView> = ResponseEntity.ok(
+        paymentStatusService.latestForReference(referenceId, xUserId, xUserRole)
+    )
 }
-
-@Transactional(readOnly = true)
-fun CustomerPaymentStatusService.ownerForTransaction(transactionId: UUID): UUID =
-    transactionRepository.findById(transactionId)
-        .orElseThrow { NoSuchElementException("Payment transaction not found for ID $transactionId") }
-        .userId
