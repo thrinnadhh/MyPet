@@ -104,7 +104,7 @@ export default function DeliveryScreen() {
       allowDemoMode: appConfig.allowDemoMode,
     });
     if (result.warning) Alert.alert('Background tracking limited', result.warning);
-  }, [session?.access_token, user?.id]);
+  }, [session, user]);
 
   const loadJobs = useCallback(async () => {
     if (!user || !session) {
@@ -141,7 +141,7 @@ export default function DeliveryScreen() {
       accessToken: session.access_token,
       allowDemoMode: appConfig.allowDemoMode,
     });
-  }, [session?.access_token, user?.id]);
+  }, [session, user]);
 
   const toggleOnline = useCallback(async () => {
     if (!user || !session?.access_token) return;
@@ -182,7 +182,7 @@ export default function DeliveryScreen() {
     } finally {
       setLoading(false);
     }
-  }, [activeDelivery, authHeaders, isOnline, session?.access_token, user]);
+  }, [activeDelivery, authHeaders, isOnline, session, user]);
 
   useEffect(() => {
     if (!isOnline || !user) return undefined;
