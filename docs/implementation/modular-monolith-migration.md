@@ -54,34 +54,56 @@ Exit evidence:
 - `:mypet-application:test` passed;
 - `:mypet-application:bootJar` succeeded;
 - the complete backend, production-hardening and both mobile validation suites passed;
-- clean-volume Full Stack Smoke run `30679851793` passed without removing any existing service or Compose deployment.
+- clean-volume Full Stack Smoke passed without removing any existing service or Compose deployment.
 
 M1 merge commit: `01efdb22dcceb803341a2f11c38ab3bf7d48f819`.
 M1 closure merge commit: `93bf1672d7b300d934bba589f1fb7ed1493cf055`.
 
-### M2 — Internal modules — in progress
+### M2 — Internal modules — complete
 
-Link the twelve business services into `mypet-application` as explicit library modules while preserving the distributed runtime:
+Delivered explicit internal-module boundaries while preserving the distributed runtime:
 
 - each module owns a stable descriptor containing its id, base package and legacy application class;
-- `mypet-application` depends on each module non-transitively so business jars are packaged without prematurely activating database, Redis, Kafka, gRPC, scheduler or service-specific dependencies;
+- `mypet-application` depends on each module non-transitively, so business jars are packaged without activating database, Redis, Kafka, gRPC, scheduler or service-specific dependencies;
 - component scanning remains restricted to `com.pawsnearme.application`, keeping every legacy service `@SpringBootApplication` dormant in the consolidated JVM;
 - an immutable application-owned catalog exposes linked module ids through `/actuator/info`;
 - architecture tests reject direct business-service Gradle dependencies and direct access to another module's repository package;
 - existing service boot jars and Compose deployments remain unchanged.
 
+Exit evidence:
+
+- all twelve module jars were linked and discoverable;
+- only `MyPetApplication` was active;
+- Gradle and repository boundary tests passed;
+- complete backend, generated-artifact, production-hardening and both mobile checks passed;
+- clean-volume Full Stack Smoke run `30681978754` passed.
+
+M2 merge commit: `8f18799364fa558587a6c6f33c198860e1d06aae`.
+
+### M3 — Security and gateway consolidation — in progress
+
+Install a servlet-native application edge boundary while preserving the separate gateway as active ingress and rollback path:
+
+- validate Supabase JWTs with HS256 secrets or ES256/RS256 JWK sets;
+- restrict unsigned parsing to explicit local, dev or test profiles;
+- remove spoofable user/internal headers and derive identity only from a validated JWT;
+- reproduce the gateway's public-route and role-guard authorization matrix;
+- enforce explicit-origin credentialed CORS;
+- validate or generate `X-Request-Id` and return it on every edge-enabled response;
+- enforce configurable bounded token-bucket rate limiting;
+- replay successful unsafe requests carrying `Idempotency-Key` and reject conflicting reuse;
+- expose edge mode through `/actuator/info`;
+- keep `MYPET_EDGE_ENABLED=false` by default until traffic cutover.
+
 Exit criteria:
 
-- the consolidated catalog contains exactly provider, catalog, discovery, order, appointment, dispatch, captain, notification, review, payment, chat and content;
-- every legacy application class resource is present in the consolidated runtime classpath;
-- only `MyPetApplication` is registered as a Spring Boot application bean;
-- `mypet-application` starts without PostgreSQL, Redis, Kafka or gRPC infrastructure;
+- public, protected and role-restricted HTTP integration tests pass;
+- spoofed identity/internal headers never reach application handlers;
+- CORS preflight, request-ID, HTTP 429 and idempotency replay/conflict contracts pass;
+- edge-enabled startup fails closed when JWT verification is not configured;
 - `:mypet-application:test` and `:mypet-application:bootJar` pass;
-- complete backend, production-hardening, mobile and clean-volume smoke validation remains green.
-
-### M3 — Security and gateway consolidation
-
-Move JWT validation, identity derivation, CORS, request IDs, rate limits, idempotency and authorization into the application. Preserve external API behavior before retiring the separate gateway.
+- complete backend, production-hardening, mobile and clean-volume smoke validation remains green;
+- no existing gateway route, service runtime, migration, Compose service or mobile contract is removed.
 
 ### M4 — Database consolidation
 
