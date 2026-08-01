@@ -36,9 +36,6 @@ class RemoteOrderModuleApi(
     private val internalApiSecret: String = ""
 ) : OrderModuleApi {
     override fun updateStatus(orderId: UUID, status: String, actorId: UUID, note: String?) {
-        require(internalApiSecret.isNotBlank()) {
-            "INTERNAL_API_SECRET is required for dispatch-to-order lifecycle updates"
-        }
         val url = UriComponentsBuilder
             .fromUriString("$baseUrl/internal/api/v1/orders/$orderId/status")
             .queryParam("status", status.trim().uppercase())
@@ -48,7 +45,9 @@ class RemoteOrderModuleApi(
             if (gatewayTrustSecret.isNotBlank()) {
                 set("X-Internal-Gateway-Secret", gatewayTrustSecret)
             }
-            set("X-Internal-Api-Secret", internalApiSecret)
+            if (internalApiSecret.isNotBlank()) {
+                set("X-Internal-Api-Secret", internalApiSecret)
+            }
             set("X-Captain-Id", actorId.toString())
         }
         restOperations.exchange(url, HttpMethod.PUT, HttpEntity<Any>(headers), Any::class.java)
