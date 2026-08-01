@@ -24,6 +24,7 @@ spec.loader.exec_module(matrix)
 _original_request = matrix.request
 _original_poll = matrix.poll
 _original_require = matrix.require
+_payment_transactions: dict[str, str] = {}
 
 
 def contract_request(
@@ -39,6 +40,67 @@ def contract_request(
     if method == "PUT" and "/status?status=IN_PROGRESS" in path and expected == (200,):
         _original_request(method, path, actor, payload, expected=(400,))
         return {"status": "CONFIRMED", "unsupportedStatusRejected": True}
+
+    # The base scenario first proves COD eligibility. For the connected payment
+    # proof, place the shared order as CARD so it can exercise initiation,
+    # capture persistence and the paid-order confirmation boundary.
+    if (
+        method == "POST"
+        and path == "/api/v1/orders"
+        and isinstance(payload, dict)
+        and str(payload.get("paymentMethod", "")).upper() == "COD"
+    ):
+        online_payload = dict(payload)
+        online_payload.pop("quoteToken", None)
+        online_payload["paymentMethod"] = "CARD"
+        online_quote = _original_request(
+            "POST",
+            "/api/v1/checkout/quote",
+            actor,
+            online_payload,
+            expected=(200,),
+        )
+        online_payload["quoteToken"] = online_quote["quoteToken"]
+        return _original_request(method, path, actor, online_payload, expected)
+
+    # Payment results are only valid after a durable PENDING transaction exists.
+    # Initiate the sandbox Razorpay order first, then record the result against it.
+    if (
+        method == "POST"
+        and path == "/api/v1/payments/transactions/result"
+        and isinstance(payload, dict)
+    ):
+        initiation = _original_request(
+            "POST",
+            "/api/v1/payments/orders",
+            actor,
+            {
+                "userId": payload["userId"],
+                "referenceId": payload["referenceId"],
+                "amount": payload["amount"],
+                "transactionType": payload["transactionType"],
+            },
+            expected=(201,),
+        )
+        _payment_transactions[str(payload["referenceId"])] = str(initiation["transactionId"])
+        return _original_request(method, path, actor, payload, expected)
+
+    # The stale scenario asks the merchant to set ACCEPTED directly. Online
+    # orders must instead cross the payment verification boundary via confirm.
+    if (
+        method == "PUT"
+        and path.startswith("/api/v1/orders/")
+        and "/status?status=ACCEPTED" in path
+    ):
+        order_id = path.removeprefix("/api/v1/orders/").split("/", 1)[0]
+        payment_id = _payment_transactions.get(order_id)
+        if payment_id is not None:
+            return _original_request(
+                "POST",
+                f"/api/v1/orders/{order_id}/confirm?paymentId={payment_id}",
+                actor,
+                expected=(200,),
+            )
 
     return _original_request(method, path, actor, payload, expected)
 
@@ -122,6 +184,11 @@ def capture_failure_diagnostics(error: BaseException) -> None:
         "order-outbox.txt": (
             "SELECT event_id,event_type,payload,published_at,created_at "
             "FROM orders.outbox_events ORDER BY created_at DESC LIMIT 50;"
+        ),
+        "payment-transactions.txt": (
+            "SELECT transaction_id,user_id,reference_id,transaction_type,amount,status,"
+            "gateway,gateway_transaction_id,created_at,updated_at "
+            "FROM payments.transactions ORDER BY created_at DESC LIMIT 50;"
         ),
     }
     for file_name, statement in queries.items():
