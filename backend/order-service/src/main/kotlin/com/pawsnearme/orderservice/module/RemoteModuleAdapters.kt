@@ -55,8 +55,9 @@ class OrderRemoteModuleConfiguration {
     @ConditionalOnMissingBean(DiscoveryModuleApi::class)
     fun remoteDiscoveryModuleApi(
         restOperations: RestOperations,
-        @Value("\${DISCOVERY_SERVICE_URL:http://localhost:8083}") baseUrl: String
-    ): DiscoveryModuleApi = RemoteDiscoveryModuleApi(restOperations, baseUrl)
+        @Value("\${DISCOVERY_SERVICE_URL:http://localhost:8083}") baseUrl: String,
+        @Value("\${gateway.trust.secret:}") gatewayTrustSecret: String
+    ): DiscoveryModuleApi = RemoteDiscoveryModuleApi(restOperations, baseUrl, gatewayTrustSecret)
 }
 
 class RemoteCatalogModuleApi(
@@ -317,7 +318,8 @@ class RemoteProviderModuleApi(
 
 class RemoteDiscoveryModuleApi(
     private val restOperations: RestOperations,
-    private val baseUrl: String
+    private val baseUrl: String,
+    private val gatewayTrustSecret: String = ""
 ) : DiscoveryModuleApi {
     override fun checkServiceability(
         city: String?,
@@ -333,12 +335,22 @@ class RemoteDiscoveryModuleApi(
                 if (!pincode.isNullOrBlank()) queryParam("pincode", pincode.trim())
             }
             .build().encode().toUriString()
-        val response = restOperations.getForObject(url, Map::class.java)
-            ?: throw IllegalStateException("Discovery service returned an empty response")
+        val response = restOperations.exchange(
+            url,
+            HttpMethod.GET,
+            HttpEntity<Any>(headers()),
+            Map::class.java
+        ).body ?: throw IllegalStateException("Discovery service returned an empty response")
         return ServiceabilityDecision(
             serviceable = response["serviceable"] as? Boolean ?: false,
             reason = response["reason"]?.toString()
         )
+    }
+
+    private fun headers() = HttpHeaders().apply {
+        if (gatewayTrustSecret.isNotBlank()) {
+            set("X-Internal-Gateway-Secret", gatewayTrustSecret)
+        }
     }
 }
 
