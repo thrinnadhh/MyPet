@@ -1,0 +1,28 @@
+# Optional M7 overlay. Existing API containers retain request handling but do
+# not register scheduled methods. Use scripts/start-m7-workers.sh to launch
+# unexposed worker processes from the same service images.
+services:
+  provider-service:
+    environment:
+      MYPET_SCHEDULING_ROLE: API
+  order-service:
+    environment:
+      MYPET_SCHEDULING_ROLE: API
+  appointment-service:
+    environment:
+      MYPET_SCHEDULING_ROLE: API
+  dispatch-service:
+    environment:
+      MYPET_SCHEDULING_ROLE: API
+  notification-service:
+    environment:
+      MYPET_SCHEDULING_ROLE: API
+  review-service:
+    environment:
+      MYPET_SCHEDULING_ROLE: API
+  payment-service:
+    environment:
+      MYPET_SCHEDULING_ROLE: API
+  content-service:
+    environment:
+      MYPET_SCHEDULING_ROLE: API
