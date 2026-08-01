@@ -67,7 +67,8 @@ if runner_path.is_file():
         '"unsupportedStatusRejected": True',
         "published AppointmentBooked outbox event with slot_start",
         "appointment-outbox.txt",
-        "notification-service.log",
+        'for service in ("appointment-service", "notification-service", "kafka")',
+        'f"{service}.log"',
         "notification-consumer-group.txt",
         "appointments-events.txt",
     ):
