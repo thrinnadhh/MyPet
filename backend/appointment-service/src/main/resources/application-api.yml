@@ -1,0 +1,3 @@
+mypet:
+  scheduling:
+    role: ${MYPET_SCHEDULING_ROLE:API}
