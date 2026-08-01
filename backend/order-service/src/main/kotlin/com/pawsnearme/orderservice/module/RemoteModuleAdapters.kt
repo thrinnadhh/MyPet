@@ -66,7 +66,7 @@ class RemoteCatalogModuleApi(
 ) : CatalogModuleApi {
     override fun offering(offeringId: UUID): CatalogOfferingSnapshot {
         val response = restOperations.exchange(
-            "$baseUrl/api/v1/catalog/offerings/$offeringId",
+            "$baseUrl/api/v1/internal/catalog/offerings/$offeringId",
             HttpMethod.GET,
             HttpEntity<Any>(internalHeaders()),
             Map::class.java
@@ -154,9 +154,9 @@ class RemotePaymentModuleApi(
         ).body ?: return@runCatching null
         PaymentTransactionSnapshot(
             transactionId = response["transactionId"]?.toString()?.let(UUID::fromString) ?: transactionId,
-            userId = UUID.fromString(response["userId"].toString()),
-            referenceId = UUID.fromString(response["referenceId"].toString()),
-            transactionType = response["transactionType"].toString(),
+            userId = response["userId"]?.toString()?.let(UUID::fromString) ?: UUID(0L, 0L),
+            referenceId = response["referenceId"]?.toString()?.let(UUID::fromString) ?: UUID(0L, 0L),
+            transactionType = response["transactionType"]?.toString() ?: "ORDER_PAYMENT",
             amount = decimal(response["amount"]),
             status = response["status"].toString()
         )
