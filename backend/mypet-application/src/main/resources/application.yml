@@ -9,6 +9,32 @@ spring:
     name: mypet-application
   lifecycle:
     timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:20s}
+  # M2 packages all business modules but intentionally keeps their runtime
+  # infrastructure dormant. M3-M7 will replace these exclusions with central,
+  # application-owned configuration one concern at a time.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisReactiveAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      - net.devh.boot.grpc.server.autoconfigure.GrpcAdviceAutoConfiguration
+      - net.devh.boot.grpc.server.autoconfigure.GrpcHealthServiceAutoConfiguration
+      - net.devh.boot.grpc.server.autoconfigure.GrpcMetadataConsulConfiguration
+      - net.devh.boot.grpc.server.autoconfigure.GrpcMetadataEurekaConfiguration
+      - net.devh.boot.grpc.server.autoconfigure.GrpcMetadataNacosConfiguration
+      - net.devh.boot.grpc.server.autoconfigure.GrpcMetadataZookeeperConfiguration
+      - net.devh.boot.grpc.server.autoconfigure.GrpcReflectionServiceAutoConfiguration
+      - net.devh.boot.grpc.server.autoconfigure.GrpcServerAutoConfiguration
+      - net.devh.boot.grpc.server.autoconfigure.GrpcServerFactoryAutoConfiguration
+      - net.devh.boot.grpc.server.autoconfigure.GrpcServerMetricAutoConfiguration
+      - net.devh.boot.grpc.server.autoconfigure.GrpcServerMicrometerTraceAutoConfiguration
+      - net.devh.boot.grpc.server.autoconfigure.GrpcServerSecurityAutoConfiguration
 
 management:
   endpoints:
@@ -25,9 +51,12 @@ management:
       enabled: true
     readinessstate:
       enabled: true
+  info:
+    env:
+      enabled: true
 
 info:
   app:
     name: MyPet Application
-    milestone: M1
-    architecture: modular-monolith-shell
+    milestone: M2
+    architecture: modular-monolith-module-assembly
