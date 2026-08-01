@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Linking, Modal, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppIcon } from '@/components/app-icon';
 import {
@@ -17,6 +17,13 @@ import { TextField } from '@/components/ui/text-field';
 import { useAuth } from '@/context/AuthContext';
 import { radii, spacing, touchTarget, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
+import {
+  CaptainLocationError,
+  getCaptainCoordinates,
+  startCaptainLocationTracking,
+  stopCaptainLocationTracking,
+  syncCaptainLocationNow,
+} from '@/services/captain-location';
 import { appConfig } from '@/utils/app-config';
 
 interface DispatchOffer {
@@ -35,14 +42,7 @@ interface ActiveDelivery {
   deliveryFee: number | null;
 }
 
-interface Coordinates {
-  latitude: number;
-  longitude: number;
-}
-
 type DeliveryStep = 1 | 2 | 3 | 4;
-
-const DEMO_COORDINATES: Coordinates = { latitude: 13.6288, longitude: 79.4192 };
 
 function shortOrderId(orderId: string): string {
   return orderId.slice(0, 8).toUpperCase();
@@ -51,32 +51,6 @@ function shortOrderId(orderId: string): string {
 async function responseError(response: Response, fallback: string): Promise<string> {
   const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
   return body?.error ?? body?.message ?? fallback;
-}
-
-function browserCoordinates(): Promise<Coordinates | null> {
-  if (Platform.OS !== 'web') return Promise.resolve(null);
-  const browser = globalThis as unknown as {
-    navigator?: {
-      geolocation?: {
-        getCurrentPosition: (
-          success: (position: { coords: { latitude: number; longitude: number } }) => void,
-          failure: () => void,
-          options?: { enableHighAccuracy?: boolean; timeout?: number; maximumAge?: number },
-        ) => void;
-      };
-    };
-  };
-
-  const geolocation = browser.navigator?.geolocation;
-  if (!geolocation) return Promise.resolve(null);
-
-  return new Promise((resolve) => {
-    geolocation.getCurrentPosition(
-      (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 },
-    );
-  });
 }
 
 export default function DeliveryScreen() {
@@ -105,22 +79,20 @@ export default function DeliveryScreen() {
     [session, user],
   );
 
-  const getCoordinates = useCallback(async (): Promise<Coordinates | null> => {
-    const browserLocation = await browserCoordinates();
-    if (browserLocation) return browserLocation;
-    return appConfig.allowDemoMode ? DEMO_COORDINATES : null;
-  }, []);
+  const getCoordinates = useCallback(
+    () => getCaptainCoordinates({ allowDemoMode: appConfig.allowDemoMode }),
+    [],
+  );
 
   const updateLocation = useCallback(async () => {
-    const coordinates = await getCoordinates();
-    if (!coordinates) return false;
-    const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/captains/location`, {
-      method: 'PUT',
-      headers: authHeaders(true),
-      body: JSON.stringify({ longitude: coordinates.longitude, latitude: coordinates.latitude }),
+    if (!user?.id || !session?.access_token) return false;
+    return syncCaptainLocationNow({
+      apiBaseUrl: appConfig.apiBaseUrl,
+      userId: user.id,
+      accessToken: session.access_token,
+      allowDemoMode: appConfig.allowDemoMode,
     });
-    return response.ok;
-  }, [authHeaders, getCoordinates]);
+  }, [session, user]);
 
   const toggleOnline = useCallback(async () => {
     if (!user) return;
@@ -128,13 +100,6 @@ export default function DeliveryScreen() {
     try {
       const nextOnline = !isOnline;
       const coordinates = nextOnline ? await getCoordinates() : null;
-      if (nextOnline && !coordinates) {
-        Alert.alert(
-          'Location access required',
-          'This mobile build does not yet include the native location module. MyPet will not publish fabricated coordinates. Use the web build with browser location, or enable demo mode for sandbox testing.',
-        );
-        return;
-      }
 
       const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/captains/status`, {
         method: 'PUT',
@@ -150,14 +115,37 @@ export default function DeliveryScreen() {
         throw new Error(await responseError(response, 'Could not update captain availability.'));
       }
 
+      if (nextOnline) {
+        if (!session?.access_token) {
+          throw new CaptainLocationError('session-missing', 'An authenticated captain session is required.');
+        }
+        const tracking = await startCaptainLocationTracking({
+          apiBaseUrl: appConfig.apiBaseUrl,
+          userId: user.id,
+          accessToken: session.access_token,
+          allowDemoMode: appConfig.allowDemoMode,
+        });
+        if (tracking.warning) {
+          Alert.alert('Background tracking limited', tracking.warning);
+        }
+      } else {
+        await stopCaptainLocationTracking();
+        setActiveOffer(null);
+      }
       setIsOnline(nextOnline);
-      if (!nextOnline) setActiveOffer(null);
     } catch (error: unknown) {
-      Alert.alert('Status change failed', error instanceof Error ? error.message : 'Please check your connection.');
+      if (error instanceof CaptainLocationError && error.code === 'permission-blocked') {
+        Alert.alert('Location permission blocked', error.message, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open settings', onPress: () => void Linking.openSettings() },
+        ]);
+      } else {
+        Alert.alert('Status change failed', error instanceof Error ? error.message : 'Please check your connection.');
+      }
     } finally {
       setLoading(false);
     }
-  }, [authHeaders, getCoordinates, isOnline, user]);
+  }, [authHeaders, getCoordinates, isOnline, session, user]);
 
   useEffect(() => {
     if (!isOnline || !user) return undefined;
@@ -289,7 +277,7 @@ export default function DeliveryScreen() {
           appConfig.allowDemoMode
             ? 'Demo coordinates are used only because demo mode is explicitly enabled.'
             : isOnline
-              ? 'Location updates are sent from the browser geolocation source.'
+              ? 'Verified device location updates are sent while you are online.'
               : 'MyPet never sends placeholder coordinates in production.'
         }
         icon={appConfig.allowDemoMode ? 'sparkle' : isOnline ? 'check' : 'location'}

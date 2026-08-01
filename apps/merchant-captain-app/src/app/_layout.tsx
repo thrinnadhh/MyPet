@@ -12,6 +12,7 @@ import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { useTheme } from '@/hooks/use-theme';
 import { appConfig } from '@/utils/app-config';
 import '@/i18n';
+import '@/services/captain-location';
 import LoginScreen from './login';
 
 function canAccessPath(pathname: string, role: string | null): boolean {

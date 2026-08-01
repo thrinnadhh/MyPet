@@ -27,9 +27,21 @@
     "plugins": [
       "expo-router",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow MyPet Captain to use your location to receive nearby delivery offers and share delivery progress.",
+          "locationAlwaysAndWhenInUsePermission": "Allow MyPet Captain to use your location while you are online or completing an active delivery.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
         "expo-notifications",
         {
-          "sounds": ["./assets/sounds/order_alert.wav"]
+          "sounds": [
+            "./assets/sounds/order_alert.wav"
+          ]
         }
       ],
       [

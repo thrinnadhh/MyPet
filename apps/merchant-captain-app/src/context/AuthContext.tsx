@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 
 import { ApiError, apiClient } from '../services/api-client';
+import { stopCaptainLocationTracking } from '../services/captain-location';
 import { appConfig } from '../utils/app-config';
 import { syncAuthenticatedProfile } from '../utils/profile-sync';
 import { supabase } from '../utils/supabase';
@@ -131,6 +132,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       apiClient.setSessionToken(nextSession?.access_token ?? null);
 
       if (!nextSession) {
+        await stopCaptainLocationTracking();
         setRole(null);
         setActiveRole(null);
         setProviderId(null);
@@ -182,6 +184,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const signOut = async () => {
+    await stopCaptainLocationTracking();
     apiClient.setSessionToken(null);
     setProviderId(null);
     setCaptainId(null);
