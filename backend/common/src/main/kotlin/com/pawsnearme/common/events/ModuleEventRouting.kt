@@ -124,7 +124,7 @@ object MyPetWorkflowCatalog {
                 executionKind = WorkflowExecutionKind.DURABLE_OUTBOX_JOB,
                 topic = "chat.events",
                 eventTypes = setOf("ChatMessageSent"),
-                inProcessReplacementReady = true
+                inProcessReplacementReady = false
             ),
             WorkflowRoute(
                 id = "dispatch.lifecycle-fanout",
