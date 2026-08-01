@@ -1,0 +1,58 @@
+name: P2B Native Captain Location Bootstrap
+
+on:
+  push:
+    branches:
+      - agent/p2b-native-captain-location
+    paths:
+      - scripts/p2b_native_location_migration.py
+      - .github/workflows/p2b-native-location-bootstrap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/p2b-native-captain-location
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19
+          cache: npm
+          cache-dependency-path: apps/merchant-captain-app/package-lock.json
+
+      - name: Apply native location migration
+        run: python3 scripts/p2b_native_location_migration.py
+
+      - name: Regenerate lockfile
+        working-directory: apps/merchant-captain-app
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Validate operational app
+        working-directory: apps/merchant-captain-app
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+
+      - name: Remove one-time migration files
+        run: |
+          git rm scripts/p2b_native_location_migration.py
+          git rm .github/workflows/p2b-native-location-bootstrap.yml
+
+      - name: Commit generated implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/merchant-captain-app
+          git commit -m "feat(captain): add native location tracking"
+          git push origin HEAD:agent/p2b-native-captain-location
