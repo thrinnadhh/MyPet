@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { palette, radii, roleAccent, spacing, touchTarget } from '../design/tokens';
+import { palette, radii, roleAccent, spacing, touchTarget } from '../design/foundation';
 
 test('operational design system uses the MyPet brand foundation', () => {
   assert.equal(palette.royalBlue, '#004AC6');
