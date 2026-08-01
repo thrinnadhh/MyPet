@@ -30,6 +30,15 @@ test('captain location task is registered before router navigation', () => {
   assert.match(service, /Location\.stopLocationUpdatesAsync/);
 });
 
+test('captain coordinates use the authenticated API gateway contract', () => {
+  const service = source('src/services/captain-location.ts');
+  assert.match(service, /\$\{session\.apiBaseUrl\}\/api\/v1\/captains\/location/);
+  assert.match(service, /Authorization: `Bearer \$\{session\.accessToken\}`/);
+  assert.match(service, /'X-User-Id': session\.userId/);
+  assert.match(service, /accuracyMeters/);
+  assert.match(service, /capturedAt/);
+});
+
 test('captain delivery uses device location and never restores browser-only fallback', () => {
   const delivery = source('src/app/delivery.tsx');
   assert.match(delivery, /getCaptainCoordinates/);
