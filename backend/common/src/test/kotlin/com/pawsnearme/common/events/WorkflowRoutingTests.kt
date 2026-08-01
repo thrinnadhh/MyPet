@@ -25,6 +25,7 @@ class WorkflowRoutingTests {
         assertEquals(7, catalog.count(WorkflowExecutionKind.DURABLE_OUTBOX_JOB))
         assertTrue(catalog.hasInProcessReplacement("orders.events"))
         assertTrue(catalog.hasInProcessReplacement("appointments.events"))
+        assertFalse(catalog.hasInProcessReplacement("chat.events"))
         assertFalse(catalog.hasInProcessReplacement("dispatch.events"))
     }
 
@@ -34,7 +35,7 @@ class WorkflowRoutingTests {
         val moduleEvents = mutableListOf<ModuleDomainEvent>()
         val publisher = RoutedOutboxEventPublisher(
             kafkaPublisher = kafka,
-            moduleEventPublisher = ModuleEventPublisher(moduleEvents::add),
+            moduleEventPublisher = ModuleEventPublisher { event -> moduleEvents += event },
             workflowCatalog = MyPetWorkflowCatalog.create(),
             deliveryMode = OutboxDeliveryMode.IN_PROCESS_ONLY
         )
@@ -52,7 +53,7 @@ class WorkflowRoutingTests {
     fun `in process mode rejects topic without verified consumer replacement`() {
         val publisher = RoutedOutboxEventPublisher(
             kafkaPublisher = RecordingOutboxPublisher(),
-            moduleEventPublisher = ModuleEventPublisher { },
+            moduleEventPublisher = ModuleEventPublisher { _ -> },
             workflowCatalog = MyPetWorkflowCatalog.create(),
             deliveryMode = OutboxDeliveryMode.IN_PROCESS_ONLY
         )
@@ -70,7 +71,7 @@ class WorkflowRoutingTests {
         val moduleEvents = mutableListOf<ModuleDomainEvent>()
         val publisher = RoutedOutboxEventPublisher(
             kafkaPublisher = kafka,
-            moduleEventPublisher = ModuleEventPublisher(moduleEvents::add),
+            moduleEventPublisher = ModuleEventPublisher { event -> moduleEvents += event },
             workflowCatalog = MyPetWorkflowCatalog.create(),
             deliveryMode = OutboxDeliveryMode.DUAL_SHADOW
         )
@@ -85,7 +86,7 @@ class WorkflowRoutingTests {
     }
 
     @Test
-    fun `topic resolver covers direct durable producers`() {
+    fun `topic resolver covers durable producers`() {
         assertEquals("chat.events", OutboxTopicResolver.topicFor("CHAT"))
         assertEquals("vaccination.events", OutboxTopicResolver.topicFor("VACCINATION"))
         assertEquals("orders.events", OutboxTopicResolver.topicFor("ORDER"))
