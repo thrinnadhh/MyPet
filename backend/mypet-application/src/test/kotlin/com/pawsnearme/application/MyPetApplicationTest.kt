@@ -15,11 +15,32 @@ class MyPetApplicationTest {
     private lateinit var restTemplate: TestRestTemplate
 
     @Test
-    fun `application starts and readiness probe reports up`() {
-        val response = restTemplate.getForEntity(
-            "/actuator/health/readiness",
-            Map::class.java
-        )
+    fun `application exposes liveness and readiness probes`() {
+        assertHealthEndpoint("/actuator/health/liveness")
+        assertHealthEndpoint("/actuator/health/readiness")
+    }
+
+    @Test
+    fun `application exposes milestone metadata through info endpoint`() {
+        val response = restTemplate.getForEntity("/actuator/info", Map::class.java)
+
+        assertEquals(HttpStatus.OK, response.statusCode)
+        val appInfo = response.body?.get("app") as? Map<*, *>
+        assertNotNull(appInfo)
+        assertEquals("MyPet Application", appInfo?.get("name"))
+        assertEquals("M1", appInfo?.get("milestone"))
+        assertEquals("modular-monolith-shell", appInfo?.get("architecture"))
+    }
+
+    @Test
+    fun `application exposes prometheus scrape endpoint`() {
+        val response = restTemplate.getForEntity("/actuator/prometheus", String::class.java)
+
+        assertEquals(HttpStatus.OK, response.statusCode)
+    }
+
+    private fun assertHealthEndpoint(path: String) {
+        val response = restTemplate.getForEntity(path, Map::class.java)
 
         assertEquals(HttpStatus.OK, response.statusCode)
         assertNotNull(response.body)

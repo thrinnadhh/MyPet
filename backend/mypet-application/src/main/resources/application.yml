@@ -25,6 +25,13 @@ management:
       enabled: true
     readinessstate:
       enabled: true
+  info:
+    env:
+      enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
 
 info:
   app:

@@ -39,22 +39,24 @@ Independent analysis and validation lanes may run concurrently. Writes to shared
 
 Baseline merge commit: `f8319834f94c6bea7e0181aba07c87327c860f42`.
 
-### M1 — Application shell — in progress
+### M1 — Application shell — complete
 
-Deliver a new `mypet-application` Spring Boot module that:
+Delivered a new `mypet-application` Spring Boot module that:
 
 - starts independently without database, Redis, Kafka or business-module dependencies;
 - exposes liveness, readiness, info and Prometheus actuator endpoints;
 - supports graceful shutdown;
-- has an HTTP readiness integration test;
+- verifies the actuator contracts through real HTTP integration tests;
 - is built and tested by the existing Gradle CI suite.
 
-Exit criteria:
+Exit evidence:
 
-- `:mypet-application:test` passes;
-- `:mypet-application:bootJar` succeeds;
-- existing backend and mobile checks remain green;
-- no existing service or Compose deployment is removed.
+- `:mypet-application:test` passed;
+- `:mypet-application:bootJar` succeeded;
+- the complete backend, production-hardening and both mobile validation suites passed;
+- clean-volume Full Stack Smoke run `30679851793` passed without removing any existing service or Compose deployment.
+
+M1 merge commit: `01efdb22dcceb803341a2f11c38ab3bf7d48f819`.
 
 ### M2 — Internal modules
 
