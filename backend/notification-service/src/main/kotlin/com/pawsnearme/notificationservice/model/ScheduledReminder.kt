@@ -4,12 +4,10 @@ import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
 import jakarta.persistence.Enumerated
+import jakarta.persistence.GeneratedValue
+import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
-import jakarta.persistence.PostLoad
-import jakarta.persistence.PostPersist
 import jakarta.persistence.Table
-import jakarta.persistence.Transient
-import org.springframework.data.domain.Persistable
 import java.time.Instant
 import java.util.UUID
 
@@ -28,8 +26,9 @@ enum class ReminderDeliveryStatus {
 )
 data class ScheduledReminder(
     @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "reminder_id")
-    override val id: UUID = UUID.randomUUID(),
+    var id: UUID? = null,
 
     /** The customer/user to notify. */
     @Column(name = "user_id", nullable = false)
@@ -78,15 +77,4 @@ data class ScheduledReminder(
 
     @Column(name = "created_at", nullable = false, updatable = false)
     val createdAt: Instant = Instant.now()
-) : Persistable<UUID> {
-    @Transient
-    private var persisted: Boolean = false
-
-    override fun isNew(): Boolean = !persisted
-
-    @PostPersist
-    @PostLoad
-    fun markPersisted() {
-        persisted = true
-    }
-}
+)
