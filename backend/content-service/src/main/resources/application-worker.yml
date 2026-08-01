@@ -1,0 +1,8 @@
+server:
+  port: ${WORKER_SERVER_PORT:0}
+management:
+  server:
+    port: ${WORKER_MANAGEMENT_PORT:0}
+mypet:
+  scheduling:
+    role: ${MYPET_SCHEDULING_ROLE:WORKER}
