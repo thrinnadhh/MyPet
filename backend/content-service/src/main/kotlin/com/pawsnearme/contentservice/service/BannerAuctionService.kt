@@ -1,14 +1,13 @@
 package com.pawsnearme.contentservice.service
 
+import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.contentservice.model.BannerBid
-import com.pawsnearme.contentservice.model.PromoBanner
+import com.pawsnearme.contentservice.module.RemoteProviderModuleApi
 import com.pawsnearme.contentservice.repository.BannerBidRepository
 import com.pawsnearme.contentservice.repository.PromoBannerRepository
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Value
-import org.springframework.http.HttpEntity
-import org.springframework.http.HttpMethod
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -31,15 +30,24 @@ object BannerAuctionSlots {
 
 @Service
 @Transactional
-class BannerAuctionService(
+class BannerAuctionService @Autowired constructor(
     private val bidRepo: BannerBidRepository,
     private val bannerRepo: PromoBannerRepository,
-    private val restTemplate: RestOperations,
-    @Value("\${PROVIDER_SERVICE_URL:http://localhost:8081}")
-    private val providerServiceUrl: String,
-    @Value("\${gateway.trust.secret:}")
-    private val gatewayTrustSecret: String,
+    private val providerModule: ProviderModuleApi
 ) {
+    /** Compatibility constructor for focused legacy tests. */
+    constructor(
+        bidRepo: BannerBidRepository,
+        bannerRepo: PromoBannerRepository,
+        restTemplate: RestOperations,
+        providerServiceUrl: String,
+        gatewayTrustSecret: String
+    ) : this(
+        bidRepo,
+        bannerRepo,
+        RemoteProviderModuleApi(restTemplate, providerServiceUrl, gatewayTrustSecret)
+    )
+
     private val logger = LoggerFactory.getLogger(BannerAuctionService::class.java)
 
     fun submitBid(
@@ -116,9 +124,7 @@ class BannerAuctionService(
     fun closeExpiredAuctions() {
         val now = Instant.now()
         val expiredWindows = bidRepo.findExpiredWindowEnds(now)
-        expiredWindows.forEach { windowEnd ->
-            closeAuctionWindow(windowEnd)
-        }
+        expiredWindows.forEach { windowEnd -> closeAuctionWindow(windowEnd) }
     }
 
     fun closeAuctionWindow(windowEndsAt: Instant) {
@@ -168,35 +174,10 @@ class BannerAuctionService(
 
     private fun assertProviderOwnership(providerId: UUID, callerId: UUID, callerRole: String?) {
         if (callerRole?.uppercase() == "ADMIN") return
-        val ownerId = fetchProviderOwnerUserId(providerId)
+        val ownerId = providerModule.ownerUserId(providerId)
             ?: throw BannerBidAccessDeniedException("Provider not found or inaccessible.")
         if (ownerId != callerId) {
             throw BannerBidAccessDeniedException("Merchant cannot bid for another provider's slot.")
         }
-    }
-
-    private fun fetchProviderOwnerUserId(providerId: UUID): UUID? {
-        return try {
-            val url = "$providerServiceUrl/api/v1/providers/$providerId"
-            val response = restTemplate.exchange(
-                url,
-                HttpMethod.GET,
-                HttpEntity<Any>(internalHeaders()),
-                Map::class.java,
-            ).body
-            val ownerIdStr = response?.get("ownerUserId") as? String
-            ownerIdStr?.let { UUID.fromString(it) }
-        } catch (e: Exception) {
-            logger.warn("Failed to fetch provider owner: {}", e.message)
-            null
-        }
-    }
-
-    private fun internalHeaders(): org.springframework.http.HttpHeaders {
-        val headers = org.springframework.http.HttpHeaders()
-        if (gatewayTrustSecret.isNotBlank()) {
-            headers.set("X-Internal-Gateway-Secret", gatewayTrustSecret)
-        }
-        return headers
     }
 }
