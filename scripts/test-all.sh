@@ -39,14 +39,18 @@ export KEEP_STACK=1
 
 bash "$ROOT/scripts/test-full-stack.sh"
 bash "$ROOT/scripts/test-feature-flows.sh"
+python3 "$ROOT/scripts/test-m8-feature-matrix.py"
 
 cat >> "$REPORT" <<'EOF'
 
 ## Overall result
 
 **PASS** — automated builds, clean-volume infrastructure, all backend service
-readiness probes, representative gateway reads, authorization, loyalty writes,
-idempotency, and serviceability checks completed successfully.
+readiness probes, and the connected M8 matrix for customer, provider, catalog,
+appointment, order, payment, loyalty, captain, dispatch, review, notification,
+chat, content, and admin workflows completed successfully. Authorization,
+concurrency, idempotency, scheduler, persistence, outbox, and asynchronous
+projection evidence were retained in the same report.
 EOF
 
 echo "Complete validation report: $REPORT"
