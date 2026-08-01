@@ -21,6 +21,7 @@ export type AppIconName =
   | 'truck'
   | 'wallet'
   | 'inventory'
+  | 'search'
   | 'xmark'
   | 'message'
   | 'groom';
@@ -45,6 +46,7 @@ const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: str
   truck: { ios: 'scooter', android: 'local_shipping', fallback: 'D' },
   wallet: { ios: 'wallet.pass.fill', android: 'account_balance_wallet', fallback: 'W' },
   inventory: { ios: 'shippingbox.fill', android: 'inventory_2', fallback: 'I' },
+  search: { ios: 'magnifyingglass', android: 'search', fallback: 'Q' },
   xmark: { ios: 'xmark.circle.fill', android: 'cancel', fallback: 'N' },
   message: { ios: 'message.fill', android: 'chat', fallback: 'M' },
   groom: { ios: 'scissors', android: 'content_cut', fallback: 'G' },

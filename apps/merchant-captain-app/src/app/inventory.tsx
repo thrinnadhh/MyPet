@@ -1,1116 +1,570 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  FlatList, 
-  TouchableOpacity, 
-  TextInput, 
-  Alert, 
-  ActivityIndicator, 
-  useColorScheme,
-  Platform,
-  ScrollView,
-  Modal
-} from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+
+import { AppIcon } from '@/components/app-icon';
+import {
+  ActionButton,
+  AppBar,
+  FeedbackBanner,
+  FilterChip,
+  RoleBadge,
+  SectionHeader,
+  StateView,
+  StatusBadge,
+} from '@/components/foundation/primitives';
+import { ScreenShell } from '@/components/foundation/screen-shell';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Spacing, Colors } from '@/constants/theme';
+import { AppCard } from '@/components/ui/app-card';
+import { TextField } from '@/components/ui/text-field';
+import { ApiError, apiErrorKind, apiErrorMessage } from '@/contracts/api-error';
 import { useAuth } from '@/context/AuthContext';
-import { apiClient } from '@/services/api-client';
-import { appConfig } from '@/utils/app-config';
+import { radii, shadows, spacing, touchTarget, typography } from '@/design/tokens';
+import { useTheme } from '@/hooks/use-theme';
+import {
+  createMerchantOffering,
+  deleteMerchantOffering,
+  fetchMerchantOfferings,
+  fetchMerchantProviders,
+  updateMerchantOffering,
+  type MerchantOffering,
+  type MerchantProvider,
+  type OfferingDraft,
+  type OfferingStatus,
+} from '@/services/merchant-inventory';
+import { formatCurrency, formatStatusLabel } from '@/utils/formatters';
 
-// Stitch Design System Theme Colors
-const PRIMARY_BLUE = '#2563eb';
-const SUCCESS_EMERALD = '#10b981';
-const WARNING_AMBER = '#f59e0b';
-const ERROR_RED = '#ba1a1a';
+type InventoryFilter = 'ALL' | 'ACTIVE' | 'LOW_STOCK' | 'OUT_OF_STOCK' | 'INACTIVE';
 
-interface Offering {
-  offeringId?: string;
-  providerId: string;
+type FormState = {
   name: string;
-  description?: string;
-  category?: string;
-  price: number;
-  imageUrl?: string;
-  status: 'ACTIVE' | 'INACTIVE' | 'OUT_OF_STOCK';
-  stockQuantity?: number;
-  sku?: string;
-  durationMinutes?: number;
-}
-
-interface Slot {
-  slotId?: string;
-  offeringId: string;
-  slotStart: string; // ISO String
-  slotEnd: string; // ISO String
-  status: 'AVAILABLE' | 'HELD' | 'BOOKED' | 'BLOCKED';
-}
-
-/**
- * DEMO_PROVIDERS: Placeholder provider data used until Supabase Auth supplies
- * real session-based provider IDs. Replace with auth context in Sprint 3.
- */
-const DEMO_PROVIDERS = [
-  {
-    id: 'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
-    label: '🏬 Pet Store',
-    fulfillmentType: 'DELIVERY' as const,
-  },
-  {
-    id: 'e2b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
-    label: '✂️ Groomer',
-    fulfillmentType: 'APPOINTMENT' as const,
-  },
-];
-
-const OFFLINE_MOCK_OFFERINGS: Record<string, Offering[]> = {
-  // e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e (PET_STORE - DELIVERY)
-  'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e': [
-    {
-      offeringId: 'off-1',
-      providerId: 'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
-      name: 'Premium Salmon Kibble 5kg',
-      description: 'High protein nutrition for adult dogs.',
-      category: 'Food',
-      price: 45.99,
-      status: 'ACTIVE',
-      stockQuantity: 15,
-      sku: 'KIB-SAL-5KG',
-    },
-    {
-      offeringId: 'off-2',
-      providerId: 'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
-      name: 'Orthopedic Dog Bed (Medium)',
-      description: 'Memory foam support for joint pain relief.',
-      category: 'Furniture',
-      price: 79.99,
-      status: 'ACTIVE',
-      stockQuantity: 4,
-      sku: 'BED-ORTHO-M',
-    }
-  ],
-  // e2b07384-d113-4e4e-9c8e-3d8e3d8e3d8e (GROOMING_CENTER - APPOINTMENT)
-  'e2b07384-d113-4e4e-9c8e-3d8e3d8e3d8e': [
-    {
-      offeringId: 'off-3',
-      providerId: 'e2b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
-      name: 'Premium Bath & Brush',
-      description: 'Hypoallergenic organic shampoo treatment.',
-      category: 'Spa',
-      price: 35.00,
-      status: 'ACTIVE',
-      durationMinutes: 45,
-    },
-    {
-      offeringId: 'off-4',
-      providerId: 'e2b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
-      name: 'Full Style Groom & Haircut',
-      description: 'Breed-specific haircut by expert groomers.',
-      category: 'Styling',
-      price: 65.00,
-      status: 'ACTIVE',
-      durationMinutes: 75,
-    }
-  ]
+  description: string;
+  category: string;
+  price: string;
+  stockQuantity: string;
+  sku: string;
+  durationMinutes: string;
+  barcode: string;
+  status: OfferingStatus;
 };
 
-const OFFLINE_MOCK_SLOTS: Record<string, Slot[]> = {
-  'off-3': [
-    {
-      slotId: 'slot-1',
-      offeringId: 'off-3',
-      slotStart: '2026-06-25T10:00:00Z',
-      slotEnd: '2026-06-25T10:45:00Z',
-      status: 'AVAILABLE'
-    },
-    {
-      slotId: 'slot-2',
-      offeringId: 'off-3',
-      slotStart: '2026-06-25T11:00:00Z',
-      slotEnd: '2026-06-25T11:45:00Z',
-      status: 'AVAILABLE'
-    }
-  ],
-  'off-4': [
-    {
-      slotId: 'slot-3',
-      offeringId: 'off-4',
-      slotStart: '2026-06-25T13:00:00Z',
-      slotEnd: '2026-06-25T14:15:00Z',
-      status: 'BOOKED'
-    }
-  ]
+const EMPTY_FORM: FormState = {
+  name: '',
+  description: '',
+  category: '',
+  price: '',
+  stockQuantity: '',
+  sku: '',
+  durationMinutes: '',
+  barcode: '',
+  status: 'ACTIVE',
 };
+
+function providerIcon(providerType: string): string {
+  if (providerType === 'PET_STORE') return 'Store';
+  if (providerType === 'VET_HOSPITAL') return 'Hospital';
+  if (providerType === 'GROOMING_CENTER') return 'Groomer';
+  return formatStatusLabel(providerType);
+}
+
+function offeringTone(status: OfferingStatus): 'success' | 'warning' | 'danger' | 'neutral' {
+  if (status === 'ACTIVE') return 'success';
+  if (status === 'OUT_OF_STOCK') return 'danger';
+  if (status === 'INACTIVE') return 'neutral';
+  return 'warning';
+}
+
+function draftFromOffering(offering: MerchantOffering): OfferingDraft {
+  return {
+    name: offering.name,
+    description: offering.description ?? undefined,
+    category: offering.category ?? undefined,
+    price: offering.price,
+    status: offering.status,
+    stockQuantity: offering.stockQuantity ?? undefined,
+    sku: offering.sku ?? undefined,
+    durationMinutes: offering.durationMinutes ?? undefined,
+    barcode: offering.barcode ?? undefined,
+    imageUrl: offering.imageUrl ?? undefined,
+  };
+}
+
+function formFromOffering(offering: MerchantOffering): FormState {
+  return {
+    name: offering.name,
+    description: offering.description ?? '',
+    category: offering.category ?? '',
+    price: String(offering.price),
+    stockQuantity: offering.stockQuantity === null || offering.stockQuantity === undefined ? '' : String(offering.stockQuantity),
+    sku: offering.sku ?? '',
+    durationMinutes: offering.durationMinutes === null || offering.durationMinutes === undefined ? '' : String(offering.durationMinutes),
+    barcode: offering.barcode ?? '',
+    status: offering.status,
+  };
+}
 
 export default function InventoryScreen() {
-  const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
-  const colors = Colors[scheme];
-
+  const theme = useTheme();
   const { providerId } = useAuth();
+  const [providers, setProviders] = useState<MerchantProvider[]>([]);
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(providerId);
+  const [offerings, setOfferings] = useState<MerchantOffering[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(true);
+  const [loadingOfferings, setLoadingOfferings] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<InventoryFilter>('ALL');
+  const [editing, setEditing] = useState<MerchantOffering | null>(null);
+  const [formVisible, setFormVisible] = useState(false);
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  type ProviderOption = {
-    id: string;
-    label: string;
-    fulfillmentType: 'DELIVERY' | 'APPOINTMENT';
-  };
+  const selectedProvider = useMemo(
+    () => providers.find((provider) => provider.providerId === selectedProviderId) ?? null,
+    [providers, selectedProviderId],
+  );
 
-  const [providers, setProviders] = useState<ProviderOption[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<ProviderOption | null>(null);
-  const selectedProviderId = selectedProvider?.id ?? providerId;
-  const selectedProviderFulfillment = selectedProvider?.fulfillmentType ?? 'DELIVERY';
-
-  const fetchProviders = useCallback(async () => {
-    if (!providerId) {
-      setProviders([]);
-      setSelectedProvider(null);
-      return;
-    }
+  const loadProviders = useCallback(async () => {
+    setLoadingProviders(true);
+    setError(null);
     try {
-      const data = await apiClient.get<any[]>('/api/v1/providers/me');
-      const mapped: ProviderOption[] = data.map((provider) => ({
-        id: provider.providerId,
-        label:
-          provider.providerType === 'PET_STORE'
-            ? `🏬 ${provider.name}`
-            : provider.providerType === 'VET_HOSPITAL'
-              ? `🏥 ${provider.name}`
-              : `✂️ ${provider.name}`,
-        fulfillmentType: provider.fulfillmentType || 'DELIVERY',
-      }));
-      setProviders(mapped);
-      setSelectedProvider(
-        mapped.find((provider) => provider.id === providerId) ?? mapped[0] ?? null,
-      );
-    } catch (error) {
-      console.warn('Failed to resolve provider businesses', error);
+      const liveProviders = await fetchMerchantProviders();
+      setProviders(liveProviders);
+      setSelectedProviderId((current) => {
+        if (current && liveProviders.some((provider) => provider.providerId === current)) return current;
+        if (providerId && liveProviders.some((provider) => provider.providerId === providerId)) return providerId;
+        return liveProviders[0]?.providerId ?? null;
+      });
+    } catch (loadError) {
       setProviders([]);
-      setSelectedProvider(null);
+      setSelectedProviderId(null);
+      setError(loadError);
+    } finally {
+      setLoadingProviders(false);
     }
   }, [providerId]);
 
-  useEffect(() => {
-    void fetchProviders();
-  }, [fetchProviders]);
-
-  // Inventory state
-  const [offerings, setOfferings] = useState<Offering[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isOffline, setIsOffline] = useState(false);
-
-  // Offering form modal
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [formName, setFormName] = useState('');
-  const [formDesc, setFormDesc] = useState('');
-  const [formCategory, setFormCategory] = useState('');
-  const [formPrice, setFormPrice] = useState('');
-  const [formStock, setFormStock] = useState('');
-  const [formSku, setFormSku] = useState('');
-  const [formDuration, setFormDuration] = useState('');
-  const [submittingOffering, setSubmittingOffering] = useState(false);
-
-  // Slots management modal
-  const [selectedOffering, setSelectedOffering] = useState<Offering | null>(null);
-  const [slots, setSlots] = useState<Slot[]>([]);
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [newSlotStart, setNewSlotStart] = useState('');
-  const [newSlotEnd, setNewSlotEnd] = useState('');
-  const [defaultSlotEndDate] = useState(() => new Date(Date.now() + 45 * 60 * 1000));
-  const [showStartPicker, setShowStartPicker] = useState(false);
-  const [showEndPicker, setShowEndPicker] = useState(false);
-  const [creatingSlot, setCreatingSlot] = useState(false);
-
-  // Load catalog items
-  const fetchCatalog = useCallback(async () => {
-    setLoading(true);
-    setIsOffline(false);
+  const loadOfferings = useCallback(async () => {
     if (!selectedProviderId) {
       setOfferings([]);
-      setLoading(false);
       return;
     }
+    setLoadingOfferings(true);
+    setError(null);
     try {
-      const data = await apiClient.get<Offering[]>(
-        `/api/v1/catalog/offerings?providerId=${encodeURIComponent(selectedProviderId)}`,
-      );
-      setOfferings(data);
-    } catch (error) {
-      console.warn('Catalog API unreachable.', error);
-      setIsOffline(appConfig.allowDemoMode);
-      setOfferings(
-        appConfig.allowDemoMode ? OFFLINE_MOCK_OFFERINGS[selectedProviderId] || [] : [],
-      );
+      setOfferings(await fetchMerchantOfferings(selectedProviderId));
+    } catch (loadError) {
+      setOfferings([]);
+      setError(loadError);
     } finally {
-      setLoading(false);
+      setLoadingOfferings(false);
     }
   }, [selectedProviderId]);
 
   useEffect(() => {
-    fetchCatalog();
-  }, [fetchCatalog]);
+    void loadProviders();
+  }, [loadProviders]);
 
-  const resetForm = () => {
-    setFormName('');
-    setFormDesc('');
-    setFormCategory('');
-    setFormPrice('');
-    setFormStock('');
-    setFormSku('');
-    setFormDuration('');
+  useEffect(() => {
+    void loadOfferings();
+  }, [loadOfferings]);
+
+  const counts = useMemo(
+    () => ({
+      ALL: offerings.length,
+      ACTIVE: offerings.filter((offering) => offering.status === 'ACTIVE').length,
+      LOW_STOCK: offerings.filter(
+        (offering) => offering.stockQuantity !== null && offering.stockQuantity !== undefined && offering.stockQuantity > 0 && offering.stockQuantity <= 5,
+      ).length,
+      OUT_OF_STOCK: offerings.filter(
+        (offering) => offering.status === 'OUT_OF_STOCK' || offering.stockQuantity === 0,
+      ).length,
+      INACTIVE: offerings.filter((offering) => offering.status === 'INACTIVE').length,
+    }),
+    [offerings],
+  );
+
+  const visibleOfferings = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return offerings.filter((offering) => {
+      const matchesFilter =
+        filter === 'ALL' ||
+        (filter === 'ACTIVE' && offering.status === 'ACTIVE') ||
+        (filter === 'LOW_STOCK' && offering.stockQuantity !== null && offering.stockQuantity !== undefined && offering.stockQuantity > 0 && offering.stockQuantity <= 5) ||
+        (filter === 'OUT_OF_STOCK' && (offering.status === 'OUT_OF_STOCK' || offering.stockQuantity === 0)) ||
+        (filter === 'INACTIVE' && offering.status === 'INACTIVE');
+      if (!matchesFilter) return false;
+      if (!normalizedQuery) return true;
+      return [offering.name, offering.category, offering.sku, offering.barcode]
+        .some((value) => value?.toLowerCase().includes(normalizedQuery));
+    });
+  }, [filter, offerings, query]);
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm(EMPTY_FORM);
+    setFieldErrors({});
+    setError(null);
+    setFormVisible(true);
   };
 
-  // Submit new offering to catalog service
-  const handleAddOffering = useCallback(async () => {
-    if (!selectedProviderId) {
-      Alert.alert('Provider Required', 'Complete provider onboarding before managing inventory.');
-      return;
+  const openEdit = (offering: MerchantOffering) => {
+    setEditing(offering);
+    setForm(formFromOffering(offering));
+    setFieldErrors({});
+    setError(null);
+    setFormVisible(true);
+  };
+
+  const validateDraft = (): OfferingDraft | null => {
+    const errors: Record<string, string> = {};
+    const price = Number(form.price);
+    const isDelivery = selectedProvider?.fulfillmentType === 'DELIVERY';
+    const stockQuantity = form.stockQuantity.trim() ? Number(form.stockQuantity) : undefined;
+    const durationMinutes = form.durationMinutes.trim() ? Number(form.durationMinutes) : undefined;
+
+    if (!form.name.trim()) errors.name = 'Name is required.';
+    if (!Number.isFinite(price) || price <= 0) errors.price = 'Enter a price greater than zero.';
+    if (isDelivery && (!Number.isInteger(stockQuantity) || (stockQuantity ?? -1) < 0)) {
+      errors.stockQuantity = 'Enter a whole stock quantity of zero or more.';
     }
-    if (!formName.trim() || !formPrice.trim()) {
-      Alert.alert('Validation Error', 'Offering name and price are required.');
-      return;
+    if (!isDelivery && (!Number.isInteger(durationMinutes) || (durationMinutes ?? 0) <= 0)) {
+      errors.durationMinutes = 'Enter a service duration in minutes.';
     }
 
-    const priceNum = parseFloat(formPrice);
-    if (isNaN(priceNum) || priceNum <= 0) {
-      Alert.alert('Validation Error', 'Please enter a valid price.');
-      return;
-    }
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return null;
 
-    const payload: Offering = {
-      providerId: selectedProviderId,
-      name: formName,
-      description: formDesc.trim() || undefined,
-      category: formCategory.trim() || undefined,
-      price: priceNum,
-      status: 'ACTIVE',
+    return {
+      name: form.name,
+      description: form.description,
+      category: form.category,
+      price,
+      status: isDelivery && stockQuantity === 0 ? 'OUT_OF_STOCK' : form.status,
+      stockQuantity: isDelivery ? stockQuantity : undefined,
+      sku: isDelivery ? form.sku : undefined,
+      durationMinutes: isDelivery ? undefined : durationMinutes,
+      barcode: isDelivery ? form.barcode : undefined,
     };
+  };
 
-    if (selectedProviderFulfillment === 'DELIVERY') {
-      const stockNum = parseInt(formStock);
-      if (isNaN(stockNum) || stockNum < 0) {
-        Alert.alert('Validation Error', 'Stock quantity is required for delivery products.');
-        return;
-      }
-      payload.stockQuantity = stockNum;
-      payload.sku = formSku.trim() || undefined;
-    } else {
-      const durationNum = parseInt(formDuration);
-      if (isNaN(durationNum) || durationNum <= 0) {
-        Alert.alert('Validation Error', 'Duration (in minutes) is required for services.');
-        return;
-      }
-      payload.durationMinutes = durationNum;
-    }
-
-    setSubmittingOffering(true);
+  const save = useCallback(async () => {
+    if (!selectedProviderId) return;
+    const draft = validateDraft();
+    if (!draft) return;
+    setSaving(true);
+    setError(null);
     try {
-      if (isOffline && appConfig.allowDemoMode) {
-        // Offline sandbox mode simulation
-        const mockNew: Offering = {
-          ...payload,
-          offeringId: 'mock-off-' + Date.now(),
-        };
-        setOfferings((prev) => [...prev, mockNew]);
-        Alert.alert('Success', 'Item added to offline catalog sandbox.');
-        setShowAddForm(false);
-        resetForm();
-      } else {
-        await apiClient.post('/api/v1/catalog/offerings', payload);
-        Alert.alert('Success', 'Offering created successfully!');
-        void fetchCatalog();
-        setShowAddForm(false);
-        resetForm();
-      }
-    } catch (err) {
-      Alert.alert('Connection Error', 'Cannot connect to gateway service.');
-    } finally {
-      setSubmittingOffering(false);
-    }
-  }, [
-    selectedProviderId,
-    selectedProviderFulfillment,
-    formName,
-    formDesc,
-    formCategory,
-    formPrice,
-    formStock,
-    formSku,
-    formDuration,
-    isOffline,
-    fetchCatalog
-  ]);
-
-  // Toggle offering status
-  const handleToggleOfferingStatus = useCallback(async (item: Offering) => {
-    const newStatus = item.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    try {
-      if (isOffline && appConfig.allowDemoMode) {
-        setOfferings((prev) =>
-          prev.map((o) => (o.offeringId === item.offeringId ? { ...o, status: newStatus } : o))
+      const saved = editing
+        ? await updateMerchantOffering(editing, draft)
+        : await createMerchantOffering(selectedProviderId, draft);
+      setOfferings((current) => {
+        const withoutSaved = current.filter((offering) => offering.offeringId !== saved.offeringId);
+        return [...withoutSaved, saved].sort((left, right) => left.name.localeCompare(right.name));
+      });
+      setFormVisible(false);
+      setEditing(null);
+      setForm(EMPTY_FORM);
+    } catch (saveError) {
+      setError(saveError);
+      if (saveError instanceof ApiError) {
+        setFieldErrors(
+          Object.fromEntries(
+            Object.entries(saveError.fieldErrors).map(([field, messages]) => [field, messages[0] ?? 'Invalid value.']),
+          ),
         );
-      } else {
-        await apiClient.put(
-          `/api/v1/catalog/offerings/${item.offeringId}`,
-          { ...item, status: newStatus },
-        );
-        void fetchCatalog();
       }
-    } catch (err) {
-      Alert.alert('Connection Error', 'Gateway service unreachable.');
-    }
-  }, [isOffline, fetchCatalog]);
-
-  // Load slots for selected service
-  const openSlotsManager = useCallback(async (offering: Offering) => {
-    setSelectedOffering(offering);
-    setLoadingSlots(true);
-    try {
-      const data = await apiClient.get<Slot[]>(
-        `/api/v1/catalog/slots?offeringId=${encodeURIComponent(offering.offeringId || '')}`,
-      );
-      setSlots(data);
-    } catch (err) {
-      console.warn('Slots API unreachable.');
-      setSlots(appConfig.allowDemoMode ? OFFLINE_MOCK_SLOTS[offering.offeringId || ''] || [] : []);
     } finally {
-      setLoadingSlots(false);
+      setSaving(false);
+    }
+  }, [editing, form, selectedProvider, selectedProviderId]);
+
+  const toggleStatus = useCallback(async (offering: MerchantOffering) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const nextStatus: OfferingStatus = offering.status === 'ACTIVE' ? 'INACTIVE' : offering.stockQuantity === 0 ? 'OUT_OF_STOCK' : 'ACTIVE';
+      const updated = await updateMerchantOffering(offering, {
+        ...draftFromOffering(offering),
+        status: nextStatus,
+      });
+      setOfferings((current) => current.map((item) => (item.offeringId === updated.offeringId ? updated : item)));
+    } catch (updateError) {
+      setError(updateError);
+    } finally {
+      setSaving(false);
     }
   }, []);
 
-  // Create slot for appointment-based offering
-  const handleCreateSlot = useCallback(async () => {
-    if (!selectedOffering || !selectedOffering.offeringId) return;
-    if (!newSlotStart.trim() || !newSlotEnd.trim()) {
-      Alert.alert('Validation Error', 'Start time and end time are required.');
-      return;
-    }
-
-    const startInstant = new Date(newSlotStart);
-    const endInstant = new Date(newSlotEnd);
-
-    if (isNaN(startInstant.getTime()) || isNaN(endInstant.getTime())) {
-      Alert.alert('Validation Error', 'Please enter valid ISO date strings.');
-      return;
-    }
-
-    if (endInstant <= startInstant) {
-      Alert.alert('Validation Error', 'Slot end time must be after the start time.');
-      return;
-    }
-
-    const payload: Slot = {
-      offeringId: selectedOffering.offeringId,
-      slotStart: startInstant.toISOString(),
-      slotEnd: endInstant.toISOString(),
-      status: 'AVAILABLE'
-    };
-
-    setCreatingSlot(true);
-    try {
-      if (isOffline && appConfig.allowDemoMode) {
-        const mockNew: Slot = {
-          ...payload,
-          slotId: 'mock-slot-' + Date.now(),
-        };
-        setSlots((prev) => [...prev, mockNew]);
-        Alert.alert('Success', 'Slot added in offline sandbox mode.');
-        setNewSlotStart('');
-        setNewSlotEnd('');
-      } else {
-        await apiClient.post('/api/v1/catalog/slots', payload);
-        Alert.alert('Success', 'Time slot created.');
-        setNewSlotStart('');
-        setNewSlotEnd('');
-        void openSlotsManager(selectedOffering);
-      }
-    } catch (err) {
-      Alert.alert('Connection Error', 'Gateway service unreachable.');
-    } finally {
-      setCreatingSlot(false);
-    }
-  }, [selectedOffering, newSlotStart, newSlotEnd, isOffline, openSlotsManager]);
-
-  // Update slot status
-  const handleUpdateSlotStatus = useCallback(async (slotId: string, currentStatus: Slot['status']) => {
-    const nextStatusMap: Record<Slot['status'], Slot['status']> = {
-      AVAILABLE: 'HELD',
-      HELD: 'BOOKED',
-      BOOKED: 'BLOCKED',
-      BLOCKED: 'AVAILABLE',
-    };
-    const nextStatus = nextStatusMap[currentStatus];
-
-    try {
-      if (isOffline && appConfig.allowDemoMode) {
-        setSlots((prev) =>
-          prev.map((s) => (s.slotId === slotId ? { ...s, status: nextStatus } : s))
-        );
-      } else {
-        await apiClient.put(
-          `/api/v1/catalog/slots/${slotId}/status?status=${nextStatus}`,
-        );
-        if (selectedOffering) {
-          void openSlotsManager(selectedOffering);
-        }
-      }
-    } catch (err) {
-      Alert.alert('Connection Error', 'Gateway service unreachable.');
-    }
-  }, [isOffline, selectedOffering, openSlotsManager]);
-
-  // Render offering item
-  const renderOfferingItem = useCallback(({ item }: { item: Offering }) => {
-    const isService = item.durationMinutes !== undefined && item.durationMinutes !== null;
-    return (
-      <View style={[styles.card, { backgroundColor: colors.backgroundElement, borderColor: colors.textSecondary }]}>
-        <View style={styles.cardHeader}>
-          <View style={{ flex: 1 }}>
-            <ThemedText style={styles.cardTitle}>{item.name}</ThemedText>
-            <ThemedText type="small" style={{ color: colors.textSecondary, marginTop: Spacing.half }}>
-              {item.category || 'Uncategorized'}
-            </ThemedText>
-          </View>
-          <View style={[styles.statusBadge, { backgroundColor: item.status === 'ACTIVE' ? SUCCESS_EMERALD : ERROR_RED }]}>
-            <ThemedText style={styles.statusBadgeText}>{item.status}</ThemedText>
-          </View>
-        </View>
-
-        <ThemedText type="small" style={styles.cardDesc}>
-          {item.description || 'No description provided.'}
-        </ThemedText>
-
-        <View style={styles.cardDetails}>
-          <ThemedText style={styles.cardPrice}>
-            ${item.price.toFixed(2)}
-          </ThemedText>
-
-          {isService ? (
-            <ThemedText type="small" style={{ color: colors.textSecondary }}>
-              🕒 {item.durationMinutes} mins duration
-            </ThemedText>
-          ) : (
-            <ThemedText type="small" style={{ color: colors.textSecondary }}>
-              📦 Stock: {item.stockQuantity} | SKU: {item.sku || 'N/A'}
-            </ThemedText>
-          )}
-        </View>
-
-        <View style={styles.cardActions}>
-          <TouchableOpacity
-            style={[styles.actionBtn, { borderColor: colors.text, borderWidth: 1 }]}
-            onPress={() => handleToggleOfferingStatus(item)}
-            activeOpacity={0.7}
-          >
-            <ThemedText type="small" style={{ fontWeight: '600' }}>
-              {item.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
-            </ThemedText>
-          </TouchableOpacity>
-
-          {isService && (
-            <TouchableOpacity
-              style={[styles.actionBtn, { backgroundColor: PRIMARY_BLUE }]}
-              onPress={() => openSlotsManager(item)}
-              activeOpacity={0.7}
-            >
-              <ThemedText type="small" style={{ color: '#ffffff', fontWeight: '800' }}>
-                Manage Slots
-              </ThemedText>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
+  const remove = useCallback((offering: MerchantOffering) => {
+    if (!offering.offeringId) return;
+    Alert.alert(
+      'Delete offering',
+      `Delete “${offering.name}”? Existing orders retain their item snapshot, but customers will no longer discover this offering.`,
+      [
+        { text: 'Keep', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setSaving(true);
+            setError(null);
+            void deleteMerchantOffering(offering.offeringId!)
+              .then(() => setOfferings((current) => current.filter((item) => item.offeringId !== offering.offeringId)))
+              .catch(setError)
+              .finally(() => setSaving(false));
+          },
+        },
+      ],
     );
-  }, [colors, handleToggleOfferingStatus, openSlotsManager]);
+  }, []);
 
-  const keyExtractor = useCallback((item: Offering) => item.offeringId || '', []);
+  const errorTrace = error instanceof ApiError && error.traceId ? ` Reference: ${error.traceId}.` : '';
 
   return (
-    <ThemedView style={[styles.container, { backgroundColor: colors.background }]}>
-      <SafeAreaView style={styles.safeArea}>
-        {/* Connection status warning */}
-        {isOffline && (
-          <View style={styles.offlineBanner}>
-            <ThemedText type="small" style={styles.offlineText}>
-              ⚠️ You are currently offline. Retry again.
-            </ThemedText>
-            <TouchableOpacity style={styles.retryBtn} onPress={fetchCatalog}>
-              <ThemedText type="small" style={styles.retryBtnText}>Retry</ThemedText>
-            </TouchableOpacity>
-          </View>
-        )}
+    <ScreenShell
+      header={
+        <AppBar
+          eyebrow="MERCHANT WORKSPACE"
+          title="Catalog & inventory"
+          subtitle="Maintain customer-visible products and services"
+          action={<RoleBadge role="merchant" />}
+        />
+      }
+      testID="merchant-inventory"
+    >
+      {error ? (
+        <FeedbackBanner
+          tone="danger"
+          title={apiErrorKind(error) === 'conflict' ? 'Inventory changed on the server' : 'Inventory action failed'}
+          message={`${apiErrorMessage(error, 'Could not complete the inventory action.')}${errorTrace}`}
+          icon="dispute"
+        />
+      ) : null}
 
-        {/* Business Selector Header */}
-        <View style={[styles.header, { borderBottomColor: colors.backgroundSelected }]}>
-          <ThemedText type="subtitle" style={{ fontWeight: '800' }}>Catalog & Inventory</ThemedText>
-          <View style={styles.tabRow}>
+      {loadingProviders ? <StateView kind="loading" title="Loading businesses" /> : null}
+      {!loadingProviders && providers.length === 0 ? (
+        <StateView
+          kind="unauthorized"
+          title="Approved business required"
+          message="Complete provider onboarding before publishing products or services."
+          actionLabel="Retry"
+          onAction={() => void loadProviders()}
+        />
+      ) : null}
+
+      {providers.length > 0 ? (
+        <>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.providerRow}>
             {providers.map((provider) => (
-              <TouchableOpacity
-                key={provider.id}
-                style={[
-                  styles.tabBtn,
-                  { backgroundColor: colors.backgroundElement },
-                  selectedProviderId === provider.id && {
-                    backgroundColor: colors.backgroundSelected,
-                    borderWidth: 2,
-                    borderColor: colors.text,
-                  }
-                ]}
-                onPress={() => setSelectedProvider(provider)}
-                activeOpacity={0.7}
-                accessibilityRole="tab"
-                accessibilityLabel={`Switch to ${provider.label}`}
-                accessibilityState={{ selected: selectedProviderId === provider.id }}
-              >
-                <ThemedText type="small" style={{ fontWeight: '700' }}>{provider.label}</ThemedText>
-              </TouchableOpacity>
+              <FilterChip
+                key={provider.providerId}
+                label={`${providerIcon(provider.providerType)} · ${provider.name}`}
+                selected={provider.providerId === selectedProviderId}
+                onPress={() => setSelectedProviderId(provider.providerId)}
+              />
             ))}
+          </ScrollView>
+
+          <View style={styles.headingRow}>
+            <SectionHeader
+              title={selectedProvider?.name ?? 'Inventory'}
+              subtitle={selectedProvider?.fulfillmentType === 'DELIVERY' ? 'Delivery products, stock and pricing' : 'Bookable services, duration and pricing'}
+            />
+            <ActionButton label="Add offering" icon="inventory" onPress={openCreate} />
           </View>
-        </View>
 
-        {/* List Content */}
-        {loading ? (
-          <View style={styles.centered}>
-            <ActivityIndicator size="large" color={PRIMARY_BLUE} />
+          {selectedProvider?.fulfillmentType === 'APPOINTMENT' ? (
+            <FeedbackBanner
+              tone="info"
+              title="Appointment availability"
+              message="Create and price services here. Slot scheduling and appointment operations remain in the Bookings workspace."
+              icon="calendar"
+            />
+          ) : null}
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+            {(['ALL', 'ACTIVE', 'LOW_STOCK', 'OUT_OF_STOCK', 'INACTIVE'] as const).map((value) => (
+              <FilterChip
+                key={value}
+                label={`${value === 'ALL' ? 'All' : value === 'LOW_STOCK' ? 'Low stock' : value === 'OUT_OF_STOCK' ? 'Out of stock' : formatStatusLabel(value)} (${counts[value]})`}
+                selected={filter === value}
+                onPress={() => setFilter(value)}
+              />
+            ))}
+          </ScrollView>
+
+          <View style={[styles.search, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+            <AppIcon name="search" color={theme.textSecondary} size={18} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search name, category, SKU or barcode"
+              placeholderTextColor={theme.textSecondary}
+              style={[styles.searchInput, { color: theme.text }]}
+              accessibilityLabel="Search inventory"
+              returnKeyType="search"
+            />
+            {query ? (
+              <Pressable onPress={() => setQuery('')} accessibilityRole="button" accessibilityLabel="Clear inventory search" style={styles.clear}>
+                <AppIcon name="xmark" color={theme.textSecondary} size={18} />
+              </Pressable>
+            ) : null}
           </View>
-        ) : (
-          <FlatList
-            data={offerings}
-            renderItem={renderOfferingItem}
-            keyExtractor={keyExtractor}
-            contentContainerStyle={styles.listContent}
-            ListEmptyComponent={
-              <View style={styles.centered}>
-                <ThemedText style={{ color: colors.textSecondary }}>No products or services found.</ThemedText>
-              </View>
-            }
-          />
-        )}
 
-        {/* Sticky FAB to add offering */}
-        <TouchableOpacity
-          style={[styles.fab, { backgroundColor: colors.text }]}
-          onPress={() => setShowAddForm(true)}
-          activeOpacity={0.8}
-        >
-          <ThemedText style={{ color: colors.background, fontSize: 32, fontWeight: '300' }}>+</ThemedText>
-        </TouchableOpacity>
+          {loadingOfferings ? <StateView kind="loading" title="Loading inventory" message="Reading the latest catalog state…" /> : null}
+          {!loadingOfferings && visibleOfferings.length === 0 ? (
+            <StateView
+              kind="empty"
+              title={query ? 'No matching offerings' : 'No offerings in this view'}
+              message={query ? 'Try another product, service, SKU or barcode.' : 'Add the first offering or select another filter.'}
+              actionLabel={query ? 'Clear search' : 'Add offering'}
+              onAction={query ? () => setQuery('') : openCreate}
+            />
+          ) : null}
 
-        {/* Modal: Add Offering Form */}
-        <Modal visible={showAddForm} animationType="slide" transparent>
-          <View style={styles.modalOverlay}>
-            <ThemedView style={[styles.modalContent, { backgroundColor: colors.background }]}>
-              <ScrollView showsVerticalScrollIndicator={false}>
-                <View style={styles.modalHeader}>
-                  <ThemedText type="subtitle" style={{ fontWeight: '800' }}>Add Offering</ThemedText>
-                  <TouchableOpacity onPress={() => setShowAddForm(false)} style={styles.closeBtn}>
-                    <ThemedText style={{ fontSize: 24 }}>✕</ThemedText>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.formGroup}>
-                  <ThemedText type="small" style={styles.formLabel}>Item Name *</ThemedText>
-                  <TextInput
-                    style={[styles.formInput, { backgroundColor: colors.backgroundElement, color: colors.text }]}
-                    value={formName}
-                    onChangeText={setFormName}
-                    placeholder="e.g. Organic Shampoo Treatment"
-                    placeholderTextColor="#888"
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <ThemedText type="small" style={styles.formLabel}>Description</ThemedText>
-                  <TextInput
-                    style={[styles.formInput, { backgroundColor: colors.backgroundElement, color: colors.text }]}
-                    value={formDesc}
-                    onChangeText={setFormDesc}
-                    multiline
-                    numberOfLines={3}
-                    placeholder="Enter short description"
-                    placeholderTextColor="#888"
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <ThemedText type="small" style={styles.formLabel}>Category</ThemedText>
-                  <TextInput
-                    style={[styles.formInput, { backgroundColor: colors.backgroundElement, color: colors.text }]}
-                    value={formCategory}
-                    onChangeText={setFormCategory}
-                    placeholder="e.g. Grooming, Food, Accessory"
-                    placeholderTextColor="#888"
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <ThemedText type="small" style={styles.formLabel}>Price ($) *</ThemedText>
-                  <TextInput
-                    style={[styles.formInput, { backgroundColor: colors.backgroundElement, color: colors.text }]}
-                    value={formPrice}
-                    onChangeText={setFormPrice}
-                    keyboardType="numeric"
-                    placeholder="0.00"
-                    placeholderTextColor="#888"
-                  />
-                </View>
-
-                {selectedProviderFulfillment === 'DELIVERY' ? (
-                  <>
-                    <View style={styles.formGroup}>
-                      <ThemedText type="small" style={styles.formLabel}>Stock Quantity *</ThemedText>
-                      <TextInput
-                        style={[styles.formInput, { backgroundColor: colors.backgroundElement, color: colors.text }]}
-                        value={formStock}
-                        onChangeText={setFormStock}
-                        keyboardType="number-pad"
-                        placeholder="e.g. 25"
-                        placeholderTextColor="#888"
-                      />
+          {!loadingOfferings && visibleOfferings.length > 0 ? (
+            <View style={styles.list}>
+              {visibleOfferings.map((offering) => {
+                const isService = offering.durationMinutes !== null && offering.durationMinutes !== undefined;
+                return (
+                  <AppCard key={offering.offeringId ?? `${offering.providerId}-${offering.name}`} style={styles.card}>
+                    <View style={styles.cardHeader}>
+                      <View style={[styles.itemIcon, { backgroundColor: theme.primarySoft }]}>
+                        <AppIcon name={isService ? 'calendar' : 'inventory'} color={theme.primary} size={22} />
+                      </View>
+                      <View style={styles.flex}>
+                        <ThemedText style={styles.itemTitle}>{offering.name}</ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          {offering.category || 'Uncategorized'}{offering.sku ? ` · SKU ${offering.sku}` : ''}
+                        </ThemedText>
+                      </View>
+                      <StatusBadge label={formatStatusLabel(offering.status)} tone={offeringTone(offering.status)} />
                     </View>
-                    <View style={styles.formGroup}>
-                      <ThemedText type="small" style={styles.formLabel}>SKU Code</ThemedText>
-                      <TextInput
-                        style={[styles.formInput, { backgroundColor: colors.backgroundElement, color: colors.text }]}
-                        value={formSku}
-                        onChangeText={setFormSku}
-                        placeholder="e.g. ITEM-SHAMP-01"
-                        placeholderTextColor="#888"
-                      />
+
+                    {offering.description ? (
+                      <ThemedText type="small" themeColor="textSecondary">{offering.description}</ThemedText>
+                    ) : null}
+
+                    <View style={[styles.metrics, { backgroundColor: theme.muted }]}>
+                      <View style={styles.metric}>
+                        <ThemedText type="small" themeColor="textSecondary">Price</ThemedText>
+                        <ThemedText style={styles.amount}>{formatCurrency(offering.price)}</ThemedText>
+                      </View>
+                      <View style={styles.metric}>
+                        <ThemedText type="small" themeColor="textSecondary">{isService ? 'Duration' : 'Stock'}</ThemedText>
+                        <ThemedText type="smallBold">
+                          {isService ? `${offering.durationMinutes} minutes` : `${offering.stockQuantity ?? 0} available`}
+                        </ThemedText>
+                      </View>
                     </View>
-                  </>
-                ) : (
-                  <View style={styles.formGroup}>
-                    <ThemedText type="small" style={styles.formLabel}>Duration (Minutes) *</ThemedText>
-                    <TextInput
-                      style={[styles.formInput, { backgroundColor: colors.backgroundElement, color: colors.text }]}
-                      value={formDuration}
-                      onChangeText={setFormDuration}
-                      keyboardType="number-pad"
-                      placeholder="e.g. 45"
-                      placeholderTextColor="#888"
-                    />
-                  </View>
-                )}
 
-                <TouchableOpacity
-                  style={[styles.submitBtn, { backgroundColor: PRIMARY_BLUE }]}
-                  onPress={handleAddOffering}
-                  disabled={submittingOffering}
-                  activeOpacity={0.8}
-                >
-                  {submittingOffering ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
-                  ) : (
-                    <ThemedText style={styles.submitBtnText}>Create Offering</ThemedText>
-                  )}
-                </TouchableOpacity>
-              </ScrollView>
-            </ThemedView>
-          </View>
-        </Modal>
+                    {!isService && offering.stockQuantity !== null && offering.stockQuantity !== undefined && offering.stockQuantity <= 5 ? (
+                      <FeedbackBanner
+                        tone={offering.stockQuantity === 0 ? 'danger' : 'warning'}
+                        title={offering.stockQuantity === 0 ? 'Out of stock' : 'Low stock'}
+                        message={offering.stockQuantity === 0 ? 'Update stock before reactivating this offering.' : `${offering.stockQuantity} units remain.`}
+                        icon="inventory"
+                      />
+                    ) : null}
 
-        {/* Modal: Slots Management Screen */}
-        <Modal visible={selectedOffering !== null} animationType="slide" transparent>
-          <View style={styles.modalOverlay}>
-            <ThemedView style={[styles.modalContent, { backgroundColor: colors.background }]}>
-              <View style={styles.modalHeader}>
-                <View style={{ flex: 1 }}>
-                  <ThemedText type="subtitle" style={{ fontWeight: '800' }}>Manage Booking Slots</ThemedText>
-                  <ThemedText type="small" style={{ color: colors.textSecondary }}>
-                    {selectedOffering?.name}
+                    <View style={styles.actions}>
+                      <ActionButton label="Edit" variant="secondary" icon="inventory" onPress={() => openEdit(offering)} style={styles.action} />
+                      <ActionButton
+                        label={offering.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                        variant="ghost"
+                        icon={offering.status === 'ACTIVE' ? 'xmark' : 'check'}
+                        loading={saving}
+                        disabled={offering.status !== 'ACTIVE' && offering.stockQuantity === 0}
+                        onPress={() => void toggleStatus(offering)}
+                        style={styles.action}
+                      />
+                      <ActionButton label="Delete" variant="destructive" icon="xmark" disabled={saving} onPress={() => remove(offering)} style={styles.action} />
+                    </View>
+                  </AppCard>
+                );
+              })}
+            </View>
+          ) : null}
+        </>
+      ) : null}
+
+      <Modal visible={formVisible} transparent animationType="slide" onRequestClose={() => setFormVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modal, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]} accessibilityViewIsModal>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
+              <View style={styles.cardHeader}>
+                <View style={styles.flex}>
+                  <ThemedText type="title">{editing ? 'Edit offering' : 'Add offering'}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {selectedProvider?.fulfillmentType === 'DELIVERY' ? 'Product details and current stock' : 'Service details and customer-facing duration'}
                   </ThemedText>
                 </View>
-                <TouchableOpacity onPress={() => setSelectedOffering(null)} style={styles.closeBtn}>
-                  <ThemedText style={{ fontSize: 24 }}>✕</ThemedText>
-                </TouchableOpacity>
+                <Pressable onPress={() => setFormVisible(false)} accessibilityRole="button" accessibilityLabel="Close offering form" style={styles.clear}>
+                  <AppIcon name="xmark" color={theme.textSecondary} size={20} />
+                </Pressable>
               </View>
 
-              {/* List of Time Slots */}
-              <View style={{ flex: 1 }}>
-                {loadingSlots ? (
-                  <ActivityIndicator size="large" color={PRIMARY_BLUE} style={{ marginTop: Spacing.four }} />
-                ) : (
-                  <FlatList
-                    data={slots}
-                    keyExtractor={(item) => item.slotId || ''}
-                    renderItem={({ item }) => {
-                      const startStr = new Date(item.slotStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                      const endStr = new Date(item.slotEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                      const dateStr = new Date(item.slotStart).toLocaleDateString([], { month: 'short', day: 'numeric' });
+              <TextField label="Name" value={form.name} onChangeText={(value) => setForm((current) => ({ ...current, name: value }))} error={fieldErrors.name} />
+              <TextField label="Description" value={form.description} onChangeText={(value) => setForm((current) => ({ ...current, description: value }))} multiline numberOfLines={3} />
+              <TextField label="Category" value={form.category} onChangeText={(value) => setForm((current) => ({ ...current, category: value }))} />
+              <TextField label="Price (₹)" value={form.price} onChangeText={(value) => setForm((current) => ({ ...current, price: value }))} keyboardType="decimal-pad" error={fieldErrors.price} />
 
-                      const statusColors: Record<Slot['status'], string> = {
-                        AVAILABLE: SUCCESS_EMERALD,
-                        HELD: WARNING_AMBER,
-                        BOOKED: PRIMARY_BLUE,
-                        BLOCKED: ERROR_RED,
-                      };
+              {selectedProvider?.fulfillmentType === 'DELIVERY' ? (
+                <>
+                  <TextField label="Stock quantity" value={form.stockQuantity} onChangeText={(value) => setForm((current) => ({ ...current, stockQuantity: value }))} keyboardType="number-pad" error={fieldErrors.stockQuantity} />
+                  <TextField label="SKU" value={form.sku} onChangeText={(value) => setForm((current) => ({ ...current, sku: value }))} autoCapitalize="characters" />
+                  <TextField label="Barcode" value={form.barcode} onChangeText={(value) => setForm((current) => ({ ...current, barcode: value }))} keyboardType="number-pad" />
+                </>
+              ) : (
+                <TextField label="Duration in minutes" value={form.durationMinutes} onChangeText={(value) => setForm((current) => ({ ...current, durationMinutes: value }))} keyboardType="number-pad" error={fieldErrors.durationMinutes} />
+              )}
 
-                      return (
-                        <View style={[styles.slotItem, { borderBottomColor: colors.backgroundElement }]}>
-                          <View style={{ flex: 1 }}>
-                            <ThemedText style={{ fontWeight: '700' }}>
-                              📅 {dateStr}  |  🕒 {startStr} - {endStr}
-                            </ThemedText>
-                            <ThemedText type="small" style={{ color: colors.textSecondary, marginTop: Spacing.half }}>
-                              Timezone: UTC
-                            </ThemedText>
-                          </View>
-
-                          <TouchableOpacity
-                            style={[styles.statusToggleBtn, { backgroundColor: statusColors[item.status] }]}
-                            onPress={() => item.slotId && handleUpdateSlotStatus(item.slotId, item.status)}
-                          >
-                            <ThemedText style={styles.statusToggleText}>
-                              {item.status}
-                            </ThemedText>
-                          </TouchableOpacity>
-                        </View>
-                      );
-                    }}
-                    ListEmptyComponent={
-                      <View style={styles.centered}>
-                        <ThemedText style={{ color: colors.textSecondary }}>No time slots created yet.</ThemedText>
-                      </View>
-                    }
-                  />
-                )}
+              <View style={styles.statusSection}>
+                <ThemedText type="smallBold">Visibility</ThemedText>
+                <View style={styles.filters}>
+                  {(['ACTIVE', 'INACTIVE'] as const).map((status) => (
+                    <FilterChip key={status} label={formatStatusLabel(status)} selected={form.status === status} onPress={() => setForm((current) => ({ ...current, status }))} />
+                  ))}
+                </View>
               </View>
 
-              {/* Form to Create Slot */}
-              <View style={[styles.createSlotBox, { borderTopColor: colors.backgroundSelected }]}>
-                <ThemedText style={{ fontWeight: '700', marginBottom: Spacing.two }}>Create New Slot</ThemedText>
-                
-                {Platform.OS === 'web' ? (
-                  <View style={{ marginBottom: Spacing.two, gap: Spacing.one }}>
-                    <ThemedText type="small" style={{ color: colors.textSecondary }}>Start Time</ThemedText>
-                    <input
-                      type="datetime-local"
-                      value={newSlotStart ? newSlotStart.substring(0, 16) : ''}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val) {
-                          setNewSlotStart(new Date(val).toISOString());
-                        } else {
-                          setNewSlotStart('');
-                        }
-                      }}
-                      style={{
-                        height: 48,
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        borderColor: colors.backgroundSelected,
-                        padding: 12,
-                        backgroundColor: colors.backgroundElement,
-                        color: colors.text,
-                        fontSize: 14,
-                        fontFamily: 'inherit'
-                      }}
-                    />
-                    <ThemedText type="small" style={{ color: colors.textSecondary, marginTop: Spacing.one }}>End Time</ThemedText>
-                    <input
-                      type="datetime-local"
-                      value={newSlotEnd ? newSlotEnd.substring(0, 16) : ''}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val) {
-                          setNewSlotEnd(new Date(val).toISOString());
-                        } else {
-                          setNewSlotEnd('');
-                        }
-                      }}
-                      style={{
-                        height: 48,
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        borderColor: colors.backgroundSelected,
-                        padding: 12,
-                        backgroundColor: colors.backgroundElement,
-                        color: colors.text,
-                        fontSize: 14,
-                        fontFamily: 'inherit',
-                        marginBottom: Spacing.two
-                      }}
-                    />
-                  </View>
-                ) : (
-                  <View style={{ marginBottom: Spacing.two, gap: Spacing.two }}>
-                    <TouchableOpacity
-                      style={[styles.formInput, { backgroundColor: colors.backgroundElement, justifyContent: 'center' }]}
-                      onPress={() => setShowStartPicker(true)}
-                    >
-                      <ThemedText type="small" style={{ color: newSlotStart ? colors.text : '#888' }}>
-                        {newSlotStart ? `Start: ${new Date(newSlotStart).toLocaleString()}` : 'Select Start Time *'}
-                      </ThemedText>
-                    </TouchableOpacity>
-                    {showStartPicker && (
-                      <DateTimePicker
-                        value={newSlotStart ? new Date(newSlotStart) : new Date()}
-                        mode="datetime"
-                        display="default"
-                        onChange={(event, selectedDate) => {
-                          setShowStartPicker(false);
-                          if (selectedDate) {
-                            setNewSlotStart(selectedDate.toISOString());
-                          }
-                        }}
-                      />
-                    )}
+              {error && formVisible ? (
+                <FeedbackBanner tone="danger" title="Could not save offering" message={apiErrorMessage(error)} />
+              ) : null}
 
-                    <TouchableOpacity
-                      style={[styles.formInput, { backgroundColor: colors.backgroundElement, justifyContent: 'center', marginBottom: Spacing.one }]}
-                      onPress={() => setShowEndPicker(true)}
-                    >
-                      <ThemedText type="small" style={{ color: newSlotEnd ? colors.text : '#888' }}>
-                        {newSlotEnd ? `End: ${new Date(newSlotEnd).toLocaleString()}` : 'Select End Time *'}
-                      </ThemedText>
-                    </TouchableOpacity>
-                    {showEndPicker && (
-                      <DateTimePicker
-                        value={newSlotEnd ? new Date(newSlotEnd) : defaultSlotEndDate}
-                        mode="datetime"
-                        display="default"
-                        onChange={(event, selectedDate) => {
-                          setShowEndPicker(false);
-                          if (selectedDate) {
-                            setNewSlotEnd(selectedDate.toISOString());
-                          }
-                        }}
-                      />
-                    )}
-                  </View>
-                )}
-
-                <TouchableOpacity
-                  style={[styles.submitBtn, { backgroundColor: PRIMARY_BLUE, marginTop: 0 }]}
-                  onPress={handleCreateSlot}
-                  disabled={creatingSlot}
-                  activeOpacity={0.8}
-                >
-                  {creatingSlot ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
-                  ) : (
-                    <ThemedText style={styles.submitBtnText}>Add Time Slot</ThemedText>
-                  )}
-                </TouchableOpacity>
+              <View style={styles.actions}>
+                <ActionButton label="Cancel" variant="ghost" onPress={() => setFormVisible(false)} style={styles.action} />
+                <ActionButton label={editing ? 'Save changes' : 'Create offering'} icon="check" loading={saving} onPress={() => void save()} style={styles.action} />
               </View>
-            </ThemedView>
+            </ScrollView>
           </View>
-        </Modal>
-      </SafeAreaView>
-    </ThemedView>
+        </View>
+      </Modal>
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
-  offlineBanner: {
-    backgroundColor: WARNING_AMBER,
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  offlineText: {
-    color: '#000000',
-    fontWeight: '700',
-  },
-  retryBtn: {
-    backgroundColor: '#000000',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.one,
-    borderRadius: 8,
-  },
-  retryBtnText: {
-    color: '#ffffff',
-    fontWeight: '800',
-  },
-  header: {
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.three,
-    borderBottomWidth: 2,
-  },
-  tabRow: {
-    flexDirection: 'row',
-    gap: Spacing.two,
-    marginTop: Spacing.two,
-  },
-  tabBtn: {
-    flex: 1,
-    paddingVertical: Spacing.two,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f1f1f1',
-    minHeight: 44, // Touch target height
-  },
-  listContent: {
-    padding: Spacing.four,
-    gap: Spacing.four,
-    paddingBottom: 80,
-  },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.six,
-  },
-  card: {
-    padding: Spacing.four,
-    borderRadius: 24,
-    borderWidth: 2,
-    gap: Spacing.three,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  statusBadge: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.half,
-    borderRadius: 8,
-  },
-  statusBadgeText: {
-    color: '#ffffff',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  cardDesc: {
-    lineHeight: 20,
-  },
-  cardDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: Spacing.one,
-  },
-  cardPrice: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: PRIMARY_BLUE,
-  },
-  cardActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: Spacing.two,
-    marginTop: Spacing.two,
-  },
-  actionBtn: {
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 100,
-    minHeight: 44, // Touch target height
-  },
-  fab: {
-    position: 'absolute',
-    bottom: Spacing.four,
-    right: Spacing.four,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 6,
-    zIndex: 99,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    height: '85%',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    padding: Spacing.four,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.four,
-  },
-  closeBtn: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  formGroup: {
-    marginBottom: Spacing.three,
-  },
-  formLabel: {
-    fontWeight: '700',
-    marginBottom: Spacing.one,
-  },
-  formInput: {
-    padding: Spacing.three,
-    borderRadius: 12,
-    fontSize: 14,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    minHeight: 48, // Touch target height
-  },
-  submitBtn: {
-    paddingVertical: Spacing.three,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: Spacing.four,
-    minHeight: 50,
-  },
-  submitBtnText: {
-    color: '#ffffff',
-    fontWeight: '800',
-    fontSize: 16,
-  },
-  slotItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: Spacing.three,
-    borderBottomWidth: 1,
-  },
-  statusToggleBtn: {
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: 8,
-    minWidth: 90,
-    alignItems: 'center',
-    minHeight: 44,
-  },
-  statusToggleText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  createSlotBox: {
-    paddingTop: Spacing.three,
-    borderTopWidth: 2,
-    marginTop: Spacing.two,
-  },
+  flex: { flex: 1 },
+  providerRow: { gap: spacing.x2, paddingRight: spacing.x4 },
+  headingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.x3 },
+  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
+  search: { minHeight: touchTarget, borderWidth: 1, borderRadius: radii.compact, paddingLeft: spacing.x3, flexDirection: 'row', alignItems: 'center', gap: spacing.x2 },
+  searchInput: { flex: 1, minHeight: touchTarget, ...typography.body, paddingVertical: 0 },
+  clear: { width: touchTarget, height: touchTarget, alignItems: 'center', justifyContent: 'center' },
+  list: { gap: spacing.x3 },
+  card: { padding: spacing.x4, gap: spacing.x3 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.x3 },
+  itemIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  itemTitle: { ...typography.title, fontSize: 18, lineHeight: 24 },
+  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x4, padding: spacing.x3, borderRadius: radii.compact },
+  metric: { flexGrow: 1, minWidth: 140, gap: spacing.x1 },
+  amount: { ...typography.title, fontSize: 19, lineHeight: 24 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
+  action: { flexGrow: 1, flexBasis: 150 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(11,28,48,0.58)', justifyContent: 'flex-end' },
+  modal: { maxHeight: '92%', borderTopLeftRadius: radii.feature, borderTopRightRadius: radii.feature, borderWidth: StyleSheet.hairlineWidth },
+  formContent: { padding: spacing.x5, gap: spacing.x4, paddingBottom: spacing.x8 },
+  statusSection: { gap: spacing.x2 },
 });

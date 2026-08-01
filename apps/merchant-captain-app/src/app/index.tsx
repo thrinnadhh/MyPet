@@ -111,6 +111,7 @@ export default function Index() {
     if (activeRole === 'PROVIDER') {
       return [
         { labelKey: 'home.onboarding', icon: 'store', route: '/onboarding' },
+        { labelKey: 'home.openOrders', icon: 'cart', route: '/orders' },
         { labelKey: 'home.inventory', icon: 'inventory', route: '/inventory' },
         { labelKey: 'home.bookings', icon: 'calendar', route: '/explore' },
         ...shared,
@@ -157,7 +158,7 @@ export default function Index() {
           amount={incomingOrder.amount}
           onAccept={() => {
             setIncomingOrder(null);
-            router.push('/explore' as never);
+            router.push('/orders' as never);
           }}
           onDismiss={() => setIncomingOrder(null)}
         />

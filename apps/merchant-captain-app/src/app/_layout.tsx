@@ -18,7 +18,12 @@ import LoginScreen from './login';
 function canAccessPath(pathname: string, role: string | null): boolean {
   if (pathname.startsWith('/admin')) return role === 'ADMIN' || appConfig.allowDemoMode;
   if (pathname.startsWith('/delivery') || pathname.startsWith('/captain-onboarding')) return role === 'CAPTAIN';
-  if (pathname.startsWith('/inventory') || pathname.startsWith('/onboarding') || pathname.startsWith('/explore')) {
+  if (
+    pathname.startsWith('/orders') ||
+    pathname.startsWith('/inventory') ||
+    pathname.startsWith('/onboarding') ||
+    pathname.startsWith('/explore')
+  ) {
     return role === 'PROVIDER';
   }
   if (pathname.startsWith('/billing')) return role === 'PROVIDER' || role === 'ADMIN';
