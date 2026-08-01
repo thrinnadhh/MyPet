@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -58,4 +60,18 @@ test('operational formatting uses one commerce and lifecycle vocabulary', () => 
   assert.equal(formatOrderStatus('CAPTAIN_ASSIGNED'), 'Captain assigned');
   assert.equal(formatDeliveryStatus('PICKUP_PENDING'), 'Pickup pending');
   assert.equal(formatStatusLabel('TRANSFER_REVERSED'), 'Transfer Reversed');
+});
+
+test('customer and operational contracts stay byte-for-byte aligned', () => {
+  const operationalRoot = process.cwd();
+  const customerRoot = join(operationalRoot, '..', 'customer-app');
+
+  assert.equal(
+    readFileSync(join(operationalRoot, 'src/contracts/api-error.ts'), 'utf8'),
+    readFileSync(join(customerRoot, 'src/contracts/api-error.ts'), 'utf8'),
+  );
+  assert.equal(
+    readFileSync(join(operationalRoot, 'src/utils/formatters.ts'), 'utf8'),
+    readFileSync(join(customerRoot, 'src/utils/formatters.ts'), 'utf8'),
+  );
 });
