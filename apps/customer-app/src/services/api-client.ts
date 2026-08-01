@@ -1,14 +1,12 @@
+import { ApiError, apiErrorFromResponse } from '../contracts/api-error';
 import { appConfig } from '../utils/app-config';
 
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-    public data?: any
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
+export { ApiError } from '../contracts/api-error';
+
+interface RequestOptions {
+  method?: string;
+  body?: unknown;
+  headers?: Record<string, string>;
 }
 
 class ApiClient {
@@ -29,30 +27,22 @@ class ApiClient {
     };
 
     if (this.sessionToken) {
-      headers['Authorization'] = `Bearer ${this.sessionToken}`;
+      headers.Authorization = `Bearer ${this.sessionToken}`;
     }
 
     return headers;
   }
 
-  public async request<T = any>(
-    path: string,
-    options: {
-      method?: string;
-      body?: any;
-      headers?: Record<string, string>;
-    } = {}
-  ): Promise<T> {
+  public async request<T = any>(path: string, options: RequestOptions = {}): Promise<T> {
     const { method = 'GET', body, headers: customHeaders } = options;
     const baseUrl = this.getBaseUrl();
     const url = path.startsWith('http://') || path.startsWith('https://')
       ? path
       : `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 
-    const headers = this.buildHeaders(customHeaders);
     const config: RequestInit = {
       method,
-      headers,
+      headers: this.buildHeaders(customHeaders),
     };
 
     if (body !== undefined && method !== 'GET' && method !== 'HEAD') {
@@ -60,32 +50,16 @@ class ApiClient {
     }
 
     const response = await fetch(url, config);
+    if (!response.ok) throw await apiErrorFromResponse(response);
+    if (response.status === 204) return {} as T;
 
-    if (!response.ok) {
-      let errorData: any = null;
-      try {
-        errorData = await response.json();
-      } catch (e) {
-        errorData = await response.text();
-      }
-      const message =
-        typeof errorData === 'object' && errorData?.message
-          ? errorData.message
-          : typeof errorData === 'string' && errorData.length > 0
-          ? errorData
-          : `HTTP ${response.status} ${response.statusText}`;
-
-      throw new ApiError(response.status, message, errorData);
-    }
-
-    if (response.status === 204) {
-      return {} as T;
-    }
+    const responseBody = await response.text();
+    if (!responseBody) return {} as T;
 
     try {
-      return await response.json();
-    } catch (e) {
-      return {} as T;
+      return JSON.parse(responseBody) as T;
+    } catch {
+      return responseBody as T;
     }
   }
 
@@ -93,15 +67,15 @@ class ApiClient {
     return this.request<T>(path, { method: 'GET', headers });
   }
 
-  public post<T = any>(path: string, body?: any, headers?: Record<string, string>): Promise<T> {
+  public post<T = any>(path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
     return this.request<T>(path, { method: 'POST', body, headers });
   }
 
-  public put<T = any>(path: string, body?: any, headers?: Record<string, string>): Promise<T> {
+  public put<T = any>(path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
     return this.request<T>(path, { method: 'PUT', body, headers });
   }
 
-  public patch<T = any>(path: string, body?: any, headers?: Record<string, string>): Promise<T> {
+  public patch<T = any>(path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
     return this.request<T>(path, { method: 'PATCH', body, headers });
   }
 
