@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "version": "v0.9.0-beta.1",
+  "releaseType": "INTERNAL_BETA",
+  "pilotCity": "Tirupati",
+  "tagAuthorized": false,
+  "distributionAuthorized": false,
+  "requiredGates": {
+    "javaMobileCi": "REQUIRED",
+    "fullStackSmoke": "REQUIRED",
+    "connectedJourneys": "REQUIRED",
+    "physicalDeviceEvidence": "REQUIRED",
+    "databaseBackupRestore": "REQUIRED",
+    "privacyAndLegal": "REQUIRED",
+    "demoModeDisabled": "REQUIRED"
+  },
+  "artifacts": [
+    { "id": "customer-android", "profile": "internal-beta", "status": "NOT_BUILT", "url": null },
+    { "id": "operations-android", "profile": "internal-beta", "status": "NOT_BUILT", "url": null },
+    { "id": "customer-ios", "profile": "internal-beta", "status": "NOT_BUILT", "url": null },
+    { "id": "operations-ios", "profile": "internal-beta", "status": "NOT_BUILT", "url": null }
+  ],
+  "blockers": [
+    "Physical Android and iOS QA evidence is not yet complete.",
+    "Internal distribution builds have not yet been produced.",
+    "Database backup and restore evidence must be attached.",
+    "Privacy policy, terms and pilot consent pages require final sign-off."
+  ],
+  "notes": "This manifest is deliberately fail-closed. Merging release tooling does not authorize a tag or distribution."
+}
