@@ -1,15 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { touchTarget } from '../design/tokens';
-
 function source(path: string): string {
   return readFileSync(join(process.cwd(), path), 'utf8');
 }
 
 describe('customer accessibility and device contract', () => {
   it('retains at least 48 px interactive targets', () => {
-    expect(touchTarget).toBeGreaterThanOrEqual(48);
+    const tokens = source('src/design/tokens.ts');
+    expect(tokens).toMatch(/touchTarget\s*=\s*48/);
   });
 
   it('supports bounded responsive screens and pull to refresh', () => {
