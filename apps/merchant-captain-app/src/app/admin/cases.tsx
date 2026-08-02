@@ -136,28 +136,9 @@ export default function AdminCustomerCasesScreen() {
                 multiline
               />
               <View style={styles.actions}>
-                <ActionButton
-                  label="Resolve"
-                  icon="check"
-                  loading={busyId === customerCase.disputeId}
-                  onPress={() => void decide(customerCase, 'RESOLVED', false)}
-                  style={styles.flex}
-                />
-                <ActionButton
-                  label="Resolve + refund"
-                  icon="billing"
-                  disabled={busyId === customerCase.disputeId}
-                  onPress={() => void decide(customerCase, 'RESOLVED', true)}
-                  style={styles.flex}
-                />
-                <ActionButton
-                  label="Reject"
-                  icon="xmark"
-                  variant="destructive"
-                  disabled={busyId === customerCase.disputeId}
-                  onPress={() => void decide(customerCase, 'REJECTED', false)}
-                  style={styles.flex}
-                />
+                <ActionButton label="Resolve" icon="check" loading={busyId === customerCase.disputeId} onPress={() => void decide(customerCase, 'RESOLVED', false)} style={styles.flex} />
+                <ActionButton label="Resolve + refund" icon="wallet" disabled={busyId === customerCase.disputeId} onPress={() => void decide(customerCase, 'RESOLVED', true)} style={styles.flex} />
+                <ActionButton label="Reject" icon="xmark" variant="destructive" disabled={busyId === customerCase.disputeId} onPress={() => void decide(customerCase, 'REJECTED', false)} style={styles.flex} />
               </View>
             </>
           ) : customerCase.resolutionNotes ? (
