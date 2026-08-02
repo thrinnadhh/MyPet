@@ -66,21 +66,20 @@ class SecurityConfig(
             .authorizeExchange { exchange ->
                 exchange
                     .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                    .pathMatchers("/api/v1/discovery/**").permitAll()      // Publicly searchable providers
-                    .pathMatchers("/api/v1/reviews/provider/**").permitAll() // Publicly viewable reviews
+                    .pathMatchers("/api/v1/discovery/**").permitAll()
+                    .pathMatchers("/api/v1/reviews/provider/**").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/providers/*").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/catalog/offerings/**").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/catalog/slots/**").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/content/**").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/service-regions/**").permitAll()
+                    .pathMatchers(HttpMethod.GET, "/api/v1/appointments/medical-documents/*/content").permitAll()
                     .pathMatchers(HttpMethod.GET, "/uploads/**").permitAll()
                     .pathMatchers(HttpMethod.POST, "/api/v1/payments/webhook").permitAll()
                     .pathMatchers("/actuator/health/**", "/actuator/info").permitAll()
                     .anyExchange().authenticated()
             }
-            .oauth2ResourceServer { oauth2 ->
-                oauth2.jwt { }
-            }
+            .oauth2ResourceServer { oauth2 -> oauth2.jwt { } }
         return http.build()
     }
 
@@ -88,19 +87,12 @@ class SecurityConfig(
     fun reactiveJwtDecoder(): ReactiveJwtDecoder {
         return when {
             secretKey.isNotBlank() -> {
-                // Symmetric key validation for HS256 (e.g., Supabase JWT Secret)
-                val secretKeySpec = SecretKeySpec(
-                    secretKey.toByteArray(),
-                    "HMAC"
-                )
+                val secretKeySpec = SecretKeySpec(secretKey.toByteArray(), "HMAC")
                 NimbusReactiveJwtDecoder.withSecretKey(secretKeySpec)
                     .macAlgorithm(MacAlgorithm.HS256)
                     .build()
             }
             jwkSetUri.isNotBlank() && !jwkSetUri.contains("your-project.supabase.co") -> {
-                // JWK endpoint validation for Supabase asymmetric JWTs.
-                // Supabase projects can issue ES256 or RS256 tokens depending
-                // on their signing key configuration.
                 NimbusReactiveJwtDecoder.withJwkSetUri(jwkSetUri)
                     .jwsAlgorithms {
                         it.add(SignatureAlgorithm.ES256)
@@ -109,8 +101,6 @@ class SecurityConfig(
                     .build()
             }
             allowUnsignedJwt -> {
-                // Safety check: refuse to start with unsigned JWT mode outside of local/dev profiles.
-                // This prevents accidental deployment to staging/production with auth bypassed.
                 val activeProfiles = System.getenv("SPRING_PROFILES_ACTIVE") ?: ""
                 val safeProfiles = setOf("local", "dev", "test")
                 val isSafeProfile = safeProfiles.any { activeProfiles.contains(it, ignoreCase = true) }
@@ -139,14 +129,13 @@ class SecurityConfig(
                     }
                 }
             }
-            else -> {
-                throw IllegalStateException(
-                    "JWT validation is not configured. Set SUPABASE_JWT_SECRET, " +
-                        "SUPABASE_JWT_JWK_SET_URI, or ALLOW_UNSIGNED_JWT=true for local-only development."
-                )
-            }
+            else -> throw IllegalStateException(
+                "JWT validation is not configured. Set SUPABASE_JWT_SECRET, " +
+                    "SUPABASE_JWT_JWK_SET_URI, or ALLOW_UNSIGNED_JWT=true for local-only development."
+            )
         }
     }
+
     companion object {
         private val logger = LoggerFactory.getLogger(SecurityConfig::class.java)
     }
