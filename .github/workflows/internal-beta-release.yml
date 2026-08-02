@@ -1,0 +1,59 @@
+name: MyPet Internal Beta Release
+
+on:
+  pull_request:
+    paths:
+      - "release/v0.9.0-beta.1.json"
+      - "scripts/validate-internal-beta.py"
+      - "scripts/validate-p2b-device-qa.py"
+      - "scripts/check-p2b-connected-e2e.py"
+      - "qa/**"
+      - "apps/customer-app/app.json"
+      - "apps/customer-app/eas.json"
+      - "apps/merchant-captain-app/app.json"
+      - "apps/merchant-captain-app/eas.json"
+      - ".github/workflows/internal-beta-release.yml"
+  workflow_dispatch:
+    inputs:
+      authorize_release:
+        description: Enforce all physical evidence, build artifacts and release authorization
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  configuration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate internal beta configuration
+        run: python scripts/validate-internal-beta.py
+      - name: Validate release authorization
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_release }}
+        run: python scripts/validate-internal-beta.py --release
+
+  build-configuration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19
+      - name: Validate customer Expo configuration
+        working-directory: apps/customer-app
+        run: npx --yes expo config --type public >/tmp/customer-expo-config.json
+      - name: Validate operational Expo configuration
+        working-directory: apps/merchant-captain-app
+        run: npx --yes expo config --type public >/tmp/operations-expo-config.json
+
+  release-intentionally-blocked:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Release tooling may merge, but tag/distribution remain blocked until the fail-closed manifest is explicitly authorized with evidence."
