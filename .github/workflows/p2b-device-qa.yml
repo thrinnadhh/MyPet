@@ -1,0 +1,61 @@
+name: P2B Device QA Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_gate:
+        description: Require every physical-device check to pass
+        required: false
+        default: false
+        type: boolean
+  pull_request:
+    paths:
+      - "qa/p2b-device-qa-matrix.json"
+      - "scripts/validate-p2b-device-qa.py"
+      - "docs/qa/**"
+      - ".github/workflows/p2b-device-qa.yml"
+      - "apps/customer-app/src/**"
+      - "apps/merchant-captain-app/src/**"
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate matrix structure
+        run: python scripts/validate-p2b-device-qa.py
+      - name: Enforce release evidence
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_gate }}
+        run: python scripts/validate-p2b-device-qa.py --release
+
+  mobile-accessibility-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19
+          cache: npm
+          cache-dependency-path: |
+            apps/customer-app/package-lock.json
+            apps/merchant-captain-app/package-lock.json
+      - name: Customer accessibility contracts
+        working-directory: apps/customer-app
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test -- --runInBand src/__tests__/accessibility-device-contract.test.ts
+      - name: Operational accessibility contracts
+        working-directory: apps/merchant-captain-app
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test -- src/__tests__/accessibility-device-contract.test.ts
