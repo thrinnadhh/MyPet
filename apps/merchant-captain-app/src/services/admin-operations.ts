@@ -62,20 +62,51 @@ export function approveProviderFromAdmin(providerId: string, accessToken: string
   return request(`/api/v1/providers/${providerId}/approve`, accessToken, { method: 'POST' });
 }
 
-export function fetchAdminDisputes(accessToken: string): Promise<AdminDispute[]> {
-  return request('/api/v1/orders/disputes', accessToken);
+type CustomerCaseResponse = {
+  caseId: string;
+  orderId: string;
+  status: string;
+  caseType: string;
+  description: string;
+  refundStatus: string;
+  resolutionNotes?: string | null;
+  evidence?: unknown[];
+  createdAt?: string | null;
+  resolvedAt?: string | null;
+};
+
+function mapCustomerCase(value: CustomerCaseResponse): AdminDispute {
+  return {
+    disputeId: value.caseId,
+    orderId: value.orderId,
+    status: value.status,
+    reason: value.description,
+    caseType: value.caseType,
+    refundStatus: value.refundStatus,
+    evidenceCount: value.evidence?.length ?? 0,
+    resolutionNotes: value.resolutionNotes,
+    createdAt: value.createdAt,
+    resolvedAt: value.resolvedAt,
+  };
 }
 
-export function resolveAdminDispute(
+export async function fetchAdminDisputes(accessToken: string): Promise<AdminDispute[]> {
+  const cases = await request<CustomerCaseResponse[]>('/api/v1/orders/customer-cases/admin', accessToken);
+  return cases.map(mapCustomerCase);
+}
+
+export async function resolveAdminDispute(
   disputeId: string,
   decision: 'RESOLVED' | 'REJECTED',
   resolutionNotes: string,
   accessToken: string,
+  issueRefund = false,
 ): Promise<AdminDispute> {
-  return request(`/api/v1/orders/disputes/${disputeId}/resolve`, accessToken, {
-    method: 'POST',
-    body: JSON.stringify({ decision, resolutionNotes }),
+  const updated = await request<CustomerCaseResponse>(`/api/v1/orders/customer-cases/${disputeId}/admin`, accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify({ decision, resolutionNotes, issueRefund }),
   });
+  return mapCustomerCase(updated);
 }
 
 export function fetchAdminSupportCases(accessToken: string): Promise<AdminSupportCase[]> {
