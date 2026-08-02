@@ -62,6 +62,9 @@ export interface AdminDispute {
   orderId: string;
   status: string;
   reason: string;
+  caseType?: string | null;
+  refundStatus?: string | null;
+  evidenceCount?: number;
   resolutionNotes?: string | null;
   createdAt?: string | null;
   resolvedAt?: string | null;

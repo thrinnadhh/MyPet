@@ -20,42 +20,28 @@ import javax.crypto.spec.SecretKeySpec
 class SecurityConfig(
     @Value("\${spring.security.oauth2.resourceserver.jwt.jwk-set-uri:}")
     private val jwkSetUri: String,
-    
     @Value("\${spring.security.oauth2.resourceserver.jwt.secret-key:}")
     private val secretKey: String,
-
     @Value("\${spring.security.oauth2.resourceserver.jwt.allow-unsigned:false}")
     private val allowUnsignedJwt: Boolean,
-
     @Value("\${gateway.cors.allowed-origins:http://localhost:3000,http://localhost:8081}")
     private val corsAllowedOrigins: String
 ) {
-
     @Bean
     fun corsConfigurationSource(): org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource {
         val config = org.springframework.web.cors.CorsConfiguration()
-        val origins = corsAllowedOrigins
-            .split(",")
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .distinct()
-
-        require(origins.isNotEmpty()) {
-            "At least one gateway CORS origin must be configured"
-        }
-        require("*" !in origins) {
-            "Wildcard CORS origins are not allowed. Set GATEWAY_CORS_ALLOWED_ORIGINS to explicit origins."
-        }
-
+        val origins = corsAllowedOrigins.split(",").map(String::trim).filter(String::isNotBlank).distinct()
+        require(origins.isNotEmpty()) { "At least one gateway CORS origin must be configured" }
+        require("*" !in origins) { "Wildcard CORS origins are not allowed. Set GATEWAY_CORS_ALLOWED_ORIGINS to explicit origins." }
         config.allowCredentials = true
         config.allowedOrigins = origins
         config.allowedMethods = listOf("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
         config.allowedHeaders = listOf("Authorization", "Content-Type", "X-Requested-With", "X-Razorpay-Signature")
         config.exposedHeaders = listOf("Location", "Retry-After")
         config.maxAge = 3600
-        val source = org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource()
-        source.registerCorsConfiguration("/**", config)
-        return source
+        return org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource().apply {
+            registerCorsConfiguration("/**", config)
+        }
     }
 
     @Bean
@@ -66,87 +52,65 @@ class SecurityConfig(
             .authorizeExchange { exchange ->
                 exchange
                     .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                    .pathMatchers("/api/v1/discovery/**").permitAll()      // Publicly searchable providers
-                    .pathMatchers("/api/v1/reviews/provider/**").permitAll() // Publicly viewable reviews
+                    .pathMatchers("/api/v1/discovery/**").permitAll()
+                    .pathMatchers("/api/v1/reviews/provider/**").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/providers/*").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/catalog/offerings/**").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/catalog/slots/**").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/content/**").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/service-regions/**").permitAll()
+                    .pathMatchers(HttpMethod.GET, "/api/v1/appointments/medical-documents/*/content").permitAll()
+                    .pathMatchers(HttpMethod.GET, "/api/v1/orders/customer-cases/evidence/*/content").permitAll()
                     .pathMatchers(HttpMethod.GET, "/uploads/**").permitAll()
                     .pathMatchers(HttpMethod.POST, "/api/v1/payments/webhook").permitAll()
                     .pathMatchers("/actuator/health/**", "/actuator/info").permitAll()
                     .anyExchange().authenticated()
             }
-            .oauth2ResourceServer { oauth2 ->
-                oauth2.jwt { }
-            }
+            .oauth2ResourceServer { oauth2 -> oauth2.jwt { } }
         return http.build()
     }
 
     @Bean
-    fun reactiveJwtDecoder(): ReactiveJwtDecoder {
-        return when {
-            secretKey.isNotBlank() -> {
-                // Symmetric key validation for HS256 (e.g., Supabase JWT Secret)
-                val secretKeySpec = SecretKeySpec(
-                    secretKey.toByteArray(),
-                    "HMAC"
-                )
-                NimbusReactiveJwtDecoder.withSecretKey(secretKeySpec)
-                    .macAlgorithm(MacAlgorithm.HS256)
-                    .build()
-            }
-            jwkSetUri.isNotBlank() && !jwkSetUri.contains("your-project.supabase.co") -> {
-                // JWK endpoint validation for Supabase asymmetric JWTs.
-                // Supabase projects can issue ES256 or RS256 tokens depending
-                // on their signing key configuration.
-                NimbusReactiveJwtDecoder.withJwkSetUri(jwkSetUri)
-                    .jwsAlgorithms {
-                        it.add(SignatureAlgorithm.ES256)
-                        it.add(SignatureAlgorithm.RS256)
-                    }
-                    .build()
-            }
-            allowUnsignedJwt -> {
-                // Safety check: refuse to start with unsigned JWT mode outside of local/dev profiles.
-                // This prevents accidental deployment to staging/production with auth bypassed.
-                val activeProfiles = System.getenv("SPRING_PROFILES_ACTIVE") ?: ""
-                val safeProfiles = setOf("local", "dev", "test")
-                val isSafeProfile = safeProfiles.any { activeProfiles.contains(it, ignoreCase = true) }
-                if (!isSafeProfile) {
-                    throw IllegalStateException(
-                        "ALLOW_UNSIGNED_JWT=true is only permitted with SPRING_PROFILES_ACTIVE=local|dev|test. " +
-                            "Current profile: '$activeProfiles'. Remove ALLOW_UNSIGNED_JWT from production configuration."
-                    )
-                }
-                logger.warn("Supabase Auth is running in explicit local-only mode. JWT signatures are NOT validated.")
-                ReactiveJwtDecoder { jwtString ->
-                    try {
-                        val jwt = com.nimbusds.jwt.JWTParser.parse(jwtString)
-                        val claims = jwt.jwtClaimsSet.claims
-                        val headers = jwt.header.toJSONObject()
-                        val springJwt = org.springframework.security.oauth2.jwt.Jwt(
-                            jwtString,
-                            jwt.jwtClaimsSet.issueTime?.toInstant() ?: Instant.now(),
-                            jwt.jwtClaimsSet.expirationTime?.toInstant() ?: Instant.now().plusSeconds(3600),
-                            headers,
-                            claims
-                        )
-                        reactor.core.publisher.Mono.just(springJwt)
-                    } catch (e: Exception) {
-                        reactor.core.publisher.Mono.error(e)
-                    }
-                }
-            }
-            else -> {
+    fun reactiveJwtDecoder(): ReactiveJwtDecoder = when {
+        secretKey.isNotBlank() -> NimbusReactiveJwtDecoder.withSecretKey(SecretKeySpec(secretKey.toByteArray(), "HMAC"))
+            .macAlgorithm(MacAlgorithm.HS256).build()
+        jwkSetUri.isNotBlank() && !jwkSetUri.contains("your-project.supabase.co") ->
+            NimbusReactiveJwtDecoder.withJwkSetUri(jwkSetUri).jwsAlgorithms {
+                it.add(SignatureAlgorithm.ES256)
+                it.add(SignatureAlgorithm.RS256)
+            }.build()
+        allowUnsignedJwt -> {
+            val activeProfiles = System.getenv("SPRING_PROFILES_ACTIVE") ?: ""
+            val isSafeProfile = setOf("local", "dev", "test").any { activeProfiles.contains(it, ignoreCase = true) }
+            if (!isSafeProfile) {
                 throw IllegalStateException(
-                    "JWT validation is not configured. Set SUPABASE_JWT_SECRET, " +
-                        "SUPABASE_JWT_JWK_SET_URI, or ALLOW_UNSIGNED_JWT=true for local-only development."
+                    "ALLOW_UNSIGNED_JWT=true is only permitted with SPRING_PROFILES_ACTIVE=local|dev|test. " +
+                        "Current profile: '$activeProfiles'. Remove ALLOW_UNSIGNED_JWT from production configuration."
                 )
+            }
+            logger.warn("Supabase Auth is running in explicit local-only mode. JWT signatures are NOT validated.")
+            ReactiveJwtDecoder { jwtString ->
+                try {
+                    val jwt = com.nimbusds.jwt.JWTParser.parse(jwtString)
+                    val springJwt = org.springframework.security.oauth2.jwt.Jwt(
+                        jwtString,
+                        jwt.jwtClaimsSet.issueTime?.toInstant() ?: Instant.now(),
+                        jwt.jwtClaimsSet.expirationTime?.toInstant() ?: Instant.now().plusSeconds(3600),
+                        jwt.header.toJSONObject(),
+                        jwt.jwtClaimsSet.claims
+                    )
+                    reactor.core.publisher.Mono.just(springJwt)
+                } catch (error: Exception) {
+                    reactor.core.publisher.Mono.error(error)
+                }
             }
         }
+        else -> throw IllegalStateException(
+            "JWT validation is not configured. Set SUPABASE_JWT_SECRET, " +
+                "SUPABASE_JWT_JWK_SET_URI, or ALLOW_UNSIGNED_JWT=true for local-only development."
+        )
     }
+
     companion object {
         private val logger = LoggerFactory.getLogger(SecurityConfig::class.java)
     }
