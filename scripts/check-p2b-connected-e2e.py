@@ -7,7 +7,9 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-manifest = json.loads((ROOT / "qa/p2b-connected-journeys.json").read_text(encoding="utf-8"))
+manifest_path = ROOT / "qa/p2b-connected-journeys.json"
+manifest_text = manifest_path.read_text(encoding="utf-8")
+manifest = json.loads(manifest_text)
 journeys = manifest.get("journeys", [])
 
 assert manifest.get("schemaVersion") == 1
@@ -23,6 +25,9 @@ for journey in journeys:
     for dimension in required_dimensions:
         assert isinstance(journey[dimension], list)
 
+for event in ("CustomerCaseCreated", "CustomerCaseUpdated", "PaymentCaptured", "DeliveryVerified"):
+    assert event in manifest_text, event
+
 runner = (ROOT / "scripts/run-p2b-connected-e2e.py").read_text(encoding="utf-8")
 test_all = (ROOT / "scripts/test-all.sh").read_text(encoding="utf-8")
 for token in (
@@ -30,9 +35,9 @@ for token in (
     "verify_persisted_graph",
     "verify_new_connected_flows",
     "verify_ui_contracts",
-    "CustomerCaseCreated",
     "medical_document_access_logs",
     "recurring_order_subscriptions",
+    "customer-cases",
 ):
     assert token in runner, token
 assert 'python3 "$ROOT/scripts/run-p2b-connected-e2e.py"' in test_all
