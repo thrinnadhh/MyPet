@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "release": "v0.9.0-beta.1",
+  "journeys": [
+    {
+      "id": "J01",
+      "title": "Guest browsing to OTP login and checkout",
+      "domains": ["customer", "catalog", "order", "payment"],
+      "http": ["public catalog read", "authenticated quote", "order create", "payment reconcile"],
+      "database": ["orders.orders", "payments.transactions", "catalog.offerings"],
+      "events": ["PaymentCaptured", "OrderCreated"],
+      "notifications": ["order confirmation"],
+      "uiContracts": ["customer checkout", "auth intent", "order detail"],
+      "idempotency": ["payment retry reuses order", "gateway idempotency"]
+    },
+    {
+      "id": "J02",
+      "title": "Merchant creates product and customer discovers it",
+      "domains": ["provider", "catalog", "customer"],
+      "http": ["merchant create offering", "public catalog listing"],
+      "database": ["catalog.offerings"],
+      "events": ["OfferingCreated"],
+      "notifications": [],
+      "uiContracts": ["merchant inventory", "customer catalog"],
+      "idempotency": ["provider ownership enforcement"]
+    },
+    {
+      "id": "J03",
+      "title": "Customer pays and merchant receives the order",
+      "domains": ["order", "payment", "provider", "notification"],
+      "http": ["payment initiation", "webhook-authoritative capture", "provider order queue"],
+      "database": ["payments.transactions", "orders.orders"],
+      "events": ["PaymentCaptured", "OrderConfirmed"],
+      "notifications": ["merchant incoming order"],
+      "uiContracts": ["checkout payment states", "merchant order queue"],
+      "idempotency": ["duplicate payment result"]
+    },
+    {
+      "id": "J04",
+      "title": "Merchant marks ready and dispatch creates an offer",
+      "domains": ["order", "dispatch", "captain", "notification"],
+      "http": ["server-authorized merchant transition", "captain offers"],
+      "database": ["orders.orders", "dispatch.dispatch_jobs"],
+      "events": ["OrderReadyForPickup", "DispatchOfferCreated"],
+      "notifications": ["captain offer"],
+      "uiContracts": ["merchant fulfillment", "captain offer countdown"],
+      "idempotency": ["single active assignment"]
+    },
+    {
+      "id": "J05",
+      "title": "Captain accepts, verifies pickup and completes delivery",
+      "domains": ["captain", "dispatch", "order"],
+      "http": ["offer response", "pickup proof", "delivery proof"],
+      "database": ["dispatch.dispatch_jobs", "orders.orders", "captains.earnings"],
+      "events": ["CaptainAssigned", "PickupVerified", "DeliveryVerified"],
+      "notifications": ["customer delivery progress"],
+      "uiContracts": ["resumable active delivery", "live customer tracking"],
+      "idempotency": ["atomic offer acceptance", "terminal proof replay rejection"]
+    },
+    {
+      "id": "J06",
+      "title": "Delivered order awards loyalty and enables review",
+      "domains": ["order", "loyalty", "review"],
+      "http": ["loyalty progress", "review create", "provider review aggregate"],
+      "database": ["payments.loyalty_ledger", "reviews.reviews"],
+      "events": ["OrderDelivered", "LoyaltyStarAwarded"],
+      "notifications": ["review request"],
+      "uiContracts": ["ten-star progress", "review submission"],
+      "idempotency": ["duplicate delivery award ignored"]
+    },
+    {
+      "id": "J07",
+      "title": "Customer books appointment and provider completes it",
+      "domains": ["appointment", "provider", "notification", "loyalty"],
+      "http": ["slot hold", "appointment confirm", "provider complete", "invoice read"],
+      "database": ["appointments.appointments", "catalog.slots"],
+      "events": ["AppointmentBooked", "AppointmentCompleted"],
+      "notifications": ["appointment reminder", "completion update"],
+      "uiContracts": ["customer appointments", "merchant appointment workspace"],
+      "idempotency": ["double-book prevention", "terminal mutation rejection"]
+    },
+    {
+      "id": "J08",
+      "title": "Authorized provider or customer uploads medical document and customer views it",
+      "domains": ["appointment", "customer", "provider"],
+      "http": ["upload reservation", "private upload", "signed link", "signed content"],
+      "database": ["appointments.medical_documents", "appointments.medical_document_access_logs"],
+      "events": ["document audit"],
+      "notifications": ["medical document available"],
+      "uiContracts": ["medical reports", "private signed access"],
+      "idempotency": ["single-use upload token"]
+    },
+    {
+      "id": "J09",
+      "title": "Customer raises dispute and admin resolves refund lifecycle",
+      "domains": ["order", "admin", "payment", "notification"],
+      "http": ["customer case create", "evidence reservation", "admin resolve", "refund request"],
+      "database": ["orders.customer_cases", "orders.customer_case_evidence", "payments.refunds"],
+      "events": ["CustomerCaseCreated", "CustomerCaseUpdated"],
+      "notifications": ["case update", "refund update"],
+      "uiContracts": ["customer support", "admin case queue"],
+      "idempotency": ["single-use evidence token", "closed-case mutation rejection"]
+    },
+    {
+      "id": "J10",
+      "title": "Push notification resolves to the correct authenticated deep link",
+      "domains": ["notification", "customer", "provider", "captain", "admin"],
+      "http": ["push token registration", "notification payload"],
+      "database": ["notifications.push_tokens", "notifications.notifications"],
+      "events": ["domain notification event"],
+      "notifications": ["role-scoped deep link"],
+      "uiContracts": ["auth intent restoration", "role route guard", "deep-link routing"],
+      "idempotency": ["processed event deduplication"]
+    }
+  ]
+}
