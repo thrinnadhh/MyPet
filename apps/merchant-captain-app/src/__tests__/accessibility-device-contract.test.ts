@@ -3,14 +3,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { touchTarget } from '../design/tokens';
-
 function source(path: string): string {
   return readFileSync(join(process.cwd(), path), 'utf8');
 }
 
 test('operational targets remain at least 48 pixels', () => {
-  assert.ok(touchTarget >= 48);
+  const foundation = source('src/design/foundation.ts');
+  assert.match(foundation, /touchTarget\s*=\s*48/);
 });
 
 test('shared operational shell supports responsive width keyboard and refresh', () => {
