@@ -23,7 +23,8 @@ function canAccessPath(pathname: string, role: string | null): boolean {
     pathname.startsWith('/inventory') ||
     pathname.startsWith('/onboarding') ||
     pathname.startsWith('/explore') ||
-    pathname.startsWith('/finance')
+    pathname.startsWith('/finance') ||
+    pathname.startsWith('/loyalty')
   ) {
     return role === 'PROVIDER';
   }
