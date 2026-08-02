@@ -29,6 +29,7 @@ for event in ("CustomerCaseCreated", "CustomerCaseUpdated", "PaymentCaptured", "
     assert event in manifest_text, event
 
 runner = (ROOT / "scripts/run-p2b-connected-e2e.py").read_text(encoding="utf-8")
+entrypoint = (ROOT / "scripts/run-p2b-connected-e2e-entry.py").read_text(encoding="utf-8")
 test_all = (ROOT / "scripts/test-all.sh").read_text(encoding="utf-8")
 for token in (
     "verify_m8_report",
@@ -40,6 +41,15 @@ for token in (
     "customer-cases",
 ):
     assert token in runner, token
-assert 'python3 "$ROOT/scripts/run-p2b-connected-e2e.py"' in test_all
+
+for token in (
+    "sys.modules[spec.name]",
+    "schema_compatible_sql",
+    "compatible_verify_m8_report",
+    "required feature domains",
+):
+    assert token in entrypoint, token
+
+assert 'python3 "$ROOT/scripts/run-p2b-connected-e2e-entry.py"' in test_all
 
 print("P2B_CONNECTED_E2E_CONTRACT_OK journeys=10 dimensions=6")
