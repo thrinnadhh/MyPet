@@ -90,8 +90,12 @@ function compactId(value: string): string {
   return value.length > 8 ? value.slice(0, 8) : value;
 }
 
+export async function fetchMerchantOwnedProviders(): Promise<MerchantProvider[]> {
+  return apiClient.get<MerchantProvider[]>('/api/v1/providers/me');
+}
+
 export async function fetchMerchantProviders(_ownerUserId?: string): Promise<MerchantProvider[]> {
-  const providers = await apiClient.get<MerchantProvider[]>('/api/v1/providers/me');
+  const providers = await fetchMerchantOwnedProviders();
   return providers.filter((provider) => provider.fulfillmentType === 'APPOINTMENT');
 }
 
