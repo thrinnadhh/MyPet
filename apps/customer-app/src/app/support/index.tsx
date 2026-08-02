@@ -190,7 +190,10 @@ export default function CustomerSupportScreen() {
     >
       {params.orderId ? (
         <AppCard style={styles.card}>
-          <SectionHeader title="Create a case" subtitle={`Order #${params.orderId.slice(0, 8).toUpperCase()}`} />
+          <SectionHeader title="Create a case" />
+          <ThemedText type="small" themeColor="textSecondary">
+            Order #{params.orderId.slice(0, 8).toUpperCase()}
+          </ThemedText>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
             {CASE_TYPES.map((item) => (
               <FilterChip key={item.value} label={item.label} selected={caseType === item.value} onPress={() => setCaseType(item.value)} />
@@ -213,7 +216,8 @@ export default function CustomerSupportScreen() {
         <StateView kind="error" title="Support cases unavailable" message={apiErrorMessage(error)} actionLabel="Retry" onAction={() => void load()} />
       ) : null}
 
-      <SectionHeader title="Your cases" subtitle={`${cases.length} total`} />
+      <SectionHeader title="Your cases" />
+      <ThemedText type="small" themeColor="textSecondary">{cases.length} total</ThemedText>
       {!error && cases.length === 0 ? (
         <StateView kind="empty" title="No support cases" message="Any case you create will show its review and refund status here." />
       ) : cases.map((customerCase) => (
