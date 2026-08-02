@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { appConfig } from '@/utils/app-config';
 import type { OrderFlowStepId } from '@/constants/content';
+import type { CustomerPaymentMethod, CustomerPaymentStatus } from '@/contracts/customer-payment';
 
 export type OrderTabCategory = 'active' | 'past' | 'subscription';
 
@@ -15,6 +16,8 @@ export interface CustomerOrderRecord {
   orderedAt: string;
   hasReview: boolean;
   flowStep: OrderFlowStepId;
+  paymentMethod?: CustomerPaymentMethod | string | null;
+  paymentStatus?: CustomerPaymentStatus | string | null;
   isSubscription?: boolean;
   deliveryAddressId?: string;
   captainId?: string;
@@ -51,6 +54,8 @@ interface OrderTrackingDto {
   totalAmount: number | string;
   placedAt: string;
   items: string[];
+  paymentMethod?: string | null;
+  paymentStatus?: string | null;
   statusHistory?: Array<{
     fromStatus: string | null;
     toStatus: string;
@@ -105,6 +110,8 @@ export async function fetchCustomerOrders(
           orderedAt: order.placedAt,
           hasReview: false,
           flowStep: order.flowStep || 'placed',
+          paymentMethod: order.paymentMethod,
+          paymentStatus: order.paymentStatus,
           statusHistory: order.statusHistory || [],
         };
       }),
@@ -118,7 +125,7 @@ export async function fetchCustomerOrders(
       try {
         return JSON.parse(cached) as CustomerOrderRecord[];
       } catch {
-        // Fall through to error throw
+        // Fall through to error throw.
       }
     }
     throw error;
@@ -148,8 +155,11 @@ export async function fetchOrderDetails(
     orderedAt: order.placedAt || order.createdAt || new Date().toISOString(),
     hasReview: false,
     flowStep: order.flowStep || 'placed',
+    paymentMethod: order.paymentMethod,
+    paymentStatus: order.paymentStatus,
     deliveryAddressId: order.deliveryAddressId,
     captainId: order.captainId,
+    statusHistory: order.statusHistory || [],
   };
 }
 
@@ -179,10 +189,7 @@ export async function reorderItems(
     headers: headers(accessToken),
   });
 
-  if (!response.ok) {
-    throw new Error('Reorder revalidation failed');
-  }
-
+  if (!response.ok) throw new Error('Reorder revalidation failed');
   return (await response.json()) as ReorderValidationResult;
 }
 
@@ -192,7 +199,7 @@ export interface CheckoutQuoteInput {
   deliveryAddressId: string;
   items: Array<{ offeringId: string; quantity: number }>;
   couponCode?: string | null;
-  paymentMethod?: 'CARD' | 'UPI' | 'COD' | string | null;
+  paymentMethod?: CustomerPaymentMethod | string | null;
   city?: string | null;
   latitude?: number | null;
   longitude?: number | null;
@@ -221,7 +228,7 @@ export interface CreateOrderInput {
   deliveryAddressId: string;
   items: Array<{ offeringId: string; quantity: number }>;
   couponCode?: string | null;
-  paymentMethod?: 'CARD' | 'UPI' | 'COD' | string | null;
+  paymentMethod?: CustomerPaymentMethod | string | null;
   quoteToken?: string | null;
   city?: string | null;
   latitude?: number | null;
@@ -242,7 +249,6 @@ export async function fetchCheckoutQuote(
     const errorBody = await response.json().catch(() => null);
     throw new Error(errorBody?.message || errorBody?.error || 'Could not calculate checkout quote');
   }
-
   return (await response.json()) as CheckoutQuoteOutput;
 }
 
@@ -279,5 +285,7 @@ export async function createCustomerOrder(
     orderedAt: order.placedAt || new Date().toISOString(),
     hasReview: false,
     flowStep: 'placed',
+    paymentMethod: order.paymentMethod,
+    paymentStatus: order.paymentStatus,
   };
 }
