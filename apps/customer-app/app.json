@@ -1,15 +1,20 @@
 {
   "expo": {
-    "name": "PetStore",
+    "name": "MyPet Customer",
     "slug": "customer-app",
-    "version": "1.0.0",
+    "version": "0.9.0-beta.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "customerapp",
     "userInterfaceStyle": "automatic",
-    "ios": { "icon": "./assets/expo.icon" },
+    "ios": {
+      "icon": "./assets/expo.icon",
+      "buildNumber": "1",
+      "bundleIdentifier": "com.mypet.customer"
+    },
     "android": {
       "package": "com.mypet.customer",
+      "versionCode": 901,
       "adaptiveIcon": {
         "backgroundColor": "#F8F9FF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -31,6 +36,8 @@
     },
     "extra": {
       "router": {},
+      "releaseChannel": "internal-beta",
+      "releaseVersion": "v0.9.0-beta.1",
       "eas": {
         "projectId": "9167a87d-ad84-4ccf-9597-9ab435e039d8"
       }
@@ -38,4 +45,3 @@
     "owner": "trinadh33"
   }
 }
-

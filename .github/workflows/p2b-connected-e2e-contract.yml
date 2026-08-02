@@ -1,0 +1,28 @@
+name: P2B Connected E2E Contract
+
+on:
+  pull_request:
+    paths:
+      - "qa/p2b-connected-journeys.json"
+      - "scripts/check-p2b-connected-e2e.py"
+      - "scripts/run-p2b-connected-e2e.py"
+      - "scripts/test-all.sh"
+      - ".github/workflows/p2b-connected-e2e-contract.yml"
+      - "apps/customer-app/src/**"
+      - "apps/merchant-captain-app/src/**"
+      - "backend/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate exact ten-journey contract
+        run: python scripts/check-p2b-connected-e2e.py

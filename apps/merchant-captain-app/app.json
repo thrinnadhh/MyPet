@@ -1,17 +1,20 @@
 {
   "expo": {
-    "name": "merchant-captain-app",
+    "name": "MyPet Operations",
     "slug": "merchant-captain-app",
-    "version": "1.0.0",
+    "version": "0.9.0-beta.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "merchantcaptainapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "buildNumber": "1",
+      "bundleIdentifier": "com.pawsnearme.merchantcaptainapp"
     },
     "android": {
       "package": "com.pawsnearme.merchantcaptainapp",
+      "versionCode": 901,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -39,9 +42,7 @@
       [
         "expo-notifications",
         {
-          "sounds": [
-            "./assets/sounds/order_alert.wav"
-          ]
+          "sounds": ["./assets/sounds/order_alert.wav"]
         }
       ],
       [
@@ -58,6 +59,10 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "releaseChannel": "internal-beta",
+      "releaseVersion": "v0.9.0-beta.1"
     }
   }
 }
