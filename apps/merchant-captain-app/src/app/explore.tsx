@@ -1,595 +1,437 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  FlatList,
+  Alert,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   TextInput,
-  TouchableOpacity,
   View,
-  ActivityIndicator,
-  Alert,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { AppIcon } from '@/components/app-icon';
-import { BottomTabInset, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import {
+  ActionButton,
+  AppBar,
+  FeedbackBanner,
+  FilterChip,
+  RoleBadge,
+  StateView,
+  StatusBadge,
+} from '@/components/foundation/primitives';
+import { ScreenShell } from '@/components/foundation/screen-shell';
+import { ThemedText } from '@/components/themed-text';
+import {
+  appointmentActions,
+  appointmentMatchesSearch,
+  appointmentQueue,
+  type MerchantAppointmentQueue,
+} from '@/contracts/merchant-appointment';
 import { useAuth } from '@/context/AuthContext';
-import { useTranslation } from '@/i18n';
+import { radii, shadows, spacing, typography } from '@/design/tokens';
+import { useTheme } from '@/hooks/use-theme';
+import {
+  fetchMerchantAppointmentHistory,
+  fetchMerchantAppointmentInvoice,
+  fetchMerchantBookings,
+  fetchMerchantProviders,
+  updateMerchantBookingStatus,
+  type MerchantAppointmentAction,
+  type MerchantBooking,
+  type MerchantProvider,
+} from '@/services/merchant-appointments';
 import { appConfig } from '@/utils/app-config';
 import {
-  completeMerchantBooking,
-  fetchMerchantBookings,
-  type MerchantAppointmentStatus,
-  type MerchantBooking,
-} from '@/services/merchant-appointments';
+  formatAppointmentStatus,
+  formatCurrency,
+  formatDateTime,
+} from '@/utils/formatters';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
+const QUEUES: Array<{ id: MerchantAppointmentQueue; label: string }> = [
+  { id: 'TODAY', label: 'Today' },
+  { id: 'UPCOMING', label: 'Upcoming' },
+  { id: 'COMPLETED', label: 'Completed' },
+  { id: 'NO_SHOW', label: 'No-show' },
+  { id: 'CANCELLED', label: 'Cancelled' },
+];
 
-type AppointmentStatus = MerchantAppointmentStatus;
-type Booking = MerchantBooking;
-
-// ─── Mock data (replace with API call) ───────────────────────────────────────
-
-const MOCK_BOOKINGS: Booking[] = [
+const DEMO_PROVIDERS: MerchantProvider[] = [
   {
-    id: '1',
-    customerId: 'demo-customer-1',
-    customerName: 'Priya Sharma',
-    petName: 'Bruno',
-    serviceName: 'Full Grooming',
-    slotStartsAt: new Date(Date.now() + 2 * 3600_000).toISOString(),
-    status: 'CONFIRMED',
-    providerId: 'demo-provider-1',
-    providerType: 'GROOMING_CENTER',
-    offeringId: 'demo-offering-1',
-    slotId: 'demo-slot-1',
-  },
-  {
-    id: '2',
-    customerId: 'demo-customer-2',
-    customerName: 'Raj Kumar',
-    petName: 'Milo',
-    serviceName: 'Vet Checkup',
-    slotStartsAt: new Date(Date.now() + 5 * 3600_000).toISOString(),
-    status: 'CONFIRMED',
-    providerId: 'demo-provider-2',
+    providerId: 'demo-vet-provider',
     providerType: 'VET_HOSPITAL',
-    offeringId: 'demo-offering-2',
-    slotId: 'demo-slot-2',
-  },
-  {
-    id: '3',
-    customerId: 'demo-customer-3',
-    customerName: 'Anita Reddy',
-    petName: 'Biscuit',
-    serviceName: 'Vaccination',
-    slotStartsAt: new Date(Date.now() - 1 * 3600_000).toISOString(),
-    status: 'COMPLETED',
-    providerId: 'demo-provider-3',
-    providerType: 'VET_HOSPITAL',
-    offeringId: 'demo-offering-3',
-    slotId: 'demo-slot-3',
+    fulfillmentType: 'APPOINTMENT',
+    name: 'MyPet Demo Clinic',
   },
 ];
 
-// ─── Status badge ─────────────────────────────────────────────────────────────
+const DEMO_BOOKINGS: MerchantBooking[] = [
+  {
+    id: 'demo-appointment-1',
+    customerId: 'demo-customer',
+    customerName: 'Customer Demo',
+    petName: 'Pet Bruno',
+    serviceName: 'Veterinary consultation',
+    slotStartsAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    status: 'CONFIRMED',
+    providerId: 'demo-vet-provider',
+    providerType: 'VET_HOSPITAL',
+    offeringId: 'demo-offering',
+    slotId: 'demo-slot',
+    priceAmount: 500,
+    payAtClinic: true,
+    bookedAt: new Date().toISOString(),
+  },
+];
 
-const STATUS_COLORS: Record<AppointmentStatus, string> = {
-  SLOT_HELD: '#a855f7',
-  CONFIRMED:  '#22c55e',
-  COMPLETED:  '#3b82f6',
-  CANCELLED:  '#ef4444',
-  NO_SHOW:    '#f97316',
-  EXPIRED: '#64748b',
-};
+function statusTone(status: MerchantBooking['status']): 'success' | 'warning' | 'danger' | 'info' {
+  if (status === 'COMPLETED') return 'success';
+  if (status === 'CANCELLED' || status === 'NO_SHOW' || status === 'EXPIRED') return 'danger';
+  if (status === 'CONFIRMED') return 'info';
+  return 'warning';
+}
 
-function StatusBadge({ status }: { status: AppointmentStatus }) {
+export default function MerchantAppointmentsScreen() {
+  const theme = useTheme();
+  const router = useRouter();
+  const { activeRole } = useAuth();
+  const [providers, setProviders] = useState<MerchantProvider[]>([]);
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const [bookings, setBookings] = useState<MerchantBooking[]>([]);
+  const [queue, setQueue] = useState<MerchantAppointmentQueue>('TODAY');
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<MerchantBooking | null>(null);
+  const [selectedAction, setSelectedAction] = useState<MerchantAppointmentAction | null>(null);
+  const [actionNote, setActionNote] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (appConfig.allowDemoMode) {
+        setProviders(DEMO_PROVIDERS);
+        setSelectedProviderId((current) => current ?? DEMO_PROVIDERS[0].providerId);
+        setBookings(DEMO_BOOKINGS);
+      } else {
+        const [liveProviders, liveBookings] = await Promise.all([
+          fetchMerchantProviders(),
+          fetchMerchantBookings(),
+        ]);
+        setProviders(liveProviders);
+        setSelectedProviderId((current) =>
+          liveProviders.some((provider) => provider.providerId === current)
+            ? current
+            : liveProviders[0]?.providerId ?? null,
+        );
+        setBookings(liveBookings);
+      }
+      setError(null);
+    } catch (cause: unknown) {
+      setProviders([]);
+      setBookings([]);
+      setSelectedProviderId(null);
+      setError(cause instanceof Error ? cause.message : 'Could not load appointments.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const visibleBookings = useMemo(() => {
+    const now = new Date();
+    return bookings.filter((booking) =>
+      (!selectedProviderId || booking.providerId === selectedProviderId)
+      && appointmentQueue(booking.status, booking.slotStartsAt, now) === queue
+      && appointmentMatchesSearch(search, [
+        booking.id,
+        booking.customerName,
+        booking.petName,
+        booking.serviceName,
+      ]),
+    );
+  }, [bookings, queue, search, selectedProviderId]);
+
+  const queueCounts = useMemo(() => {
+    const now = new Date();
+    return QUEUES.reduce<Record<MerchantAppointmentQueue, number>>((counts, item) => {
+      counts[item.id] = bookings.filter((booking) =>
+        (!selectedProviderId || booking.providerId === selectedProviderId)
+        && appointmentQueue(booking.status, booking.slotStartsAt, now) === item.id,
+      ).length;
+      return counts;
+    }, { TODAY: 0, UPCOMING: 0, COMPLETED: 0, NO_SHOW: 0, CANCELLED: 0 });
+  }, [bookings, selectedProviderId]);
+
+  const openAction = (booking: MerchantBooking, action: MerchantAppointmentAction) => {
+    setSelectedBooking(booking);
+    setSelectedAction(action);
+    setActionNote('');
+  };
+
+  const closeAction = () => {
+    if (actionLoading) return;
+    setSelectedBooking(null);
+    setSelectedAction(null);
+    setActionNote('');
+  };
+
+  const submitAction = async () => {
+    if (!selectedBooking || !selectedAction) return;
+    setActionLoading(true);
+    try {
+      if (appConfig.allowDemoMode) {
+        setBookings((current) => current.map((booking) =>
+          booking.id === selectedBooking.id
+            ? { ...booking, status: selectedAction, visitNotes: actionNote.trim() || null }
+            : booking,
+        ));
+      } else {
+        await updateMerchantBookingStatus(selectedBooking.id, selectedAction, actionNote);
+        await load();
+      }
+      Alert.alert('Appointment updated', `Status changed to ${formatAppointmentStatus(selectedAction)}.`);
+      closeAction();
+    } catch (cause: unknown) {
+      Alert.alert('Could not update appointment', cause instanceof Error ? cause.message : 'Try again.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const showInvoice = async (booking: MerchantBooking) => {
+    try {
+      const invoice = await fetchMerchantAppointmentInvoice(booking.id);
+      Alert.alert(
+        `Invoice ${invoice.invoiceNumber}`,
+        `Subtotal ${formatCurrency(invoice.subtotalAmount)}\nTax ${formatCurrency(invoice.taxAmount)}\nTotal ${formatCurrency(invoice.totalAmount)}\nGenerated ${formatDateTime(invoice.generatedAt)}`,
+      );
+    } catch (cause: unknown) {
+      Alert.alert('Invoice unavailable', cause instanceof Error ? cause.message : 'Could not load invoice.');
+    }
+  };
+
+  const showHistory = async (booking: MerchantBooking) => {
+    try {
+      const history = await fetchMerchantAppointmentHistory(booking.id);
+      const message = history.length === 0
+        ? 'No status changes recorded.'
+        : history.slice(-6).map((entry) =>
+            `${formatAppointmentStatus(entry.toStatus)} · ${formatDateTime(entry.changedAt)}${entry.note ? `\n${entry.note}` : ''}`,
+          ).join('\n\n');
+      Alert.alert('Appointment history', message);
+    } catch (cause: unknown) {
+      Alert.alert('History unavailable', cause instanceof Error ? cause.message : 'Could not load history.');
+    }
+  };
+
+  if (activeRole !== 'PROVIDER') {
+    return (
+      <ScreenShell scroll={false} header={<AppBar title="Appointments" />}>
+        <StateView kind="unauthorized" title="Merchant access required" message="Switch to a provider role to manage appointments." />
+      </ScreenShell>
+    );
+  }
+
   return (
-    <View style={[styles.badge, { backgroundColor: STATUS_COLORS[status] + '22' }]}>
-      <ThemedText style={[styles.badgeText, { color: STATUS_COLORS[status] }]}>
-        {status}
-      </ThemedText>
+    <ScreenShell
+      header={
+        <AppBar
+          eyebrow="Merchant operations"
+          title="Appointments"
+          subtitle="Server-backed queues, lifecycle actions and invoices"
+          action={<RoleBadge role="merchant" />}
+        />
+      }
+    >
+      {loading ? (
+        <StateView kind="loading" title="Loading appointments" message="Reading provider schedules and bookings…" />
+      ) : error ? (
+        <StateView kind="error" title="Appointments unavailable" message={error} actionLabel="Retry" onAction={() => void load()} />
+      ) : providers.length === 0 ? (
+        <StateView kind="empty" title="No appointment provider" message="Create or activate a vet or grooming provider first." />
+      ) : (
+        <>
+          {appConfig.allowDemoMode ? (
+            <FeedbackBanner title="Demo data" message="Live mode never falls back to fabricated appointments." tone="warning" />
+          ) : null}
+
+          <View style={styles.section}>
+            <ThemedText style={styles.sectionTitle}>Provider</ThemedText>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalRow}>
+              {providers.map((provider) => (
+                <FilterChip
+                  key={provider.providerId}
+                  label={provider.name}
+                  selected={selectedProviderId === provider.providerId}
+                  onPress={() => setSelectedProviderId(provider.providerId)}
+                  icon={provider.providerType === 'VET_HOSPITAL' ? 'medical' : 'groom'}
+                />
+              ))}
+            </ScrollView>
+          </View>
+
+          <View style={styles.section}>
+            <ThemedText style={styles.sectionTitle}>Queue</ThemedText>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalRow}>
+              {QUEUES.map((item) => (
+                <FilterChip
+                  key={item.id}
+                  label={`${item.label} ${queueCounts[item.id]}`}
+                  selected={queue === item.id}
+                  onPress={() => setQueue(item.id)}
+                />
+              ))}
+            </ScrollView>
+            <View style={[styles.searchBox, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+              <AppIcon name="search" color={theme.textSecondary} size={18} />
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Search customer, pet, service or appointment"
+                placeholderTextColor={theme.textSecondary}
+                style={[styles.searchInput, { color: theme.text }]}
+              />
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <ThemedText style={styles.sectionTitle}>{QUEUES.find((item) => item.id === queue)?.label}</ThemedText>
+              <ActionButton label="Refresh" variant="ghost" icon="history" onPress={() => void load()} />
+            </View>
+
+            {visibleBookings.length === 0 ? (
+              <StateView kind="empty" title="No appointments in this queue" message="Change provider, queue, or search terms." />
+            ) : visibleBookings.map((booking) => (
+              <View
+                key={booking.id}
+                style={[
+                  styles.card,
+                  shadows.card,
+                  { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+                ]}
+              >
+                <View style={styles.cardHeader}>
+                  <View style={styles.flex}>
+                    <ThemedText style={styles.cardTitle}>{booking.serviceName}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      #{booking.id.slice(0, 8)} · {formatDateTime(booking.slotStartsAt)}
+                    </ThemedText>
+                  </View>
+                  <StatusBadge label={formatAppointmentStatus(booking.status)} tone={statusTone(booking.status)} />
+                </View>
+
+                <View style={styles.metaGrid}>
+                  <MetaRow icon="paw" label={`${booking.customerName} · ${booking.petName}`} />
+                  <MetaRow icon="wallet" label={`${formatCurrency(booking.priceAmount)} · ${booking.payAtClinic ? 'Pay at clinic' : 'Prepaid'}`} />
+                </View>
+
+                {booking.visitNotes ? (
+                  <FeedbackBanner title="Visit note" message={booking.visitNotes} tone="info" icon="medical" />
+                ) : null}
+                {booking.cancellationReason ? (
+                  <FeedbackBanner title="Cancellation reason" message={booking.cancellationReason} tone="danger" />
+                ) : null}
+
+                <View style={styles.actionRow}>
+                  <ActionButton label="History" variant="ghost" icon="history" onPress={() => void showHistory(booking)} />
+                  <ActionButton
+                    label="Message"
+                    variant="ghost"
+                    icon="message"
+                    onPress={() => router.push({
+                      pathname: '/chat',
+                      params: {
+                        contextType: 'APPOINTMENT',
+                        contextId: booking.id,
+                        providerId: booking.providerId,
+                        customerId: booking.customerId,
+                        providerType: booking.providerType,
+                        title: booking.customerName,
+                      },
+                    } as never)}
+                  />
+                  {booking.status === 'COMPLETED' ? (
+                    <ActionButton label="Invoice" variant="secondary" icon="wallet" onPress={() => void showInvoice(booking)} />
+                  ) : null}
+                </View>
+
+                {appointmentActions(booking.status).length > 0 ? (
+                  <View style={styles.actionRow}>
+                    <ActionButton label="Complete" icon="check" onPress={() => openAction(booking, 'COMPLETED')} />
+                    <ActionButton label="No-show" variant="secondary" icon="clock" onPress={() => openAction(booking, 'NO_SHOW')} />
+                    <ActionButton label="Cancel" variant="destructive" icon="xmark" onPress={() => openAction(booking, 'CANCELLED')} />
+                  </View>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        </>
+      )}
+
+      <Modal visible={Boolean(selectedBooking && selectedAction)} transparent animationType="slide" onRequestClose={closeAction}>
+        <Pressable style={styles.modalBackdrop} onPress={closeAction}>
+          <Pressable style={[styles.modalCard, { backgroundColor: theme.background }]} onPress={() => undefined}>
+            <ThemedText style={styles.modalTitle}>{formatAppointmentStatus(selectedAction)}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {selectedBooking?.serviceName} · {selectedBooking?.customerName}
+            </ThemedText>
+            <TextInput
+              value={actionNote}
+              onChangeText={setActionNote}
+              multiline
+              numberOfLines={4}
+              placeholder={selectedAction === 'CANCELLED' ? 'Cancellation reason' : 'Operational note (optional)'}
+              placeholderTextColor={theme.textSecondary}
+              style={[styles.noteInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundElement }]}
+            />
+            <View style={styles.actionRow}>
+              <ActionButton label="Back" variant="ghost" onPress={closeAction} disabled={actionLoading} />
+              <ActionButton
+                label="Confirm update"
+                variant={selectedAction === 'CANCELLED' ? 'destructive' : 'primary'}
+                onPress={() => void submitAction()}
+                loading={actionLoading}
+              />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </ScreenShell>
+  );
+}
+
+function MetaRow({ icon, label }: { icon: 'paw' | 'wallet'; label: string }) {
+  const theme = useTheme();
+  return (
+    <View style={styles.metaRow}>
+      <AppIcon name={icon} color={theme.textSecondary} size={16} />
+      <ThemedText type="small" themeColor="textSecondary" style={styles.flex}>{label}</ThemedText>
     </View>
   );
 }
 
-// ─── Complete Modal ───────────────────────────────────────────────────────────
-
-interface CompleteModalProps {
-  booking: Booking | null;
-  visible: boolean;
-  onClose: () => void;
-  onSubmit: (bookingId: string, notes: string) => Promise<void>;
-}
-
-function CompleteModal({ booking, visible, onClose, onSubmit }: CompleteModalProps) {
-  const [notes, setNotes] = useState('');
-  const [loading, setLoading] = useState(false);
-  const theme = useTheme();
-  const { t } = useTranslation();
-
-  const handleSubmit = useCallback(async () => {
-    if (!booking) return;
-    setLoading(true);
-    try {
-      await onSubmit(booking.id, notes);
-      setNotes('');
-      onClose();
-    } finally {
-      setLoading(false);
-    }
-  }, [booking, notes, onSubmit, onClose]);
-
-  if (!booking) return null;
-
-  return (
-    <Modal
-      animationType="slide"
-      transparent
-      visible={visible}
-      onRequestClose={onClose}
-      accessibilityViewIsModal
-    >
-      <Pressable style={styles.modalOverlay} onPress={onClose} accessibilityLabel="Close modal">
-        <Pressable style={[styles.modalSheet, { backgroundColor: theme.background }]}>
-          {/* Handle */}
-          <View style={styles.modalHandle} />
-
-          <ThemedText type="subtitle" style={styles.modalTitle}>
-            {t('explore.markCompleted')}
-          </ThemedText>
-          <ThemedText themeColor="textSecondary" style={styles.modalSubtitle}>
-            {booking.customerName} · {booking.petName} · {booking.serviceName}
-          </ThemedText>
-
-          <ThemedText style={styles.label}>{t('explore.visitNotes')}</ThemedText>
-          <TextInput
-            style={[styles.textArea, { borderColor: '#ccc', color: theme.text, backgroundColor: theme.backgroundElement }]}
-            multiline
-            numberOfLines={4}
-            placeholder={t('explore.visitNotesPlaceholder')}
-            placeholderTextColor={theme.textSecondary}
-            value={notes}
-            onChangeText={setNotes}
-            accessibilityLabel="Visit notes input"
-          />
-
-          <TouchableOpacity
-            style={[styles.submitBtn, { backgroundColor: theme.primary }]}
-            onPress={handleSubmit}
-            disabled={loading}
-            accessibilityLabel="Confirm completion"
-            accessibilityRole="button"
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <ThemedText style={styles.submitBtnText}>{t('explore.confirmCompleted')}</ThemedText>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.cancelBtn}
-            onPress={onClose}
-            accessibilityLabel={t('common.cancel')}
-            accessibilityRole="button"
-          >
-            <ThemedText themeColor="textSecondary">{t('common.cancel')}</ThemedText>
-          </TouchableOpacity>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
-
-// ─── Booking card ─────────────────────────────────────────────────────────────
-
-interface BookingCardProps {
-  item: Booking;
-  onComplete: (booking: Booking) => void;
-  onMessage: (booking: Booking) => void;
-  theme: ReturnType<typeof useTheme>;
-}
-
-const BookingCard = React.memo(function BookingCard({ item, onComplete, onMessage, theme }: BookingCardProps) {
-  const { t } = useTranslation();
-  const time = new Date(item.slotStartsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const date = new Date(item.slotStartsAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-
-  return (
-    <ThemedView type="backgroundElement" style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={styles.cardHeaderLeft}>
-          <ThemedText style={{ fontWeight: '700' }}>{item.customerName}</ThemedText>
-          <View style={styles.inlineMeta}>
-            <AppIcon name="paw" color={theme.textSecondary} size={14} />
-            <ThemedText themeColor="textSecondary" type="small">{item.petName}</ThemedText>
-          </View>
-        </View>
-        <StatusBadge status={item.status} />
-      </View>
-
-      <View style={styles.cardDetails}>
-        <ThemedText type="small">{item.serviceName}</ThemedText>
-        <View style={styles.inlineMeta}>
-          <AppIcon name="calendar" color={theme.textSecondary} size={14} />
-          <ThemedText type="small" themeColor="textSecondary">{date} · {time}</ThemedText>
-        </View>
-      </View>
-
-      <TouchableOpacity
-        style={[styles.messageBtn, { borderColor: theme.cta }]}
-        onPress={() => onMessage(item)}
-        accessibilityLabel={`Message ${item.customerName}`}
-        accessibilityRole="button"
-      >
-        <ThemedText style={{ color: theme.cta, fontWeight: '600' }}>{t('explore.messageCustomer')}</ThemedText>
-      </TouchableOpacity>
-
-      {item.status === 'CONFIRMED' && (
-        <TouchableOpacity
-          style={[styles.completeBtn, { borderColor: theme.primary }]}
-          onPress={() => onComplete(item)}
-          accessibilityLabel={`Mark ${item.customerName}'s appointment as completed`}
-          accessibilityRole="button"
-          activeOpacity={0.7}
-        >
-          <ThemedText style={{ color: theme.primary, fontWeight: '600' }}>
-            {t('explore.markCompletedBtn')}
-          </ThemedText>
-        </TouchableOpacity>
-      )}
-    </ThemedView>
-  );
-});
-
-// ─── Main screen ─────────────────────────────────────────────────────────────
-
-type FilterType = 'ALL' | 'CONFIRMED' | 'COMPLETED';
-
-export default function BookingsScreen() {
-  const theme = useTheme();
-  const router = useRouter();
-  const { t } = useTranslation();
-  const safeAreaInsets = useSafeAreaInsets();
-  const { user, session } = useAuth();
-  const userId = user?.id;
-  const accessToken = session?.access_token;
-
-  const [bookings, setBookings] = useState<Booking[]>(MOCK_BOOKINGS);
-  const [filter, setFilter] = useState<FilterType>('ALL');
-  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [loading, setLoading] = useState(!appConfig.allowDemoMode);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const insets = {
-    ...safeAreaInsets,
-    bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
-  };
-
-  const contentPlatformStyle = Platform.select({
-    android: { paddingTop: insets.top + Spacing.two },
-    web: { paddingTop: Spacing.six },
-  });
-
-  const loadBookings = useCallback(async () => {
-    if (appConfig.allowDemoMode) {
-      setBookings(MOCK_BOOKINGS);
-      setLoadError(null);
-      setLoading(false);
-      return;
-    }
-
-    if (!userId) {
-      setBookings([]);
-      setLoadError(t('explore.signInRequired'));
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const liveBookings = await fetchMerchantBookings(userId, accessToken);
-      setBookings(liveBookings);
-      setLoadError(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : t('explore.loadFailed');
-      setBookings([]);
-      setLoadError(message);
-    } finally {
-      setLoading(false);
-    }
-  }, [accessToken, userId, t]);
-
-  useEffect(() => {
-    void loadBookings();
-  }, [loadBookings]);
-
-  const filtered = bookings.filter(b => filter === 'ALL' || b.status === filter);
-
-  const handleComplete = useCallback((booking: Booking) => {
-    setSelectedBooking(booking);
-    setModalVisible(true);
-  }, []);
-
-  const handleMessage = useCallback((booking: Booking) => {
-    router.push({
-      pathname: '/chat',
-      params: {
-        contextType: 'APPOINTMENT',
-        contextId: booking.id,
-        providerId: booking.providerId,
-        customerId: booking.customerId,
-        providerType: booking.providerType,
-        title: booking.customerName,
-      },
-    } as never);
-  }, [router]);
-
-  const handleSubmitComplete = useCallback(async (bookingId: string, notes: string) => {
-    try {
-      if (appConfig.allowDemoMode) {
-        setBookings(prev =>
-          prev.map(b => b.id === bookingId ? { ...b, status: 'COMPLETED' as AppointmentStatus, visitNotes: notes } : b)
-        );
-      } else {
-        await completeMerchantBooking(bookingId, notes, accessToken);
-        await loadBookings();
-      }
-      Alert.alert(t('explore.done'), t('explore.appointmentCompleted'));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : t('explore.completeFailed');
-      Alert.alert(t('explore.couldNotComplete'), message);
-      throw error;
-    }
-  }, [accessToken, loadBookings, t]);
-
-  const renderItem = useCallback(
-    ({ item }: { item: Booking }) => (
-      <BookingCard item={item} onComplete={handleComplete} onMessage={handleMessage} theme={theme} />
-    ),
-    [handleComplete, handleMessage, theme]
-  );
-
-  const keyExtractor = useCallback((item: Booking) => item.id, []);
-
-  const today = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
-
-  const filterLabels: Record<FilterType, string> = {
-    ALL: t('explore.filterAll'),
-    CONFIRMED: t('explore.filterConfirmed'),
-    COMPLETED: t('explore.filterCompleted'),
-  };
-
-  return (
-    <ThemedView style={[styles.screen, { backgroundColor: theme.background }]}>
-      {/* Header */}
-      <ThemedView style={[styles.header, contentPlatformStyle]}>
-        <ThemedText type="title">{t('explore.title')}</ThemedText>
-        <ThemedText themeColor="textSecondary" type="small">{today}</ThemedText>
-
-        {/* Filter Pills */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
-          {(['ALL', 'CONFIRMED', 'COMPLETED'] as FilterType[]).map(f => (
-            <TouchableOpacity
-              key={f}
-              style={[
-                styles.filterPill,
-                filter === f && { backgroundColor: theme.primary },
-              ]}
-              onPress={() => setFilter(f)}
-              accessibilityLabel={`Filter: ${filterLabels[f]}`}
-              accessibilityRole="button"
-            >
-              <ThemedText
-                style={[styles.filterPillText, filter === f && { color: '#fff' }]}
-              >
-                {filterLabels[f]}
-              </ThemedText>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </ThemedView>
-
-      {/* Booking list */}
-      {loading ? (
-        <View style={styles.centred}>
-          <ActivityIndicator size="large" color={theme.primary} />
-        </View>
-      ) : loadError ? (
-        <View style={styles.centred}>
-          <AppIcon name="calendar" color={theme.primary} size={34} />
-          <ThemedText themeColor="textSecondary">{loadError}</ThemedText>
-          <TouchableOpacity
-            style={[styles.completeBtn, { borderColor: theme.primary, paddingHorizontal: Spacing.four }]}
-            onPress={() => void loadBookings()}
-            accessibilityLabel={t('explore.retryLoad')}
-            accessibilityRole="button"
-          >
-            <ThemedText style={{ color: theme.primary, fontWeight: '600' }}>{t('common.retry')}</ThemedText>
-          </TouchableOpacity>
-        </View>
-      ) : filtered.length === 0 ? (
-        <View style={styles.centred}>
-          <AppIcon name="calendar" color={theme.primary} size={34} />
-          <ThemedText themeColor="textSecondary">
-            {t('explore.noBookings', { filter: filter !== 'ALL' ? filterLabels[filter].toLowerCase() : '' })}
-          </ThemedText>
-        </View>
-      ) : (
-        <FlatList
-          data={filtered}
-          renderItem={renderItem}
-          keyExtractor={keyExtractor}
-          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom }]}
-          contentInsetAdjustmentBehavior="automatic"
-          showsVerticalScrollIndicator={false}
-        />
-      )}
-
-      <CompleteModal
-        booking={selectedBooking}
-        visible={modalVisible}
-        onClose={() => setModalVisible(false)}
-        onSubmit={handleSubmitComplete}
-      />
-    </ThemedView>
-  );
-}
-
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-
-  header: {
-    paddingHorizontal: Spacing.four,
-    paddingBottom: Spacing.three,
-    gap: Spacing.one,
-  },
-
-  filterRow: {
-    marginTop: Spacing.two,
-    flexDirection: 'row',
-  },
-
-  filterPill: {
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.one + 4,
-    borderRadius: 20,
-    marginRight: Spacing.two,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: '#ccc',
-    minHeight: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  filterPillText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-
-  listContent: {
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.three,
-    paddingTop: Spacing.two,
-  },
-
-  card: {
-    borderRadius: Spacing.three,
-    padding: Spacing.four,
-    gap: Spacing.two,
-  },
-
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  cardHeaderLeft: { gap: 2 },
-
-  cardDetails: { gap: Spacing.one },
-  inlineMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-  },
-
-  completeBtn: {
-    marginTop: Spacing.two,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.two,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  messageBtn: {
-    marginTop: Spacing.two,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.two,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-
-  badge: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 2,
-    borderRadius: Spacing.five,
-  },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-
-  centred: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-  },
-
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: Spacing.five,
-    gap: Spacing.two,
-    paddingBottom: Spacing.six,
-  },
-  modalHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#ccc',
-    alignSelf: 'center',
-    marginBottom: Spacing.two,
-  },
-  modalTitle: { fontWeight: '700' },
-  modalSubtitle: { fontSize: 13 },
-
-  label: { fontSize: 13, fontWeight: '600', marginTop: Spacing.two },
-
-  textArea: {
-    borderWidth: 1,
-    borderRadius: Spacing.two,
-    padding: Spacing.three,
-    minHeight: 100,
-    textAlignVertical: 'top',
-    fontSize: 14,
-  },
-
-  submitBtn: {
-    marginTop: Spacing.three,
-    paddingVertical: Spacing.three,
-    borderRadius: Spacing.two,
-    alignItems: 'center',
-    minHeight: 48,
-    justifyContent: 'center',
-  },
-  submitBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-
-  cancelBtn: {
-    alignItems: 'center',
-    paddingVertical: Spacing.two,
-    minHeight: 44,
-    justifyContent: 'center',
-  },
+  flex: { flex: 1 },
+  section: { gap: spacing.x3 },
+  sectionTitle: { ...typography.title },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.x3 },
+  horizontalRow: { gap: spacing.x2, paddingRight: spacing.x4 },
+  searchBox: { minHeight: 48, borderWidth: 1, borderRadius: radii.compact, paddingHorizontal: spacing.x3, flexDirection: 'row', alignItems: 'center', gap: spacing.x2 },
+  searchInput: { flex: 1, minHeight: 46 },
+  card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.card, padding: spacing.x4, gap: spacing.x3 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.x3 },
+  cardTitle: { ...typography.label, fontWeight: '800' },
+  metaGrid: { gap: spacing.x2 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.x2 },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
+  modalCard: { borderTopLeftRadius: radii.card, borderTopRightRadius: radii.card, padding: spacing.x5, gap: spacing.x4 },
+  modalTitle: { ...typography.title },
+  noteInput: { minHeight: 112, borderWidth: 1, borderRadius: radii.compact, padding: spacing.x3, textAlignVertical: 'top' },
 });
