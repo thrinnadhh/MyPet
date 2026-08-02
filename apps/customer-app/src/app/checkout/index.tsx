@@ -6,20 +6,32 @@ import { AppIcon } from '@/components/app-icon';
 import { AppBar, PrimaryAction, StateView, StatusBadge } from '@/components/foundation/primitives';
 import { ScreenShell } from '@/components/foundation/screen-shell';
 import { ThemedText } from '@/components/themed-text';
+import type { CustomerPaymentMethod } from '@/contracts/customer-payment';
 import { useAuth } from '@/context/AuthContext';
 import { useAuthIntent } from '@/context/AuthIntentContext';
 import { useCart } from '@/context/CartContext';
 import { radii, shadows, spacing, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
-import { fetchDefaultAddress, isOfflineError, type CustomerAddress } from '@/services/customer-profile';
 import {
   createCustomerOrder,
   fetchCheckoutQuote,
   type CheckoutQuoteOutput,
+  type CustomerOrderRecord,
 } from '@/services/customer-orders';
+import {
+  initiateOrderPayment,
+  openRazorpayOrder,
+  waitForPaymentOutcome,
+} from '@/services/customer-payments';
+import { fetchDefaultAddress, isOfflineError, type CustomerAddress } from '@/services/customer-profile';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PAYMENT_METHODS: Array<{ id: CustomerPaymentMethod; label: string }> = [
+  { id: 'COD', label: 'Cash on delivery' },
+  { id: 'UPI', label: 'UPI' },
+  { id: 'CARD', label: 'Card' },
+];
 
 export default function CheckoutScreen() {
   const router = useRouter();
@@ -28,6 +40,7 @@ export default function CheckoutScreen() {
   const { user, session } = useAuth();
   const { requireAuth } = useAuthIntent();
   const { items, providerId, clearCart, loading: cartLoading } = useCart();
+
   const checkoutItems = useMemo(() => {
     const quantities = new Map<string, number>();
     items.forEach((item) => {
@@ -35,53 +48,44 @@ export default function CheckoutScreen() {
     });
     return Array.from(quantities, ([offeringId, quantity]) => ({ offeringId, quantity }));
   }, [items]);
+
   const hasPreviewItems = !providerId
     || !UUID_PATTERN.test(providerId)
     || checkoutItems.some((item) => !UUID_PATTERN.test(item.offeringId));
 
   const [address, setAddress] = useState<CustomerAddress | null>(null);
-  const paymentMethod = 'COD' as const;
+  const [paymentMethod, setPaymentMethod] = useState<CustomerPaymentMethod>('COD');
   const [couponCodeInput, setCouponCodeInput] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
-
   const [quote, setQuote] = useState<CheckoutQuoteOutput | null>(null);
+  const [pendingOrder, setPendingOrder] = useState<CustomerOrderRecord | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'offline' | 'error'>('loading');
-  const [quoting, setQuoting] = useState(false);
   const [placing, setPlacing] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!user || !session || cartLoading) return;
-    if (!providerId || checkoutItems.length === 0) {
+    if (!providerId || checkoutItems.length === 0 || hasPreviewItems) {
       setQuote(null);
       setState('ready');
       return;
     }
-    if (hasPreviewItems) {
-      setQuote(null);
-      setState('ready');
-      return;
-    }
+
     setState('loading');
     try {
-      const defAddr = await fetchDefaultAddress(session.access_token);
-      setAddress(defAddr);
-
-      if (defAddr) {
-        const quoteRes = await fetchCheckoutQuote(
-          {
-            customerId: user.id,
-            providerId,
-            deliveryAddressId: defAddr.addressId,
-            items: checkoutItems,
-            couponCode: appliedCoupon,
-            paymentMethod,
-            city: defAddr.city,
-            latitude: defAddr.geoLat,
-            longitude: defAddr.geoLng,
-          },
-          session.access_token,
-        );
-        setQuote(quoteRes);
+      const defaultAddress = await fetchDefaultAddress(session.access_token);
+      setAddress(defaultAddress);
+      if (defaultAddress) {
+        setQuote(await fetchCheckoutQuote({
+          customerId: user.id,
+          providerId,
+          deliveryAddressId: defaultAddress.addressId,
+          items: checkoutItems,
+          couponCode: appliedCoupon,
+          paymentMethod,
+          city: defaultAddress.city,
+          latitude: defaultAddress.geoLat,
+          longitude: defaultAddress.geoLng,
+        }, session.access_token));
       }
       setState('ready');
     } catch (error) {
@@ -93,74 +97,71 @@ export default function CheckoutScreen() {
     if (user && session) void loadData();
   }, [loadData, session, user]);
 
-  const handleApplyCoupon = async () => {
-    if (!couponCodeInput.trim() || !user || !session || !address || !providerId || checkoutItems.length === 0) {
-      return;
-    }
-    setQuoting(true);
-    try {
-      const codeToApply = couponCodeInput.trim().toUpperCase();
-      const newQuote = await fetchCheckoutQuote(
-        {
-          customerId: user.id,
-          providerId,
-          deliveryAddressId: address.addressId,
-          items: checkoutItems,
-          couponCode: codeToApply,
-          paymentMethod,
-          city: address.city,
-          latitude: address.geoLat,
-          longitude: address.geoLng,
-        },
-        session.access_token,
-      );
-      setQuote(newQuote);
-      setAppliedCoupon(codeToApply);
-      setCouponCodeInput('');
-      Alert.alert('Coupon Applied', `Coupon ${codeToApply} applied successfully!`);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Could not apply coupon code.';
-      Alert.alert('Invalid Coupon', message);
-    } finally {
-      setQuoting(false);
-    }
+  const handleApplyCoupon = () => {
+    const code = couponCodeInput.trim().toUpperCase();
+    if (!code) return;
+    setAppliedCoupon(code);
+    setCouponCodeInput('');
   };
 
-  const handleRemoveCoupon = () => {
-    setAppliedCoupon(null);
+  const createOrder = async (): Promise<CustomerOrderRecord> => {
+    if (!user || !session || !address || !quote || !providerId) {
+      throw new Error('Checkout is not ready.');
+    }
+    if (pendingOrder) return pendingOrder;
+
+    const created = await createCustomerOrder({
+      customerId: user.id,
+      providerId,
+      deliveryAddressId: address.addressId,
+      items: checkoutItems,
+      couponCode: appliedCoupon,
+      paymentMethod,
+      quoteToken: quote.quoteToken,
+      city: address.city,
+      latitude: address.geoLat,
+      longitude: address.geoLng,
+    }, session.access_token);
+    setPendingOrder(created);
+    return created;
   };
 
   const handlePlaceOrder = async () => {
     if (!user || !session || !address || !quote || !providerId || checkoutItems.length === 0) return;
     if (paymentMethod === 'COD' && !quote.isCodAvailable) {
-      Alert.alert('COD Not Allowed', quote.codRejectionReason || 'Order total exceeds COD limit.');
+      Alert.alert('COD unavailable', quote.codRejectionReason || 'Choose UPI or card for this order.');
       return;
     }
 
     setPlacing(true);
     try {
-      const created = await createCustomerOrder(
-        {
-          customerId: user.id,
-          providerId,
-          deliveryAddressId: address.addressId,
-          items: checkoutItems,
-          couponCode: appliedCoupon,
-          paymentMethod,
-          quoteToken: quote.quoteToken,
-          city: address.city,
-          latitude: address.geoLat,
-          longitude: address.geoLng,
-        },
-        session.access_token,
-      );
+      const order = await createOrder();
+      if (paymentMethod === 'COD') {
+        await clearCart();
+        router.replace(`/orders/${order.id}` as never);
+        return;
+      }
 
-      await clearCart();
-      Alert.alert('Order Placed!', `Your order #${created.id.slice(0, 8)} has been placed successfully.`);
-      router.replace(`/orders/${created.id}` as any);
+      const initialization = await initiateOrderPayment(user.id, order.id, order.rawTotal);
+      await openRazorpayOrder(initialization);
+      const payment = await waitForPaymentOutcome(order.id);
+
+      if (payment.status === 'SUCCESS') {
+        await clearCart();
+        Alert.alert('Payment confirmed', 'Your order is now confirmed by the MyPet server.');
+        router.replace(`/orders/${order.id}` as never);
+      } else if (payment.status === 'PENDING') {
+        Alert.alert(
+          'Payment confirmation pending',
+          'Razorpay has not confirmed the payment yet. Track or retry from the order screen.',
+          [{ text: 'View order', onPress: () => router.replace(`/orders/${order.id}` as never) }],
+        );
+      } else {
+        Alert.alert('Payment not completed', 'No successful payment was confirmed. You can retry safely.');
+      }
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Could not complete order placement.';
-      Alert.alert('Checkout Failed', message);
+      const message = error instanceof Error ? error.message : 'Could not complete checkout.';
+      Alert.alert('Checkout failed', message);
     } finally {
       setPlacing(false);
     }
@@ -183,19 +184,18 @@ export default function CheckoutScreen() {
   if (state === 'loading' || cartLoading) {
     return (
       <ScreenShell scroll={false} header={<AppBar title={t('routes.checkout')} />}>
-        <StateView kind="loading" title={t('states.loading')} message="Fetching server breakdown..." />
+        <StateView kind="loading" title={t('states.loading')} message="Fetching the server-authoritative total…" />
       </ScreenShell>
     );
   }
 
   if (state === 'offline' || state === 'error') {
-    const isOffline = state === 'offline';
     return (
       <ScreenShell scroll={false} header={<AppBar title={t('routes.checkout')} />}>
         <StateView
           kind={state}
-          title={t(isOffline ? 'states.offline' : 'states.error')}
-          message={t(isOffline ? 'states.offlineMessage' : 'states.errorMessage')}
+          title={state === 'offline' ? t('states.offline') : t('states.error')}
+          message={state === 'offline' ? t('states.offlineMessage') : t('states.errorMessage')}
           actionLabel={t('states.retry')}
           onAction={() => void loadData()}
         />
@@ -206,13 +206,7 @@ export default function CheckoutScreen() {
   if (!providerId || checkoutItems.length === 0) {
     return (
       <ScreenShell scroll={false} header={<AppBar title={t('routes.checkout')} />}>
-        <StateView
-          kind="empty"
-          title="Your cart is empty"
-          message="Add an in-stock product before starting checkout."
-          actionLabel="Browse products"
-          onAction={() => router.replace('/(tabs)' as never)}
-        />
+        <StateView kind="empty" title="Your cart is empty" message="Add an in-stock product before checkout." />
       </ScreenShell>
     );
   }
@@ -223,11 +217,9 @@ export default function CheckoutScreen() {
         <StateView
           kind="error"
           title="Preview products cannot be ordered"
-          message="This cart contains sample catalog data. Clear it and add products from a live provider catalog."
+          message="Clear sample catalog data and add products from a live provider."
           actionLabel="Clear preview cart"
-          onAction={() => {
-            void clearCart().then(() => router.replace('/(tabs)' as never));
-          }}
+          onAction={() => void clearCart()}
         />
       </ScreenShell>
     );
@@ -238,181 +230,154 @@ export default function CheckoutScreen() {
       <ScreenShell scroll={false} header={<AppBar title={t('routes.checkout')} />}>
         <StateView
           kind="error"
-          title="Delivery Address Required"
-          message="Please add a valid delivery address in your customer profile before checking out."
-          actionLabel="Go to Profile"
-          onAction={() => router.push('/(tabs)/profile' as any)}
+          title="Delivery address required"
+          message="Add a valid default address before checkout."
+          actionLabel="Go to profile"
+          onAction={() => router.push('/(tabs)/profile' as never)}
         />
       </ScreenShell>
     );
   }
 
   return (
-    <ScreenShell header={<AppBar title={t('routes.checkout')} subtitle="Server-Authoritative Pricing & Review" />}>
+    <ScreenShell header={<AppBar title={t('routes.checkout')} subtitle="Secure server-authoritative checkout" />}>
       <View style={styles.container}>
-        {/* Delivery Address Snapshot */}
-        <View
-          style={[
-            styles.card,
-            shadows.card,
-            { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-          ]}
-        >
-          <View style={styles.cardHeader}>
+        <View style={[styles.card, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+          <View style={styles.headerRow}>
             <AppIcon name="location" size={18} color={theme.primary} />
-            <ThemedText style={styles.cardTitle}>Delivery Address</ThemedText>
-            <StatusBadge label={address.label || 'Home'} tone="success" />
+            <ThemedText style={styles.cardTitle}>Delivery address</ThemedText>
+            <StatusBadge label={address.label || 'Default'} tone="success" />
           </View>
-          <ThemedText style={styles.addressLine}>{address.line1}</ThemedText>
+          <ThemedText>{address.line1}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            {address.city}, {address.state} - {address.pincode}
+            {address.city}, {address.state} – {address.pincode}
           </ThemedText>
         </View>
 
-        {/* Coupon Code Section */}
-        <View
-          style={[
-            styles.card,
-            shadows.card,
-            { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-          ]}
-        >
-          <ThemedText style={styles.cardTitle}>Promotions & Coupons</ThemedText>
-          {appliedCoupon ? (
-            <View style={[styles.appliedCouponRow, { backgroundColor: theme.primarySoft }]}>
-              <View style={styles.flexRow}>
-                <AppIcon name="sparkle" size={16} color={theme.primary} />
-                <ThemedText style={{ color: theme.primary, fontWeight: '700' }}>
-                  {appliedCoupon} APPLIED
-                </ThemedText>
-              </View>
-              <Pressable onPress={handleRemoveCoupon}>
-                <ThemedText style={{ color: theme.danger, fontWeight: '700' }}>Remove</ThemedText>
-              </Pressable>
-            </View>
-          ) : (
-            <View style={styles.couponInputRow}>
-              <TextInput
-                value={couponCodeInput}
-                onChangeText={setCouponCodeInput}
-                placeholder="Enter coupon code (e.g. SAVE50)"
-                placeholderTextColor={theme.textSecondary}
-                style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-                autoCapitalize="characters"
-              />
-              <Pressable
-                style={[styles.applyBtn, { backgroundColor: theme.primary }]}
-                onPress={() => void handleApplyCoupon()}
-              >
-                <ThemedText style={{ color: '#FFF', fontWeight: '700' }}>Apply</ThemedText>
-              </Pressable>
-            </View>
-          )}
-        </View>
-
-        {/* Payment Method Selector */}
-        <View
-          style={[
-            styles.card,
-            shadows.card,
-            { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-          ]}
-        >
-          <ThemedText style={styles.cardTitle}>Payment Method</ThemedText>
-          <View style={styles.tabsScroll}>
-            <StatusBadge label="Cash on Delivery (COD)" tone="success" />
+        <View style={[styles.card, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+          <ThemedText style={styles.cardTitle}>Payment method</ThemedText>
+          <View style={styles.methodRow}>
+            {PAYMENT_METHODS.map((method) => {
+              const selected = paymentMethod === method.id;
+              return (
+                <Pressable
+                  key={method.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => {
+                    setPaymentMethod(method.id);
+                    setPendingOrder(null);
+                  }}
+                  style={[
+                    styles.method,
+                    { borderColor: selected ? theme.primary : theme.border, backgroundColor: selected ? theme.primarySoft : theme.background },
+                  ]}
+                >
+                  <ThemedText style={{ fontWeight: '700', color: selected ? theme.primary : theme.text }}>
+                    {method.label}
+                  </ThemedText>
+                </Pressable>
+              );
+            })}
           </View>
           <ThemedText type="small" themeColor="textSecondary">
-            Card and UPI will be enabled after secure in-app payment confirmation is connected.
+            Online payment success is accepted only after Razorpay webhook verification.
           </ThemedText>
-
-          {quote && !quote.isCodAvailable ? (
-            <View style={[styles.warningBox, { backgroundColor: theme.primarySoft }]}>
+          {paymentMethod === 'COD' && quote && !quote.isCodAvailable ? (
+            <View style={styles.warningRow}>
               <AppIcon name="warning" size={16} color={theme.danger} />
               <ThemedText type="small" style={{ color: theme.danger, flex: 1 }}>
-                {quote.codRejectionReason || 'COD is not available for this order total.'}
+                {quote.codRejectionReason || 'COD is unavailable for this order.'}
               </ThemedText>
             </View>
           ) : null}
         </View>
 
-        {/* Server Authoritative Price Breakdown */}
+        <View style={[styles.card, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+          <ThemedText style={styles.cardTitle}>Coupon</ThemedText>
+          {appliedCoupon ? (
+            <View style={styles.headerRow}>
+              <StatusBadge label={`${appliedCoupon} applied`} tone="success" />
+              <Pressable onPress={() => setAppliedCoupon(null)}>
+                <ThemedText style={{ color: theme.danger, fontWeight: '700' }}>Remove</ThemedText>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.couponRow}>
+              <TextInput
+                value={couponCodeInput}
+                onChangeText={setCouponCodeInput}
+                placeholder="Enter coupon code"
+                placeholderTextColor={theme.textSecondary}
+                autoCapitalize="characters"
+                style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+              />
+              <Pressable style={[styles.applyButton, { backgroundColor: theme.primary }]} onPress={handleApplyCoupon}>
+                <ThemedText style={styles.applyText}>Apply</ThemedText>
+              </Pressable>
+            </View>
+          )}
+        </View>
+
         {quote ? (
-          <View
-            style={[
-              styles.card,
-              shadows.card,
-              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-            ]}
-          >
-            <ThemedText style={styles.cardTitle}>Server Price Breakdown</ThemedText>
-
-            <View style={styles.breakdownRow}>
-              <ThemedText themeColor="textSecondary">Items Subtotal</ThemedText>
-              <ThemedText style={styles.valueText}>₹{quote.subtotal}</ThemedText>
-            </View>
-
-            {quote.couponDiscount > 0 ? (
-              <View style={styles.breakdownRow}>
-                <ThemedText style={{ color: theme.primary }}>Coupon Discount</ThemedText>
-                <ThemedText style={{ color: theme.primary, fontWeight: '700' }}>
-                  -₹{quote.couponDiscount}
-                </ThemedText>
-              </View>
-            ) : null}
-
-            <View style={styles.breakdownRow}>
-              <ThemedText themeColor="textSecondary">Delivery Fee</ThemedText>
-              <ThemedText style={styles.valueText}>₹{quote.deliveryFee}</ThemedText>
-            </View>
-
-            <View style={styles.breakdownRow}>
-              <ThemedText themeColor="textSecondary">Taxes (GST)</ThemedText>
-              <ThemedText style={styles.valueText}>₹{quote.tax}</ThemedText>
-            </View>
-
+          <View style={[styles.card, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+            <ThemedText style={styles.cardTitle}>Price breakdown</ThemedText>
+            <PriceRow label="Items" value={quote.subtotal} />
+            {quote.couponDiscount > 0 ? <PriceRow label="Coupon" value={-quote.couponDiscount} /> : null}
+            {quote.loyaltyDiscount > 0 ? <PriceRow label="Loyalty" value={-quote.loyaltyDiscount} /> : null}
+            <PriceRow label="Delivery" value={quote.deliveryFee} />
+            <PriceRow label="Tax" value={quote.tax} />
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-            <View style={styles.breakdownRow}>
-              <ThemedText style={styles.totalLabel}>Payable Total</ThemedText>
-              <ThemedText style={styles.totalValue}>₹{quote.payableTotal}</ThemedText>
+            <View style={styles.headerRow}>
+              <ThemedText style={styles.totalLabel}>Payable total</ThemedText>
+              <ThemedText style={[styles.totalValue, { color: theme.primary }]}>₹{quote.payableTotal.toFixed(2)}</ThemedText>
             </View>
           </View>
         ) : null}
 
-        {/* Placement CTA */}
+        {pendingOrder && paymentMethod !== 'COD' ? (
+          <View style={[styles.notice, { backgroundColor: theme.primarySoft }]}>
+            <ThemedText style={{ fontWeight: '700' }}>Payment retry for order #{pendingOrder.id.slice(0, 8)}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Retrying reuses the existing order and does not reserve stock twice.
+            </ThemedText>
+          </View>
+        ) : null}
+
         <PrimaryAction
-          label={`Place Order (${paymentMethod})`}
+          label={paymentMethod === 'COD' ? 'Place COD order' : `Pay securely with ${paymentMethod}`}
           onPress={() => void handlePlaceOrder()}
-          loading={placing || quoting}
+          loading={placing}
         />
       </View>
     </ScreenShell>
   );
 }
 
+function PriceRow({ label, value }: { label: string; value: number }) {
+  return (
+    <View style={styles.headerRow}>
+      <ThemedText themeColor="textSecondary">{label}</ThemedText>
+      <ThemedText style={styles.priceValue}>{value < 0 ? '-' : ''}₹{Math.abs(value).toFixed(2)}</ThemedText>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { padding: spacing.x4, gap: spacing.x3, paddingBottom: spacing.x8 },
-  card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.card, padding: spacing.x4, gap: spacing.x2 },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.x2 },
+  card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.card, padding: spacing.x4, gap: spacing.x3 },
   cardTitle: { ...typography.label, fontWeight: '700' },
-  addressLine: { ...typography.body, marginTop: spacing.x1 },
-  appliedCouponRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.x3,
-    borderRadius: radii.compact,
-  },
-  flexRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.x2 },
-  couponInputRow: { flexDirection: 'row', gap: spacing.x2, marginTop: spacing.x1 },
-  input: { flex: 1, borderWidth: 1, borderRadius: radii.compact, paddingHorizontal: spacing.x3, height: 40 },
-  applyBtn: { paddingHorizontal: spacing.x4, height: 40, borderRadius: radii.compact, alignItems: 'center', justifyContent: 'center' },
-  tabsScroll: { flexDirection: 'row', gap: spacing.x2, marginTop: spacing.x1 },
-  warningBox: { flexDirection: 'row', alignItems: 'center', gap: spacing.x2, padding: spacing.x3, borderRadius: radii.compact, marginTop: spacing.x2 },
-  breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.x1 },
-  valueText: { ...typography.body, fontWeight: '600' },
-  divider: { height: StyleSheet.hairlineWidth, marginVertical: spacing.x2 },
-  totalLabel: { ...typography.title },
-  totalValue: { ...typography.title, color: '#10B981', fontWeight: '800' },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.x2 },
+  methodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
+  method: { borderWidth: 1, borderRadius: radii.compact, paddingHorizontal: spacing.x3, paddingVertical: spacing.x2 },
+  warningRow: { flexDirection: 'row', gap: spacing.x2, alignItems: 'flex-start' },
+  couponRow: { flexDirection: 'row', gap: spacing.x2 },
+  input: { flex: 1, height: 42, borderWidth: 1, borderRadius: radii.compact, paddingHorizontal: spacing.x3 },
+  applyButton: { minWidth: 76, borderRadius: radii.compact, alignItems: 'center', justifyContent: 'center' },
+  applyText: { color: '#fff', fontWeight: '700' },
+  divider: { height: StyleSheet.hairlineWidth },
+  priceValue: { fontWeight: '700' },
+  totalLabel: { ...typography.label, fontWeight: '800' },
+  totalValue: { ...typography.title, fontWeight: '800' },
+  notice: { borderRadius: radii.compact, padding: spacing.x3, gap: spacing.x1 },
 });
