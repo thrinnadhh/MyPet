@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "release": "v0.9.0-beta.1",
+  "updatedAt": null,
+  "executedBy": null,
+  "devices": [
+    {
+      "id": "android-small",
+      "platform": "ANDROID",
+      "class": "SMALL_PHONE",
+      "minimumOs": "Android 10",
+      "physicalDeviceRequired": true
+    },
+    {
+      "id": "android-modern",
+      "platform": "ANDROID",
+      "class": "MODERN_PHONE",
+      "minimumOs": "Android 14",
+      "physicalDeviceRequired": true
+    },
+    {
+      "id": "ios-modern",
+      "platform": "IOS",
+      "class": "MODERN_PHONE",
+      "minimumOs": "iOS 17",
+      "physicalDeviceRequired": true
+    }
+  ],
+  "checks": [
+    { "id": "layout-320", "title": "320 px responsive layout", "requiredOn": ["android-small"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "font-200", "title": "200 percent font scaling", "requiredOn": ["android-small", "android-modern", "ios-modern"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "screen-reader", "title": "TalkBack or VoiceOver traversal and labels", "requiredOn": ["android-modern", "ios-modern"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "touch-targets", "title": "Minimum 48 dp touch targets", "requiredOn": ["android-small", "android-modern", "ios-modern"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "keyboard", "title": "Keyboard avoidance and form completion", "requiredOn": ["android-small", "android-modern", "ios-modern"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "reduced-motion", "title": "Reduced-motion behavior", "requiredOn": ["android-modern", "ios-modern"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "deep-links", "title": "Authenticated notification deep links", "requiredOn": ["android-modern", "ios-modern"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "push", "title": "Push registration, receive and tap", "requiredOn": ["android-modern", "ios-modern"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "location-grant", "title": "Captain foreground and background permission grant", "requiredOn": ["android-modern", "ios-modern"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "location-deny", "title": "Denied and permanently denied permission recovery", "requiredOn": ["android-modern", "ios-modern"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "gps-disabled", "title": "GPS disabled recovery", "requiredOn": ["android-modern"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "background-location", "title": "Background delivery location and foreground-service disclosure", "requiredOn": ["android-modern"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "offline-restart", "title": "Offline recovery and active-delivery restart", "requiredOn": ["android-modern", "ios-modern"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "payment-sandbox", "title": "Hosted payment sandbox return and reconciliation", "requiredOn": ["android-modern", "ios-modern"], "status": "NOT_RUN", "evidence": null, "notes": null },
+    { "id": "medical-upload", "title": "Private medical upload and signed view", "requiredOn": ["android-modern", "ios-modern"], "status": "NOT_RUN", "evidence": null, "notes": null }
+  ],
+  "blockers": [
+    "Physical-device evidence has not yet been recorded. This matrix intentionally prevents a false beta-release claim."
+  ]
+}
