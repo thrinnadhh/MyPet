@@ -10,6 +10,7 @@ function mimeForFilename(filename: string): string {
   const lower = filename.toLowerCase();
   if (lower.endsWith('.pdf')) return 'application/pdf';
   if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
   return 'image/jpeg';
 }
 
@@ -18,6 +19,7 @@ export async function uploadFileFromUri(
   filename: string,
   accessToken?: string | null,
 ): Promise<string> {
+  if (!accessToken) throw new Error('Authentication is required to upload documents.');
   const urlResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers/upload-url`, {
     method: 'POST',
     headers: authHeaders(accessToken),
@@ -27,6 +29,10 @@ export async function uploadFileFromUri(
     uploadToken: string;
     uploadUrl: string;
   };
+  if (!uploadToken || !uploadUrl) throw new Error('Upload reservation is incomplete.');
+  if (new URL(uploadUrl).origin !== new URL(appConfig.apiBaseUrl).origin) {
+    throw new Error('Upload URL does not match the configured API origin.');
+  }
 
   const formData = new FormData();
   formData.append('uploadToken', uploadToken);
@@ -42,6 +48,7 @@ export async function uploadFileFromUri(
     headers: authHeaders(accessToken),
   });
   if (!uploadResponse.ok) throw new Error('File upload failed');
-  const body = (await uploadResponse.json()) as { fileUrl: string };
+  const body = (await uploadResponse.json()) as { fileUrl?: string };
+  if (!body.fileUrl) throw new Error('File upload returned no document URL.');
   return body.fileUrl;
 }

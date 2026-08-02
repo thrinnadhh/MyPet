@@ -19,18 +19,20 @@ class LoyaltyProviderModuleConfiguration {
     fun providerModuleApi(
         restOperations: RestOperations,
         @Value("\${PROVIDER_SERVICE_URL:http://localhost:8081}") baseUrl: String,
-        @Value("\${internal.api.secret:}") secret: String
-    ): ProviderModuleApi = RemoteLoyaltyProviderModuleApi(restOperations, baseUrl, secret)
+        @Value("\${internal.api.secret:}") secret: String,
+        @Value("\${gateway.trust.secret:}") gatewayTrustSecret: String
+    ): ProviderModuleApi = RemoteLoyaltyProviderModuleApi(restOperations, baseUrl, secret, gatewayTrustSecret)
 }
 
 class RemoteLoyaltyProviderModuleApi(
     private val restOperations: RestOperations,
     private val baseUrl: String,
-    private val internalSecret: String
+    private val internalSecret: String,
+    private val gatewayTrustSecret: String
 ) : ProviderModuleApi {
     override fun ownerUserId(providerId: UUID): UUID? = runCatching {
         val body = restOperations.exchange(
-            "$baseUrl/api/v1/providers/$providerId",
+            "$baseUrl/api/v1/internal/providers/$providerId/owner",
             HttpMethod.GET,
             HttpEntity<Any>(headers()),
             Map::class.java
@@ -45,5 +47,6 @@ class RemoteLoyaltyProviderModuleApi(
             set("X-Internal-Secret", internalSecret)
             set("X-Service-Name", "payment-service")
         }
+        if (gatewayTrustSecret.isNotBlank()) set("X-Internal-Gateway-Secret", gatewayTrustSecret)
     }
 }

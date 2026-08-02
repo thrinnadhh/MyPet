@@ -45,6 +45,14 @@ if manifest.exists():
         if marker in value:
             fail(f"deployment manifest contains unresolved marker: {marker}")
 
+    provider_base_url = re.search(
+        r"^\s*PROVIDER_PUBLIC_BASE_URL:\s*['\"]?(https://[^'\"\s]+)",
+        value,
+        re.MULTILINE,
+    )
+    if not provider_base_url:
+        fail("provider uploads require an explicit HTTPS public API base URL")
+
     deployments = [
         document for document in value.split("---")
         if re.search(r"\bkind:\s*Deployment\b", document)
@@ -75,6 +83,7 @@ if manifest.exists():
                 fail(f"deployment {name} is missing {control}")
 
     required_secrets = {
+        "appointment-service": {"INTERNAL_API_SECRET"},
         "catalog-service": {"INTERNAL_API_SECRET"},
         "order-service": {"INTERNAL_API_SECRET"},
         "provider-service": {
@@ -83,8 +92,10 @@ if manifest.exists():
             "MEDICAL_REPORTS_REGION",
         },
         "notification-service": {"INTERNAL_API_SECRET"},
+        "content-service": {"INTERNAL_API_SECRET"},
         "captain-service": {"BANK_DATA_ENCRYPTION_KEY"},
         "payment-service": {
+            "INTERNAL_API_SECRET",
             "RAZORPAY_KEY_ID",
             "RAZORPAY_KEY_SECRET",
             "RAZORPAY_WEBHOOK_SECRET",

@@ -97,6 +97,18 @@ data class ProviderResponse(
     val commissionPct: BigDecimal
 )
 
+data class PublicProviderResponse(
+    val providerId: UUID,
+    val providerType: ProviderType,
+    val fulfillmentType: FulfillmentType,
+    val name: String,
+    val description: String?,
+    val city: String,
+    val status: ProviderStatus,
+    val ratingAvg: BigDecimal,
+    val ratingCount: Int
+)
+
 data class UploadDocumentRequest(
     @field:NotBlank val docType: String,
     @field:NotBlank val docUrl: String
@@ -384,10 +396,10 @@ class ProviderController(
     }
 
     @GetMapping("/{id}")
-    fun getProvider(@PathVariable id: UUID): ResponseEntity<ProviderResponse> {
+    fun getProvider(@PathVariable id: UUID): ResponseEntity<PublicProviderResponse> {
         val provider = providerRepository.findById(id)
             .orElseThrow { NoSuchElementException("Provider with ID $id not found") }
-        return ResponseEntity.ok(mapToResponse(provider))
+        return ResponseEntity.ok(mapToPublicResponse(provider))
     }
 
     @PostMapping("/{id}/documents")
@@ -495,4 +507,16 @@ class ProviderController(
             commissionPct = p.commissionPct
         )
     }
+
+    private fun mapToPublicResponse(p: Provider): PublicProviderResponse = PublicProviderResponse(
+        providerId = p.providerId!!,
+        providerType = p.providerType,
+        fulfillmentType = p.fulfillmentType,
+        name = p.name,
+        description = p.description,
+        city = p.city,
+        status = p.status,
+        ratingAvg = p.ratingAvg,
+        ratingCount = p.ratingCount
+    )
 }

@@ -72,6 +72,35 @@ class OrderServiceTests {
         totalAmount = BigDecimal("500.00")
     )
 
+    @Test
+    fun `createDisputeWithAuth rejects a different customer`() {
+        val order = savedOrder(OrderStatus.DELIVERED)
+        whenever(orderRepository.findById(order.orderId!!)).thenReturn(java.util.Optional.of(order))
+
+        assertThrows<OrderAccessDeniedException> {
+            service.createDisputeWithAuth(
+                order.orderId!!,
+                "Not my order",
+                UUID.randomUUID(),
+                "CUSTOMER"
+            )
+        }
+
+        verify(disputeRepository, never()).save(any())
+    }
+
+    @Test
+    fun `getInvoiceByOrderIdWithAuth rejects unrelated customer`() {
+        val order = savedOrder(OrderStatus.DELIVERED)
+        whenever(orderRepository.findById(order.orderId!!)).thenReturn(java.util.Optional.of(order))
+
+        assertThrows<OrderAccessDeniedException> {
+            service.getInvoiceByOrderIdWithAuth(order.orderId!!, UUID.randomUUID(), "CUSTOMER")
+        }
+
+        verify(invoiceRepository, never()).findByOrderId(any())
+    }
+
     // ── createOrder ───────────────────────────────────────────────────────────
 
     @Test

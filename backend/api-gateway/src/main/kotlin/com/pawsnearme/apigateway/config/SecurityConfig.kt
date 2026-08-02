@@ -61,7 +61,6 @@ class SecurityConfig(
                     .pathMatchers(HttpMethod.GET, "/api/v1/service-regions/**").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/appointments/medical-documents/*/content").permitAll()
                     .pathMatchers(HttpMethod.GET, "/api/v1/orders/customer-cases/evidence/*/content").permitAll()
-                    .pathMatchers(HttpMethod.GET, "/uploads/**").permitAll()
                     .pathMatchers(HttpMethod.POST, "/api/v1/payments/webhook").permitAll()
                     .pathMatchers("/actuator/health/**", "/actuator/info").permitAll()
                     .anyExchange().authenticated()

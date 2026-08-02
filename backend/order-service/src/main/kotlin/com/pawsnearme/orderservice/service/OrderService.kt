@@ -646,15 +646,34 @@ class OrderService @Autowired constructor(
         return value
     }
 
-    fun createDispute(orderId: UUID, reason: String): Dispute {
-        if (!orderRepository.existsById(orderId)) throw IllegalArgumentException("Order with ID $orderId not found")
-        return disputeRepository.save(Dispute(orderId = orderId, status = "OPEN", reason = reason))
+    fun createDisputeWithAuth(
+        orderId: UUID,
+        reason: String,
+        callerId: UUID,
+        callerRole: String?
+    ): Dispute {
+        val order = orderRepository.findById(orderId)
+            .orElseThrow { IllegalArgumentException("Order with ID $orderId not found") }
+        val isAdmin = callerRole.equals("ADMIN", ignoreCase = true)
+        val isCustomer = order.customerId == callerId
+        if (!isAdmin && !isCustomer) {
+            throw OrderAccessDeniedException("Only the order customer or an administrator can create a dispute.")
+        }
+        val safeReason = reason.trim()
+        require(safeReason.isNotBlank()) { "Dispute reason is required" }
+        require(safeReason.length <= 2000) { "Dispute reason exceeds 2000 characters" }
+        return disputeRepository.save(Dispute(orderId = orderId, status = "OPEN", reason = safeReason))
     }
 
     fun listDisputes(): List<Dispute> = disputeRepository.findAll()
 
-    fun getInvoiceByOrderId(orderId: UUID): Invoice = invoiceRepository.findByOrderId(orderId)
-        .orElseThrow { NoSuchElementException("Invoice not found for order $orderId") }
+    fun getInvoiceByOrderIdWithAuth(orderId: UUID, callerId: UUID, callerRole: String?): Invoice {
+        val order = orderRepository.findById(orderId)
+            .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
+        assertCanAccessOrder(order, callerId, callerRole)
+        return invoiceRepository.findByOrderId(orderId)
+            .orElseThrow { NoSuchElementException("Invoice not found for order $orderId") }
+    }
 
     fun resolveDispute(disputeId: UUID, decision: String, resolutionNotes: String?): Dispute {
         val dispute = disputeRepository.findById(disputeId)

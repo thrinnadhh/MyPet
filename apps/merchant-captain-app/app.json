@@ -42,7 +42,9 @@
       [
         "expo-notifications",
         {
-          "sounds": ["./assets/sounds/order_alert.wav"]
+          "sounds": [
+            "./assets/sounds/order_alert.wav"
+          ]
         }
       ],
       [
@@ -54,7 +56,8 @@
             "imageWidth": 76
           }
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

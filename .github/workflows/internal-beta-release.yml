@@ -53,11 +53,15 @@ jobs:
         working-directory: apps/customer-app
         run: |
           npm ci
+          npm audit --audit-level=high
+          npx --yes expo-doctor@1.20.1
           npx expo config --type public >/tmp/customer-expo-config.json
       - name: Validate operational Expo configuration
         working-directory: apps/merchant-captain-app
         run: |
           npm ci
+          npm audit --audit-level=high
+          npx --yes expo-doctor@1.20.1
           npx expo config --type public >/tmp/operations-expo-config.json
 
   release-intentionally-blocked:

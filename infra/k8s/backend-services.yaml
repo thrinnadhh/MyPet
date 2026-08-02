@@ -22,6 +22,7 @@ data:
   GATEWAY_TRUST_ENABLED: 'true'
   GATEWAY_RATE_LIMIT_REPLENISH_RATE: '100'
   GATEWAY_RATE_LIMIT_BURST_CAPACITY: '200'
+  PROVIDER_PUBLIC_BASE_URL: 'https://api.mypet.in'
   SPRING_DATA_REDIS_HOST: 'redis'
   SPRING_DATA_REDIS_PORT: '6379'
   SPRING_REDIS_HOST: 'redis'
@@ -365,6 +366,11 @@ spec:
         - secretRef:
             name: pawsnearme-backend-secrets
         env:
+        - name: INTERNAL_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: pawsnearme-backend-secrets
+              key: INTERNAL_API_SECRET
         - name: SERVER_PORT
           value: '8085'
         - name: CATALOG_SERVICE_URL
@@ -1056,6 +1062,11 @@ spec:
             secretKeyRef:
               name: pawsnearme-backend-secrets
               key: RAZORPAY_WEBHOOK_SECRET
+        - name: INTERNAL_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: pawsnearme-backend-secrets
+              key: INTERNAL_API_SECRET
         - name: SERVER_PORT
           value: '8090'
         - name: DB_POOL_MAX_SIZE
@@ -1236,6 +1247,11 @@ spec:
         - secretRef:
             name: pawsnearme-backend-secrets
         env:
+        - name: INTERNAL_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: pawsnearme-backend-secrets
+              key: INTERNAL_API_SECRET
         - name: SERVER_PORT
           value: '8092'
         - name: PROVIDER_SERVICE_URL

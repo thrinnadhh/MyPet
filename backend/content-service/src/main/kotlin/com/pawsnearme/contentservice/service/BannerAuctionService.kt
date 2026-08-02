@@ -41,11 +41,12 @@ class BannerAuctionService @Autowired constructor(
         bannerRepo: PromoBannerRepository,
         restTemplate: RestOperations,
         providerServiceUrl: String,
-        gatewayTrustSecret: String
+        gatewayTrustSecret: String,
+        internalApiSecret: String = gatewayTrustSecret
     ) : this(
         bidRepo,
         bannerRepo,
-        RemoteProviderModuleApi(restTemplate, providerServiceUrl, gatewayTrustSecret)
+        RemoteProviderModuleApi(restTemplate, providerServiceUrl, internalApiSecret, gatewayTrustSecret)
     )
 
     private val logger = LoggerFactory.getLogger(BannerAuctionService::class.java)

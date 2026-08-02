@@ -47,17 +47,24 @@ jobs:
         working-directory: apps/customer-app
         run: |
           npm ci
+          npm audit --audit-level=high
+          npx --yes expo-doctor@1.20.1
           npm run typecheck
           npm run lint
-          npm test -- --runInBand
+          npm run test:coverage
 
       - name: Validate Merchant and Captain App
         working-directory: apps/merchant-captain-app
         run: |
           npm ci
+          npm audit --audit-level=high
+          npx --yes expo-doctor@1.20.1
           npm run typecheck
           npm run lint
           npm test
+
+      - name: Validate Super Admin Security Contracts
+        run: node --test apps/super-admin-web/security.test.mjs
 
       - name: Run Static Production Gates
         run: bash scripts/check-production-hardening.sh

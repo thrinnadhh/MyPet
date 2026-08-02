@@ -86,7 +86,8 @@ class AppointmentService @Autowired constructor(
         holdDurationSeconds: Long,
         providerServiceUrl: String = "http://localhost:8081",
         paymentServiceUrl: String = "http://localhost:8090",
-        gatewayTrustSecret: String = ""
+        gatewayTrustSecret: String = "",
+        internalApiSecret: String = gatewayTrustSecret
     ) : this(
         appointmentRepository,
         appointmentStatusHistoryRepository,
@@ -95,7 +96,7 @@ class AppointmentService @Autowired constructor(
         kafkaTemplate,
         outboxService,
         RemoteCatalogModuleApi(restTemplate, catalogServiceUrl, gatewayTrustSecret),
-        RemoteProviderModuleApi(restTemplate, providerServiceUrl, gatewayTrustSecret),
+        RemoteProviderModuleApi(restTemplate, providerServiceUrl, internalApiSecret, gatewayTrustSecret),
         RemotePaymentModuleApi(restTemplate, paymentServiceUrl, gatewayTrustSecret),
         holdDurationSeconds
     )
