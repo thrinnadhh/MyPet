@@ -14,6 +14,9 @@ export interface Promotion {
   isActive: boolean;
 }
 
+export type PromotionLabelInput = Pick<Promotion, 'discountType' | 'discountValue'>;
+export type PromotionScopeInput = Pick<Promotion, 'providerId' | 'applicableCategory'>;
+
 function jsonHeaders(accessToken?: string | null): Record<string, string> {
   const headers: Record<string, string> = { Accept: 'application/json', 'Content-Type': 'application/json' };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -42,12 +45,12 @@ export async function createPromotion(promo: Promotion, accessToken?: string | n
   return response.json();
 }
 
-export function formatPromotionLabel(promo: Promotion): string {
+export function formatPromotionLabel(promo: PromotionLabelInput): string {
   if (promo.discountType === 'PERCENTAGE') return `${promo.discountValue}% off`;
   return `₹${promo.discountValue} off`;
 }
 
-export function formatPromotionScope(promo: Promotion): string {
+export function formatPromotionScope(promo: PromotionScopeInput): string {
   if (!promo.providerId) return 'Platform';
   if (promo.applicableCategory) return promo.applicableCategory;
   return 'Merchant';
