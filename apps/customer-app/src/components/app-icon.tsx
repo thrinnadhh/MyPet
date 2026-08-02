@@ -5,7 +5,7 @@ export type AppIconName =
   | 'cart' | 'calendar' | 'check' | 'clock' | 'location' | 'paw' | 'store' | 'medical'
   | 'sparkle' | 'star' | 'history' | 'message' | 'support' | 'shield' | 'groom' | 'card'
   | 'home' | 'search' | 'profile' | 'offline' | 'warning' | 'chevron' | 'heart' | 'close'
-  | 'phone' | 'document' | 'eye' | 'share' | 'upload';
+  | 'phone' | 'document' | 'eye' | 'share' | 'upload' | 'download';
 
 const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: string }> = {
   cart: { ios: 'cart.fill', android: 'shopping_cart', fallback: 'C' },
@@ -37,6 +37,7 @@ const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: str
   eye: { ios: 'eye.fill', android: 'visibility', fallback: 'V' },
   share: { ios: 'square.and.arrow.up', android: 'share', fallback: 'S' },
   upload: { ios: 'arrow.up.doc.fill', android: 'upload_file', fallback: 'U' },
+  download: { ios: 'arrow.down.doc.fill', android: 'download', fallback: 'D' },
 };
 
 export function AppIcon({ name, color, size = 18, style }: { name: AppIconName; color: string; size?: number; style?: StyleProp<ViewStyle> }) {
