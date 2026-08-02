@@ -1,247 +1,263 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
-import { AppIcon } from '@/components/app-icon';
+import {
+  ActionButton,
+  AppBar,
+  FeedbackBanner,
+  FilterChip,
+  MetricCard,
+  RoleBadge,
+  SectionHeader,
+  StateView,
+  StatusBadge,
+} from '@/components/foundation/primitives';
+import { ScreenShell } from '@/components/foundation/screen-shell';
 import { ThemedText } from '@/components/themed-text';
-import { PrimaryButton } from '@/components/ui/primary-button';
-import { Radius, Shadows, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
-import { appConfig } from '@/utils/app-config';
+import { AppCard } from '@/components/ui/app-card';
+import { TextField } from '@/components/ui/text-field';
+import { apiErrorMessage } from '@/contracts/api-error';
+import { useAuth } from '@/context/AuthContext';
+import { spacing, typography } from '@/design/tokens';
+import { fetchMerchantProviders, type MerchantProvider } from '@/services/merchant-inventory';
+import {
+  fetchMerchantLoyaltyAudit,
+  fetchMerchantLoyaltyProgram,
+  saveMerchantLoyaltyProgram,
+  type MerchantLoyaltyAudit,
+  type MerchantLoyaltyProgram,
+} from '@/services/merchant-loyalty';
+import { formatCurrency, formatDateTime, formatStatusLabel } from '@/utils/formatters';
 
-interface LoyaltyProgramDto {
-  programId?: string;
-  providerId: string;
-  targetStars: number;
-  rewardAmount: number;
-  minOrderValue: number;
-  welcomeStarPolicy: boolean;
-  isActive: boolean;
-  isStackable: boolean;
-  expiryDays: number;
-}
+const REWARD_AMOUNTS = [50, 100, 150, 200] as const;
+const EXPIRY_OPTIONS = [30, 60, 90] as const;
 
 export default function MerchantLoyaltyScreen() {
-  const theme = useTheme();
-  const dummyProviderId = '11111111-1111-1111-1111-111111111111';
-
-  const [program, setProgram] = useState<LoyaltyProgramDto>({
-    providerId: dummyProviderId,
-    targetStars: 10,
-    rewardAmount: 50,
-    minOrderValue: 199,
-    welcomeStarPolicy: true,
-    isActive: true,
-    isStackable: false,
-    expiryDays: 60,
-  });
-
+  const { role } = useAuth();
+  const [providers, setProviders] = useState<MerchantProvider[]>([]);
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const [program, setProgram] = useState<MerchantLoyaltyProgram | null>(null);
+  const [audit, setAudit] = useState<MerchantLoyaltyAudit[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const loadProgram = useCallback(async () => {
-    setLoading(true);
+  const loadProviders = useCallback(async () => {
+    const owned = await fetchMerchantProviders();
+    setProviders(owned);
+    setSelectedProviderId((current) => current ?? owned[0]?.providerId ?? null);
+  }, []);
+
+  const loadProgram = useCallback(async (providerId: string) => {
+    setError(null);
+    const [nextProgram, nextAudit] = await Promise.all([
+      fetchMerchantLoyaltyProgram(providerId),
+      fetchMerchantLoyaltyAudit(providerId),
+    ]);
+    setProgram({ ...nextProgram, providerId, targetStars: 10, isStackable: true });
+    setAudit(nextAudit);
+  }, []);
+
+  const load = useCallback(async () => {
+    if (role !== 'PROVIDER') {
+      setLoading(false);
+      return;
+    }
     try {
-      const response = await fetch(
-        `${appConfig.apiBaseUrl}/api/v1/loyalty/programs?providerId=${dummyProviderId}`
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setProgram(data);
-      }
-    } catch {
-      // Fallback
+      await loadProviders();
+    } catch (nextError) {
+      setError(nextError);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadProviders, role]);
 
   useEffect(() => {
-    void loadProgram();
-  }, [loadProgram]);
+    void load();
+  }, [load]);
 
-  const handleSave = async () => {
-    setSaving(true);
+  useEffect(() => {
+    if (!selectedProviderId) return;
+    setLoading(true);
+    loadProgram(selectedProviderId)
+      .catch(setError)
+      .finally(() => setLoading(false));
+  }, [loadProgram, selectedProviderId]);
+
+  const refresh = useCallback(async () => {
+    if (!selectedProviderId) return;
+    setRefreshing(true);
     try {
-      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/loyalty/programs`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Role': 'MERCHANT',
-          'X-User-Id': '22222222-2222-2222-2222-222222222222',
-        },
-        body: JSON.stringify(program),
-      });
+      await Promise.all([loadProviders(), loadProgram(selectedProviderId)]);
+    } catch (nextError) {
+      setError(nextError);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadProgram, loadProviders, selectedProviderId]);
 
-      if (!response.ok) {
-        throw new Error('Could not save loyalty program settings');
-      }
-
-      const updated = await response.json();
+  const save = useCallback(async () => {
+    if (!program) return;
+    if (!REWARD_AMOUNTS.includes(program.rewardAmount as (typeof REWARD_AMOUNTS)[number])) {
+      Alert.alert('Invalid reward', 'Choose ₹50, ₹100, ₹150 or ₹200.');
+      return;
+    }
+    if (program.minOrderValue < 0) {
+      Alert.alert('Invalid minimum order', 'Minimum order value cannot be negative.');
+      return;
+    }
+    setSaving(true);
+    setNotice(null);
+    try {
+      const updated = await saveMerchantLoyaltyProgram(program);
       setProgram(updated);
-      Alert.alert('Settings Saved', 'Loyalty program settings updated successfully!');
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to save settings');
+      setAudit(await fetchMerchantLoyaltyAudit(program.providerId));
+      setNotice('Loyalty settings saved for the selected store. The change was recorded in the server audit log.');
+    } catch (nextError) {
+      setError(nextError);
     } finally {
       setSaving(false);
     }
-  };
+  }, [program]);
 
-  if (loading) {
+  if (role !== 'PROVIDER') {
     return (
-      <View style={[styles.center, { backgroundColor: theme.background }]}>
-        <ActivityIndicator size="large" color={theme.primary} />
-        <ThemedText style={{ marginTop: 12 }}>Loading program settings...</ThemedText>
-      </View>
+      <ScreenShell header={<AppBar title="Store loyalty" action={<RoleBadge role="merchant" />} />}>
+        <StateView kind="unauthorized" title="Merchant access required" message="Only an authenticated provider owner may change store loyalty settings." />
+      </ScreenShell>
+    );
+  }
+
+  if (loading && !program) {
+    return (
+      <ScreenShell header={<AppBar title="Store loyalty" action={<RoleBadge role="merchant" />} />}>
+        <StateView kind="loading" title="Loading owned store settings" />
+      </ScreenShell>
+    );
+  }
+
+  if (error && !program) {
+    return (
+      <ScreenShell header={<AppBar title="Store loyalty" action={<RoleBadge role="merchant" />} />}>
+        <StateView kind="error" title="Loyalty settings unavailable" message={apiErrorMessage(error)} actionLabel="Retry" onAction={() => void load()} />
+      </ScreenShell>
+    );
+  }
+
+  if (!selectedProviderId || providers.length === 0 || !program) {
+    return (
+      <ScreenShell header={<AppBar title="Store loyalty" action={<RoleBadge role="merchant" />} />}>
+        <StateView kind="empty" title="No owned store found" message="Complete merchant onboarding and approval before configuring loyalty." />
+      </ScreenShell>
     );
   }
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: theme.background }} contentContainerStyle={styles.container}>
-      <View style={styles.header}>
-        <AppIcon name="sparkle" size={28} color={theme.primary} />
-        <ThemedText style={styles.title}>Store Loyalty Management</ThemedText>
-      </View>
-
-      {/* Metrics Summary */}
-      <View style={[styles.metricsGrid, Shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <View style={styles.metricCell}>
-          <ThemedText style={styles.metricVal}>10 Stars</ThemedText>
-          <ThemedText style={{ color: theme.textSecondary, fontSize: 12 }}>Target Stars</ThemedText>
-        </View>
-        <View style={styles.metricCell}>
-          <ThemedText style={[styles.metricVal, { color: theme.primary }]}>₹{program.rewardAmount}</ThemedText>
-          <ThemedText style={{ color: theme.textSecondary, fontSize: 12 }}>Reward Off</ThemedText>
-        </View>
-        <View style={styles.metricCell}>
-          <ThemedText style={styles.metricVal}>₹{program.minOrderValue}</ThemedText>
-          <ThemedText style={{ color: theme.textSecondary, fontSize: 12 }}>Min Order</ThemedText>
-        </View>
-      </View>
-
-      {/* Program Status Controls */}
-      <View style={[styles.card, Shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <View style={styles.rowBetween}>
-          <View style={{ gap: 2 }}>
-            <ThemedText style={styles.cardTitle}>Loyalty Program Status</ThemedText>
-            <ThemedText style={{ color: theme.textSecondary, fontSize: 12 }}>
-              {program.isActive ? 'Active & awarding stars to customers' : 'Program Paused'}
-            </ThemedText>
-          </View>
-          <Switch
-            value={program.isActive}
-            onValueChange={(val) => setProgram((prev) => ({ ...prev, isActive: val }))}
-          />
-        </View>
-
-        <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-        <View style={styles.rowBetween}>
-          <View style={{ gap: 2 }}>
-            <ThemedText style={styles.cardTitle}>Welcome Star (+1 ⭐)</ThemedText>
-            <ThemedText style={{ color: theme.textSecondary, fontSize: 12 }}>
-              Allow new customers to claim 1st welcome star
-            </ThemedText>
-          </View>
-          <Switch
-            value={program.welcomeStarPolicy}
-            onValueChange={(val) => setProgram((prev) => ({ ...prev, welcomeStarPolicy: val }))}
-          />
-        </View>
-      </View>
-
-      {/* Reward Amount Selector */}
-      <View style={[styles.card, Shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <ThemedText style={styles.cardTitle}>Reward Amount (₹)</ThemedText>
-        <View style={styles.chipRow}>
-          <Pressable
-            onPress={() => setProgram((prev) => ({ ...prev, rewardAmount: 50 }))}
-            style={[
-              styles.chip,
-              {
-                backgroundColor: program.rewardAmount === 50 ? theme.primarySoft : theme.background,
-                borderColor: program.rewardAmount === 50 ? theme.primary : theme.border,
-              },
-            ]}
-          >
-            <ThemedText style={{ color: program.rewardAmount === 50 ? theme.primary : theme.text, fontWeight: '700' }}>
-              ₹50 Reward
-            </ThemedText>
-          </Pressable>
-          <Pressable
-            onPress={() => setProgram((prev) => ({ ...prev, rewardAmount: 100 }))}
-            style={[
-              styles.chip,
-              {
-                backgroundColor: program.rewardAmount === 100 ? theme.primarySoft : theme.background,
-                borderColor: program.rewardAmount === 100 ? theme.primary : theme.border,
-              },
-            ]}
-          >
-            <ThemedText style={{ color: program.rewardAmount === 100 ? theme.primary : theme.text, fontWeight: '700' }}>
-              ₹100 Reward
-            </ThemedText>
-          </Pressable>
-        </View>
-      </View>
-
-      {/* Minimum Order Value */}
-      <View style={[styles.card, Shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <ThemedText style={styles.cardTitle}>Minimum Order Amount (₹)</ThemedText>
-        <TextInput
-          value={String(program.minOrderValue)}
-          onChangeText={(val) => setProgram((prev) => ({ ...prev, minOrderValue: Number(val) || 0 }))}
-          keyboardType="numeric"
-          style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-          placeholder="199"
+    <ScreenShell
+      testID="merchant-loyalty-workspace"
+      header={
+        <AppBar
+          eyebrow="MERCHANT GROWTH"
+          title="Store loyalty"
+          subtitle="One welcome star, purchase-earned stars and a configurable 10-star reward"
+          action={<RoleBadge role="merchant" />}
         />
+      }
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
+    >
+      {notice ? <FeedbackBanner title="Settings updated" message={notice} tone="success" /> : null}
+      {error ? <FeedbackBanner title="Latest request failed" message={apiErrorMessage(error)} tone="danger" /> : null}
+
+      <SectionHeader title="Owned provider" subtitle="The backend verifies provider ownership on every write." />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+        {providers.map((provider) => (
+          <FilterChip
+            key={provider.providerId}
+            label={provider.name}
+            selected={selectedProviderId === provider.providerId}
+            onPress={() => setSelectedProviderId(provider.providerId)}
+          />
+        ))}
+      </ScrollView>
+
+      <View style={styles.metrics}>
+        <MetricCard label="Target" value="10 stars" icon="sparkle" />
+        <MetricCard label="Reward" value={formatCurrency(program.rewardAmount)} icon="cart" tone="success" />
+        <MetricCard label="Minimum order" value={formatCurrency(program.minOrderValue)} icon="inventory" />
       </View>
 
-      {/* Expiry Days */}
-      <View style={[styles.card, Shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <ThemedText style={styles.cardTitle}>Reward Expiry (Days)</ThemedText>
-        <View style={styles.chipRow}>
-          {[30, 60, 90].map((days) => (
-            <Pressable
-              key={days}
-              onPress={() => setProgram((prev) => ({ ...prev, expiryDays: days }))}
-              style={[
-                styles.chip,
-                {
-                  backgroundColor: program.expiryDays === days ? theme.primarySoft : theme.background,
-                  borderColor: program.expiryDays === days ? theme.primary : theme.border,
-                },
-              ]}
-            >
-              <ThemedText style={{ color: program.expiryDays === days ? theme.primary : theme.text, fontWeight: '700' }}>
-                {days} Days
-              </ThemedText>
-            </Pressable>
+      <AppCard style={styles.card}>
+        <SectionHeader title="Program status" />
+        <View style={styles.row}>
+          <FilterChip label="Active" selected={program.isActive} onPress={() => setProgram((current) => current ? { ...current, isActive: true } : current)} />
+          <FilterChip label="Paused" selected={!program.isActive} onPress={() => setProgram((current) => current ? { ...current, isActive: false } : current)} />
+          <FilterChip label="Welcome star enabled" selected={program.welcomeStarPolicy} onPress={() => setProgram((current) => current ? { ...current, welcomeStarPolicy: !current.welcomeStarPolicy } : current)} />
+        </View>
+        <ThemedText type="small" themeColor="textSecondary">
+          The first star may be claimed once. All later stars require a completed qualifying order or appointment.
+        </ThemedText>
+      </AppCard>
+
+      <AppCard style={styles.card}>
+        <SectionHeader title="10-star reward" />
+        <View style={styles.row}>
+          {REWARD_AMOUNTS.map((amount) => (
+            <FilterChip
+              key={amount}
+              label={`${formatCurrency(amount)} reward`}
+              selected={program.rewardAmount === amount}
+              onPress={() => setProgram((current) => current ? { ...current, rewardAmount: amount } : current)}
+            />
           ))}
         </View>
-      </View>
+        <ThemedText type="small" themeColor="textSecondary">
+          The special coupon issued after 10 stars may be combined with one normal coupon. Ordinary loyalty discounts remain non-stackable.
+        </ThemedText>
+      </AppCard>
 
-      <PrimaryButton
-        label="Save Program Settings"
-        onPress={() => void handleSave()}
-        loading={saving}
-      />
-    </ScrollView>
+      <AppCard style={styles.card}>
+        <TextField
+          label="Minimum qualifying order (₹)"
+          keyboardType="decimal-pad"
+          value={String(program.minOrderValue)}
+          onChangeText={(value) => setProgram((current) => current ? { ...current, minOrderValue: Number(value) || 0 } : current)}
+        />
+        <SectionHeader title="Reward expiry" />
+        <View style={styles.row}>
+          {EXPIRY_OPTIONS.map((days) => (
+            <FilterChip key={days} label={`${days} days`} selected={program.expiryDays === days} onPress={() => setProgram((current) => current ? { ...current, expiryDays: days } : current)} />
+          ))}
+        </View>
+      </AppCard>
+
+      <ActionButton label="Save loyalty program" icon="check" loading={saving} onPress={() => void save()} />
+
+      <SectionHeader title="Audit history" subtitle={`${audit.length} recorded changes`} />
+      {audit.length === 0 ? (
+        <StateView kind="empty" title="No loyalty changes recorded" />
+      ) : audit.slice(0, 20).map((entry) => (
+        <AppCard key={entry.auditId ?? `${entry.actorId}-${entry.createdAt}`} style={styles.card}>
+          <View style={styles.headerRow}>
+            <View style={styles.flex}>
+              <ThemedText style={styles.title}>{formatStatusLabel(entry.action)}</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">{formatDateTime(entry.createdAt)}</ThemedText>
+            </View>
+            <StatusBadge label="Recorded" tone="info" />
+          </View>
+          {entry.afterJson ? <ThemedText type="small" themeColor="textSecondary">{entry.afterJson}</ThemedText> : null}
+        </AppCard>
+      ))}
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  container: { padding: Spacing.four, gap: Spacing.three, paddingBottom: Spacing.six },
-  header: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, marginVertical: Spacing.two },
-  title: { fontSize: 22, fontWeight: '800' },
-  metricsGrid: { flexDirection: 'row', justifyContent: 'space-around', padding: Spacing.three, borderRadius: Radius.lg, borderWidth: 1 },
-  metricCell: { alignItems: 'center', gap: 2 },
-  metricVal: { fontSize: 18, fontWeight: '800' },
-  card: { borderWidth: 1, borderRadius: Radius.lg, padding: Spacing.three, gap: Spacing.two },
-  cardTitle: { fontSize: 14, fontWeight: '700' },
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  divider: { height: 1, marginVertical: Spacing.one },
-  chipRow: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.one },
-  chip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: Radius.md, borderWidth: 1 },
-  input: { borderWidth: 1, borderRadius: Radius.md, paddingHorizontal: Spacing.three, height: 44, marginTop: Spacing.one },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
+  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x3 },
+  card: { gap: spacing.x3 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.x3 },
+  flex: { flex: 1 },
+  title: { ...typography.title },
 });
