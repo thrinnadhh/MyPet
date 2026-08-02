@@ -2,8 +2,6 @@ package com.pawsnearme.paymentservice.repository
 
 import com.pawsnearme.paymentservice.model.AppointmentRef
 import com.pawsnearme.paymentservice.model.CaptainEarningRef
-import com.pawsnearme.paymentservice.model.CodConfig
-import com.pawsnearme.paymentservice.model.CouponReservation
 import com.pawsnearme.paymentservice.model.LinkedAccount
 import com.pawsnearme.paymentservice.model.OrderRef
 import com.pawsnearme.paymentservice.model.Payout
@@ -125,13 +123,3 @@ interface CaptainEarningRefRepository : JpaRepository<CaptainEarningRef, UUID> {
 
 @Repository
 interface ProviderRefRepository : JpaRepository<ProviderRef, UUID>
-
-@Repository
-interface CouponReservationRepository : JpaRepository<CouponReservation, UUID> {
-    fun findByPromotionIdAndUserIdAndOrderId(promotionId: UUID, userId: UUID, orderId: UUID): CouponReservation?
-    fun countByPromotionIdAndStatus(promotionId: UUID, status: String): Long
-    fun countByPromotionIdAndUserIdAndStatus(promotionId: UUID, userId: UUID, status: String): Long
-}
-
-@Repository
-interface CodConfigRepository : JpaRepository<CodConfig, Int>
