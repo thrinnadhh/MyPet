@@ -1,34 +1,45 @@
 package com.pawsnearme.appointmentservice.controller
 
-import com.pawsnearme.appointmentservice.model.Appointment
 import com.pawsnearme.appointmentservice.model.AppointmentInvoice
 import com.pawsnearme.appointmentservice.model.AppointmentStatus
-import com.pawsnearme.appointmentservice.repository.AppointmentRepository
-import com.pawsnearme.appointmentservice.service.BookAppointmentRequest
+import com.pawsnearme.appointmentservice.repository.AppointmentStatusHistoryRepository
+import com.pawsnearme.appointmentservice.service.AppointmentLifecyclePolicy
 import com.pawsnearme.appointmentservice.service.AppointmentService
+import com.pawsnearme.appointmentservice.service.BookAppointmentRequest
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
-import org.springframework.web.bind.annotation.*
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
+import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
+import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
+import org.springframework.web.bind.annotation.RestController
 import java.util.UUID
 
 @RestController
 @RequestMapping("/api/v1/appointments")
 class AppointmentController(
     private val appointmentService: AppointmentService,
-    private val appointmentRepository: AppointmentRepository
+    private val appointmentStatusHistoryRepository: AppointmentStatusHistoryRepository,
+    private val lifecyclePolicy: AppointmentLifecyclePolicy
 ) {
+    private fun authenticatedUserId(value: String?): UUID? = value?.takeIf(String::isNotBlank)?.let(UUID::fromString)
+
+    private fun unauthorized(): ResponseEntity<Any> = ResponseEntity
+        .status(HttpStatus.UNAUTHORIZED)
+        .body(mapOf("error" to "Missing authenticated user context."))
 
     @PostMapping
     fun bookAppointment(
         @Valid @RequestBody request: BookAppointmentRequest,
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?
     ): ResponseEntity<Any> {
-        if (authenticatedUserId.isNullOrBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
-        }
-        val finalRequest = request.copy(customerId = UUID.fromString(authenticatedUserId))
-        val appointment = appointmentService.bookAppointment(finalRequest)
+        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        val appointment = appointmentService.bookAppointment(request.copy(customerId = callerId))
         return ResponseEntity.status(HttpStatus.CREATED).body(appointment)
     }
 
@@ -37,11 +48,8 @@ class AppointmentController(
         @Valid @RequestBody request: BookAppointmentRequest,
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?
     ): ResponseEntity<Any> {
-        if (authenticatedUserId.isNullOrBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
-        }
-        val finalRequest = request.copy(customerId = UUID.fromString(authenticatedUserId))
-        val appointment = appointmentService.holdAppointment(finalRequest)
+        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        val appointment = appointmentService.holdAppointment(request.copy(customerId = callerId))
         return ResponseEntity.status(HttpStatus.CREATED).body(appointment)
     }
 
@@ -50,18 +58,12 @@ class AppointmentController(
         @PathVariable id: UUID,
         @RequestParam(required = false) paymentId: UUID?,
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
-        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?,
+        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        if (authenticatedUserId.isNullOrBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
-        }
-        val appointment = appointmentService.confirmAppointment(
-            id,
-            paymentId,
-            UUID.fromString(authenticatedUserId),
-            authenticatedUserRole,
+        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        return ResponseEntity.ok(
+            appointmentService.confirmAppointment(id, paymentId, callerId, authenticatedUserRole)
         )
-        return ResponseEntity.ok(appointment)
     }
 
     @GetMapping("/{id}")
@@ -70,17 +72,32 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        if (authenticatedUserId.isNullOrBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
-        }
-        val callerId = UUID.fromString(authenticatedUserId)
-        val appointment = appointmentService.getAppointment(id, callerId, authenticatedUserRole)
-        return ResponseEntity.ok(appointment)
+        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        return ResponseEntity.ok(appointmentService.getAppointment(id, callerId, authenticatedUserRole))
+    }
+
+    @GetMapping("/{id}/history")
+    fun getAppointmentHistory(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+    ): ResponseEntity<Any> {
+        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        appointmentService.getAppointment(id, callerId, authenticatedUserRole)
+        return ResponseEntity.ok(
+            appointmentStatusHistoryRepository.findByAppointmentId(id).sortedBy { it.changedAt }
+        )
     }
 
     @GetMapping("/{id}/invoice")
-    fun getAppointmentInvoice(@PathVariable id: UUID): ResponseEntity<AppointmentInvoice> {
-        val invoice = appointmentService.getInvoiceByAppointmentId(id)
+    fun getAppointmentInvoice(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+    ): ResponseEntity<Any> {
+        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        appointmentService.getAppointment(id, callerId, authenticatedUserRole)
+        val invoice: AppointmentInvoice = appointmentService.getInvoiceByAppointmentId(id)
         return ResponseEntity.ok(invoice)
     }
 
@@ -90,12 +107,10 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        if (authenticatedUserId.isNullOrBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
-        }
-        val callerId = UUID.fromString(authenticatedUserId)
-        val appointments = appointmentService.getAppointmentsByCustomer(customerId, callerId, authenticatedUserRole)
-        return ResponseEntity.ok(appointments)
+        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        return ResponseEntity.ok(
+            appointmentService.getAppointmentsByCustomer(customerId, callerId, authenticatedUserRole)
+        )
     }
 
     @GetMapping("/provider/{providerId}")
@@ -104,12 +119,10 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        if (authenticatedUserId.isNullOrBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
-        }
-        val callerId = UUID.fromString(authenticatedUserId)
-        val appointments = appointmentService.getAppointmentsByProvider(providerId, callerId, authenticatedUserRole)
-        return ResponseEntity.ok(appointments)
+        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        return ResponseEntity.ok(
+            appointmentService.getAppointmentsByProvider(providerId, callerId, authenticatedUserRole)
+        )
     }
 
     @PutMapping("/{id}/status")
@@ -121,12 +134,24 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        if (authenticatedUserId.isNullOrBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
-        }
-        val changerId = UUID.fromString(authenticatedUserId)
-        val updated = appointmentService.updateAppointmentStatus(id, status, changerId, note, prescriptionDocUrl, authenticatedUserRole)
-        return ResponseEntity.ok(updated)
+        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        val current = appointmentService.getAppointment(id, callerId, authenticatedUserRole)
+        lifecyclePolicy.requireAllowed(
+            current = current.status,
+            target = status,
+            callerRole = authenticatedUserRole,
+            callerIsCustomer = current.customerId == callerId
+        )
+        return ResponseEntity.ok(
+            appointmentService.updateAppointmentStatus(
+                id,
+                status,
+                callerId,
+                note,
+                prescriptionDocUrl,
+                authenticatedUserRole
+            )
+        )
     }
 
     @PostMapping("/{id}/reschedule")
@@ -136,12 +161,9 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        if (authenticatedUserId.isNullOrBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
-        }
-        val callerId = UUID.fromString(authenticatedUserId)
-        val rescheduled = appointmentService.rescheduleAppointment(id, newSlotId, callerId, authenticatedUserRole)
-        return ResponseEntity.ok(rescheduled)
+        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        return ResponseEntity.ok(
+            appointmentService.rescheduleAppointment(id, newSlotId, callerId, authenticatedUserRole)
+        )
     }
-
 }
