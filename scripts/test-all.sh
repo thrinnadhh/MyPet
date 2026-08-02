@@ -42,7 +42,7 @@ export KEEP_STACK=1
 bash "$ROOT/scripts/test-full-stack.sh"
 bash "$ROOT/scripts/test-feature-flows.sh"
 python3 "$ROOT/scripts/run-m8-feature-matrix.py"
-python3 "$ROOT/scripts/run-p2b-connected-e2e.py"
+python3 "$ROOT/scripts/run-p2b-connected-e2e-entry.py"
 
 cat >> "$REPORT" <<'EOF'
 
