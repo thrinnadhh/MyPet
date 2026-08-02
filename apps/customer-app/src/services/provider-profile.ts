@@ -6,9 +6,7 @@ export interface ProviderProfile {
   fulfillmentType: string;
   name: string;
   description: string | null;
-  addressLine: string;
   city: string;
-  pincode: string;
   ratingAvg: number;
   ratingCount: number;
   status: string;

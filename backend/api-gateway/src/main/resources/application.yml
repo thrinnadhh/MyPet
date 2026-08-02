@@ -152,6 +152,24 @@ spring:
             - name: RoleGuard
               args:
                 roles: MERCHANT,ADMIN
+        - id: order-service-dispute-list-admin
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/orders/disputes
+            - Method=GET
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
+        - id: order-service-dispute-resolve-admin
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/orders/disputes/*/resolve
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN
         - id: order-service-status-writes
           uri: ${ORDER_SERVICE_URL:http://localhost:8084}
           predicates:

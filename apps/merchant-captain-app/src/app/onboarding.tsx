@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
@@ -7,6 +8,8 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing, Colors } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
+import { submitMerchantOnboarding } from '@/services/merchant-onboarding';
+import { uploadFileFromUri } from '@/utils/upload-file';
 import { appConfig } from '@/utils/app-config';
 
 type ProviderType = 'PET_STORE' | 'VET_HOSPITAL' | 'GROOMING_CENTER';
@@ -14,7 +17,7 @@ type ProviderType = 'PET_STORE' | 'VET_HOSPITAL' | 'GROOMING_CENTER';
 export default function OnboardingScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
-  const { user } = useAuth();
+  const { user, session } = useAuth();
 
   const [providerType, setProviderType] = useState<ProviderType>('PET_STORE');
   const [name, setName] = useState('');
@@ -31,44 +34,31 @@ export default function OnboardingScreen() {
   const [latitude, setLatitude] = useState('12.9716');
 
   const handleDocUpload = useCallback(async () => {
+    if (!session?.access_token) {
+      Alert.alert('Authentication required', 'Please sign in before uploading verification documents.');
+      return;
+    }
     setUploadingDoc(true);
     try {
-      const urlResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers/upload-url?filename=license.pdf`, {
-        method: 'POST'
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'],
+        copyToCacheDirectory: true,
       });
-      if (!urlResponse.ok) throw new Error("Failed to generate upload URL");
-      const { uploadUrl, fileUrl } = await urlResponse.json();
-
-      const formData = new FormData();
-      formData.append('file', {
-        uri: 'data:application/pdf;base64,JVBER...',
-        name: 'license.pdf',
-        type: 'application/pdf',
-      } as any);
-
-      const uploadResponse = await fetch(uploadUrl, {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'multipart/form-data',
-        }
-      });
-
-      if (!uploadResponse.ok) throw new Error("Failed to upload file to pre-signed URL");
-      
+      if (result.canceled || !result.assets[0]) return;
+      const asset = result.assets[0];
+      const fileUrl = await uploadFileFromUri(asset.uri, asset.name, session.access_token);
       setLicenseDocUrl(fileUrl);
       setDocUploaded(true);
       Alert.alert('Success', 'Document proof uploaded successfully!');
-    } catch (err: any) {
-      Alert.alert('Upload Error', err.message || 'Failed to upload document.');
+    } catch (error) {
+      Alert.alert('Upload Error', error instanceof Error ? error.message : 'Failed to upload document.');
     } finally {
       setUploadingDoc(false);
     }
-  }, []);
+  }, [session]);
 
   const handleSubmit = useCallback(async () => {
-    if (!user) {
+    if (!user || !session?.access_token) {
       Alert.alert('Error', 'Please log in to submit your merchant application.');
       return;
     }
@@ -96,59 +86,41 @@ export default function OnboardingScreen() {
     }
 
     setSubmitting(true);
-    
+
     try {
-      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      await submitMerchantOnboarding(
+        {
           ownerUserId: user.id,
           providerType,
           fulfillmentType: providerType === 'PET_STORE' ? 'DELIVERY' : 'APPOINTMENT',
-          name,
-          description,
+          name: name.trim(),
+          description: description.trim() || null,
           licenseNumber: providerType === 'VET_HOSPITAL' ? licenseNumber : null,
-          licenseDocUrl: licenseDocUrl || 'https://supabase.storage/pawsnearme/lic_' + Date.now() + '.pdf',
-          addressLine,
-          city,
-          pincode,
+          licenseDocUrl,
+          addressLine: addressLine.trim(),
+          city: city.trim(),
+          pincode: pincode.trim(),
           longitude: parsedLng,
           latitude: parsedLat,
-        }),
-      });
-
-      const data = await response.json();
-      
-      if (response.ok) {
-        // Trigger status transition to PENDING_APPROVAL
-        const submitResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers/${data.providerId}/submit`, {
-          method: 'POST',
-        });
-
-        if (submitResponse.ok) {
-          Alert.alert('Success', 'Provider application submitted successfully and is PENDING APPROVAL.');
-          // Reset form
-          setName('');
-          setDescription('');
-          setAddressLine('');
-          setCity('');
-          setPincode('');
-          setLicenseNumber('');
-          setDocUploaded(false);
-        } else {
-          Alert.alert('Error', 'Failed to submit application for approval.');
-        }
-      } else {
-        Alert.alert('Error', data.error || 'Failed to create provider application.');
-      }
-    } catch (err) {
-      Alert.alert('Error', 'Cannot connect to backend service. Please verify server status.');
+        },
+        session.access_token,
+        appConfig.apiBaseUrl,
+      );
+      Alert.alert('Success', 'Provider application submitted successfully and is PENDING APPROVAL.');
+      setName('');
+      setDescription('');
+      setAddressLine('');
+      setCity('');
+      setPincode('');
+      setLicenseNumber('');
+      setLicenseDocUrl('');
+      setDocUploaded(false);
+    } catch (error) {
+      Alert.alert('Error', error instanceof Error ? error.message : 'Could not submit merchant application.');
     } finally {
       setSubmitting(false);
     }
-  }, [providerType, name, description, addressLine, city, pincode, licenseNumber, docUploaded, longitude, latitude, user]);
+  }, [providerType, name, description, addressLine, city, pincode, licenseNumber, docUploaded, licenseDocUrl, longitude, latitude, user, session]);
 
   return (
     <ThemedView style={styles.container}>

@@ -298,7 +298,7 @@ class RemoteProviderModuleApi(
 ) : ProviderModuleApi {
     override fun ownerUserId(providerId: UUID): UUID? = runCatching {
         val response = restOperations.exchange(
-            "$baseUrl/api/v1/providers/$providerId",
+            "$baseUrl/api/v1/internal/providers/$providerId/owner",
             HttpMethod.GET,
             HttpEntity<Any>(headers()),
             Map::class.java

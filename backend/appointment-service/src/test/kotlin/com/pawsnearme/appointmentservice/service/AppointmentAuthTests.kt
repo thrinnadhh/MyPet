@@ -79,7 +79,7 @@ class AppointmentAuthTests {
         // Mock provider owner lookup
         val merchantId = UUID.randomUUID()
         whenever(restOperations.exchange(
-            eq("http://localhost:8081/api/v1/providers/$providerId"),
+            eq("http://localhost:8081/api/v1/internal/providers/$providerId/owner"),
             eq(org.springframework.http.HttpMethod.GET),
             any<org.springframework.http.HttpEntity<Any>>(),
             eq(Map::class.java)
@@ -96,7 +96,7 @@ class AppointmentAuthTests {
         
         // Mock provider owner lookup
         whenever(restOperations.exchange(
-            eq("http://localhost:8081/api/v1/providers/$providerId"),
+            eq("http://localhost:8081/api/v1/internal/providers/$providerId/owner"),
             eq(org.springframework.http.HttpMethod.GET),
             any<org.springframework.http.HttpEntity<Any>>(),
             eq(Map::class.java)
@@ -130,7 +130,7 @@ class AppointmentAuthTests {
 
         val merchantId = UUID.randomUUID()
         whenever(restOperations.exchange(
-            eq("http://localhost:8081/api/v1/providers/$providerId"),
+            eq("http://localhost:8081/api/v1/internal/providers/$providerId/owner"),
             eq(org.springframework.http.HttpMethod.GET),
             any<org.springframework.http.HttpEntity<Any>>(),
             eq(Map::class.java)
@@ -146,7 +146,7 @@ class AppointmentAuthTests {
         whenever(appointmentRepository.findById(appointmentId)).thenReturn(java.util.Optional.of(appt))
 
         whenever(restOperations.exchange(
-            eq("http://localhost:8081/api/v1/providers/$providerId"),
+            eq("http://localhost:8081/api/v1/internal/providers/$providerId/owner"),
             eq(org.springframework.http.HttpMethod.GET),
             any<org.springframework.http.HttpEntity<Any>>(),
             eq(Map::class.java)

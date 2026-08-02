@@ -19,20 +19,25 @@ class ContentRemoteModuleConfiguration {
     fun remoteProviderModuleApi(
         restOperations: RestOperations,
         @Value("\${PROVIDER_SERVICE_URL:http://localhost:8081}") baseUrl: String,
+        @Value("\${internal.api.secret:}") internalSecret: String,
         @Value("\${gateway.trust.secret:}") gatewayTrustSecret: String
-    ): ProviderModuleApi = RemoteProviderModuleApi(restOperations, baseUrl, gatewayTrustSecret)
+    ): ProviderModuleApi = RemoteProviderModuleApi(restOperations, baseUrl, internalSecret, gatewayTrustSecret)
 }
 
 class RemoteProviderModuleApi(
     private val restOperations: RestOperations,
     private val baseUrl: String,
+    private val internalSecret: String,
     private val gatewayTrustSecret: String
 ) : ProviderModuleApi {
     override fun ownerUserId(providerId: UUID): UUID? = runCatching {
         val response = restOperations.exchange(
-            "$baseUrl/api/v1/providers/$providerId",
+            "$baseUrl/api/v1/internal/providers/$providerId/owner",
             HttpMethod.GET,
             HttpEntity<Any>(HttpHeaders().apply {
+                if (internalSecret.isNotBlank()) {
+                    set("X-Internal-Secret", internalSecret)
+                }
                 if (gatewayTrustSecret.isNotBlank()) {
                     set("X-Internal-Gateway-Secret", gatewayTrustSecret)
                 }

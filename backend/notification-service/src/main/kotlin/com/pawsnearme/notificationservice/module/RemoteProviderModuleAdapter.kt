@@ -23,23 +23,37 @@ class NotificationRemoteModuleConfiguration {
         restOperations: RestOperations,
         objectMapper: ObjectMapper,
         @Value("\${provider.service.url:http://localhost:8081}") baseUrl: String,
-        @Value("\${internal.api.secret}") internalSecret: String
-    ): ProviderModuleApi = RemoteProviderModuleApi(restOperations, objectMapper, baseUrl, internalSecret)
+        @Value("\${internal.api.secret}") internalSecret: String,
+        @Value("\${gateway.trust.secret:}") gatewayTrustSecret: String
+    ): ProviderModuleApi = RemoteProviderModuleApi(
+        restOperations,
+        objectMapper,
+        baseUrl,
+        internalSecret,
+        gatewayTrustSecret
+    )
 }
 
 class RemoteProviderModuleApi(
     private val restOperations: RestOperations,
     private val objectMapper: ObjectMapper,
     private val baseUrl: String,
-    private val internalSecret: String
+    private val internalSecret: String,
+    private val gatewayTrustSecret: String
 ) : ProviderModuleApi {
     override fun ownerUserId(providerId: UUID): UUID? = runCatching {
-        val response = restOperations.getForObject("$baseUrl/api/v1/providers/$providerId", Map::class.java)
+        val headers = internalHeaders()
+        val response = restOperations.exchange(
+            "$baseUrl/api/v1/internal/providers/$providerId/owner",
+            HttpMethod.GET,
+            HttpEntity<Void>(headers),
+            Map::class.java
+        ).body
         response?.get("ownerUserId")?.toString()?.let(UUID::fromString)
     }.getOrNull()
 
     override fun enabledVaccinationReminders(): List<VaccinationReminderSnapshot> {
-        val headers = HttpHeaders().apply { set("X-Internal-Secret", internalSecret) }
+        val headers = internalHeaders()
         val response = restOperations.exchange(
             "$baseUrl/api/v1/internal/vaccination-reminders",
             HttpMethod.GET,
@@ -60,5 +74,10 @@ class RemoteProviderModuleApi(
                 enabled = row["enabled"] as? Boolean ?: true
             )
         }
+    }
+
+    private fun internalHeaders() = HttpHeaders().apply {
+        set("X-Internal-Secret", internalSecret)
+        if (gatewayTrustSecret.isNotBlank()) set("X-Internal-Gateway-Secret", gatewayTrustSecret)
     }
 }

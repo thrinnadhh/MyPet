@@ -3,56 +3,6 @@ const API_BASE_URL = 'http://localhost:8080';
 let activeTab = 'approvals';
 let currentDisputeId = null;
 
-function getAdminToken() {
-    return sessionStorage.getItem('admin_token') || localStorage.getItem('admin_token');
-}
-
-function getAuthHeaders(customHeaders = {}) {
-    const token = getAdminToken();
-    const headers = {
-        'X-User-Role': 'ADMIN',
-        ...customHeaders
-    };
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-    }
-    return headers;
-}
-
-function checkAdminAuth() {
-    const token = getAdminToken();
-    const modal = document.getElementById('admin-login-modal');
-    const badge = document.getElementById('admin-session-badge');
-    if (!token) {
-        if (modal) modal.style.display = 'flex';
-        if (badge) badge.style.display = 'none';
-        return false;
-    } else {
-        if (modal) modal.style.display = 'none';
-        if (badge) badge.style.display = 'flex';
-        return true;
-    }
-}
-
-function handleAdminLogin(event) {
-    if (event) event.preventDefault();
-    const input = document.getElementById('admin-token-input');
-    const token = input ? input.value.trim() : '';
-    if (!token) return;
-    sessionStorage.setItem('admin_token', token);
-    checkAdminAuth();
-    showToast('Admin session authenticated successfully');
-    fetchRefundModeConfig();
-    fetchPendingProviders();
-}
-
-function handleAdminSignOut() {
-    sessionStorage.removeItem('admin_token');
-    localStorage.removeItem('admin_token');
-    checkAdminAuth();
-    showToast('Admin session signed out');
-}
-
 function escapeHtml(str) {
     if (str == null) return '';
     return String(str)
@@ -254,12 +204,7 @@ async function rejectProvider(providerId) {
 
 async function fetchDisputes() {
     const container = document.getElementById('disputes-list');
-    container.innerHTML = `
-        <div class="empty-state">
-            <span class="empty-icon">⏳</span>
-            <p>Loading disputes queue...</p>
-        </div>
-    `;
+    renderDisputeMessage(container, '⏳', 'Loading disputes queue...');
     
     try {
         const res = await fetch(`${API_BASE_URL}/api/v1/orders/disputes`, {
@@ -269,61 +214,86 @@ async function fetchDisputes() {
         
         const disputes = await res.json();
         if (disputes.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <span class="empty-icon">🛡️</span>
-                    <p>No disputes submitted.</p>
-                </div>
-            `;
+            renderDisputeMessage(container, '🛡️', 'No disputes submitted.');
             return;
         }
-        
-        container.innerHTML = '';
+
+        container.replaceChildren();
         disputes.forEach(d => {
             const item = document.createElement('div');
             item.className = 'list-item';
-            
+
             const isResolved = d.status !== 'OPEN';
             const badgeClass = d.status === 'OPEN' ? 'badge-pending' : (d.status === 'RESOLVED' ? 'badge-success' : 'badge-danger');
-            
-            let btnOrNotesHtml = `
-                <div class="btn-group">
-                    <button class="btn" onclick="openDisputeModal('${escapeHtml(d.disputeId)}', '${escapeHtml(d.reason)}')">⚖️ Resolve Ticket</button>
-                    <button class="btn btn-emerald" style="background-color: #374151;" onclick="viewInvoice('${escapeHtml(d.orderId)}')">📄 View Invoice</button>
-                </div>
-            `;
+
+            const header = document.createElement('div');
+            header.className = 'item-header';
+            const heading = document.createElement('div');
+            const title = document.createElement('h3');
+            title.className = 'item-title';
+            title.textContent = 'Dispute on Order';
+            const subtitle = document.createElement('p');
+            subtitle.className = 'item-subtitle';
+            subtitle.textContent = `Order ID: ${String(d.orderId ?? '')}`;
+            heading.append(title, subtitle);
+            const badge = document.createElement('span');
+            badge.className = `badge ${badgeClass}`;
+            badge.textContent = String(d.status ?? 'UNKNOWN');
+            header.append(heading, badge);
+
+            const reason = document.createElement('div');
+            reason.style.cssText = 'font-size: 0.85rem; color: var(--text-secondary);';
+            const reasonLabel = document.createElement('strong');
+            reasonLabel.textContent = 'Reason: ';
+            reason.append(reasonLabel, document.createTextNode(String(d.reason ?? '')));
+            item.append(header, reason);
+
             if (isResolved) {
-                btnOrNotesHtml = `
-                    <div style="font-size: 0.85rem; padding: 0.5rem; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px dashed var(--border-glass);">
-                        <div style="font-weight: 700; color: var(--text-primary);">Resolution:</div>
-                        <div style="color: var(--text-secondary);">${escapeHtml(d.resolutionNotes || 'No notes provided')}</div>
-                    </div>
-                `;
+                const resolution = document.createElement('div');
+                resolution.style.cssText = 'font-size: 0.85rem; padding: 0.5rem; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px dashed var(--border-glass);';
+                const resolutionLabel = document.createElement('div');
+                resolutionLabel.style.cssText = 'font-weight: 700; color: var(--text-primary);';
+                resolutionLabel.textContent = 'Resolution:';
+                const resolutionNotes = document.createElement('div');
+                resolutionNotes.style.color = 'var(--text-secondary)';
+                resolutionNotes.textContent = String(d.resolutionNotes || 'No notes provided');
+                resolution.append(resolutionLabel, resolutionNotes);
+                item.appendChild(resolution);
+            } else {
+                const actions = document.createElement('div');
+                actions.className = 'btn-group';
+                const resolveButton = document.createElement('button');
+                resolveButton.type = 'button';
+                resolveButton.className = 'btn';
+                resolveButton.textContent = '⚖️ Resolve Ticket';
+                resolveButton.addEventListener('click', () => openDisputeModal(String(d.disputeId), String(d.reason ?? '')));
+                const invoiceButton = document.createElement('button');
+                invoiceButton.type = 'button';
+                invoiceButton.className = 'btn btn-emerald';
+                invoiceButton.style.backgroundColor = '#374151';
+                invoiceButton.textContent = '📄 View Invoice';
+                invoiceButton.addEventListener('click', () => viewInvoice(String(d.orderId)));
+                actions.append(resolveButton, invoiceButton);
+                item.appendChild(actions);
             }
-            
-            item.innerHTML = `
-                <div class="item-header">
-                    <div>
-                        <h3 class="item-title">Dispute on Order</h3>
-                        <p class="item-subtitle">Order ID: ${escapeHtml(d.orderId)}</p>
-                    </div>
-                    <span class="badge ${badgeClass}">${escapeHtml(d.status)}</span>
-                </div>
-                <div style="font-size: 0.85rem; color: var(--text-secondary);">
-                    <strong>Reason:</strong> ${escapeHtml(d.reason)}
-                </div>
-                ${btnOrNotesHtml}
-            `;
+
             container.appendChild(item);
         });
     } catch (e) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <span class="empty-icon">❌</span>
-                <p>Failed to load disputes: ${e.message}</p>
-            </div>
-        `;
+        renderDisputeMessage(container, '❌', `Failed to load disputes: ${e.message || 'Unknown error'}`);
     }
+}
+
+function renderDisputeMessage(container, iconText, messageText) {
+    const state = document.createElement('div');
+    state.className = 'empty-state';
+    const icon = document.createElement('span');
+    icon.className = 'empty-icon';
+    icon.textContent = iconText;
+    const message = document.createElement('p');
+    message.textContent = messageText;
+    state.append(icon, message);
+    container.replaceChildren(state);
 }
 
 function openDisputeModal(disputeId, reason) {

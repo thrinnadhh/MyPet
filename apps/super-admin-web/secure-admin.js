@@ -81,14 +81,11 @@
         return nativeFetch(rewrittenUrl, { ...init, headers });
     };
 
-    window.getAdminToken = () => adminSession?.access_token || null;
     window.getAuthHeaders = (customHeaders = {}) => {
         const headers = { ...customHeaders };
         delete headers['X-User-Role'];
         delete headers['X-User-Id'];
-        if (adminSession?.access_token) {
-            headers.Authorization = `Bearer ${adminSession.access_token}`;
-        }
+        delete headers.Authorization;
         return headers;
     };
 
@@ -240,7 +237,7 @@
         configureLoginForm();
         if (!requireConfiguration()) return;
         authClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
-            auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+            auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false },
         });
         await resolveSession();
         setAuthenticatedUi(isAdminSession(adminSession));

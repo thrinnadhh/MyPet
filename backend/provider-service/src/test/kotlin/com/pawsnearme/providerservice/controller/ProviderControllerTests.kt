@@ -109,6 +109,34 @@ class ProviderControllerTests {
         verify(providerRepository, never()).findByOwnerUserId(any())
     }
 
+    @Test
+    fun `public provider lookup returns a data-minimized response`() {
+        val providerId = UUID.randomUUID()
+        val provider = sampleProvider(providerId, BigDecimal("15.00")).apply {
+            licenseNumber = "VET-SECRET-123"
+            licenseDocUrl = "https://private.example/license.pdf"
+        }
+        whenever(providerRepository.findById(providerId)).thenReturn(java.util.Optional.of(provider))
+
+        val response = controller.getProvider(providerId)
+
+        val body = response.body
+        assert(body is PublicProviderResponse)
+        body as PublicProviderResponse
+        assertEquals(providerId, body.providerId)
+        assertEquals("Bengaluru", body.city)
+        assertEquals(
+            setOf(
+                "providerId", "providerType", "fulfillmentType", "name", "description",
+                "city", "status", "ratingAvg", "ratingCount"
+            ),
+            PublicProviderResponse::class.members
+                .filterIsInstance<kotlin.reflect.KProperty1<PublicProviderResponse, *>>()
+                .map { it.name }
+                .toSet()
+        )
+    }
+
     private fun sampleProvider(providerId: UUID, commissionPct: BigDecimal) = Provider(
         providerId = providerId,
         ownerUserId = UUID.randomUUID(),

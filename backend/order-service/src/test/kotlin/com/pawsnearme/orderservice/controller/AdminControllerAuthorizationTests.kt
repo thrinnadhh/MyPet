@@ -1,0 +1,101 @@
+package com.pawsnearme.orderservice.controller
+
+import com.pawsnearme.orderservice.model.Dispute
+import com.pawsnearme.orderservice.model.Invoice
+import com.pawsnearme.orderservice.service.OrderAccessDeniedException
+import com.pawsnearme.orderservice.service.OrderService
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
+import org.mockito.kotlin.verify
+import org.mockito.kotlin.whenever
+import org.springframework.http.HttpStatus
+import java.math.BigDecimal
+import java.time.Instant
+import java.util.UUID
+
+class AdminControllerAuthorizationTests {
+    private val orderService: OrderService = mock()
+    private val controller = AdminController(orderService)
+
+    @Test
+    fun `admin configuration rejects non-admin callers`() {
+        assertThrows<OrderAccessDeniedException> {
+            controller.getDisputeRefundMode("CUSTOMER")
+        }
+
+        verify(orderService, never()).getDisputeRefundMode()
+    }
+
+    @Test
+    fun `list disputes rejects non-admin callers`() {
+        assertThrows<OrderAccessDeniedException> {
+            controller.listDisputes("CUSTOMER")
+        }
+
+        verify(orderService, never()).listDisputes()
+    }
+
+    @Test
+    fun `resolve dispute rejects non-admin callers`() {
+        assertThrows<OrderAccessDeniedException> {
+            controller.resolveDispute(
+                UUID.randomUUID(),
+                "CUSTOMER",
+                ResolveDisputeRequest("RESOLVED", "Customer tried to self-approve")
+            )
+        }
+
+        verify(orderService, never()).resolveDispute(org.mockito.kotlin.any(), org.mockito.kotlin.any(), org.mockito.kotlin.any())
+    }
+
+    @Test
+    fun `create dispute passes authenticated identity to ownership-aware service`() {
+        val orderId = UUID.randomUUID()
+        val actorId = UUID.randomUUID()
+        val dispute = Dispute(
+            disputeId = UUID.randomUUID(),
+            orderId = orderId,
+            status = "OPEN",
+            reason = "Damaged item",
+            createdAt = Instant.now()
+        )
+        whenever(orderService.createDisputeWithAuth(orderId, "Damaged item", actorId, "CUSTOMER"))
+            .thenReturn(dispute)
+
+        val response = controller.createDispute(
+            actorId.toString(),
+            "CUSTOMER",
+            CreateDisputeRequest(orderId, "Damaged item")
+        )
+
+        assertEquals(HttpStatus.OK, response.statusCode)
+        assertEquals(dispute, response.body)
+        verify(orderService).createDisputeWithAuth(orderId, "Damaged item", actorId, "CUSTOMER")
+    }
+
+    @Test
+    fun `invoice lookup passes authenticated identity to ownership-aware service`() {
+        val orderId = UUID.randomUUID()
+        val actorId = UUID.randomUUID()
+        val invoice = Invoice(
+            invoiceId = UUID.randomUUID(),
+            orderId = orderId,
+            invoiceNumber = "INV-TEST",
+            subtotalAmount = BigDecimal("100.00"),
+            taxAmount = BigDecimal("18.00"),
+            totalAmount = BigDecimal("118.00"),
+            generatedAt = Instant.now()
+        )
+        whenever(orderService.getInvoiceByOrderIdWithAuth(orderId, actorId, "CUSTOMER"))
+            .thenReturn(invoice)
+
+        val response = controller.getInvoice(orderId, actorId.toString(), "CUSTOMER")
+
+        assertEquals(HttpStatus.OK, response.statusCode)
+        assertEquals(invoice, response.body)
+        verify(orderService).getInvoiceByOrderIdWithAuth(orderId, actorId, "CUSTOMER")
+    }
+}
