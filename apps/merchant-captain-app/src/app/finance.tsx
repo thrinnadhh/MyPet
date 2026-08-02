@@ -21,7 +21,7 @@ import {
   type MerchantFinanceSummary,
 } from '@/services/merchant-finance';
 import {
-  fetchMerchantProviders,
+  fetchMerchantOwnedProviders,
   type MerchantProvider,
 } from '@/services/merchant-appointments';
 import {
@@ -48,7 +48,7 @@ export default function MerchantFinanceScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const loadProviders = useCallback(async () => {
-    const liveProviders = await fetchMerchantProviders();
+    const liveProviders = await fetchMerchantOwnedProviders();
     setProviders(liveProviders);
     setSelectedProviderId((current) =>
       liveProviders.some((provider) => provider.providerId === current)
@@ -114,7 +114,7 @@ export default function MerchantFinanceScreen() {
                 label={provider.name}
                 selected={selectedProviderId === provider.providerId}
                 onPress={() => setSelectedProviderId(provider.providerId)}
-                icon={provider.providerType === 'VET_HOSPITAL' ? 'medical' : 'groom'}
+                icon={provider.providerType === 'VET_HOSPITAL' ? 'medical' : provider.providerType === 'GROOMING_CENTER' ? 'groom' : 'store'}
               />
             ))}
           </ScrollView>
@@ -132,7 +132,7 @@ export default function MerchantFinanceScreen() {
           onAction={() => selectedProviderId && void loadSummary(selectedProviderId)}
         />
       ) : providers.length === 0 ? (
-        <StateView kind="empty" title="No appointment provider" message="Activate a vet or grooming provider to view finance." />
+        <StateView kind="empty" title="No owned provider" message="Activate a provider to view finance." />
       ) : summary ? (
         <>
           <FeedbackBanner
