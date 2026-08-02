@@ -98,7 +98,7 @@ export function usePushNotifications(userId?: string | null, accessToken?: strin
     const responseId = response.notification.request.identifier;
     if (handledResponseId.current === responseId) return;
 
-    const intent = notificationIntent(response.notification.request.content.data);
+    const intent = notificationIntent(response.notification.request.content.data ?? {});
     if (!intent) return;
 
     handledResponseId.current = responseId;
