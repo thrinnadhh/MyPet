@@ -80,6 +80,7 @@ interface OrderRefRepository : JpaRepository<OrderRef, UUID> {
     ): List<Array<Any>>
 
     fun findByStatusAndDeliveredAtBetween(status: String, start: Instant, end: Instant): List<OrderRef>
+    fun findByProviderIdAndStatus(providerId: UUID, status: String): List<OrderRef>
 }
 
 @Repository
