@@ -1,5 +1,11 @@
-export type CustomerPaymentMethod = 'COD' | 'CARD';
-export type CustomerPaymentStatus = 'NOT_STARTED' | 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED' | 'PARTIALLY_REFUNDED';
+export type CustomerPaymentMethod = 'COD' | 'CARD' | 'UPI';
+export type CustomerPaymentStatus =
+  | 'NOT_STARTED'
+  | 'PENDING'
+  | 'SUCCESS'
+  | 'FAILED'
+  | 'REFUNDED'
+  | 'PARTIALLY_REFUNDED';
 
 export interface CustomerPaymentState {
   orderId: string;
