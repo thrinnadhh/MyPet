@@ -63,8 +63,8 @@ export default function AppTabs() {
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
           </NativeTabs.Trigger>
 
-          <NativeTabs.Trigger name="earnings">
-            <NativeTabs.Trigger.Label>Earnings</NativeTabs.Trigger.Label>
+          <NativeTabs.Trigger name="finance">
+            <NativeTabs.Trigger.Label>Finance</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
           </NativeTabs.Trigger>
 

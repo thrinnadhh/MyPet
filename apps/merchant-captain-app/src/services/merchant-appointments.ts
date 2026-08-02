@@ -1,6 +1,14 @@
-import { appConfig } from '@/utils/app-config';
+import { apiClient } from './api-client';
 
-export type MerchantAppointmentStatus = 'SLOT_HELD' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW' | 'EXPIRED';
+export type MerchantAppointmentStatus =
+  | 'SLOT_HELD'
+  | 'CONFIRMED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'NO_SHOW'
+  | 'EXPIRED';
+
+export type MerchantAppointmentAction = 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
 
 export interface MerchantProvider {
   providerId: string;
@@ -21,7 +29,33 @@ export interface MerchantBooking {
   providerType: string;
   offeringId: string;
   slotId: string;
+  priceAmount: number;
+  payAtClinic: boolean;
+  bookedAt: string;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+  cancellationReason?: string | null;
   visitNotes?: string | null;
+}
+
+export interface MerchantAppointmentHistoryEntry {
+  historyId: string;
+  appointmentId: string;
+  fromStatus: MerchantAppointmentStatus | null;
+  toStatus: MerchantAppointmentStatus;
+  changedAt: string;
+  changedByUserId?: string | null;
+  note?: string | null;
+}
+
+export interface MerchantAppointmentInvoice {
+  invoiceId: string;
+  appointmentId: string;
+  invoiceNumber: string;
+  subtotalAmount: number;
+  taxAmount: number;
+  totalAmount: number;
+  generatedAt: string;
 }
 
 interface AppointmentDto {
@@ -33,7 +67,12 @@ interface AppointmentDto {
   slotId: string;
   petId: string;
   status: MerchantAppointmentStatus;
+  priceAmount: number | string;
+  payAtClinic?: boolean;
   bookedAt?: string;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+  cancellationReason?: string | null;
   visitNotes?: string | null;
 }
 
@@ -47,130 +86,124 @@ interface SlotDto {
   startTime?: string;
 }
 
-function authHeaders(accessToken: string | null | undefined): Record<string, string> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-  return headers;
-}
-
-function jsonHeaders(accessToken: string | null | undefined): Record<string, string> {
-  return {
-    ...authHeaders(accessToken),
-    'Content-Type': 'application/json',
-  };
-}
-
-async function readJson<T>(response: Response, fallbackMessage: string): Promise<T> {
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-    throw new Error(body?.error ?? body?.message ?? fallbackMessage);
-  }
-  return (await response.json()) as T;
-}
-
-export async function fetchMerchantProviders(ownerUserId: string, accessToken: string | null | undefined): Promise<MerchantProvider[]> {
-  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers?ownerUserId=${ownerUserId}`, {
-    headers: authHeaders(accessToken),
-  });
-  return readJson<MerchantProvider[]>(response, 'Could not load merchant providers.');
-}
-
-async function fetchOfferings(providerId: string, accessToken: string | null | undefined): Promise<Map<string, string>> {
-  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/offerings?providerId=${providerId}`, {
-    headers: authHeaders(accessToken),
-  });
-  if (!response.ok) return new Map();
-
-  const offerings = (await response.json()) as OfferingDto[];
-  return new Map(offerings.map((offering) => [offering.offeringId, offering.name]));
-}
-
-async function fetchSlotStart(slotId: string, accessToken: string | null | undefined): Promise<string | null> {
-  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/slots/${slotId}`, {
-    headers: authHeaders(accessToken),
-  });
-  if (!response.ok) return null;
-
-  const slot = (await response.json()) as SlotDto;
-  return slot.slotStart ?? slot.startTime ?? null;
-}
-
 function compactId(value: string): string {
   return value.length > 8 ? value.slice(0, 8) : value;
 }
 
-export async function fetchMerchantBookings(ownerUserId: string, accessToken: string | null | undefined): Promise<MerchantBooking[]> {
-  const providers = await fetchMerchantProviders(ownerUserId, accessToken);
-  const appointmentProviders = providers.filter((provider) => provider.fulfillmentType === 'APPOINTMENT');
-  const visibleProviders = appointmentProviders.length > 0 ? appointmentProviders : providers;
+export async function fetchMerchantOwnedProviders(): Promise<MerchantProvider[]> {
+  return apiClient.get<MerchantProvider[]>('/api/v1/providers/me');
+}
 
+export async function fetchMerchantProviders(_ownerUserId?: string): Promise<MerchantProvider[]> {
+  const providers = await fetchMerchantOwnedProviders();
+  return providers.filter((provider) => provider.fulfillmentType === 'APPOINTMENT');
+}
+
+async function fetchOfferings(providerId: string): Promise<Map<string, string>> {
+  try {
+    const offerings = await apiClient.get<OfferingDto[]>(
+      `/api/v1/catalog/offerings?providerId=${encodeURIComponent(providerId)}`,
+    );
+    return new Map(offerings.map((offering) => [offering.offeringId, offering.name]));
+  } catch {
+    return new Map();
+  }
+}
+
+async function fetchSlotStart(slotId: string): Promise<string | null> {
+  try {
+    const slot = await apiClient.get<SlotDto>(`/api/v1/catalog/slots/${encodeURIComponent(slotId)}`);
+    return slot.slotStart ?? slot.startTime ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function enrichAppointment(
+  appointment: AppointmentDto,
+  provider: MerchantProvider,
+  offerings: Map<string, string>,
+): Promise<MerchantBooking> {
+  const id = appointment.appointmentId ?? appointment.id;
+  if (!id) throw new Error('Appointment response did not include an appointment ID.');
+  const slotStart = await fetchSlotStart(appointment.slotId);
+  return {
+    id,
+    customerId: appointment.customerId,
+    customerName: `Customer ${compactId(appointment.customerId)}`,
+    petName: `Pet ${compactId(appointment.petId)}`,
+    serviceName: offerings.get(appointment.offeringId) ?? provider.name,
+    slotStartsAt: slotStart ?? appointment.bookedAt ?? new Date().toISOString(),
+    status: appointment.status,
+    providerId: appointment.providerId,
+    providerType: provider.providerType,
+    offeringId: appointment.offeringId,
+    slotId: appointment.slotId,
+    priceAmount: Number(appointment.priceAmount) || 0,
+    payAtClinic: Boolean(appointment.payAtClinic),
+    bookedAt: appointment.bookedAt ?? new Date().toISOString(),
+    completedAt: appointment.completedAt,
+    cancelledAt: appointment.cancelledAt,
+    cancellationReason: appointment.cancellationReason,
+    visitNotes: appointment.visitNotes,
+  };
+}
+
+export async function fetchMerchantBookings(
+  _ownerUserId?: string,
+  _accessToken?: string | null,
+): Promise<MerchantBooking[]> {
+  const providers = await fetchMerchantProviders();
   const providerBookings = await Promise.all(
-    visibleProviders.map(async (provider) => {
-      const [offerings, appointmentsResponse] = await Promise.all([
-        fetchOfferings(provider.providerId, accessToken),
-        fetch(`${appConfig.apiBaseUrl}/api/v1/appointments/provider/${provider.providerId}`, {
-          headers: authHeaders(accessToken),
-        }),
+    providers.map(async (provider) => {
+      const [offerings, appointments] = await Promise.all([
+        fetchOfferings(provider.providerId),
+        apiClient.get<AppointmentDto[]>(
+          `/api/v1/appointments/provider/${encodeURIComponent(provider.providerId)}`,
+        ),
       ]);
-
-      const appointments = await readJson<AppointmentDto[]>(appointmentsResponse, 'Could not load appointments.');
-      const enriched = await Promise.all(
-        appointments.map(async (appointment): Promise<MerchantBooking> => {
-          const id = appointment.appointmentId ?? appointment.id;
-          if (!id) throw new Error('Appointment response did not include an appointment ID.');
-          const slotStart = await fetchSlotStart(appointment.slotId, accessToken);
-          return {
-            id,
-            customerId: appointment.customerId,
-            customerName: `Customer ${compactId(appointment.customerId)}`,
-            petName: `Pet ${compactId(appointment.petId)}`,
-            serviceName: offerings.get(appointment.offeringId) ?? provider.name,
-            slotStartsAt: slotStart ?? appointment.bookedAt ?? new Date().toISOString(),
-            status: appointment.status,
-            providerId: appointment.providerId,
-            providerType: provider.providerType,
-            offeringId: appointment.offeringId,
-            slotId: appointment.slotId,
-            visitNotes: appointment.visitNotes,
-          };
-        }),
+      return Promise.all(
+        appointments.map((appointment) => enrichAppointment(appointment, provider, offerings)),
       );
-      return enriched;
     }),
   );
-
   return providerBookings.flat().sort((left, right) => left.slotStartsAt.localeCompare(right.slotStartsAt));
+}
+
+export async function updateMerchantBookingStatus(
+  bookingId: string,
+  status: MerchantAppointmentAction,
+  note: string,
+): Promise<AppointmentDto> {
+  const params = new URLSearchParams({ status });
+  const trimmedNote = note.trim();
+  if (trimmedNote) params.set('note', trimmedNote);
+  return apiClient.put<AppointmentDto>(
+    `/api/v1/appointments/${encodeURIComponent(bookingId)}/status?${params.toString()}`,
+  );
 }
 
 export async function completeMerchantBooking(
   bookingId: string,
   notes: string,
-  accessToken: string | null | undefined,
+  _accessToken?: string | null,
 ): Promise<MerchantBooking | null> {
-  const params = new URLSearchParams({ status: 'COMPLETED' });
-  const trimmedNotes = notes.trim();
-  if (trimmedNotes) params.set('note', trimmedNotes);
+  await updateMerchantBookingStatus(bookingId, 'COMPLETED', notes);
+  return null;
+}
 
-  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/appointments/${bookingId}/status?${params.toString()}`, {
-    method: 'PUT',
-    headers: jsonHeaders(accessToken),
-  });
-  const updated = await readJson<AppointmentDto>(response, 'Could not complete appointment.');
-  const id = updated.appointmentId ?? updated.id;
-  if (!id) return null;
+export async function fetchMerchantAppointmentHistory(
+  bookingId: string,
+): Promise<MerchantAppointmentHistoryEntry[]> {
+  return apiClient.get<MerchantAppointmentHistoryEntry[]>(
+    `/api/v1/appointments/${encodeURIComponent(bookingId)}/history`,
+  );
+}
 
-  return {
-    id,
-    customerId: updated.customerId,
-    customerName: `Customer ${compactId(updated.customerId)}`,
-    petName: `Pet ${compactId(updated.petId)}`,
-    serviceName: updated.offeringId,
-    slotStartsAt: updated.bookedAt ?? new Date().toISOString(),
-    status: updated.status,
-    providerId: updated.providerId,
-    providerType: 'VET_HOSPITAL',
-    offeringId: updated.offeringId,
-    slotId: updated.slotId,
-    visitNotes: updated.visitNotes,
-  };
+export async function fetchMerchantAppointmentInvoice(
+  bookingId: string,
+): Promise<MerchantAppointmentInvoice> {
+  return apiClient.get<MerchantAppointmentInvoice>(
+    `/api/v1/appointments/${encodeURIComponent(bookingId)}/invoice`,
+  );
 }

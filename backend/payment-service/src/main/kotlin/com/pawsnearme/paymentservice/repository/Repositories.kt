@@ -1,15 +1,22 @@
 package com.pawsnearme.paymentservice.repository
 
-import com.pawsnearme.paymentservice.model.*
+import com.pawsnearme.paymentservice.model.AppointmentRef
+import com.pawsnearme.paymentservice.model.CaptainEarningRef
+import com.pawsnearme.paymentservice.model.LinkedAccount
+import com.pawsnearme.paymentservice.model.OrderRef
+import com.pawsnearme.paymentservice.model.Payout
+import com.pawsnearme.paymentservice.model.PlatformCommissionLedger
+import com.pawsnearme.paymentservice.model.Promotion
+import com.pawsnearme.paymentservice.model.ProviderRef
+import com.pawsnearme.paymentservice.model.Transaction
 import jakarta.persistence.LockModeType
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import org.springframework.stereotype.Repository
-import java.math.BigDecimal
-import java.time.LocalDate
 import java.time.Instant
+import java.time.LocalDate
 import java.util.UUID
 
 @Repository
@@ -31,7 +38,6 @@ interface PayoutRepository : JpaRepository<Payout, UUID> {
     ): Payout?
 }
 
-
 @Repository
 interface LinkedAccountRepository : JpaRepository<LinkedAccount, UUID> {
     fun findByPayeeUserId(payeeUserId: UUID): LinkedAccount?
@@ -42,7 +48,6 @@ interface LinkedAccountRepository : JpaRepository<LinkedAccount, UUID> {
 interface PlatformCommissionLedgerRepository : JpaRepository<PlatformCommissionLedger, UUID> {
     fun findByProviderId(providerId: UUID): List<PlatformCommissionLedger>
 }
-
 
 @Repository
 interface PromotionRepository : JpaRepository<Promotion, UUID> {
@@ -59,10 +64,6 @@ interface PromotionRepository : JpaRepository<Promotion, UUID> {
 
 @Repository
 interface OrderRefRepository : JpaRepository<OrderRef, UUID> {
-    /**
-     * Returns (ownerUserId, sumTotalAmount) grouped by provider owner — DB-level aggregation
-     * to avoid loading all orders into JVM memory.
-     */
     @Query("""
         SELECT o.providerId, p.ownerUserId, SUM(o.totalAmount)
         FROM OrderRef o
@@ -79,15 +80,11 @@ interface OrderRefRepository : JpaRepository<OrderRef, UUID> {
     ): List<Array<Any>>
 
     fun findByStatusAndDeliveredAtBetween(status: String, start: Instant, end: Instant): List<OrderRef>
+    fun findByProviderIdAndStatus(providerId: UUID, status: String): List<OrderRef>
 }
-
-
 
 @Repository
 interface AppointmentRefRepository : JpaRepository<AppointmentRef, UUID> {
-    /**
-     * Returns (ownerUserId, sumPriceAmount) grouped by provider owner — DB-level aggregation.
-     */
     @Query("""
         SELECT a.providerId, p.ownerUserId, SUM(a.priceAmount)
         FROM AppointmentRef a
@@ -102,13 +99,12 @@ interface AppointmentRefRepository : JpaRepository<AppointmentRef, UUID> {
         start: Instant,
         end: Instant
     ): List<Array<Any>>
+
+    fun findByProviderIdAndStatus(providerId: UUID, status: String): List<AppointmentRef>
 }
 
 @Repository
 interface CaptainEarningRefRepository : JpaRepository<CaptainEarningRef, UUID> {
-    /**
-     * Returns (captainId, sumAmount) grouped by captain — DB-level aggregation.
-     */
     @Query("""
         SELECT c.captainId, SUM(c.amount)
         FROM CaptainEarningRef c
@@ -119,7 +115,6 @@ interface CaptainEarningRefRepository : JpaRepository<CaptainEarningRef, UUID> {
     """)
     fun sumAmountByCaptainAndPeriod(start: Instant, end: Instant): List<Array<Any>>
 
-    /** Used to bulk-link earnings to a payout after creation. */
     fun findByPayoutIdIsNullAndEarnedAtBetweenAndCaptainId(
         start: Instant,
         end: Instant,
