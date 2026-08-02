@@ -14,6 +14,8 @@ MEDICAL_REPORTS_BUCKET=mypet-local-medical-reports
 MEDICAL_REPORTS_REGION=ap-south-1
 MEDICAL_REPORTS_ACCESS_KEY=local-test-access-key
 MEDICAL_REPORTS_SECRET_KEY=local-test-secret-key
+MEDICAL_DOCUMENT_SIGNING_KEY=0123456789abcdef0123456789abcdef
+CASE_EVIDENCE_SIGNING_KEY=abcdef0123456789abcdef0123456789
 RAZORPAY_WEBHOOK_SECRET=local-webhook-secret
 EOF
 
@@ -40,17 +42,18 @@ export KEEP_STACK=1
 bash "$ROOT/scripts/test-full-stack.sh"
 bash "$ROOT/scripts/test-feature-flows.sh"
 python3 "$ROOT/scripts/run-m8-feature-matrix.py"
+python3 "$ROOT/scripts/run-p2b-connected-e2e.py"
 
 cat >> "$REPORT" <<'EOF'
 
 ## Overall result
 
 **PASS** — automated builds, clean-volume infrastructure, all backend service
-readiness probes, and the connected M8 matrix for customer, provider, catalog,
-appointment, order, payment, loyalty, captain, dispatch, review, notification,
-chat, content, and admin workflows completed successfully. Authorization,
-concurrency, idempotency, scheduler, persistence, outbox, and asynchronous
-projection evidence were retained in the same report.
+readiness probes, the connected M8 fourteen-domain matrix, and the exact ten
+P2B customer → merchant → captain → admin journeys completed successfully.
+Authorization, concurrency, idempotency, private-document access, scheduler,
+persistence, outbox, notification/UI contracts, and asynchronous projection
+evidence were retained in the same report.
 EOF
 
 echo "Complete validation report: $REPORT"
