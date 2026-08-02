@@ -6,6 +6,11 @@ services:
       MEDICAL_REPORTS_ACCESS_KEY: ${MEDICAL_REPORTS_ACCESS_KEY:-local-test-access-key}
       MEDICAL_REPORTS_SECRET_KEY: ${MEDICAL_REPORTS_SECRET_KEY:-local-test-secret-key}
 
+  appointment-service:
+    environment:
+      APPOINTMENT_MEDICAL_DOCUMENTS_PUBLIC_BASE_URL: http://localhost:8080
+      MEDICAL_DOCUMENT_SIGNING_KEY: ${MEDICAL_DOCUMENT_SIGNING_KEY:-0123456789abcdef0123456789abcdef}
+
   captain-service:
     environment:
       BANK_DATA_ENCRYPTION_KEY: ${BANK_DATA_ENCRYPTION_KEY:?BANK_DATA_ENCRYPTION_KEY must be set}
@@ -13,6 +18,8 @@ services:
   order-service:
     environment:
       ORDER_ONLINE_PAYMENTS_ENABLED: "true"
+      ORDER_CASE_EVIDENCE_PUBLIC_BASE_URL: http://localhost:8080
+      CASE_EVIDENCE_SIGNING_KEY: ${CASE_EVIDENCE_SIGNING_KEY:-abcdef0123456789abcdef0123456789}
 
   payment-service:
     environment:
