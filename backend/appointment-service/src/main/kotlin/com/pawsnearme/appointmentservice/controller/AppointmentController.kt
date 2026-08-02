@@ -27,7 +27,8 @@ class AppointmentController(
     private val appointmentStatusHistoryRepository: AppointmentStatusHistoryRepository,
     private val lifecyclePolicy: AppointmentLifecyclePolicy
 ) {
-    private fun authenticatedUserId(value: String?): UUID? = value?.takeIf(String::isNotBlank)?.let(UUID::fromString)
+    private fun parseAuthenticatedUserId(value: String?): UUID? =
+        value?.takeIf(String::isNotBlank)?.let(UUID::fromString)
 
     private fun unauthorized(): ResponseEntity<Any> = ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
@@ -38,7 +39,7 @@ class AppointmentController(
         @Valid @RequestBody request: BookAppointmentRequest,
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?
     ): ResponseEntity<Any> {
-        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
         val appointment = appointmentService.bookAppointment(request.copy(customerId = callerId))
         return ResponseEntity.status(HttpStatus.CREATED).body(appointment)
     }
@@ -48,7 +49,7 @@ class AppointmentController(
         @Valid @RequestBody request: BookAppointmentRequest,
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?
     ): ResponseEntity<Any> {
-        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
         val appointment = appointmentService.holdAppointment(request.copy(customerId = callerId))
         return ResponseEntity.status(HttpStatus.CREATED).body(appointment)
     }
@@ -60,7 +61,7 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
         return ResponseEntity.ok(
             appointmentService.confirmAppointment(id, paymentId, callerId, authenticatedUserRole)
         )
@@ -72,7 +73,7 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
         return ResponseEntity.ok(appointmentService.getAppointment(id, callerId, authenticatedUserRole))
     }
 
@@ -82,7 +83,7 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
         appointmentService.getAppointment(id, callerId, authenticatedUserRole)
         return ResponseEntity.ok(
             appointmentStatusHistoryRepository.findByAppointmentId(id).sortedBy { it.changedAt }
@@ -95,7 +96,7 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
         appointmentService.getAppointment(id, callerId, authenticatedUserRole)
         val invoice: AppointmentInvoice = appointmentService.getInvoiceByAppointmentId(id)
         return ResponseEntity.ok(invoice)
@@ -107,7 +108,7 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
         return ResponseEntity.ok(
             appointmentService.getAppointmentsByCustomer(customerId, callerId, authenticatedUserRole)
         )
@@ -119,7 +120,7 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
         return ResponseEntity.ok(
             appointmentService.getAppointmentsByProvider(providerId, callerId, authenticatedUserRole)
         )
@@ -134,7 +135,7 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
         val current = appointmentService.getAppointment(id, callerId, authenticatedUserRole)
         lifecyclePolicy.requireAllowed(
             current = current.status,
@@ -161,7 +162,7 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        val callerId = authenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
         return ResponseEntity.ok(
             appointmentService.rescheduleAppointment(id, newSlotId, callerId, authenticatedUserRole)
         )
