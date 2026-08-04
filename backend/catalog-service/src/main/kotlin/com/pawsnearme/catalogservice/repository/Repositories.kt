@@ -16,7 +16,7 @@ interface ProviderRepository : JpaRepository<Provider, UUID> {
 @Repository
 interface OfferingRepository : JpaRepository<Offering, UUID> {
     fun findByProviderId(providerId: UUID): List<Offering>
-    fun findByProviderIdAndBarcode(providerId: UUID, barcode: String): Offering?
+    fun findFirstByProviderIdAndBarcodeIn(providerId: UUID, barcodes: Collection<String>): Offering?
 
     @Modifying
     @Query(
