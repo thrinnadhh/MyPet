@@ -18,6 +18,10 @@ const BARCODE_TYPES: BarcodeType[] = [
   'codabar',
 ];
 
+function isConfiguredBarcodeType(value: string): value is BarcodeType {
+  return BARCODE_TYPES.includes(value as BarcodeType);
+}
+
 type BarcodeScannerModalProps = {
   visible: boolean;
   title?: string;
@@ -53,6 +57,10 @@ export function BarcodeScannerModal({
     const validationMessage = barcodeValidationMessage(barcode);
     if (!barcode || validationMessage) {
       setCameraError(validationMessage ?? 'The scanned barcode was empty. Try again.');
+      return;
+    }
+    if (!isConfiguredBarcodeType(result.type)) {
+      setCameraError(`Unsupported barcode format: ${result.type}.`);
       return;
     }
 
