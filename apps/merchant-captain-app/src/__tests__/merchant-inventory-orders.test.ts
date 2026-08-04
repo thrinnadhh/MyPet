@@ -38,7 +38,9 @@ test('merchant order workspace uses provider-scoped reads and server transitions
   assert.match(screen, /formatCurrency/);
   assert.match(screen, /apiErrorKind/);
   assert.match(layout, /pathname\.startsWith\('\/orders'\)/);
-  assert.match(tabs, /name="orders"/);
+  assert.match(tabs, /name:\s*'orders'/);
+  assert.match(tabs, /href:\s*'\/orders'/);
+  assert.match(tabs, /visible:\s*isProvider/);
   assert.match(home, /router\.push\('\/orders'/);
   assert.doesNotMatch(home, /router\.push\('\/explore'.*incomingOrder/s);
 });
