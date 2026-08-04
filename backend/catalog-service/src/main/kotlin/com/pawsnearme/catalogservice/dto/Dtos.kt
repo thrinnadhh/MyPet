@@ -2,10 +2,14 @@ package com.pawsnearme.catalogservice.dto
 
 import com.pawsnearme.catalogservice.model.OfferingStatus
 import com.pawsnearme.catalogservice.model.SlotStatus
+import jakarta.validation.Valid
 import jakarta.validation.constraints.DecimalMin
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.NotEmpty
 import jakarta.validation.constraints.NotNull
+import jakarta.validation.constraints.Pattern
+import jakarta.validation.constraints.Size
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
@@ -37,6 +41,7 @@ data class OfferingRequest(
     @field:Min(value = 1, message = "Duration must be at least 1 minute")
     val durationMinutes: Int?,
 
+    @field:Size(max = 50, message = "Barcode cannot exceed 50 characters")
     val barcode: String? = null
 )
 
@@ -58,18 +63,23 @@ data class BillItemRequest(
     val productId: UUID?,
 
     @field:NotBlank(message = "Barcode is required")
+    @field:Size(max = 50, message = "Barcode cannot exceed 50 characters")
     val barcodeScanned: String?,
 
+    @field:NotNull(message = "Quantity is required")
     @field:Min(value = 1, message = "Quantity must be at least 1")
     val quantity: Int?,
 
     @field:NotNull(message = "Unit price is required")
+    @field:DecimalMin(value = "0.0", inclusive = true, message = "Unit price must be non-negative")
     val unitPrice: BigDecimal?,
 
     @field:NotNull(message = "Discount amount is required")
+    @field:DecimalMin(value = "0.0", inclusive = true, message = "Discount amount must be non-negative")
     val discountAmount: BigDecimal?,
 
     @field:NotBlank(message = "Discount type is required")
+    @field:Pattern(regexp = "NONE|FLAT|PERCENT", message = "Discount type must be NONE, FLAT or PERCENT")
     val discountType: String?
 )
 
@@ -96,8 +106,11 @@ data class BillRequest(
     val grandTotal: BigDecimal?,
 
     @field:NotBlank(message = "Idempotency key is required")
+    @field:Size(max = 100, message = "Idempotency key cannot exceed 100 characters")
     val idempotencyKey: String?,
 
+    @field:NotEmpty(message = "At least one bill item is required")
+    @field:Valid
     val items: List<BillItemRequest> = emptyList()
 )
 
@@ -112,5 +125,3 @@ data class BillResponse(
     val successfulItems: List<com.pawsnearme.catalogservice.model.BillItem>,
     val failedItems: List<FailedBillItem>
 )
-
-
