@@ -8,6 +8,7 @@ MODERN_PATCH_PREFIX="$SCRIPT_DIR/customer-e2e/overrides/modern-customer-patch.py
 EXPECTED_SHA256="2df6346f304f9e4c674014a1da819e5bd9cde197fc6c6fff92711398a157df2c"
 EXPECTED_FILTER_OVERRIDE_SHA256="4e9547a821fd71623029858fc644e5bbc9e475d43aa02fa6e0e52e53dcd8500a"
 EXPECTED_MODERN_PATCH_SHA256="1003defb4fb878058ed201af597851fdb3a9d3c1c181c593f038730dc30dd828"
+EXPECTED_MODERN_RUNTIME_SHA256="29715992de2fe933156920481d7ad3bff89c3400a9a93f610f0b9c40f7e86717"
 EXPECTED_PARTS=8
 EXPECTED_MODERN_PARTS=2
 TMP_DIR="$(mktemp -d)"
@@ -72,7 +73,33 @@ verify_file "$TMP_DIR/fix-filters.sh" "$EXPECTED_FILTER_OVERRIDE_SHA256" "Legacy
 bash -n "$TMP_DIR/fix-filters.sh"
 
 cat "${modern_parts[@]}" | decode_base64 | gzip -dc > "$TMP_DIR/modern-customer-patch.py"
-verify_file "$TMP_DIR/modern-customer-patch.py" "$EXPECTED_MODERN_PATCH_SHA256" "Modern customer patch"
+verify_file "$TMP_DIR/modern-customer-patch.py" "$EXPECTED_MODERN_PATCH_SHA256" "Modern customer source payload"
+
+# React Native 0.85 exposes StyleSheet.absoluteFill rather than the removed
+# absoluteFillObject alias. Apply that reviewed compatibility correction before
+# compiling/executing the modern patch, then verify the corrected digest.
+python3 - "$TMP_DIR/modern-customer-patch.py" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+text = text.replace(
+    "style={StyleSheet.absoluteFillObject}",
+    "style={StyleSheet.absoluteFill}",
+)
+text = text.replace(
+    "    ...StyleSheet.absoluteFillObject,\n    alignItems:",
+    "    position: 'absolute',\n"
+    "    top: 0,\n"
+    "    right: 0,\n"
+    "    bottom: 0,\n"
+    "    left: 0,\n"
+    "    alignItems:",
+)
+path.write_text(text)
+PY
+verify_file "$TMP_DIR/modern-customer-patch.py" "$EXPECTED_MODERN_RUNTIME_SHA256" "Modern customer runtime patch"
 python3 -m py_compile "$TMP_DIR/modern-customer-patch.py"
 
 if [ "${1:-}" = "--verify-only" ]; then
