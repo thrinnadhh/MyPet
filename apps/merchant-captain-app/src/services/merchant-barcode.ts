@@ -63,7 +63,10 @@ async function readCatalog(providerId: string): Promise<CachedBarcodeCatalog | n
   }
 }
 
-async function writeCatalog(providerId: string, offerings: MerchantOffering[]): Promise<CachedBarcodeCatalog> {
+async function buildAndStoreCatalog(
+  providerId: string,
+  offerings: MerchantOffering[],
+): Promise<CachedBarcodeCatalog> {
   const catalog: CachedBarcodeCatalog = {
     providerId,
     updatedAt: new Date().toISOString(),
@@ -72,7 +75,11 @@ async function writeCatalog(providerId: string, offerings: MerchantOffering[]): 
       return normalized ? [normalized] : [];
     }),
   };
-  await AsyncStorage.setItem(cacheKey(providerId), JSON.stringify(catalog));
+  try {
+    await AsyncStorage.setItem(cacheKey(providerId), JSON.stringify(catalog));
+  } catch {
+    // A device storage failure must not block a valid online sale.
+  }
   return catalog;
 }
 
@@ -83,12 +90,12 @@ async function upsertCachedOffering(providerId: string, offering: MerchantOfferi
   const existing = await readCatalog(providerId);
   const offerings = existing?.offerings ?? [];
   const withoutCurrent = offerings.filter((item) => item.offeringId !== normalized.offeringId);
-  await writeCatalog(providerId, [...withoutCurrent, normalized]);
+  await buildAndStoreCatalog(providerId, [...withoutCurrent, normalized]);
 }
 
 export async function refreshProviderBarcodeCatalog(providerId: string): Promise<number> {
   const offerings = await fetchMerchantOfferings(providerId);
-  const catalog = await writeCatalog(providerId, offerings);
+  const catalog = await buildAndStoreCatalog(providerId, offerings);
   return catalog.offerings.length;
 }
 
