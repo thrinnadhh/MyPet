@@ -260,7 +260,7 @@ export default function BillingScreen() {
         },
       ],
     );
-  }, [cart, clearCart, session?.access_token, storeId, storeName, syncBills, user?.id]);
+  }, [cart, clearCart, session?.access_token, storeId, storeName, syncBills, user]);
 
   const openDiscount = useCallback((item: CartItem) => {
     setDiscountModalItem(item);
