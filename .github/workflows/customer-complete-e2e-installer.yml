@@ -1,0 +1,62 @@
+name: Customer Complete E2E Installer
+
+on:
+  pull_request:
+    paths:
+      - "scripts/install-mypet-customer-complete-e2e.sh"
+      - "scripts/customer-e2e/**"
+      - ".github/workflows/customer-complete-e2e-installer.yml"
+      - "apps/customer-app/**"
+      - "qa/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-payload:
+    name: Verify payload (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate wrapper and exact installer digest
+        run: |
+          bash -n scripts/install-mypet-customer-complete-e2e.sh
+          bash scripts/install-mypet-customer-complete-e2e.sh --verify-only
+
+  execute-installer:
+    name: Execute installer on clean checkout
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19
+          cache: npm
+          cache-dependency-path: apps/customer-app/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install current customer dependencies
+        working-directory: apps/customer-app
+        run: npm ci
+      - name: Apply and run the complete customer audit
+        run: bash scripts/install-mypet-customer-complete-e2e.sh "$GITHUB_WORKSPACE"
+      - name: Reject malformed generated patches
+        run: git diff --check
+      - name: Upload generated readiness reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-e2e-readiness
+          if-no-files-found: warn
+          path: |
+            build/reports/customer-e2e-readiness.md
+            build/reports/customer-e2e-readiness.json
+            qa/customer-manual-e2e-checklist.md
