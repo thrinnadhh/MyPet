@@ -2,14 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 
 import { apiClient } from './api-client';
-import {
-  createMerchantBarcodeService,
-  OfflineBarcodeMissError,
-  type BarcodeOffering,
-  type BarcodeResolution,
-  type MerchantBarcodeDependencies,
-  type MerchantBarcodeService,
-} from './merchant-barcode-core';
+import { createMerchantBarcodeService } from './merchant-barcode-core';
 import { fetchMerchantOfferings, type MerchantOffering } from './merchant-inventory';
 
 export {
