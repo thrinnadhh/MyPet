@@ -1,3 +1,5 @@
+import { normalizeBarcode } from '@/utils/barcode';
+
 import { apiClient } from './api-client';
 
 export type OfferingStatus = 'ACTIVE' | 'INACTIVE' | 'OUT_OF_STOCK';
@@ -51,6 +53,7 @@ export async function fetchMerchantOfferings(providerId: string): Promise<Mercha
 }
 
 function payload(providerId: string, draft: OfferingDraft): MerchantOffering {
+  const barcode = normalizeBarcode(draft.barcode ?? '');
   return {
     providerId,
     name: draft.name.trim(),
@@ -62,7 +65,7 @@ function payload(providerId: string, draft: OfferingDraft): MerchantOffering {
     stockQuantity: draft.stockQuantity,
     sku: draft.sku?.trim() || null,
     durationMinutes: draft.durationMinutes,
-    barcode: draft.barcode?.trim() || null,
+    barcode: barcode || null,
   };
 }
 

@@ -1,15 +1,13 @@
 package com.pawsnearme.catalogservice.controller
 
+import com.pawsnearme.catalogservice.dto.*
 import com.pawsnearme.catalogservice.model.*
 import com.pawsnearme.catalogservice.service.CatalogService
-import com.pawsnearme.catalogservice.dto.*
 import jakarta.validation.Valid
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.util.UUID
-
 
 class CatalogAccessDeniedException(message: String) : RuntimeException(message)
 
@@ -18,7 +16,6 @@ class CatalogAccessDeniedException(message: String) : RuntimeException(message)
 class CatalogController(
     private val catalogService: CatalogService,
 ) {
-
     private fun verifyProviderOwnership(providerId: UUID, xUserId: String?, xUserRole: String?) {
         if (xUserRole == "ADMIN") return
         if (xUserRole == "MERCHANT" && !xUserId.isNullOrBlank()) {
@@ -26,7 +23,6 @@ class CatalogController(
         }
         throw CatalogAccessDeniedException("Access denied: merchant does not own provider $providerId")
     }
-    // --- Offerings API ---
 
     @PostMapping("/offerings")
     fun createOffering(
@@ -36,7 +32,7 @@ class CatalogController(
     ): ResponseEntity<Offering> {
         verifyProviderOwnership(request.providerId!!, xUserId, role)
         val offering = Offering(
-            providerId = request.providerId!!,
+            providerId = request.providerId,
             name = request.name!!,
             description = request.description,
             category = request.category,
@@ -48,21 +44,16 @@ class CatalogController(
             durationMinutes = request.durationMinutes,
             barcode = request.barcode
         )
-        val created = catalogService.createOffering(offering)
-        return ResponseEntity.status(HttpStatus.CREATED).body(created)
+        return ResponseEntity.status(HttpStatus.CREATED).body(catalogService.createOffering(offering))
     }
 
     @GetMapping("/offerings/{offeringId}")
-    fun getOfferingById(@PathVariable offeringId: UUID): ResponseEntity<Offering> {
-        val offering = catalogService.getOfferingById(offeringId)
-        return ResponseEntity.ok(offering)
-    }
+    fun getOfferingById(@PathVariable offeringId: UUID): ResponseEntity<Offering> =
+        ResponseEntity.ok(catalogService.getOfferingById(offeringId))
 
     @GetMapping("/offerings")
-    fun getOfferingsByProvider(@RequestParam providerId: UUID): ResponseEntity<List<Offering>> {
-        val offerings = catalogService.getOfferingsByProvider(providerId)
-        return ResponseEntity.ok(offerings)
-    }
+    fun getOfferingsByProvider(@RequestParam providerId: UUID): ResponseEntity<List<Offering>> =
+        ResponseEntity.ok(catalogService.getOfferingsByProvider(providerId))
 
     @PutMapping("/offerings/{offeringId}")
     fun updateOffering(
@@ -71,14 +62,10 @@ class CatalogController(
         @RequestHeader("X-User-Role", required = false) role: String?,
         @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Offering> {
-        // SECURITY: Verify against the *existing* offering's providerId, NOT the client-supplied
-        // request body. Without this check, a merchant could overwrite another merchant's offering
-        // by sending their own providerId in the request body (IDOR vulnerability).
         val existing = catalogService.getOfferingById(offeringId)
         verifyProviderOwnership(existing.providerId, xUserId, role)
-
         val offering = Offering(
-            providerId = existing.providerId,   // lock to existing provider — client cannot reassign
+            providerId = existing.providerId,
             name = request.name!!,
             description = request.description,
             category = request.category,
@@ -90,11 +77,8 @@ class CatalogController(
             durationMinutes = request.durationMinutes,
             barcode = request.barcode
         )
-        val updated = catalogService.updateOffering(offeringId, offering)
-        return ResponseEntity.ok(updated)
+        return ResponseEntity.ok(catalogService.updateOffering(offeringId, offering))
     }
-
-
 
     @DeleteMapping("/offerings/{offeringId}")
     fun deleteOffering(
@@ -132,8 +116,6 @@ class CatalogController(
         return ResponseEntity.ok(catalogService.restoreStock(offeringId, quantity))
     }
 
-    // --- Slots API ---
-
     @PostMapping("/slots")
     fun createSlot(
         @Valid @RequestBody request: SlotRequest,
@@ -143,29 +125,21 @@ class CatalogController(
         val offering = catalogService.getOfferingById(request.offeringId!!)
         verifyProviderOwnership(offering.providerId, xUserId, role)
         val slot = Slot(
-            offeringId = request.offeringId!!,
+            offeringId = request.offeringId,
             slotStart = request.slotStart!!,
             slotEnd = request.slotEnd!!,
             status = request.status
         )
-        val created = catalogService.createSlot(slot)
-        return ResponseEntity.status(HttpStatus.CREATED).body(created)
+        return ResponseEntity.status(HttpStatus.CREATED).body(catalogService.createSlot(slot))
     }
 
     @GetMapping("/slots")
-    fun getSlotsByOffering(@RequestParam offeringId: UUID): ResponseEntity<List<Slot>> {
-        val slots = catalogService.getSlotsByOffering(offeringId)
-        return ResponseEntity.ok(slots)
-    }
+    fun getSlotsByOffering(@RequestParam offeringId: UUID): ResponseEntity<List<Slot>> =
+        ResponseEntity.ok(catalogService.getSlotsByOffering(offeringId))
 
     @GetMapping("/slots/{slotId}")
-    fun getSlot(@PathVariable slotId: UUID): ResponseEntity<Slot> {
-        return try {
-            ResponseEntity.ok(catalogService.getSlotById(slotId))
-        } catch (e: Exception) {
-            ResponseEntity.notFound().build()
-        }
-    }
+    fun getSlot(@PathVariable slotId: UUID): ResponseEntity<Slot> =
+        ResponseEntity.ok(catalogService.getSlotById(slotId))
 
     @PutMapping("/slots/{slotId}/status")
     fun updateSlotStatus(
@@ -177,8 +151,7 @@ class CatalogController(
         val slot = catalogService.getSlotById(slotId)
         val offering = catalogService.getOfferingById(slot.offeringId)
         verifyProviderOwnership(offering.providerId, xUserId, role)
-        val updated = catalogService.updateSlotStatus(slotId, status)
-        return ResponseEntity.ok(updated)
+        return ResponseEntity.ok(catalogService.updateSlotStatus(slotId, status))
     }
 
     @DeleteMapping("/slots/{slotId}")
@@ -194,37 +167,53 @@ class CatalogController(
         return ResponseEntity.noContent().build()
     }
 
-    // --- Barcode & Billing API ---
+    @GetMapping("/offerings/by-barcode")
+    fun getOfferingByBarcodeQuery(
+        @RequestParam storeId: UUID,
+        @RequestParam barcode: String,
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?
+    ): ResponseEntity<Any> = resolveOfferingByBarcode(storeId, barcode, role, xUserId)
 
+    /** Compatibility route retained for existing hardware integrations. */
     @GetMapping("/offerings/by-barcode/{barcode}")
-    fun getOfferingByBarcode(
+    fun getOfferingByBarcodePath(
         @PathVariable barcode: String,
         @RequestParam(required = false) storeId: UUID?,
+        @RequestHeader("X-User-Role", required = false) role: String?,
         @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Any> {
-        if (xUserId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Unauthorized: user context missing"))
+        if (xUserId.isNullOrBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Unauthorized: user context missing"))
         }
+        val resolvedStoreId = storeId ?: catalogService.getProvidersByOwner(UUID.fromString(xUserId))
+            .firstOrNull()
+            ?.providerId
+            ?: return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(mapOf("error" to "No providers found for authenticated user"))
+        return resolveOfferingByBarcode(resolvedStoreId, barcode, role, xUserId)
+    }
 
-        val ownerUserId = UUID.fromString(xUserId)
-        val resolvedStoreId = storeId ?: run {
-            val providers = catalogService.getProvidersByOwner(UUID.fromString(xUserId))
-            if (providers.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapOf("error" to "No providers found for owner user ID"))
-            }
-            providers[0].providerId
+    private fun resolveOfferingByBarcode(
+        storeId: UUID,
+        barcode: String,
+        role: String?,
+        xUserId: String?
+    ): ResponseEntity<Any> {
+        if (role != "MERCHANT" && role != "ADMIN") {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(mapOf("error" to "Access denied: role not authorized"))
         }
-
-        if (!catalogService.isProviderOwnedBy(resolvedStoreId, ownerUserId)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to "Access denied for store"))
+        if (xUserId.isNullOrBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Unauthorized: user context missing"))
         }
-
-        return try {
-            val offering = catalogService.getOfferingByBarcode(resolvedStoreId, barcode)
-            ResponseEntity.ok(offering)
-        } catch (e: NoSuchElementException) {
-            ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to e.message))
+        if (role == "MERCHANT" && !catalogService.isProviderOwnedBy(storeId, UUID.fromString(xUserId))) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(mapOf("error" to "Access denied for store"))
         }
+        return ResponseEntity.ok(catalogService.getOfferingByBarcode(storeId, barcode))
     }
 
     @PostMapping("/bills")
@@ -234,21 +223,20 @@ class CatalogController(
         @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Any> {
         if (role != "MERCHANT" && role != "ADMIN") {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to "Access denied: role not authorized"))
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(mapOf("error" to "Access denied: role not authorized"))
         }
-        if (xUserId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Unauthorized: user context missing"))
+        if (xUserId.isNullOrBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Unauthorized: user context missing"))
         }
         if (role == "MERCHANT" && !catalogService.isProviderOwnedBy(request.storeId!!, UUID.fromString(xUserId))) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to "Access denied for store"))
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(mapOf("error" to "Access denied for store"))
         }
-        return try {
-            val authenticatedRequest = request.copy(staffId = UUID.fromString(xUserId))
-            val response = catalogService.createBill(authenticatedRequest)
-            ResponseEntity.status(HttpStatus.CREATED).body(response)
-        } catch (e: Exception) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+
+        val authenticatedRequest = request.copy(staffId = UUID.fromString(xUserId))
+        return ResponseEntity.status(HttpStatus.CREATED).body(catalogService.createBill(authenticatedRequest))
     }
 
     @GetMapping("/bills/{id}")
@@ -257,19 +245,17 @@ class CatalogController(
         @RequestHeader("X-User-Role", required = false) role: String?,
         @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Any> {
-        return try {
-            val response = catalogService.getBillById(id)
-            if (role == "MERCHANT") {
-                if (xUserId == null || !catalogService.isProviderOwnedBy(response.bill.storeId, UUID.fromString(xUserId))) {
-                    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to "Access denied for bill"))
-                }
-            } else if (role != "ADMIN") {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to "Access denied: role not authorized"))
+        val response = catalogService.getBillById(id)
+        if (role == "MERCHANT") {
+            if (xUserId.isNullOrBlank() || !catalogService.isProviderOwnedBy(response.bill.storeId, UUID.fromString(xUserId))) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(mapOf("error" to "Access denied for bill"))
             }
-            ResponseEntity.ok(response)
-        } catch (e: NoSuchElementException) {
-            ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to e.message))
+        } else if (role != "ADMIN") {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(mapOf("error" to "Access denied: role not authorized"))
         }
+        return ResponseEntity.ok(response)
     }
 
     @GetMapping("/bills")
@@ -279,18 +265,18 @@ class CatalogController(
         @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Any> {
         if (role == "MERCHANT") {
-            if (xUserId == null || !catalogService.isProviderOwnedBy(storeId, UUID.fromString(xUserId))) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to "Access denied for store"))
+            if (xUserId.isNullOrBlank() || !catalogService.isProviderOwnedBy(storeId, UUID.fromString(xUserId))) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(mapOf("error" to "Access denied for store"))
             }
         } else if (role != "ADMIN") {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to "Access denied: role not authorized"))
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(mapOf("error" to "Access denied: role not authorized"))
         }
-        val bills = catalogService.getBillsByStore(storeId)
-        return ResponseEntity.ok(bills)
+        return ResponseEntity.ok(catalogService.getBillsByStore(storeId))
     }
 
     @ExceptionHandler(CatalogAccessDeniedException::class)
-    fun handleAccessDenied(ex: CatalogAccessDeniedException): ResponseEntity<Any> {
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to ex.message))
-    }
+    fun handleAccessDenied(ex: CatalogAccessDeniedException): ResponseEntity<Any> =
+        ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to ex.message))
 }
