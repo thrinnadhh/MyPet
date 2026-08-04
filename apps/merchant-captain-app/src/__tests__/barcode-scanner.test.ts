@@ -78,7 +78,7 @@ test('merchant barcode lookup is authenticated, provider-scoped and offline-capa
 test('server owns barcode identity, price, store scope and stock mutation', () => {
   const service = source('../../backend/catalog-service/src/main/kotlin/com/pawsnearme/catalogservice/service/CatalogService.kt');
   const controller = source('../../backend/catalog-service/src/main/kotlin/com/pawsnearme/catalogservice/controller/Controllers.kt');
-  const migration = source('../../backend/catalog-service/src/main/resources/db/migration/V5__normalize_product_barcodes.sql');
+  const migration = source('../../backend/catalog-service/src/main/resources/db/migration/V100__normalize_product_barcodes.sql');
 
   assert.match(service, /BarcodeSupport\.requireBarcode/);
   assert.match(service, /offering\.providerId != storeId/);
