@@ -5,6 +5,8 @@ import com.pawsnearme.contentservice.model.GuideWriter
 import com.pawsnearme.contentservice.model.PromoBanner
 import com.pawsnearme.contentservice.service.BannerAuctionService
 import com.pawsnearme.contentservice.service.BannerBidAccessDeniedException
+import com.pawsnearme.contentservice.service.ContentAccessDeniedException
+import com.pawsnearme.contentservice.service.ContentNotFoundException
 import com.pawsnearme.contentservice.service.ContentService
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotNull
@@ -30,6 +32,10 @@ data class GuideDto(
     val title: String,
     val summary: String,
     val readMinutes: Int,
+    val authorName: String,
+    val companyName: String,
+    val likeCount: Long,
+    val createdAt: String,
 )
 
 data class UpsertBannerRequest(
@@ -48,12 +54,20 @@ data class UpsertGuideRequest(
     val body: String? = null,
     val readMinutes: Int = 3,
     val published: Boolean = true,
+    val authorName: String = "",
+    val companyName: String = "",
 )
 
 data class GrantWriterRequest(
     val userId: UUID,
     @field:NotBlank val email: String,
+    @field:NotBlank val authorName: String,
+    @field:NotBlank val companyName: String,
 )
+
+data class GuideWriterStatusRequest(val active: Boolean)
+
+data class GuideLikeDto(val liked: Boolean, val likeCount: Long)
 
 data class SubmitBannerBidRequest(
     @field:NotNull val providerId: UUID,
@@ -80,13 +94,20 @@ class ContentController(
 
     @GetMapping("/banners")
     fun listBanners(): ResponseEntity<List<BannerDto>> =
-        ResponseEntity.ok(
-            contentService.listActiveBanners().map { it.toDto() }
-        )
+        ResponseEntity.ok(contentService.listActiveBanners().map { it.toDto() })
 
     @GetMapping("/guides")
     fun listGuides(@RequestParam(required = false) category: String?): ResponseEntity<List<GuideDto>> =
         ResponseEntity.ok(contentService.listGuides(category).map { it.toDto() })
+
+    @GetMapping("/guides/mine")
+    fun listMyGuides(
+        @RequestHeader(value = "X-User-Id", required = false) userId: String?,
+    ): ResponseEntity<List<GuideDto>> {
+        val callerId = userId?.let(UUID::fromString)
+            ?: throw IllegalArgumentException("X-User-Id header is required.")
+        return ResponseEntity.ok(contentService.listGuidesByAuthor(callerId).map { it.toDto() })
+    }
 
     @GetMapping("/guides/categories")
     fun listCategories(): ResponseEntity<List<Map<String, String>>> =
@@ -128,19 +149,55 @@ class ContentController(
                 readMinutes = request.readMinutes,
                 published = request.published,
                 authorUserId = userId?.let(UUID::fromString),
+                authorName = request.authorName,
+                companyName = request.companyName,
             ),
             callerRole = userRole,
         )
         return ResponseEntity.ok(saved.toDto())
     }
 
+    @PostMapping("/guides/{articleId}/likes")
+    fun toggleGuideLike(
+        @PathVariable articleId: UUID,
+        @RequestHeader(value = "X-User-Id", required = false) userId: String?,
+    ): ResponseEntity<GuideLikeDto> {
+        val callerId = userId?.let(UUID::fromString)
+            ?: throw ContentAccessDeniedException("Sign in to like a guide.")
+        val result = contentService.toggleGuideLike(articleId, callerId)
+        return ResponseEntity.ok(GuideLikeDto(result.liked, result.likeCount))
+    }
+
     @GetMapping("/guides/writers")
     fun listWriters(): ResponseEntity<List<GuideWriter>> =
         ResponseEntity.ok(contentService.listWriters())
 
+    @GetMapping("/guides/writers/me")
+    fun getMyWriterAccess(
+        @RequestHeader(value = "X-User-Id", required = false) userId: String?,
+    ): ResponseEntity<GuideWriter> {
+        val callerId = userId?.let(UUID::fromString)
+            ?: throw IllegalArgumentException("X-User-Id header is required.")
+        return ResponseEntity.ok(contentService.getWriterForUser(callerId))
+    }
+
     @PostMapping("/guides/writers")
     fun grantWriter(@RequestBody request: GrantWriterRequest): ResponseEntity<GuideWriter> =
-        ResponseEntity.ok(contentService.grantWriter(request.userId, request.email))
+        ResponseEntity.ok(
+            contentService.grantWriter(
+                userId = request.userId,
+                email = request.email,
+                authorName = request.authorName,
+                companyName = request.companyName,
+            )
+        )
+
+    @PutMapping("/guides/writers/{writerId}/status")
+    fun setWriterStatus(
+        @PathVariable writerId: UUID,
+        @RequestBody request: GuideWriterStatusRequest,
+    ): ResponseEntity<GuideWriter> =
+        ResponseEntity.ok(contentService.setWriterAccess(writerId, request.active))
 
     @DeleteMapping("/guides/writers/{writerId}")
     fun revokeWriter(@PathVariable writerId: UUID): ResponseEntity<Map<String, String>> {
@@ -174,9 +231,7 @@ class ContentController(
     ): ResponseEntity<List<BannerBidDto>> {
         val callerId = userId?.let(UUID::fromString)
             ?: throw IllegalArgumentException("X-User-Id header is required.")
-        return ResponseEntity.ok(
-            bannerAuctionService.listBids(callerId, userRole).map { it.toBidDto() }
-        )
+        return ResponseEntity.ok(bannerAuctionService.listBids(callerId, userRole).map { it.toBidDto() })
     }
 
     @DeleteMapping("/banners/bids/{bidId}")
@@ -195,9 +250,13 @@ class ContentController(
     fun listAuctionOutcomes(): ResponseEntity<List<Map<String, Any?>>> =
         ResponseEntity.ok(bannerAuctionService.listAuctionOutcomes())
 
-    @ExceptionHandler(BannerBidAccessDeniedException::class)
-    fun handleBidAccessDenied(ex: BannerBidAccessDeniedException): ResponseEntity<Map<String, String>> =
+    @ExceptionHandler(BannerBidAccessDeniedException::class, ContentAccessDeniedException::class)
+    fun handleAccessDenied(ex: RuntimeException): ResponseEntity<Map<String, String>> =
         ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to ex.message.orEmpty()))
+
+    @ExceptionHandler(ContentNotFoundException::class)
+    fun handleNotFound(ex: ContentNotFoundException): ResponseEntity<Map<String, String>> =
+        ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to ex.message.orEmpty()))
 
     private fun com.pawsnearme.contentservice.model.BannerBid.toBidDto() = BannerBidDto(
         id = bidId!!.toString(),
@@ -223,5 +282,9 @@ class ContentController(
         title = title,
         summary = summary,
         readMinutes = readMinutes,
+        authorName = authorName,
+        companyName = companyName,
+        likeCount = likeCount,
+        createdAt = createdAt.toString(),
     )
 }

@@ -3,7 +3,7 @@ import { Alert, StyleSheet, View } from 'react-native';
 
 import { BottomSheet, EntityCard, StateView } from '@/components/foundation/primitives';
 import { ScreenShell } from '@/components/foundation/screen-shell';
-import { AppBar } from '@/components/foundation/primitives';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { INITIAL_MARKET } from '@/config/markets';
 import { useAuthIntent } from '@/context/AuthIntentContext';
 import { spacing } from '@/design/tokens';
@@ -46,7 +46,15 @@ export default function AppointmentDiscoveryScreen({ providerType, route, titleK
   const close = () => { setProvider(null); setSlots([]); };
 
   return (
-    <ScreenShell header={<AppBar title={t(titleKey)} subtitle={t('appointmentFoundation.subtitle')} />} testID={`${providerType.toLowerCase()}-discovery-screen`}>
+    <ScreenShell
+      header={
+        <ScreenHeader
+          title={t(titleKey)}
+          subtitle={t('appointmentFoundation.subtitle')}
+        />
+      }
+      testID={`${providerType.toLowerCase()}-discovery-screen`}
+    >
       {state === 'loading' ? <StateView kind="loading" title={t('states.loading')} /> : null}
       {state === 'offline' || state === 'error' ? <StateView kind={state} title={t(state === 'offline' ? 'states.offline' : 'states.error')} message={t(state === 'offline' ? 'states.offlineMessage' : 'states.errorMessage')} actionLabel={t('states.retry')} onAction={() => void loadProviders()} /> : null}
       {state === 'ready' && providers.length === 0 ? <StateView kind="empty" title={t('states.empty')} message={t('states.emptyMessage')} /> : null}

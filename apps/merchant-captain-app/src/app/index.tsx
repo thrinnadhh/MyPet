@@ -194,6 +194,15 @@ export default function Index() {
       <View style={styles.sectionStack}>
         <SectionHeader title="Workspace shortcuts" subtitle="Role-safe actions for the current operational mode" />
         <View style={styles.quickActions}>
+          {activeRole === 'PROVIDER' ? (
+            <ActionButton
+              label="Write health guide"
+              icon="document"
+              variant="secondary"
+              onPress={() => router.push('/guides' as never)}
+              style={styles.quickAction}
+            />
+          ) : null}
           {quickActions.map((item) => (
             <ActionButton
               key={`${item.labelKey}-${item.route}`}

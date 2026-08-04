@@ -1,5 +1,5 @@
 import { DarkTheme, DefaultTheme, ThemeProvider, usePathname, useRouter } from 'expo-router';
-import { ActivityIndicator, StyleSheet, View, useColorScheme } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, View, useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
@@ -24,7 +24,8 @@ function canAccessPath(pathname: string, role: string | null): boolean {
     pathname.startsWith('/onboarding') ||
     pathname.startsWith('/explore') ||
     pathname.startsWith('/finance') ||
-    pathname.startsWith('/loyalty')
+    pathname.startsWith('/loyalty') ||
+    pathname.startsWith('/guides')
   ) {
     return role === 'PROVIDER';
   }
@@ -60,7 +61,7 @@ function TabLayoutContent() {
 
   return (
     <ThemeProvider value={themeValue}>
-      <AnimatedSplashOverlay />
+      {Platform.OS === 'web' ? null : <AnimatedSplashOverlay />}
       {!user ? (
         <LoginScreen />
       ) : accessDenied ? (

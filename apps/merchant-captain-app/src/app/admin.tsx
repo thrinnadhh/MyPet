@@ -31,7 +31,13 @@ import { useAuth } from '@/context/AuthContext';
 import { spacing, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { approveCaptain, fetchPendingCaptains } from '@/services/captain-onboarding';
-import { fetchBanners, fetchGuideWriters, revokeGuideWriter } from '@/services/content-admin';
+import {
+  fetchBanners,
+  fetchGuideWriters,
+  grantGuideWriter,
+  setGuideWriterAccess,
+  type GuideWriter,
+} from '@/services/content-admin';
 import {
   approveProviderFromAdmin,
   fetchAdminAuditLogs,
@@ -53,7 +59,6 @@ type CaptainApproval = {
 };
 
 type ContentBanner = { id: string; title: string; active: boolean; durationSec: number };
-type GuideWriter = { writerId: string; email: string; accessStatus: string };
 type Promotion = {
   promotionId?: string;
   code: string;
@@ -118,6 +123,12 @@ export default function AdminOperationsScreen() {
     deliveryEnabled: true,
   });
   const [areaErrors, setAreaErrors] = useState<Record<string, string>>({});
+  const [writerForm, setWriterForm] = useState({
+    userId: '',
+    email: '',
+    authorName: '',
+    companyName: '',
+  });
 
   const load = useCallback(async () => {
     if (!token || role !== 'ADMIN') {
@@ -257,19 +268,46 @@ export default function AdminOperationsScreen() {
     }
   }, [disputeNotes, token]);
 
-  const revokeWriter = useCallback(async (writerId: string) => {
+  const toggleWriter = useCallback(async (writer: GuideWriter) => {
     if (!token) return;
-    setBusyId(writerId);
+    const active = writer.accessStatus !== 'ACTIVE';
+    setBusyId(writer.writerId);
+    setNotice(null);
     try {
-      await revokeGuideWriter(writerId, token);
-      setWriters((current) => current.filter((writer) => writer.writerId !== writerId));
-      setNotice('Guide-writer access revoked.');
+      const updated = await setGuideWriterAccess(writer.writerId, active, token);
+      setWriters((current) => current.map((item) => (item.writerId === updated.writerId ? updated : item)));
+      setNotice(`Guide publishing ${active ? 'enabled' : 'disabled'} for ${updated.authorName}.`);
     } catch (nextError) {
       setError(nextError);
     } finally {
       setBusyId(null);
     }
   }, [token]);
+
+  const saveWriter = useCallback(async () => {
+    if (!token) return;
+    if (!writerForm.userId.trim() || !writerForm.email.trim() || !writerForm.authorName.trim() || !writerForm.companyName.trim()) {
+      setNotice('User ID, email, author name and company are required.');
+      return;
+    }
+    setBusyId('new-guide-writer');
+    setNotice(null);
+    try {
+      const saved = await grantGuideWriter({
+        userId: writerForm.userId.trim(),
+        email: writerForm.email.trim(),
+        authorName: writerForm.authorName.trim(),
+        companyName: writerForm.companyName.trim(),
+      }, token);
+      setWriters((current) => [saved, ...current.filter((item) => item.writerId !== saved.writerId)]);
+      setWriterForm({ userId: '', email: '', authorName: '', companyName: '' });
+      setNotice(`Guide publishing enabled for ${saved.authorName} at ${saved.companyName}.`);
+    } catch (nextError) {
+      setError(nextError);
+    } finally {
+      setBusyId(null);
+    }
+  }, [token, writerForm]);
 
   if (role !== 'ADMIN') {
     return (
@@ -493,16 +531,42 @@ export default function AdminOperationsScreen() {
               <StatusBadge label={promotion.isActive ? 'Active' : 'Paused'} tone={promotion.isActive ? 'success' : 'neutral'} />
             </AppCard>
           ))}
-          <SectionHeader title="Guide writers" subtitle={`${writers.length} active`} />
-          {writers.map((writer) => (
-            <AppCard key={writer.writerId} style={styles.rowBetween}>
-              <View style={styles.flex}>
-                <ThemedText style={styles.cardTitle}>{writer.email}</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">{formatStatusLabel(writer.accessStatus)}</ThemedText>
-              </View>
-              <ActionButton label="Revoke" variant="destructive" loading={busyId === writer.writerId} onPress={() => void revokeWriter(writer.writerId)} />
-            </AppCard>
-          ))}
+          <SectionHeader
+            title="Guide writers"
+            subtitle={`${writers.filter((writer) => writer.accessStatus === 'ACTIVE').length} enabled · admin-controlled`}
+          />
+          <AppCard style={styles.cardStack}>
+            <ThemedText style={styles.cardTitle}>Enable a merchant writer</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              The approved author and company are stamped by the backend on every published article.
+            </ThemedText>
+            <TextField label="Merchant user ID" value={writerForm.userId} onChangeText={(userId) => setWriterForm((current) => ({ ...current, userId }))} />
+            <TextField label="Merchant email" keyboardType="email-address" autoCapitalize="none" value={writerForm.email} onChangeText={(email) => setWriterForm((current) => ({ ...current, email }))} />
+            <TextField label="Author display name" value={writerForm.authorName} onChangeText={(authorName) => setWriterForm((current) => ({ ...current, authorName }))} />
+            <TextField label="Company / hospital / store" value={writerForm.companyName} onChangeText={(companyName) => setWriterForm((current) => ({ ...current, companyName }))} />
+            <ActionButton label="Enable guide publishing" icon="check" loading={busyId === 'new-guide-writer'} onPress={() => void saveWriter()} />
+          </AppCard>
+          {writers.length === 0 ? (
+            <StateView kind="empty" title="No guide writers configured" message="Enable a verified merchant before they can publish health articles." />
+          ) : writers.map((writer) => {
+            const active = writer.accessStatus === 'ACTIVE';
+            return (
+              <AppCard key={writer.writerId} style={styles.cardStack}>
+                <View style={styles.rowBetween}>
+                  <View style={styles.flex}>
+                    <ThemedText style={styles.cardTitle}>{writer.authorName}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">{writer.companyName} · {writer.email}</ThemedText>
+                  </View>
+                  <StatusBadge label={active ? 'Writing enabled' : 'Writing disabled'} tone={active ? 'success' : 'danger'} />
+                </View>
+                <FilterChip
+                  label={active ? 'Permission on' : 'Permission off'}
+                  selected={active}
+                  onPress={() => void toggleWriter(writer)}
+                />
+              </AppCard>
+            );
+          })}
         </View>
       ) : null}
     </ScreenShell>

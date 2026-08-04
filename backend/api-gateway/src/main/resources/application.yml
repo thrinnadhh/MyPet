@@ -260,6 +260,24 @@ spring:
           uri: ${CHAT_SERVICE_URL:http://localhost:8091}
           predicates:
             - Path=/api/v1/chat/**
+        - id: content-service-guide-writer-self
+          uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
+          predicates:
+            - Path=/api/v1/content/guides/writers/me, /api/v1/content/guides/mine
+            - Method=GET
+          filters:
+            - name: RoleGuard
+              args:
+                roles: ADMIN,MERCHANT
+        - id: content-service-guide-likes
+          uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
+          predicates:
+            - Path=/api/v1/content/guides/*/likes
+            - Method=POST
+          filters:
+            - name: RoleGuard
+              args:
+                roles: CUSTOMER,MERCHANT,ADMIN
         - id: content-service-guide-writes
           uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
           predicates:
@@ -282,7 +300,7 @@ spring:
           uri: ${CONTENT_SERVICE_URL:http://localhost:8092}
           predicates:
             - Path=/api/v1/content/guides/writers, /api/v1/content/guides/writers/**
-            - Method=POST,DELETE
+            - Method=POST,PUT,DELETE
           filters:
             - name: RoleGuard
               args:

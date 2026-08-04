@@ -49,3 +49,7 @@ imp\ files/
 
 # ─── Local Tool Scratch ──────────────────────────────────
 .playwright-mcp/
+
+# Android build/install files
+*.apk
+*.aab

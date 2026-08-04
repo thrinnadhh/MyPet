@@ -1,139 +1,192 @@
+import { Link, Slot, usePathname } from 'expo-router';
+import React from 'react';
 import {
-  Tabs,
-  TabList,
-  TabTrigger,
-  TabSlot,
-  TabTriggerSlotProps,
-  TabListProps,
-} from 'expo-router/ui';
-import { Pressable, useColorScheme, View, StyleSheet } from 'react-native';
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useColorScheme,
+} from 'react-native';
 
-import { AppIcon } from './app-icon';
-import { ThemedText } from './themed-text';
-import { ThemedView } from './themed-view';
+import { Colors } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { appConfig } from '@/utils/app-config';
 
-import { Colors, MaxContentWidth, Radius, Shadows, Spacing } from '@/constants/theme';
+type WebTab = {
+  name: string;
+  href:
+    | '/'
+    | '/admin'
+    | '/billing'
+    | '/earnings'
+    | '/orders'
+    | '/explore'
+    | '/inventory'
+    | '/finance'
+    | '/delivery';
+  label: string;
+  visible: boolean;
+};
 
 export default function AppTabs() {
   const { activeRole } = useAuth();
-
-  return (
-    <Tabs>
-      <View style={styles.slot}>
-        <TabSlot />
-      </View>
-      <TabList asChild>
-        <CustomTabList>
-          {activeRole === 'PROVIDER' ? (
-            <>
-              <TabTrigger name="index" href="/" asChild>
-                <TabButton>Home</TabButton>
-              </TabTrigger>
-              <TabTrigger name="explore" href="/explore" asChild>
-                <TabButton>Bookings</TabButton>
-              </TabTrigger>
-              <TabTrigger name="inventory" href="/inventory" asChild>
-                <TabButton>Inventory</TabButton>
-              </TabTrigger>
-              <TabTrigger name="billing" href="/billing" asChild>
-                <TabButton>POS</TabButton>
-              </TabTrigger>
-              <TabTrigger name="earnings" href="/earnings" asChild>
-                <TabButton>Earnings</TabButton>
-              </TabTrigger>
-            </>
-          ) : (
-            <>
-              <TabTrigger name="delivery" href="/delivery" asChild>
-                <TabButton>Delivery</TabButton>
-              </TabTrigger>
-              <TabTrigger name="earnings" href="/earnings" asChild>
-                <TabButton>Earnings</TabButton>
-              </TabTrigger>
-            </>
-          )}
-        </CustomTabList>
-      </TabList>
-    </Tabs>
-  );
-}
-
-export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps) {
-  return (
-    <Pressable {...props} style={({ pressed }) => pressed && styles.pressed}>
-      <ThemedView
-        type={isFocused ? 'backgroundSelected' : 'backgroundElement'}
-        style={styles.tabButtonView}>
-        <ThemedText type="small" themeColor={isFocused ? 'text' : 'textSecondary'}>
-          {children}
-        </ThemedText>
-      </ThemedView>
-    </Pressable>
-  );
-}
-
-export function CustomTabList(props: TabListProps) {
+  const pathname = usePathname();
   const scheme = useColorScheme();
-  const colors = Colors[scheme === 'unspecified' ? 'light' : scheme];
+  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
+
+  const isAdmin = activeRole === 'ADMIN';
+  const isProvider = activeRole === 'PROVIDER';
+  const isCaptain = activeRole === 'CAPTAIN';
+
+  const tabs: WebTab[] = [
+    {
+      name: 'home',
+      href: '/',
+      label: 'Home',
+      visible: !isCaptain,
+    },
+    {
+      name: 'admin',
+      href: '/admin',
+      label: 'Admin',
+      visible: isAdmin || (isProvider && appConfig.allowDemoMode),
+    },
+    {
+      name: 'orders',
+      href: '/orders',
+      label: 'Orders',
+      visible: isProvider,
+    },
+    {
+      name: 'bookings',
+      href: '/explore',
+      label: 'Bookings',
+      visible: isProvider,
+    },
+    {
+      name: 'inventory',
+      href: '/inventory',
+      label: 'Inventory',
+      visible: isProvider,
+    },
+    {
+      name: 'pos',
+      href: '/billing',
+      label: 'POS',
+      visible: isAdmin || isProvider,
+    },
+    {
+      name: 'finance',
+      href: '/finance',
+      label: 'Finance',
+      visible: isProvider,
+    },
+    {
+      name: 'delivery',
+      href: '/delivery',
+      label: 'Delivery',
+      visible: isCaptain,
+    },
+    {
+      name: 'earnings',
+      href: '/earnings',
+      label: isAdmin ? 'Payouts' : 'Earnings',
+      visible: isAdmin || isCaptain,
+    },
+  ];
 
   return (
-    <View {...props} style={styles.tabListContainer}>
-      <ThemedView type="backgroundElement" style={styles.innerContainer}>
-        <View style={styles.brand}>
-          <AppIcon name="store" color={colors.primary} size={18} />
-          <ThemedText type="smallBold" style={styles.brandText}>
-            PawsNearMe Ops
-          </ThemedText>
-        </View>
+    <View
+      style={[
+        styles.root,
+        {
+          backgroundColor: colors.background,
+        },
+      ]}
+    >
+      <View style={styles.content}>
+        <Slot />
+      </View>
 
-        {props.children}
-      </ThemedView>
+      <View
+        accessibilityRole="tablist"
+        style={[
+          styles.tabBar,
+          {
+            backgroundColor: colors.background,
+            borderTopColor: colors.backgroundElement,
+          },
+        ]}
+      >
+        {tabs.map((tab) => {
+          if (!tab.visible) return null;
+
+          const selected =
+            tab.href === '/'
+              ? pathname === '/'
+              : pathname === tab.href || pathname.startsWith(`${tab.href}/`);
+
+          return (
+            <Link key={tab.name} href={tab.href} asChild>
+              <Pressable
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                style={StyleSheet.flatten([
+                  styles.tab,
+                  selected
+                    ? { backgroundColor: colors.backgroundElement }
+                    : undefined,
+                ])}
+              >
+                <Text
+                  style={[
+                    styles.label,
+                    {
+                      color: colors.text,
+                    },
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              </Pressable>
+            </Link>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  slot: {
+  root: {
     flex: 1,
-    paddingTop: 82,
   },
-  tabListContainer: {
-    position: 'absolute',
-    width: '100%',
-    padding: Spacing.three,
+  content: {
+    flex: 1,
+    minHeight: 0,
+  },
+  tabBar: {
+    minHeight: 58,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  tab: {
+    minHeight: 40,
+    minWidth: 88,
+    borderRadius: 12,
     alignItems: 'center',
-    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
-  innerContainer: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    borderRadius: Radius.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexGrow: 1,
-    gap: Spacing.two,
-    maxWidth: MaxContentWidth,
-    borderWidth: 1,
-    borderColor: Colors.light.border,
-    ...Shadows.card,
-  },
-  brand: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-    marginRight: 'auto',
-  },
-  brandText: {
-    color: Colors.light.text,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  tabButtonView: {
-    paddingVertical: Spacing.one,
-    paddingHorizontal: Spacing.three,
-    borderRadius: Spacing.three,
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

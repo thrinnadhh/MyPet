@@ -36,15 +36,17 @@ function AppNavigator() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <LocationProvider>
-        <CartProvider>
-          <FavouritesProvider>
-            <LocaleProvider>
-              <AuthIntentProvider><AppNavigator /></AuthIntentProvider>
-            </LocaleProvider>
-          </FavouritesProvider>
-        </CartProvider>
-      </LocationProvider>
+      <AuthIntentProvider>
+        <LocationProvider>
+          <CartProvider>
+            <FavouritesProvider>
+              <LocaleProvider>
+                <AppNavigator />
+              </LocaleProvider>
+            </FavouritesProvider>
+          </CartProvider>
+        </LocationProvider>
+      </AuthIntentProvider>
     </AuthProvider>
   );
 }

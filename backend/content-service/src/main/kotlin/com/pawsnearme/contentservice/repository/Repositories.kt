@@ -2,6 +2,7 @@ package com.pawsnearme.contentservice.repository
 
 import com.pawsnearme.contentservice.model.BannerBid
 import com.pawsnearme.contentservice.model.GuideArticle
+import com.pawsnearme.contentservice.model.GuideLike
 import com.pawsnearme.contentservice.model.GuideWriter
 import com.pawsnearme.contentservice.model.PromoBanner
 import org.springframework.data.jpa.repository.JpaRepository
@@ -31,9 +32,15 @@ interface BannerBidRepository : JpaRepository<BannerBid, UUID> {
 interface GuideArticleRepository : JpaRepository<GuideArticle, UUID> {
     fun findByPublishedTrueAndCategoryOrderByCreatedAtDesc(category: String): List<GuideArticle>
     fun findByPublishedTrueOrderByCreatedAtDesc(): List<GuideArticle>
+    fun findByAuthorUserIdOrderByCreatedAtDesc(authorUserId: UUID): List<GuideArticle>
 }
 
 interface GuideWriterRepository : JpaRepository<GuideWriter, UUID> {
     fun findByAccessStatus(accessStatus: String): List<GuideWriter>
     fun findByUserId(userId: UUID): GuideWriter?
+    fun findAllByOrderByCreatedAtDesc(): List<GuideWriter>
+}
+
+interface GuideLikeRepository : JpaRepository<GuideLike, UUID> {
+    fun findByArticleIdAndUserId(articleId: UUID, userId: UUID): GuideLike?
 }

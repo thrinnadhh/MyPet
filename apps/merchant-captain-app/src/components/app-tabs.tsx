@@ -1,93 +1,192 @@
-import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { useColorScheme } from 'react-native';
+import { Link, Slot, usePathname } from 'expo-router';
+import React from 'react';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useColorScheme,
+} from 'react-native';
+
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { appConfig } from '@/utils/app-config';
 
+type WebTab = {
+  name: string;
+  href:
+    | '/'
+    | '/admin'
+    | '/billing'
+    | '/earnings'
+    | '/orders'
+    | '/explore'
+    | '/inventory'
+    | '/finance'
+    | '/delivery';
+  label: string;
+  visible: boolean;
+};
+
 export default function AppTabs() {
   const { activeRole } = useAuth();
+  const pathname = usePathname();
   const scheme = useColorScheme();
-  const colors = Colors[scheme === 'unspecified' ? 'light' : scheme];
+  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
+
+  const isAdmin = activeRole === 'ADMIN';
+  const isProvider = activeRole === 'PROVIDER';
+  const isCaptain = activeRole === 'CAPTAIN';
+
+  const tabs: WebTab[] = [
+    {
+      name: 'home',
+      href: '/',
+      label: 'Home',
+      visible: !isCaptain,
+    },
+    {
+      name: 'admin',
+      href: '/admin',
+      label: 'Admin',
+      visible: isAdmin || (isProvider && appConfig.allowDemoMode),
+    },
+    {
+      name: 'orders',
+      href: '/orders',
+      label: 'Orders',
+      visible: isProvider,
+    },
+    {
+      name: 'bookings',
+      href: '/explore',
+      label: 'Bookings',
+      visible: isProvider,
+    },
+    {
+      name: 'inventory',
+      href: '/inventory',
+      label: 'Inventory',
+      visible: isProvider,
+    },
+    {
+      name: 'pos',
+      href: '/billing',
+      label: 'POS',
+      visible: isAdmin || isProvider,
+    },
+    {
+      name: 'finance',
+      href: '/finance',
+      label: 'Finance',
+      visible: isProvider,
+    },
+    {
+      name: 'delivery',
+      href: '/delivery',
+      label: 'Delivery',
+      visible: isCaptain,
+    },
+    {
+      name: 'earnings',
+      href: '/earnings',
+      label: isAdmin ? 'Payouts' : 'Earnings',
+      visible: isAdmin || isCaptain,
+    },
+  ];
 
   return (
-    <NativeTabs
-      backgroundColor={colors.background}
-      indicatorColor={colors.backgroundElement}
-      labelStyle={{ selected: { color: colors.text } }}>
-      {activeRole === 'ADMIN' ? (
-        <>
-          <NativeTabs.Trigger name="index">
-            <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} renderingMode="template" />
-          </NativeTabs.Trigger>
+    <View
+      style={[
+        styles.root,
+        {
+          backgroundColor: colors.background,
+        },
+      ]}
+    >
+      <View style={styles.content}>
+        <Slot />
+      </View>
 
-          <NativeTabs.Trigger name="admin">
-            <NativeTabs.Trigger.Label>Admin</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
-          </NativeTabs.Trigger>
+      <View
+        accessibilityRole="tablist"
+        style={[
+          styles.tabBar,
+          {
+            backgroundColor: colors.background,
+            borderTopColor: colors.backgroundElement,
+          },
+        ]}
+      >
+        {tabs.map((tab) => {
+          if (!tab.visible) return null;
 
-          <NativeTabs.Trigger name="billing">
-            <NativeTabs.Trigger.Label>POS</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
-          </NativeTabs.Trigger>
+          const selected =
+            tab.href === '/'
+              ? pathname === '/'
+              : pathname === tab.href || pathname.startsWith(`${tab.href}/`);
 
-          <NativeTabs.Trigger name="earnings">
-            <NativeTabs.Trigger.Label>Payouts</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
-          </NativeTabs.Trigger>
-        </>
-      ) : activeRole === 'PROVIDER' ? (
-        <>
-          <NativeTabs.Trigger name="index">
-            <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} renderingMode="template" />
-          </NativeTabs.Trigger>
-
-          <NativeTabs.Trigger name="orders">
-            <NativeTabs.Trigger.Label>Orders</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
-          </NativeTabs.Trigger>
-
-          <NativeTabs.Trigger name="explore">
-            <NativeTabs.Trigger.Label>Bookings</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
-          </NativeTabs.Trigger>
-
-          <NativeTabs.Trigger name="inventory">
-            <NativeTabs.Trigger.Label>Inventory</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
-          </NativeTabs.Trigger>
-
-          <NativeTabs.Trigger name="billing">
-            <NativeTabs.Trigger.Label>POS</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
-          </NativeTabs.Trigger>
-
-          <NativeTabs.Trigger name="finance">
-            <NativeTabs.Trigger.Label>Finance</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
-          </NativeTabs.Trigger>
-
-          {appConfig.allowDemoMode ? (
-            <NativeTabs.Trigger name="admin">
-              <NativeTabs.Trigger.Label>Admin</NativeTabs.Trigger.Label>
-              <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
-            </NativeTabs.Trigger>
-          ) : null}
-        </>
-      ) : (
-        <>
-          <NativeTabs.Trigger name="delivery">
-            <NativeTabs.Trigger.Label>Delivery</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} renderingMode="template" />
-          </NativeTabs.Trigger>
-
-          <NativeTabs.Trigger name="earnings">
-            <NativeTabs.Trigger.Label>Earnings</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
-          </NativeTabs.Trigger>
-        </>
-      )}
-    </NativeTabs>
+          return (
+            <Link key={tab.name} href={tab.href} asChild>
+              <Pressable
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                style={[
+                  styles.tab,
+                  selected && {
+                    backgroundColor: colors.backgroundElement,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.label,
+                    {
+                      color: colors.text,
+                    },
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              </Pressable>
+            </Link>
+          );
+        })}
+      </View>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+    minHeight: 0,
+  },
+  tabBar: {
+    minHeight: 58,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  tab: {
+    minHeight: 40,
+    minWidth: 88,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+});

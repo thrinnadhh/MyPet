@@ -24,7 +24,8 @@ export type AppIconName =
   | 'search'
   | 'xmark'
   | 'message'
-  | 'groom';
+  | 'groom'
+  | 'document';
 
 const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: string }> = {
   cart: { ios: 'cart.fill', android: 'shopping_cart', fallback: 'C' },
@@ -50,6 +51,7 @@ const SYMBOLS: Record<AppIconName, { ios: string; android: string; fallback: str
   xmark: { ios: 'xmark.circle.fill', android: 'cancel', fallback: 'N' },
   message: { ios: 'message.fill', android: 'chat', fallback: 'M' },
   groom: { ios: 'scissors', android: 'content_cut', fallback: 'G' },
+  document: { ios: 'doc.text.fill', android: 'description', fallback: 'D' },
 };
 
 export function AppIcon({

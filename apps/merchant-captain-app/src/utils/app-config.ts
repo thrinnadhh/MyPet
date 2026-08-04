@@ -9,12 +9,17 @@ const defaultGatewayUrl = Platform.select({
 }) ?? 'http://localhost:8080';
 const allowDemoMode = __DEV__ && isTruthy(process.env.EXPO_PUBLIC_ALLOW_DEMO_MODE);
 const configuredApiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, '');
+const configuredDemoRole = process.env.EXPO_PUBLIC_DEMO_ROLE?.trim().toUpperCase();
+const demoRole = configuredDemoRole === 'ADMIN' || configuredDemoRole === 'CAPTAIN'
+  ? configuredDemoRole
+  : 'MERCHANT';
 
 export const appConfig = {
   apiBaseUrl: configuredApiBaseUrl || (__DEV__ ? defaultGatewayUrl : ''),
   supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
   supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
   allowDemoMode,
+  demoRole,
 };
 
 export function requireMobileConfig() {

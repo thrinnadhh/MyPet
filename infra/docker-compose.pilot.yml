@@ -1,0 +1,47 @@
+services:
+  provider-service:
+    environment:
+      PROVIDER_PUBLIC_BASE_URL: ${PUBLIC_URL:-http://localhost:8080}
+      MEDICAL_REPORTS_BUCKET: ${MEDICAL_REPORTS_BUCKET:-mypet-pilot-medical-reports}
+      MEDICAL_REPORTS_REGION: ${MEDICAL_REPORTS_REGION:-ap-south-1}
+      MEDICAL_REPORTS_ACCESS_KEY: ${MEDICAL_REPORTS_ACCESS_KEY:-pilot-access-key}
+      MEDICAL_REPORTS_SECRET_KEY: ${MEDICAL_REPORTS_SECRET_KEY:-pilot-secret-key}
+
+  appointment-service:
+    environment:
+      APPOINTMENT_MEDICAL_DOCUMENTS_PUBLIC_BASE_URL: ${PUBLIC_URL:-http://localhost:8080}
+      MEDICAL_DOCUMENT_SIGNING_KEY: ${MEDICAL_DOCUMENT_SIGNING_KEY:?MEDICAL_DOCUMENT_SIGNING_KEY must be set}
+
+  captain-service:
+    environment:
+      BANK_DATA_ENCRYPTION_KEY: ${BANK_DATA_ENCRYPTION_KEY:?BANK_DATA_ENCRYPTION_KEY must be set}
+
+  order-service:
+    environment:
+      ORDER_ONLINE_PAYMENTS_ENABLED: "false"
+      ORDER_CASE_EVIDENCE_PUBLIC_BASE_URL: ${PUBLIC_URL:-http://localhost:8080}
+      CASE_EVIDENCE_SIGNING_KEY: ${CASE_EVIDENCE_SIGNING_KEY:?CASE_EVIDENCE_SIGNING_KEY must be set}
+
+  payment-service:
+    environment:
+      RAZORPAY_SANDBOX_MODE: "true"
+      RAZORPAY_KEY_ID: ""
+      RAZORPAY_KEY_SECRET: ""
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:?RAZORPAY_WEBHOOK_SECRET must be set}
+
+  notification-service:
+    environment:
+      NOTIFICATION_DELIVERY_MODE: LOGGED_DEV
+
+  api-gateway:
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      ALLOW_UNSIGNED_JWT: "false"
+      SUPABASE_JWT_JWK_SET_URI: ${SUPABASE_JWT_JWK_SET_URI:?SUPABASE_JWT_JWK_SET_URI must be set}
+      SUPABASE_JWT_SECRET: ""
+      GATEWAY_RATE_LIMIT_REPLENISH_RATE: "20"
+      GATEWAY_RATE_LIMIT_BURST_CAPACITY: "50"
+
+  chat-service:
+    environment:
+      CHAT_PUBLIC_BASE_URL: ${PUBLIC_URL:-http://localhost:8080}

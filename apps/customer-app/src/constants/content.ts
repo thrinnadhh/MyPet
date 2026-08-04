@@ -6,6 +6,9 @@ export interface GuideArticle {
   title: string;
   summary: string;
   readMinutes: number;
+  authorName: string;
+  companyName: string;
+  likeCount: number;
 }
 
 export interface PromoBanner {
@@ -32,12 +35,66 @@ export const GUIDE_CATEGORIES: { id: GuideCategory; label: string; description: 
 ];
 
 export const GUIDE_ARTICLES: GuideArticle[] = [
-  { id: 'g1', category: 'puppy-kitten', title: 'First 8 weeks at home', summary: 'Set a feeding routine and safe sleep zone.', readMinutes: 4 },
-  { id: 'g2', category: 'puppy-kitten', title: 'Core vaccines timeline', summary: 'DHPP and rabies schedule for puppies.', readMinutes: 5 },
-  { id: 'g3', category: 'skin', title: 'Itchy skin checklist', summary: 'Food, fleas, or allergies — what to check first.', readMinutes: 3 },
-  { id: 'g4', category: 'skin', title: 'When to book a vet', summary: 'Red flags that need same-day attention.', readMinutes: 2 },
-  { id: 'g5', category: 'ticks-odor', title: 'Tick prevention 101', summary: 'Spot-on, collars, and yard hygiene.', readMinutes: 4 },
-  { id: 'g6', category: 'ticks-odor', title: 'Managing pet odor', summary: 'Bath frequency and ear cleaning tips.', readMinutes: 3 },
+  {
+    id: 'g1',
+    category: 'puppy-kitten',
+    title: 'First 8 weeks at home',
+    summary: 'Set a feeding routine and safe sleep zone.',
+    readMinutes: 4,
+    authorName: 'Dr. Ananya Rao',
+    companyName: 'City Pet Hospital',
+    likeCount: 128,
+  },
+  {
+    id: 'g2',
+    category: 'puppy-kitten',
+    title: 'Core vaccines timeline',
+    summary: 'DHPP and rabies schedule for puppies.',
+    readMinutes: 5,
+    authorName: 'Dr. Vivek Sharma',
+    companyName: 'PetCare Wellness Center',
+    likeCount: 94,
+  },
+  {
+    id: 'g3',
+    category: 'skin',
+    title: 'Itchy skin checklist',
+    summary: 'Food, fleas, or allergies — what to check first.',
+    readMinutes: 3,
+    authorName: 'Dr. Ananya Rao',
+    companyName: 'City Pet Hospital',
+    likeCount: 83,
+  },
+  {
+    id: 'g4',
+    category: 'skin',
+    title: 'When to book a vet',
+    summary: 'Red flags that need same-day attention.',
+    readMinutes: 2,
+    authorName: 'Dr. Vivek Sharma',
+    companyName: 'PetCare Wellness Center',
+    likeCount: 77,
+  },
+  {
+    id: 'g5',
+    category: 'ticks-odor',
+    title: 'Tick prevention 101',
+    summary: 'Spot-on, collars, and yard hygiene.',
+    readMinutes: 4,
+    authorName: 'Meera Reddy',
+    companyName: 'Paws & Bubbles Spa',
+    likeCount: 65,
+  },
+  {
+    id: 'g6',
+    category: 'ticks-odor',
+    title: 'Managing pet odor',
+    summary: 'Bath frequency and ear cleaning tips.',
+    readMinutes: 3,
+    authorName: 'Meera Reddy',
+    companyName: 'Paws & Bubbles Spa',
+    likeCount: 58,
+  },
 ];
 
 export const ORDER_FLOW_STEPS = [

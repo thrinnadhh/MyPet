@@ -14,6 +14,15 @@ export interface GuideArticle {
   title: string;
   summary: string;
   readMinutes: number;
+  authorName: string;
+  companyName: string;
+  likeCount: number;
+  createdAt?: string;
+}
+
+export interface GuideLikeResult {
+  liked: boolean;
+  likeCount: number;
 }
 
 function headers(accessToken?: string | null): Record<string, string> {
@@ -47,10 +56,28 @@ export async function fetchGuides(category: string | null, accessToken?: string 
       title: g.title,
       summary: g.summary,
       readMinutes: g.readMinutes,
+      authorName: g.authorName,
+      companyName: g.companyName,
+      likeCount: g.likeCount,
     }));
   }
   const query = category ? `?category=${encodeURIComponent(category)}` : '';
   const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/content/guides${query}`, { headers: headers(accessToken) });
   if (!response.ok) throw new Error('Could not load guides');
   return response.json() as Promise<GuideArticle[]>;
+}
+
+export async function toggleGuideLike(
+  articleId: string,
+  accessToken?: string | null,
+): Promise<GuideLikeResult> {
+  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/content/guides/${articleId}/likes`, {
+    method: 'POST',
+    headers: {
+      ...headers(accessToken),
+      'Content-Type': 'application/json',
+    },
+  });
+  if (!response.ok) throw new Error('Could not update guide like');
+  return response.json() as Promise<GuideLikeResult>;
 }

@@ -16,6 +16,41 @@ import { supabase } from '@/utils/supabase';
 
 type SignupRole = 'MERCHANT' | 'CAPTAIN';
 
+const AUTH_TIMEOUT_MS = 15000;
+
+function withAuthTimeout<T>(operation: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('Authentication timed out. Check the phone internet connection and try again.'));
+    }, AUTH_TIMEOUT_MS);
+
+    operation.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function friendlyAuthError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : fallback;
+  if (/email not confirmed/i.test(message)) {
+    return 'Your email is not verified. Open the Supabase verification email, verify the account, then log in again.';
+  }
+  if (/invalid login credentials/i.test(message)) {
+    return 'Incorrect email or password. Confirm that this merchant account belongs to the same Supabase project.';
+  }
+  if (/network request failed|failed to fetch/i.test(message)) {
+    return 'The phone could not reach Supabase. Check Wi-Fi/mobile data, VPN, and EXPO_PUBLIC_SUPABASE_URL.';
+  }
+  return message;
+}
+
 export default function LoginScreen() {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -41,7 +76,7 @@ export default function LoginScreen() {
 
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await withAuthTimeout(supabase.auth.signUp({
           email: email.trim(),
           password,
           options: {
@@ -50,16 +85,25 @@ export default function LoginScreen() {
               role: signupRole,
             },
           },
-        });
+        }));
         if (error) throw error;
-        Alert.alert(t('common.success'), t('login.verificationSent'));
+        Alert.alert(
+          t('common.success'),
+          data.session
+            ? 'Account created and signed in.'
+            : 'Account created. Verify the email sent by Supabase, then log in.',
+        );
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+        const { error } = await withAuthTimeout(
+          supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password }),
+        );
         if (error) throw error;
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('login.somethingWrong');
-      Alert.alert(t('login.authFailed'), message);
+      Alert.alert(
+        t('login.authFailed'),
+        friendlyAuthError(err, t('login.somethingWrong')),
+      );
     } finally {
       setLoading(false);
     }

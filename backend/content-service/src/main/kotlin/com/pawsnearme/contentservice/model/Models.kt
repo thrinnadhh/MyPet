@@ -54,6 +54,9 @@ class GuideArticle(
     @Column(name = "read_minutes", nullable = false) var readMinutes: Int = 3,
     @Column(name = "published", nullable = false) var published: Boolean = true,
     @Column(name = "author_user_id") var authorUserId: UUID? = null,
+    @Column(name = "author_name", nullable = false) var authorName: String = "MyPet Expert",
+    @Column(name = "company_name", nullable = false) var companyName: String = "MyPet",
+    @Column(name = "like_count", nullable = false) var likeCount: Long = 0,
     @Column(name = "created_at", nullable = false) var createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false) var updatedAt: Instant = Instant.now(),
 )
@@ -67,6 +70,25 @@ class GuideWriter(
     var writerId: UUID? = null,
     @Column(name = "user_id", nullable = false, unique = true) var userId: UUID,
     @Column(name = "email", nullable = false) var email: String,
+    @Column(name = "author_name", nullable = false) var authorName: String = "MyPet Expert",
+    @Column(name = "company_name", nullable = false) var companyName: String = "MyPet Partner",
     @Column(name = "access_status", nullable = false) var accessStatus: String = "ACTIVE",
+    @Column(name = "created_at", nullable = false) var createdAt: Instant = Instant.now(),
+    @Column(name = "updated_at", nullable = false) var updatedAt: Instant = Instant.now(),
+)
+
+@Entity
+@Table(
+    name = "guide_likes",
+    schema = "content",
+    uniqueConstraints = [UniqueConstraint(name = "uk_guide_like_article_user", columnNames = ["article_id", "user_id"])],
+)
+class GuideLike(
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    @Column(name = "like_id")
+    var likeId: UUID? = null,
+    @Column(name = "article_id", nullable = false) var articleId: UUID,
+    @Column(name = "user_id", nullable = false) var userId: UUID,
     @Column(name = "created_at", nullable = false) var createdAt: Instant = Instant.now(),
 )

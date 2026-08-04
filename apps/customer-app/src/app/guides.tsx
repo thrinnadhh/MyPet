@@ -1,29 +1,58 @@
+import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 
 import { AppIcon } from '@/components/app-icon';
-import { AppCard } from '@/components/ui/app-card';
-import { ScreenHeader } from '@/components/ui/screen-header';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { AppCard } from '@/components/ui/app-card';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { GUIDE_CATEGORIES, type GuideCategory } from '@/constants/content';
-import { fetchGuides, type GuideArticle } from '@/services/content';
 import { BottomTabInset, Radius, Spacing } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
+import { fetchGuides, toggleGuideLike, type GuideArticle } from '@/services/content';
 
 export default function GuidesScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { t } = useTranslation();
+  const { session } = useAuth();
   const [category, setCategory] = useState<GuideCategory>('puppy-kitten');
   const [articles, setArticles] = useState<GuideArticle[]>([]);
+  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
-    void fetchGuides(category).then(setArticles).catch(() => setArticles([]));
-  }, [category]);
+    void fetchGuides(category, session?.access_token)
+      .then(setArticles)
+      .catch(() => setArticles([]));
+  }, [category, session?.access_token]);
+
+  const likeArticle = async (articleId: string) => {
+    if (!session?.access_token) {
+      router.push('/login' as never);
+      return;
+    }
+
+    setBusyId(articleId);
+    try {
+      const result = await toggleGuideLike(articleId, session.access_token);
+      setArticles((current) => current.map((article) => (
+        article.id === articleId ? { ...article, likeCount: result.likeCount } : article
+      )));
+      setLikedIds((current) => {
+        const next = new Set(current);
+        if (result.liked) next.add(articleId);
+        else next.delete(articleId);
+        return next;
+      });
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <ThemedView style={styles.container}>
@@ -70,22 +99,45 @@ export default function GuidesScreen() {
             {t(`guides.categories.${category}.description`)}
           </ThemedText>
 
-          {articles.map((article) => (
-            <AppCard key={article.id}>
-              <View style={styles.articleRow}>
-                <View style={[styles.articleIcon, { backgroundColor: theme.primarySoft }]}>
-                  <AppIcon name="shield" color={theme.primary} size={20} />
+          {articles.map((article) => {
+            const liked = likedIds.has(article.id);
+            return (
+              <AppCard key={article.id} style={styles.articleCard}>
+                <View style={styles.articleRow}>
+                  <View style={[styles.articleIcon, { backgroundColor: theme.primarySoft }]}>
+                    <AppIcon name="shield" color={theme.primary} size={20} />
+                  </View>
+                  <View style={styles.articleCopy}>
+                    <ThemedText style={styles.articleTitle}>{article.title}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">{article.summary}</ThemedText>
+                    <View style={styles.articleMetaRow}>
+                      <ThemedText type="small" style={{ color: theme.accent, fontWeight: '700' }}>
+                        {t('common.minRead', { minutes: article.readMinutes })}
+                      </ThemedText>
+                      <Pressable
+                        onPress={() => void likeArticle(article.id)}
+                        disabled={busyId === article.id}
+                        style={[
+                          styles.likeButton,
+                          { backgroundColor: liked ? theme.primarySoft : theme.muted },
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${article.likeCount} likes`}
+                      >
+                        <AppIcon name="heart" color={liked ? theme.primary : theme.textSecondary} size={15} />
+                        <ThemedText style={[styles.likeCount, { color: liked ? theme.primary : theme.textSecondary }]}>
+                          {article.likeCount}
+                        </ThemedText>
+                      </Pressable>
+                    </View>
+                    <ThemedText style={[styles.byline, { color: theme.textSecondary }]}>
+                      Written by {article.authorName} · {article.companyName}
+                    </ThemedText>
+                  </View>
                 </View>
-                <View style={{ flex: 1, gap: 4 }}>
-                  <ThemedText style={{ fontWeight: '900' }}>{article.title}</ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">{article.summary}</ThemedText>
-                  <ThemedText type="small" style={{ color: theme.accent, fontWeight: '700' }}>
-                    {t('common.minRead', { minutes: article.readMinutes })}
-                  </ThemedText>
-                </View>
-              </View>
-            </AppCard>
-          ))}
+              </AppCard>
+            );
+          })}
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
@@ -105,6 +157,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
   },
+  articleCard: { gap: Spacing.two },
   articleRow: { flexDirection: 'row', gap: Spacing.three, alignItems: 'flex-start' },
   articleIcon: {
     width: 44,
@@ -113,4 +166,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  articleCopy: { flex: 1, gap: 5 },
+  articleTitle: { fontWeight: '900' },
+  articleMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two },
+  likeButton: { minHeight: 32, borderRadius: 999, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  likeCount: { fontSize: 12, fontWeight: '800' },
+  byline: { fontSize: 11, lineHeight: 15, fontWeight: '600' },
 });

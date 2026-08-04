@@ -51,12 +51,42 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     if (appConfig.allowDemoMode) {
-      console.log('AuthProvider: Running in explicit demo mode');
+      const demoRole = appConfig.demoRole;
+      const isAdminDemo = demoRole === 'ADMIN';
+      const isCaptainDemo = demoRole === 'CAPTAIN';
+
+      const merchantDemoId = 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e';
+      const captainDemoId = 'c7f4b0c9-88c8-4f09-8aa5-f6c587c62ee1';
+      const adminDemoId = 'a11d0000-0000-4000-8000-000000000001';
+
+      const demoUserId = isAdminDemo
+        ? adminDemoId
+        : isCaptainDemo
+          ? captainDemoId
+          : merchantDemoId;
+
+      const demoEmail = isAdminDemo
+        ? 'admin@pawsnearme.com'
+        : isCaptainDemo
+          ? 'captain@pawsnearme.com'
+          : 'merchant@pawsnearme.com';
+
+      const demoName = isAdminDemo
+        ? 'Demo Admin'
+        : isCaptainDemo
+          ? 'Demo Captain'
+          : 'Demo Merchant';
+
+      console.log(`AuthProvider: Running in ${demoRole} demo mode`);
+
       const mockUser = {
-        id: 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
-        email: 'merchant@pawsnearme.com',
-        app_metadata: { role: 'MERCHANT' },
-        user_metadata: {},
+        id: demoUserId,
+        email: demoEmail,
+        app_metadata: { role: demoRole },
+        user_metadata: {
+          full_name: demoName,
+          role: demoRole,
+        },
         aud: 'authenticated',
         created_at: new Date().toISOString(),
       } as User;
@@ -71,10 +101,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       setSession(mockSession);
       setUser(mockUser);
-      setRole('MERCHANT');
-      setActiveRole('PROVIDER');
-      setProviderId(mockUser.id);
-      setCaptainId(null);
+      setRole(demoRole);
+      setActiveRole(
+        isAdminDemo ? 'ADMIN' : isCaptainDemo ? 'CAPTAIN' : 'PROVIDER',
+      );
+
+      setProviderId(
+        isAdminDemo ? merchantDemoId : isCaptainDemo ? null : merchantDemoId,
+      );
+      setCaptainId(
+        isAdminDemo ? captainDemoId : isCaptainDemo ? captainDemoId : null,
+      );
+
       apiClient.setSessionToken(mockSession.access_token);
       setLoading(false);
       return;
@@ -125,8 +163,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setCaptainId(nextCaptainId);
     };
 
+    let lastHydrationKey: string | null = null;
+
     const applySession = async (nextSession: Session | null) => {
-      setLoading(true);
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
       apiClient.setSessionToken(nextSession?.access_token ?? null);
@@ -137,27 +176,52 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setActiveRole(null);
         setProviderId(null);
         setCaptainId(null);
+        lastHydrationKey = null;
         setLoading(false);
         return;
       }
 
       const backendRole = normalizeBackendRole(
-        nextSession.user.app_metadata?.role as string | undefined,
+        (nextSession.user.app_metadata?.role as string | undefined) ??
+          (nextSession.user.user_metadata?.role as string | undefined),
       );
       setRole(backendRole);
       setActiveRole(resolveActiveRole(backendRole));
 
-      try {
-        await syncAuthenticatedProfile(
-          nextSession,
-          backendRole as 'MERCHANT' | 'CAPTAIN' | 'ADMIN',
-        );
-      } catch (error) {
-        console.warn('Profile sync failed', error);
-      }
-
-      await resolveOperationalIdentity(backendRole);
+      // Supabase authentication is complete. Release the UI immediately;
+      // backend profile/provider hydration continues without blocking login.
       setLoading(false);
+
+      const hydrationKey = `${nextSession.user.id}:${nextSession.access_token}`;
+      if (lastHydrationKey === hydrationKey) return;
+      lastHydrationKey = hydrationKey;
+
+      void (async () => {
+        try {
+          await Promise.race([
+            syncAuthenticatedProfile(
+              nextSession,
+              backendRole as 'MERCHANT' | 'CAPTAIN' | 'ADMIN',
+            ),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('Profile sync timed out')), 5000),
+            ),
+          ]);
+        } catch (error) {
+          console.warn('Profile sync deferred', error);
+        }
+
+        try {
+          await Promise.race([
+            resolveOperationalIdentity(backendRole),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('Identity resolution timed out')), 5000),
+            ),
+          ]);
+        } catch (error) {
+          console.warn('Operational identity hydration deferred', error);
+        }
+      })();
     };
 
     void supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
