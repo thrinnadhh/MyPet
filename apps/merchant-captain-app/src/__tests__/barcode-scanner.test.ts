@@ -78,7 +78,7 @@ test('merchant barcode lookup is authenticated, provider-scoped and offline-capa
 test('server owns barcode identity, price, store scope and stock mutation', () => {
   const service = source('../../backend/catalog-service/src/main/kotlin/com/pawsnearme/catalogservice/service/CatalogService.kt');
   const controller = source('../../backend/catalog-service/src/main/kotlin/com/pawsnearme/catalogservice/controller/Controllers.kt');
-  const migration = source('../../backend/catalog-service/src/main/resources/db/migration/V100__normalize_product_barcodes.sql');
+  const migration = source('../../backend/catalog-service/src/main/resources/db/migration/V9__normalize_product_barcodes.sql');
 
   assert.match(service, /BarcodeSupport\.requireBarcode/);
   assert.match(service, /offering\.providerId != storeId/);
@@ -88,5 +88,6 @@ test('server owns barcode identity, price, store scope and stock mutation', () =
   assert.match(controller, /@GetMapping\("\/offerings\/by-barcode"\)/);
   assert.match(controller, /role != "MERCHANT" && role != "ADMIN"/);
   assert.match(migration, /idx_offerings_provider_barcode/);
+  assert.match(migration, /Duplicate provider barcode values remain after canonicalization/);
   assert.match(migration, /char_length\(barcode\) BETWEEN 3 AND 50/);
 });
