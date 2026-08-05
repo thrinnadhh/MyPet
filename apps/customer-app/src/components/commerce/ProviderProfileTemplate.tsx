@@ -4,6 +4,7 @@ import { FlatList, Image, Pressable, ScrollView, StyleSheet, View } from 'react-
 
 import { AppIcon } from '@/components/app-icon';
 import { FilterChip } from '@/components/foundation/primitives';
+import { LoyaltyCard } from '@/components/loyalty-card';
 import { ThemedText } from '@/components/themed-text';
 import { PrimaryButton } from '@/components/ui/primary-button';
 import { ScreenHeader } from '@/components/ui/screen-header';
@@ -28,7 +29,7 @@ export function ProviderProfileTemplate({ shop }: ProviderProfileTemplateProps) 
   const isShopFav = isFavourite('SHOP', shop.id);
 
   const filteredProducts = selectedCategory
-    ? shop.products.filter((p) => p.category.toLowerCase().includes(selectedCategory.toLowerCase()))
+    ? shop.products.filter((product) => product.category.toLowerCase().includes(selectedCategory.toLowerCase()))
     : shop.products;
 
   const isCartFromThisShop = providerId === shop.id && totalItemsCount > 0;
@@ -38,7 +39,6 @@ export function ProviderProfileTemplate({ shop }: ProviderProfileTemplateProps) 
       <ScreenHeader title={shop.name} subtitle="Verified Pet Partner" />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Shop Hero Card */}
         <View style={[styles.heroCard, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
           <Image source={{ uri: shop.heroImageUrl }} style={styles.heroImage} resizeMode="cover" />
 
@@ -51,16 +51,18 @@ export function ProviderProfileTemplate({ shop }: ProviderProfileTemplateProps) 
               <Pressable
                 onPress={() => void toggleFavourite('SHOP', shop.id)}
                 style={[styles.favBtn, { backgroundColor: isShopFav ? theme.primarySoft : theme.muted }]}
-                accessibilityLabel="Follow or Favourite Shop"
+                accessibilityLabel={isShopFav ? 'Remove store from favourites' : 'Add store to favourites'}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isShopFav }}
               >
-                <AppIcon name={isShopFav ? 'check' : 'warning'} color={isShopFav ? theme.primary : theme.textSecondary} size={20} />
+                <AppIcon name={isShopFav ? 'check' : 'heart'} color={isShopFav ? theme.primary : theme.textSecondary} size={20} />
               </Pressable>
             </View>
 
             <View style={styles.badgeRow}>
-              <StatusBadge label={`${shop.rating} (${shop.reviewCount}+ reviews)`} color={theme.warning} />
-              <StatusBadge label={`⚡ ${shop.deliveryEta}`} color={theme.success} />
-              {shop.isVerified && <StatusBadge label="Verified Partner" color={theme.primary} />}
+              <StatusBadge label={`${shop.rating} (${shop.reviewCount} reviews)`} color={theme.warning} />
+              <StatusBadge label={shop.deliveryEta} color={theme.success} />
+              {shop.isVerified ? <StatusBadge label="Verified Partner" color={theme.primary} /> : null}
             </View>
 
             <View style={styles.infoRow}>
@@ -75,7 +77,8 @@ export function ProviderProfileTemplate({ shop }: ProviderProfileTemplateProps) 
           </View>
         </View>
 
-        {/* Category Filter Chips */}
+        <LoyaltyCard providerId={shop.id} />
+
         <View style={styles.sectionMargin}>
           <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Store Catalog</ThemedText>
           <FlatList
@@ -97,17 +100,19 @@ export function ProviderProfileTemplate({ shop }: ProviderProfileTemplateProps) 
           />
         </View>
 
-        {/* Product Cards */}
         <View style={styles.productsGrid}>
           {filteredProducts.map((item) => {
             const isFav = isFavourite('PRODUCT', item.id);
-            const cartItem = items.find((i) => i.product.id === item.id);
-            const qtyInCart = cartItem ? cartItem.quantity : 0;
+            const cartItem = items.find((cartLine) => cartLine.product.id === item.id);
+            const qtyInCart = cartItem?.quantity ?? 0;
+            const variant = item.variants[0];
 
             return (
               <Pressable
                 key={item.id}
                 onPress={() => router.push(`/commerce/product-detail?id=${item.id}` as never)}
+                accessibilityRole="button"
+                accessibilityLabel={`${item.name}, ₹${item.price}`}
                 style={({ pressed }) => [
                   styles.productCard,
                   shadows.raised,
@@ -119,8 +124,11 @@ export function ProviderProfileTemplate({ shop }: ProviderProfileTemplateProps) 
                 <Pressable
                   onPress={() => void toggleFavourite('PRODUCT', item.id)}
                   style={[styles.prodFavBadge, { backgroundColor: theme.background }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={isFav ? 'Remove product from favourites' : 'Add product to favourites'}
+                  accessibilityState={{ selected: isFav }}
                 >
-                  <AppIcon name={isFav ? 'check' : 'warning'} color={isFav ? theme.danger : theme.textSecondary} size={16} />
+                  <AppIcon name={isFav ? 'check' : 'heart'} color={isFav ? theme.danger : theme.textSecondary} size={16} />
                 </Pressable>
 
                 <View style={styles.productInfo}>
@@ -131,21 +139,37 @@ export function ProviderProfileTemplate({ shop }: ProviderProfileTemplateProps) 
 
                   <View style={styles.priceRow}>
                     <ThemedText style={[styles.price, { color: theme.primary }]}>₹{item.price}</ThemedText>
-                    {item.originalPrice && <ThemedText style={styles.strikethrough}>₹{item.originalPrice}</ThemedText>}
+                    {item.originalPrice ? <ThemedText style={styles.strikethrough}>₹{item.originalPrice}</ThemedText> : null}
                   </View>
 
                   {qtyInCart > 0 ? (
                     <View style={[styles.stepper, { backgroundColor: theme.primarySoft, borderColor: theme.primary }]}>
-                      <Pressable onPress={() => updateQuantity(item.id, undefined, qtyInCart - 1)} style={styles.stepBtn}>
+                      <Pressable
+                        onPress={() => updateQuantity(item.id, variant?.id, qtyInCart - 1)}
+                        style={styles.stepBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Decrease ${item.name} quantity`}
+                      >
                         <ThemedText style={{ color: theme.primary, fontWeight: '800' }}>-</ThemedText>
                       </Pressable>
                       <ThemedText style={{ color: theme.primary, fontWeight: '700', paddingHorizontal: 6 }}>{qtyInCart}</ThemedText>
-                      <Pressable onPress={() => updateQuantity(item.id, undefined, qtyInCart + 1)} style={styles.stepBtn}>
+                      <Pressable
+                        onPress={() => updateQuantity(item.id, variant?.id, qtyInCart + 1)}
+                        style={styles.stepBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Increase ${item.name} quantity`}
+                      >
                         <ThemedText style={{ color: theme.primary, fontWeight: '800' }}>+</ThemedText>
                       </Pressable>
                     </View>
                   ) : (
-                    <PrimaryButton label="ADD" onPress={() => addToCart(item, item.variants[0])} />
+                    <PrimaryButton
+                      label={variant?.inStock ? 'ADD' : 'OUT OF STOCK'}
+                      disabled={!variant?.inStock}
+                      onPress={() => {
+                        if (variant) addToCart(item, variant);
+                      }}
+                    />
                   )}
                 </View>
               </Pressable>
@@ -154,10 +178,8 @@ export function ProviderProfileTemplate({ shop }: ProviderProfileTemplateProps) 
         </View>
       </ScrollView>
 
-      {/* Sticky Cart Affordance */}
-      {isCartFromThisShop && (
+      {isCartFromThisShop ? (
         <View style={[styles.stickyCart, shadows.raised, { backgroundColor: theme.primary }]}>
-
           <View>
             <ThemedText style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 14 }}>
               {totalItemsCount} {totalItemsCount === 1 ? 'Item' : 'Items'} | ₹{subtotalAmount}
@@ -173,7 +195,7 @@ export function ProviderProfileTemplate({ shop }: ProviderProfileTemplateProps) 
             <ThemedText style={{ color: theme.primary, fontWeight: '800' }}>View Cart →</ThemedText>
           </Pressable>
         </View>
-      )}
+      ) : null}
     </View>
   );
 }
