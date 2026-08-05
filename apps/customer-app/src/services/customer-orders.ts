@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { appConfig } from '@/utils/app-config';
+
 import type { OrderFlowStepId } from '@/constants/content';
 import type { CustomerPaymentMethod, CustomerPaymentStatus } from '@/contracts/customer-payment';
+import { appConfig } from '@/utils/app-config';
 
 export type OrderTabCategory = 'active' | 'past' | 'subscription';
 
@@ -64,7 +65,34 @@ interface OrderTrackingDto {
   }>;
 }
 
-const CACHE_PREFIX = '@mypet_orders_cache_v1_';
+interface OrderDetailsDto {
+  orderId?: string;
+  id?: string;
+  providerId: string;
+  totalAmount: number | string;
+  status: string;
+  placedAt?: string;
+  createdAt?: string;
+  items?: Array<{ offeringNameSnapshot?: string; name?: string }>;
+  flowStep?: OrderFlowStepId;
+  paymentMethod?: string | null;
+  paymentStatus?: string | null;
+  deliveryAddressId?: string;
+  captainId?: string;
+  statusHistory?: CustomerOrderRecord['statusHistory'];
+}
+
+interface CreatedOrderDto extends OrderDetailsDto {
+  providerId: string;
+}
+
+class OrderHttpError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+  }
+}
+
+const CACHE_PREFIX = '@mypet_orders_cache_v2_';
 
 function headers(accessToken?: string | null): Record<string, string> {
   const result: Record<string, string> = { Accept: 'application/json' };
@@ -72,12 +100,27 @@ function headers(accessToken?: string | null): Record<string, string> {
   return result;
 }
 
+async function responseError(response: Response, fallback: string): Promise<OrderHttpError> {
+  const body = (await response.json().catch(() => null)) as { message?: string; error?: string } | null;
+  return new OrderHttpError(response.status, body?.message || body?.error || fallback);
+}
+
+function isOfflineFailure(error: unknown): boolean {
+  if (error instanceof OrderHttpError) return false;
+  if (error instanceof TypeError) return true;
+  const message = error instanceof Error ? error.message.toLowerCase() : '';
+  return message.includes('network') || message.includes('fetch') || message.includes('offline');
+}
+
 async function providerName(providerId: string, accessToken?: string | null): Promise<string> {
   try {
-    const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/providers/${providerId}`, { headers: headers(accessToken) });
+    const response = await fetch(
+      `${appConfig.apiBaseUrl}/api/v1/providers/${encodeURIComponent(providerId)}`,
+      { headers: headers(accessToken) },
+    );
     if (!response.ok) return `Store ${providerId.slice(0, 8)}`;
-    const body = (await response.json()) as { name: string };
-    return body.name || `Store ${providerId.slice(0, 8)}`;
+    const body = (await response.json()) as { name?: string };
+    return body.name?.trim() || `Store ${providerId.slice(0, 8)}`;
   } catch {
     return `Store ${providerId.slice(0, 8)}`;
   }
@@ -90,10 +133,11 @@ export async function fetchCustomerOrders(
   const cacheKey = `${CACHE_PREFIX}${customerId}`;
 
   try {
-    const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders/customer/${customerId}/tracking`, {
-      headers: headers(accessToken),
-    });
-    if (!response.ok) throw new Error('Could not load order history');
+    const response = await fetch(
+      `${appConfig.apiBaseUrl}/api/v1/orders/customer/${encodeURIComponent(customerId)}/tracking`,
+      { headers: headers(accessToken) },
+    );
+    if (!response.ok) throw await responseError(response, 'Could not load order history');
 
     const rawOrders = (await response.json()) as OrderTrackingDto[];
     const orders: CustomerOrderRecord[] = await Promise.all(
@@ -120,12 +164,15 @@ export async function fetchCustomerOrders(
     await AsyncStorage.setItem(cacheKey, JSON.stringify(orders)).catch(() => null);
     return orders;
   } catch (error) {
+    if (!isOfflineFailure(error)) throw error;
+
     const cached = await AsyncStorage.getItem(cacheKey).catch(() => null);
     if (cached) {
       try {
-        return JSON.parse(cached) as CustomerOrderRecord[];
+        const parsed = JSON.parse(cached) as CustomerOrderRecord[];
+        if (Array.isArray(parsed)) return parsed;
       } catch {
-        // Fall through to error throw.
+        await AsyncStorage.removeItem(cacheKey).catch(() => null);
       }
     }
     throw error;
@@ -136,19 +183,22 @@ export async function fetchOrderDetails(
   orderId: string,
   accessToken?: string | null,
 ): Promise<CustomerOrderRecord> {
-  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders/${orderId}`, {
-    headers: headers(accessToken),
-  });
-  if (!response.ok) throw new Error('Could not load order details');
+  const response = await fetch(
+    `${appConfig.apiBaseUrl}/api/v1/orders/${encodeURIComponent(orderId)}`,
+    { headers: headers(accessToken) },
+  );
+  if (!response.ok) throw await responseError(response, 'Could not load order details');
 
-  const order = (await response.json()) as any;
+  const order = (await response.json()) as OrderDetailsDto;
   const rawTotal = Number(order.totalAmount) || 0;
+  const resolvedOrderId = order.orderId || order.id;
+  if (!resolvedOrderId) throw new Error('Order service returned an invalid order ID');
 
   return {
-    id: order.orderId || order.id,
+    id: resolvedOrderId,
     providerId: order.providerId,
     providerName: await providerName(order.providerId, accessToken),
-    items: order.items?.map((i: any) => i.offeringNameSnapshot || i.name) || ['Pet Item'],
+    items: order.items?.map((item) => item.offeringNameSnapshot || item.name || 'Pet Item') || ['Pet Item'],
     total: `₹${rawTotal.toFixed(0)}`,
     rawTotal,
     status: order.status,
@@ -168,28 +218,23 @@ export async function cancelOrder(
   reason: string,
   accessToken?: string | null,
 ): Promise<void> {
-  const url = `${appConfig.apiBaseUrl}/api/v1/orders/${orderId}/cancel?reason=${encodeURIComponent(reason)}`;
+  const url = `${appConfig.apiBaseUrl}/api/v1/orders/${encodeURIComponent(orderId)}/cancel?reason=${encodeURIComponent(reason)}`;
   const response = await fetch(url, {
     method: 'POST',
     headers: headers(accessToken),
   });
-
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { message?: string; error?: string } | null;
-    throw new Error(body?.message || body?.error || 'Could not cancel order');
-  }
+  if (!response.ok) throw await responseError(response, 'Could not cancel order');
 }
 
 export async function reorderItems(
   orderId: string,
   accessToken?: string | null,
 ): Promise<ReorderValidationResult> {
-  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders/${orderId}/reorder`, {
-    method: 'POST',
-    headers: headers(accessToken),
-  });
-
-  if (!response.ok) throw new Error('Reorder revalidation failed');
+  const response = await fetch(
+    `${appConfig.apiBaseUrl}/api/v1/orders/${encodeURIComponent(orderId)}/reorder`,
+    { method: 'POST', headers: headers(accessToken) },
+  );
+  if (!response.ok) throw await responseError(response, 'Reorder revalidation failed');
   return (await response.json()) as ReorderValidationResult;
 }
 
@@ -244,11 +289,7 @@ export async function fetchCheckoutQuote(
     headers: { ...headers(accessToken), 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new Error(errorBody?.message || errorBody?.error || 'Could not calculate checkout quote');
-  }
+  if (!response.ok) throw await responseError(response, 'Could not calculate checkout quote');
   return (await response.json()) as CheckoutQuoteOutput;
 }
 
@@ -261,13 +302,9 @@ export async function createCustomerOrder(
     headers: { ...headers(accessToken), 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
+  if (!response.ok) throw await responseError(response, 'Could not place order');
 
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new Error(errorBody?.message || errorBody?.error || 'Could not place order');
-  }
-
-  const order = await response.json();
+  const order = (await response.json()) as CreatedOrderDto;
   const orderId = typeof order.orderId === 'string' ? order.orderId : order.id;
   if (typeof orderId !== 'string' || typeof order.providerId !== 'string') {
     throw new Error('Order service returned an invalid response');
@@ -277,8 +314,8 @@ export async function createCustomerOrder(
   return {
     id: orderId,
     providerId: order.providerId,
-    providerName: `Store ${order.providerId.slice(0, 8)}`,
-    items: order.items?.map((i: any) => i.offeringNameSnapshot || i.name) || ['Pet Product'],
+    providerName: await providerName(order.providerId, accessToken),
+    items: order.items?.map((item) => item.offeringNameSnapshot || item.name || 'Pet Product') || ['Pet Product'],
     total: `₹${rawTotal.toFixed(0)}`,
     rawTotal,
     status: order.status,
