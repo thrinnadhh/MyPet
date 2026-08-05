@@ -4,17 +4,18 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { AppIcon } from '@/components/app-icon';
-import { FilterChip } from '@/components/foundation/primitives';
+import { FilterChip, StateView } from '@/components/foundation/primitives';
 import { ThemedText } from '@/components/themed-text';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useLocation } from '@/context/LocationContext';
 import { radii, shadows, spacing, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
+import { isOfflineError } from '@/services/customer-profile';
 import { appConfig } from '@/utils/app-config';
 
 export interface SearchResultItem {
   id: string;
-  type: string; // 'PRODUCT', 'PET_SHOP', 'HOSPITAL', 'GROOMER', 'SERVICE', 'GUIDE'
+  type: string;
   title: string;
   subtitle?: string;
   imageUrl?: string;
@@ -35,28 +36,28 @@ const FILTER_TYPES = [
   { id: 'GUIDE', label: 'Guides' },
 ];
 
+type SearchState = 'idle' | 'loading' | 'ready' | 'offline' | 'error';
+
 export default function UniversalSearchScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const params = useLocalSearchParams<{ q?: string; mic?: string }>();
+  const params = useLocalSearchParams<{ q?: string }>();
   const { activeCity } = useLocation();
 
   const [query, setQuery] = useState(params.q ?? '');
   const [selectedType, setSelectedType] = useState('ALL');
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [isListeningVoice, setIsListeningVoice] = useState(params.mic === 'true');
+  const [state, setState] = useState<SearchState>(params.q ? 'loading' : 'idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const loadRecent = async () => {
       try {
         const stored = await AsyncStorage.getItem(RECENT_SEARCHES_KEY);
-        if (stored) {
-          setRecentSearches(JSON.parse(stored) as string[]);
-        }
-      } catch (e) {
-        console.warn('Failed to load recent searches', e);
+        if (stored) setRecentSearches(JSON.parse(stored) as string[]);
+      } catch (error) {
+        console.warn('Failed to load recent searches', error);
       }
     };
     void loadRecent();
@@ -65,8 +66,8 @@ export default function UniversalSearchScreen() {
   const saveRecentSearch = useCallback(async (term: string) => {
     const clean = term.trim();
     if (!clean) return;
-    setRecentSearches((prev) => {
-      const filtered = prev.filter((item) => item.toLowerCase() !== clean.toLowerCase());
+    setRecentSearches((current) => {
+      const filtered = current.filter((item) => item.toLowerCase() !== clean.toLowerCase());
       const next = [clean, ...filtered].slice(0, 5);
       void AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
       return next;
@@ -79,54 +80,56 @@ export default function UniversalSearchScreen() {
   }, []);
 
   const performSearch = useCallback(async (searchQuery: string, type: string) => {
-    if (!searchQuery.trim()) {
+    const normalizedQuery = searchQuery.trim();
+    if (!normalizedQuery) {
       setResults([]);
+      setState('idle');
+      setErrorMessage(null);
       return;
     }
-    setLoading(true);
+
+    setState('loading');
+    setErrorMessage(null);
     try {
-      const typeParam = type !== 'ALL' ? `&type=${type}` : '';
-      const url = `${appConfig.apiBaseUrl}/api/v1/discovery/search?q=${encodeURIComponent(searchQuery.trim())}&city=${encodeURIComponent(activeCity.cityIdentity)}${typeParam}`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        setResults(data.results ?? []);
-        void saveRecentSearch(searchQuery);
+      const searchParams = new URLSearchParams({
+        q: normalizedQuery,
+        city: activeCity.cityIdentity,
+      });
+      if (type !== 'ALL') searchParams.set('type', type);
+
+      const response = await fetch(
+        `${appConfig.apiBaseUrl}/api/v1/discovery/search?${searchParams.toString()}`,
+        { headers: { Accept: 'application/json' } },
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { message?: string; error?: string } | null;
+        throw new Error(body?.message || body?.error || `Search failed (${response.status})`);
       }
-    } catch (e) {
-      console.warn('Universal search API error', e);
-    } finally {
-      setLoading(false);
+
+      const data = (await response.json()) as { results?: SearchResultItem[] } | SearchResultItem[];
+      const nextResults = Array.isArray(data) ? data : data.results ?? [];
+      setResults(nextResults);
+      setState('ready');
+      await saveRecentSearch(normalizedQuery);
+    } catch (error) {
+      setResults([]);
+      setErrorMessage(error instanceof Error ? error.message : 'Search is unavailable.');
+      setState(isOfflineError(error) ? 'offline' : 'error');
     }
   }, [activeCity.cityIdentity, saveRecentSearch]);
 
-  // Debounced search trigger
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (query.trim()) {
-        void performSearch(query, selectedType);
-      } else {
-        setResults([]);
-      }
+      void performSearch(query, selectedType);
     }, 300);
     return () => clearTimeout(timer);
-  }, [query, selectedType, performSearch]);
-
-  const handleVoiceTrigger = useCallback(() => {
-    setIsListeningVoice(true);
-    // Simulate voice listening assistant
-    setTimeout(() => {
-      setQuery('Puppy Nutrition');
-      setIsListeningVoice(false);
-    }, 1500);
-  }, []);
+  }, [performSearch, query, selectedType]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Top Navigation Bar */}
       <View style={[styles.navHeader, { borderColor: theme.border }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityLabel="Back">
-          <AppIcon name="warning" color={theme.text} size={20} />
+          <AppIcon name="close" color={theme.text} size={20} />
         </Pressable>
 
         <View style={[styles.searchBox, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
@@ -139,31 +142,16 @@ export default function UniversalSearchScreen() {
             style={[styles.searchInput, { color: theme.text }]}
             autoFocus={!params.q}
             returnKeyType="search"
+            accessibilityLabel="Search MyPet"
           />
           {query.length > 0 ? (
-            <Pressable onPress={() => setQuery('')} style={styles.iconBtn}>
-              <AppIcon name="warning" color={theme.textSecondary} size={16} />
+            <Pressable onPress={() => setQuery('')} style={styles.iconBtn} accessibilityLabel="Clear search">
+              <AppIcon name="close" color={theme.textSecondary} size={16} />
             </Pressable>
-          ) : (
-            <Pressable onPress={handleVoiceTrigger} style={styles.iconBtn} accessibilityLabel="Voice search">
-              <AppIcon name="sparkle" color={theme.primary} size={20} />
-            </Pressable>
-          )}
+          ) : null}
         </View>
       </View>
 
-      {/* Voice Assistant Overlay */}
-      {isListeningVoice && (
-        <View style={[styles.voiceBanner, { backgroundColor: theme.primarySoft }]}>
-          <ActivityIndicator color={theme.primary} size="small" />
-          <ThemedText style={{ color: theme.primary, fontWeight: '700' }}>
-            {`Listening... Speak now (e.g., "Vet Clinics near me")`}
-          </ThemedText>
-        </View>
-      )}
-
-
-      {/* Filter Tabs */}
       <View style={styles.filterRow}>
         <FlatList
           horizontal
@@ -181,26 +169,33 @@ export default function UniversalSearchScreen() {
         />
       </View>
 
-      {/* Main Results / Recent Searches */}
-      {loading ? (
+      {state === 'loading' ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={theme.primary} />
           <ThemedText style={{ color: theme.textSecondary, marginTop: 8 }}>Searching active providers...</ThemedText>
         </View>
+      ) : state === 'offline' || state === 'error' ? (
+        <StateView
+          kind={state}
+          title={state === 'offline' ? 'You are offline' : 'Search unavailable'}
+          message={errorMessage ?? 'Could not search MyPet right now.'}
+          actionLabel="Retry"
+          onAction={() => void performSearch(query, selectedType)}
+        />
       ) : query.trim().length === 0 ? (
         <View style={styles.recentSection}>
-          {recentSearches.length > 0 && (
+          {recentSearches.length > 0 ? (
             <>
               <View style={styles.recentHeader}>
                 <ThemedText style={styles.recentTitle}>Recent Searches</ThemedText>
-                <Pressable onPress={clearRecentSearches}>
+                <Pressable onPress={() => void clearRecentSearches()}>
                   <ThemedText style={{ color: theme.primary, fontSize: 13, fontWeight: '700' }}>Clear All</ThemedText>
                 </Pressable>
               </View>
               <View style={styles.chipGrid}>
-                {recentSearches.map((term, idx) => (
+                {recentSearches.map((term) => (
                   <Pressable
-                    key={idx}
+                    key={term}
                     onPress={() => setQuery(term)}
                     style={[styles.recentChip, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
                   >
@@ -210,14 +205,13 @@ export default function UniversalSearchScreen() {
                 ))}
               </View>
             </>
-          )}
+          ) : null}
 
           <ThemedText style={[styles.recentTitle, { marginTop: spacing.x6 }]}>Popular Categories</ThemedText>
-
           <View style={styles.chipGrid}>
-            {['Maxi Puppy Food', '24/7 Vet ICU', 'Full Grooming Bath', 'Puppy Teething Guide'].map((term, idx) => (
+            {['Maxi Puppy Food', '24/7 Vet ICU', 'Full Grooming Bath', 'Puppy Teething Guide'].map((term) => (
               <Pressable
-                key={idx}
+                key={term}
                 onPress={() => setQuery(term)}
                 style={[styles.recentChip, { backgroundColor: theme.primarySoft, borderColor: theme.primary }]}
               >
@@ -252,21 +246,17 @@ export default function UniversalSearchScreen() {
             >
               <View style={styles.resultTypeBadge}>
                 <StatusBadge label={item.type.replace('_', ' ')} color={theme.primary} />
-                {item.isEmergency && <StatusBadge label="24/7 ICU" color={theme.danger} />}
+                {item.isEmergency ? <StatusBadge label="24/7 ICU" color={theme.danger} /> : null}
               </View>
-
               <ThemedText style={[styles.resultTitle, { color: theme.text }]}>{item.title}</ThemedText>
-              {item.subtitle && (
-                <ThemedText style={{ fontSize: 13, color: theme.textSecondary }}>{item.subtitle}</ThemedText>
-              )}
-
+              {item.subtitle ? <ThemedText style={{ fontSize: 13, color: theme.textSecondary }}>{item.subtitle}</ThemedText> : null}
               <View style={styles.resultFooter}>
-                {item.price && <ThemedText style={{ fontWeight: '700', color: theme.primary }}>{item.price}</ThemedText>}
-                {item.distanceKm && (
+                {item.price ? <ThemedText style={{ fontWeight: '700', color: theme.primary }}>{item.price}</ThemedText> : null}
+                {item.distanceKm != null ? (
                   <ThemedText style={{ fontSize: 12, color: theme.textSecondary }}>
-                    📍 {item.distanceKm.toFixed(1)} km away
+                    {item.distanceKm.toFixed(1)} km away
                   </ThemedText>
-                )}
+                ) : null}
               </View>
             </Pressable>
           )}
@@ -279,12 +269,10 @@ export default function UniversalSearchScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   navHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.x3, paddingHorizontal: spacing.x4, paddingTop: spacing.x6, paddingBottom: spacing.x3, borderBottomWidth: 1 },
-
   backBtn: { padding: 4 },
   searchBox: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.x2, borderWidth: 1, borderRadius: radii.compact, paddingHorizontal: spacing.x3, height: 44 },
   searchInput: { flex: 1, height: 44, ...typography.body },
   iconBtn: { padding: 4 },
-  voiceBanner: { flexDirection: 'row', alignItems: 'center', gap: spacing.x2, padding: spacing.x3, paddingHorizontal: spacing.x4 },
   filterRow: { paddingVertical: spacing.x2 },
   filterList: { gap: spacing.x2, paddingHorizontal: spacing.x4 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.x6 },
