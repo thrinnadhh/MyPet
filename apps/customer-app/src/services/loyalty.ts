@@ -32,6 +32,20 @@ export interface LoyaltyLedgerEntryDto {
   createdAt: string;
 }
 
+export interface PromotionDto {
+  promotionId: string;
+  providerId?: string | null;
+  code: string;
+  discountType: 'PERCENTAGE' | 'FLAT';
+  discountValue: number | string;
+  maxDiscountAmount?: number | string | null;
+  minOrderValue?: number | string | null;
+  validFrom: string;
+  validUntil: string;
+  applicableCategory?: string | null;
+  isActive: boolean;
+}
+
 function authHeaders(accessToken: string): Record<string, string> {
   return {
     Accept: 'application/json',
@@ -40,60 +54,76 @@ function authHeaders(accessToken: string): Record<string, string> {
   };
 }
 
+async function apiError(response: Response, fallback: string): Promise<Error> {
+  const body = (await response.json().catch(() => null)) as { message?: string; error?: string } | null;
+  return new Error(body?.message || body?.error || fallback);
+}
+
 export async function fetchLoyaltyProgress(
   providerId: string,
-  accessToken: string
+  accessToken: string,
 ): Promise<LoyaltyProgressDto> {
   const response = await fetch(
-    `${appConfig.apiBaseUrl}/api/v1/loyalty/progress?providerId=${providerId}`,
-    { headers: authHeaders(accessToken) }
+    `${appConfig.apiBaseUrl}/api/v1/loyalty/progress?providerId=${encodeURIComponent(providerId)}`,
+    { headers: authHeaders(accessToken) },
   );
-  if (!response.ok) {
-    throw new Error('Could not fetch loyalty progress');
-  }
+  if (!response.ok) throw await apiError(response, 'Could not fetch loyalty progress');
   return (await response.json()) as LoyaltyProgressDto;
 }
 
 export async function claimWelcomeStar(
   providerId: string,
-  accessToken: string
+  accessToken: string,
 ): Promise<LoyaltyProgressDto> {
   const response = await fetch(
-    `${appConfig.apiBaseUrl}/api/v1/loyalty/welcome-star/claim?providerId=${providerId}`,
-    {
-      method: 'POST',
-      headers: authHeaders(accessToken),
-    }
+    `${appConfig.apiBaseUrl}/api/v1/loyalty/welcome-star/claim?providerId=${encodeURIComponent(providerId)}`,
+    { method: 'POST', headers: authHeaders(accessToken) },
   );
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    throw new Error(body?.message || body?.error || 'Could not claim welcome star');
-  }
+  if (!response.ok) throw await apiError(response, 'Could not claim welcome star');
   return (await response.json()) as LoyaltyProgressDto;
 }
 
 export async function fetchCustomerWallet(
-  accessToken: string
+  accessToken: string,
 ): Promise<LoyaltyRewardDto[]> {
   const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/loyalty/wallet`, {
     headers: authHeaders(accessToken),
   });
-  if (!response.ok) {
-    throw new Error('Could not fetch loyalty wallet');
-  }
+  if (!response.ok) throw await apiError(response, 'Could not fetch loyalty wallet');
   return (await response.json()) as LoyaltyRewardDto[];
+}
+
+export async function fetchActivePromotions(
+  accessToken: string,
+): Promise<PromotionDto[]> {
+  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/payments/promotions`, {
+    headers: authHeaders(accessToken),
+  });
+  if (!response.ok) throw await apiError(response, 'Could not fetch active promotions');
+
+  const now = Date.now();
+  const promotions = (await response.json()) as PromotionDto[];
+  return promotions
+    .filter((promotion) => {
+      const validFrom = Date.parse(promotion.validFrom);
+      const validUntil = Date.parse(promotion.validUntil);
+      return promotion.isActive &&
+        Number.isFinite(validFrom) &&
+        Number.isFinite(validUntil) &&
+        validFrom <= now &&
+        validUntil >= now;
+    })
+    .sort((left, right) => Date.parse(left.validUntil) - Date.parse(right.validUntil));
 }
 
 export async function fetchLoyaltyLedger(
   accessToken: string,
-  providerId?: string
+  providerId?: string,
 ): Promise<LoyaltyLedgerEntryDto[]> {
   const url = providerId
-    ? `${appConfig.apiBaseUrl}/api/v1/loyalty/ledger?providerId=${providerId}`
+    ? `${appConfig.apiBaseUrl}/api/v1/loyalty/ledger?providerId=${encodeURIComponent(providerId)}`
     : `${appConfig.apiBaseUrl}/api/v1/loyalty/ledger`;
   const response = await fetch(url, { headers: authHeaders(accessToken) });
-  if (!response.ok) {
-    throw new Error('Could not fetch loyalty ledger history');
-  }
+  if (!response.ok) throw await apiError(response, 'Could not fetch loyalty ledger history');
   return (await response.json()) as LoyaltyLedgerEntryDto[];
 }
