@@ -35,7 +35,11 @@ CHECKS = {
     "catalog controller": ["/offerings/by-barcode", "createBill", "MERCHANT", "ADMIN"],
     "catalog service": ["getOfferingByBarcode", "serverUnitPrice", "decrementStockIfAvailable", "Scanned barcode does not match"],
     "barcode support": ["requireBarcode", "lookupCandidates"],
-    "barcode migration": ["idx_offerings_provider_barcode", "char_length(barcode) BETWEEN 3 AND 50", "Duplicate canonical barcodes"],
+    "barcode migration": [
+        "idx_offerings_provider_barcode",
+        "char_length(barcode) BETWEEN 3 AND 50",
+        "Duplicate provider barcode values remain after canonicalization",
+    ],
     "mobile barcode tests": ["inventory and POS share one permission-aware camera scanner", "server owns barcode identity"],
     "backend barcode tests": ["createOffering canonicalizes leading zero EAN13 to UPC-A", "createBill uses server price canonical barcode"],
 }
