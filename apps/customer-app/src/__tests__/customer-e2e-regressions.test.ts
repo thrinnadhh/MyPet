@@ -8,15 +8,21 @@ function source(relativePath: string): string {
 describe('customer end-to-end regression contracts', () => {
   it('uses live catalog APIs instead of production demo fixtures', () => {
     const category = source('src/app/category/[id].tsx');
+    const aliasRoute = source('src/app/commerce/[slug].tsx');
     const product = source('src/app/commerce/product-detail.tsx');
     const shop = source('src/app/shop/[id].tsx');
+    const favourites = source('src/app/favourites/index.tsx');
     const discovery = source('src/screens/commerce-discovery-screen.tsx');
+    const registry = source('src/services/route-catalog.ts');
 
     expect(category).toMatch(/fetchCommerceProducts/);
+    expect(aliasRoute).toMatch(/fetchCommerceProducts/);
     expect(product).toMatch(/fetchCommerceProduct/);
     expect(shop).toMatch(/fetchShopProfile/);
+    expect(favourites).toMatch(/fetchCommerceProduct/);
+    expect(favourites).toMatch(/fetchShopProfile/);
     expect(discovery).toMatch(/fetchProviders\('PET_STORE'/);
-    expect(`${category}\n${product}\n${shop}\n${discovery}`).not.toMatch(
+    expect(`${category}\n${aliasRoute}\n${product}\n${shop}\n${favourites}\n${discovery}\n${registry}`).not.toMatch(
       /SAMPLE_PRODUCTS|SHOPS_DATA/,
     );
   });
@@ -73,6 +79,20 @@ describe('customer end-to-end regression contracts', () => {
     expect(profile).toMatch(/method: 'PUT'/);
     expect(location).toMatch(/\/api\/v1\/service-regions\/launch-requests/);
     expect(location).toMatch(/method: 'POST'/);
+  });
+
+  it('uses foreground device coordinates to select a service city', () => {
+    const context = source('src/context/LocationContext.tsx');
+    const modal = source('src/components/location-modal.tsx');
+    const locationService = source('src/services/device-location.ts');
+    const config = source('../app.json');
+
+    expect(context).toMatch(/requestCurrentCoordinates/);
+    expect(context).toMatch(/nearestEnabledCity/);
+    expect(modal).toMatch(/Use current location/);
+    expect(locationService).toMatch(/requestForegroundPermissionsAsync/);
+    expect(locationService).toMatch(/getCurrentPositionAsync/);
+    expect(config).toMatch(/expo-location/);
   });
 
   it('does not expose cached orders after authorization or server failures', () => {
