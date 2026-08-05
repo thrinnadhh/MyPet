@@ -2,6 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 
+import {
+  DeviceLocationError,
+  nearestEnabledCity,
+  requestCurrentCoordinates,
+} from '@/services/device-location';
 import { appConfig } from '@/utils/app-config';
 
 export interface ServiceRegionFeatureFlags {
@@ -55,10 +60,12 @@ interface LocationContextType {
   isNotifyModalOpen: boolean;
   requestedUnavailableCity: string | null;
   loading: boolean;
+  locating: boolean;
   openLocationModal: () => void;
   closeLocationModal: () => void;
   closeNotifyModal: () => void;
   selectCity: (city: ActiveCity) => Promise<void>;
+  selectCurrentLocation: () => Promise<void>;
   requestUnavailableCityLaunch: (cityName: string) => void;
   submitCityNotificationRequest: (contactInfo: string) => Promise<void>;
   refreshCities: () => Promise<void>;
@@ -79,6 +86,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
   const [isNotifyModalOpen, setIsNotifyModalOpen] = useState(false);
   const [requestedUnavailableCity, setRequestedUnavailableCity] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [locating, setLocating] = useState(false);
 
   const fetchActiveCities = useCallback(async (): Promise<ActiveCity[]> => {
     try {
@@ -92,6 +100,11 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       console.warn('Failed to fetch active service regions', error);
     }
     return [DEFAULT_TIRUPATI_REGION];
+  }, []);
+
+  const persistCity = useCallback(async (city: ActiveCity) => {
+    setActiveCity(city);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(city));
   }, []);
 
   const refreshCities = useCallback(async () => {
@@ -141,14 +154,44 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
   }, [fetchActiveCities]);
 
   const selectCity = useCallback(async (city: ActiveCity) => {
-    setActiveCity(city);
-    setIsLocationModalOpen(false);
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(city));
+      await persistCity(city);
+      setIsLocationModalOpen(false);
     } catch (error) {
       console.warn('Error persisting active city', error);
+      Alert.alert('Location not saved', 'Select the city again.');
     }
-  }, []);
+  }, [persistCity]);
+
+  const selectCurrentLocation = useCallback(async () => {
+    if (locating) return;
+    setLocating(true);
+    try {
+      const coordinates = await requestCurrentCoordinates();
+      const match = nearestEnabledCity(coordinates, enabledCities);
+      if (!match) {
+        throw new DeviceLocationError(
+          'OUTSIDE_SERVICE_AREA',
+          'MyPet is not active at your current location yet. Search for your city to request a launch notification.',
+        );
+      }
+      await persistCity(match.city);
+      setIsLocationModalOpen(false);
+      Alert.alert(
+        'Location selected',
+        `${match.city.displayName} is ${match.distanceKm.toFixed(1)} km from your current position.`,
+      );
+    } catch (error) {
+      Alert.alert(
+        error instanceof DeviceLocationError && error.code === 'OUTSIDE_SERVICE_AREA'
+          ? 'Outside service area'
+          : 'Current location unavailable',
+        error instanceof Error ? error.message : 'Select a city manually.',
+      );
+    } finally {
+      setLocating(false);
+    }
+  }, [enabledCities, locating, persistCity]);
 
   const openLocationModal = useCallback(() => setIsLocationModalOpen(true), []);
   const closeLocationModal = useCallback(() => setIsLocationModalOpen(false), []);
@@ -204,10 +247,12 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         isNotifyModalOpen,
         requestedUnavailableCity,
         loading,
+        locating,
         openLocationModal,
         closeLocationModal,
         closeNotifyModal,
         selectCity,
+        selectCurrentLocation,
         requestUnavailableCityLaunch,
         submitCityNotificationRequest,
         refreshCities,
