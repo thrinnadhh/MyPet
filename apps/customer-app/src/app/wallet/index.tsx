@@ -10,7 +10,26 @@ import { useAuthIntent } from '@/context/AuthIntentContext';
 import { radii, shadows, spacing, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { isOfflineError } from '@/services/customer-profile';
-import { fetchCustomerWallet, type LoyaltyRewardDto } from '@/services/loyalty';
+import {
+  fetchActivePromotions,
+  fetchCustomerWallet,
+  type LoyaltyRewardDto,
+  type PromotionDto,
+} from '@/services/loyalty';
+
+function numeric(value: number | string | null | undefined): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function promotionLabel(promotion: PromotionDto): string {
+  const value = numeric(promotion.discountValue);
+  if (promotion.discountType === 'PERCENTAGE') {
+    const maximum = numeric(promotion.maxDiscountAmount);
+    return maximum > 0 ? `${value}% OFF · up to ₹${maximum}` : `${value}% OFF`;
+  }
+  return `FLAT ₹${value} OFF`;
+}
 
 export default function WalletScreen() {
   const theme = useTheme();
@@ -18,18 +37,28 @@ export default function WalletScreen() {
   const { requireAuth } = useAuthIntent();
 
   const [rewards, setRewards] = useState<LoyaltyRewardDto[]>([]);
+  const [promotions, setPromotions] = useState<PromotionDto[]>([]);
   const [tab, setTab] = useState<'rewards' | 'coupons'>('rewards');
   const [state, setState] = useState<'loading' | 'ready' | 'offline' | 'error'>('loading');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     if (!user || !session) return;
     setState('loading');
+    setErrorMessage(null);
     try {
-      const data = await fetchCustomerWallet(session.access_token);
-      setRewards(data);
+      const [walletData, promotionData] = await Promise.all([
+        fetchCustomerWallet(session.access_token),
+        fetchActivePromotions(session.access_token),
+      ]);
+      setRewards(walletData);
+      setPromotions(promotionData);
       setState('ready');
-    } catch (err) {
-      setState(isOfflineError(err) ? 'offline' : 'error');
+    } catch (error) {
+      setRewards([]);
+      setPromotions([]);
+      setErrorMessage(error instanceof Error ? error.message : 'Could not load wallet items.');
+      setState(isOfflineError(error) ? 'offline' : 'error');
     }
   }, [session, user]);
 
@@ -59,18 +88,30 @@ export default function WalletScreen() {
     );
   }
 
+  if (state === 'offline' || state === 'error') {
+    return (
+      <ScreenShell scroll={false} header={<AppBar title="My Loyalty & Wallet" />}>
+        <StateView
+          kind={state}
+          title={state === 'offline' ? 'You are offline' : 'Wallet unavailable'}
+          message={errorMessage ?? 'Could not load wallet items.'}
+          actionLabel="Retry"
+          onAction={() => void loadData()}
+        />
+      </ScreenShell>
+    );
+  }
+
   return (
-    <ScreenShell header={<AppBar title="My Loyalty & Wallet" subtitle="Rewards & Promotions" />}>
+    <ScreenShell header={<AppBar title="My Loyalty & Wallet" subtitle="Live rewards and promotions" />}>
       <View style={styles.container}>
-        {/* Non-Stacking Policy Banner */}
         <View style={[styles.policyBanner, { backgroundColor: theme.primarySoft }]}>
           <AppIcon name="sparkle" size={18} color={theme.primary} />
           <ThemedText type="small" style={{ color: theme.primary, flex: 1, fontWeight: '600' }}>
-            Store rewards and promo coupons apply one per checkout order to maximize savings.
+            Store rewards and promo coupons apply according to the server-authoritative checkout policy.
           </ThemedText>
         </View>
 
-        {/* Tab Selector */}
         <View style={styles.tabBar}>
           <FilterChip
             label={`Store Rewards (${rewards.length})`}
@@ -78,7 +119,7 @@ export default function WalletScreen() {
             onPress={() => setTab('rewards')}
           />
           <FilterChip
-            label="Available Coupons"
+            label={`Available Coupons (${promotions.length})`}
             selected={tab === 'coupons'}
             onPress={() => setTab('coupons')}
           />
@@ -89,7 +130,7 @@ export default function WalletScreen() {
             <StateView
               kind="empty"
               title="No Store Rewards Yet"
-              message="Earn 10 stars at your favorite pet stores to unlock ₹50 & ₹100 discount rewards!"
+              message="Complete eligible purchases to earn store stars and rewards."
             />
           ) : (
             <FlatList
@@ -97,68 +138,62 @@ export default function WalletScreen() {
               keyExtractor={(item) => item.rewardId}
               contentContainerStyle={styles.listContent}
               renderItem={({ item }) => (
-                <View
-                  style={[
-                    styles.rewardCard,
-                    shadows.card,
-                    { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-                  ]}
-                >
+                <View style={[styles.rewardCard, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
                   <View style={styles.cardTop}>
                     <View style={styles.amountCol}>
                       <ThemedText style={styles.rewardAmount}>₹{item.rewardAmount}</ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        Store Reward Discount
-                      </ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">Store Reward Discount</ThemedText>
                     </View>
-                    <StatusBadge
-                      label={item.status}
-                      tone={item.status === 'ISSUED' ? 'success' : 'neutral'}
-                    />
+                    <StatusBadge label={item.status} tone={item.status === 'ISSUED' ? 'success' : 'neutral'} />
                   </View>
-
                   <View style={[styles.codeBox, { backgroundColor: theme.background, borderColor: theme.border }]}>
                     <ThemedText style={styles.codeText}>{item.code}</ThemedText>
-                    <Pressable
-                      onPress={() => Alert.alert('Reward Code', `Code ${item.code} ready to use at checkout!`)}
-                    >
-                      <ThemedText style={{ color: theme.primary, fontWeight: '700' }}>Copy</ThemedText>
+                    <Pressable onPress={() => Alert.alert('Reward Code', `Use ${item.code} during eligible checkout.`)}>
+                      <ThemedText style={{ color: theme.primary, fontWeight: '700' }}>View</ThemedText>
                     </Pressable>
                   </View>
-
                   <ThemedText type="small" themeColor="textSecondary">
-                    Expires on: {new Date(item.expiresAt).toLocaleDateString()}
+                    Expires on {new Date(item.expiresAt).toLocaleDateString('en-IN')}
                   </ThemedText>
                 </View>
               )}
             />
           )
+        ) : promotions.length === 0 ? (
+          <StateView
+            kind="empty"
+            title="No Active Coupons"
+            message="New promotions from MyPet and participating stores will appear here."
+          />
         ) : (
-          <View style={styles.couponsContainer}>
-            <View
-              style={[
-                styles.rewardCard,
-                shadows.card,
-                { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-              ]}
-            >
-              <View style={styles.cardTop}>
-                <View style={styles.amountCol}>
-                  <ThemedText style={styles.rewardAmount}>FLAT ₹50 OFF</ThemedText>
+          <FlatList
+            data={promotions}
+            keyExtractor={(item) => item.promotionId}
+            contentContainerStyle={styles.listContent}
+            renderItem={({ item }) => (
+              <View style={[styles.rewardCard, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+                <View style={styles.cardTop}>
+                  <View style={styles.amountCol}>
+                    <ThemedText style={styles.rewardAmount}>{promotionLabel(item)}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      {item.providerId ? 'Participating store promotion' : 'MyPet promotion'}
+                    </ThemedText>
+                  </View>
+                  <StatusBadge label="ACTIVE" tone="success" />
+                </View>
+                <View style={[styles.codeBox, { backgroundColor: theme.background, borderColor: theme.border }]}>
+                  <ThemedText style={styles.codeText}>{item.code}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
-                    Promo Coupon Code
+                    Min order ₹{numeric(item.minOrderValue)}
                   </ThemedText>
                 </View>
-                <StatusBadge label="ACTIVE" tone="success" />
-              </View>
-              <View style={[styles.codeBox, { backgroundColor: theme.background, borderColor: theme.border }]}>
-                <ThemedText style={styles.codeText}>SAVE50</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Min order: ₹100
+                  Valid until {new Date(item.validUntil).toLocaleDateString('en-IN')}
+                  {item.applicableCategory ? ` · ${item.applicableCategory}` : ''}
                 </ThemedText>
               </View>
-            </View>
-          </View>
+            )}
+          />
         )}
       </View>
     </ScreenShell>
@@ -168,13 +203,12 @@ export default function WalletScreen() {
 const styles = StyleSheet.create({
   container: { padding: spacing.x4, gap: spacing.x3 },
   policyBanner: { flexDirection: 'row', alignItems: 'center', gap: spacing.x2, padding: spacing.x3, borderRadius: radii.card },
-  tabBar: { flexDirection: 'row', gap: spacing.x2 },
+  tabBar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
   listContent: { gap: spacing.x3 },
-  couponsContainer: { gap: spacing.x3 },
   rewardCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.card, padding: spacing.x4, gap: spacing.x2 },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  amountCol: { gap: 2 },
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.x2 },
+  amountCol: { flex: 1, gap: 2 },
   rewardAmount: { ...typography.headline, color: '#10B981', fontWeight: '800' },
-  codeBox: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderStyle: 'dashed', borderRadius: radii.compact, padding: spacing.x3, marginVertical: spacing.x1 },
+  codeBox: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.x2, borderWidth: 1, borderStyle: 'dashed', borderRadius: radii.compact, padding: spacing.x3, marginVertical: spacing.x1 },
   codeText: { ...typography.title, letterSpacing: 1 },
 });
