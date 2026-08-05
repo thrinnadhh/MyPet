@@ -1,6 +1,6 @@
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { AppIcon } from '@/components/app-icon';
 import { AppBar, PrimaryAction, StateView, StatusBadge } from '@/components/foundation/primitives';
@@ -9,6 +9,7 @@ import { OrderFlowTracker } from '@/components/order-flow-tracker';
 import { ThemedText } from '@/components/themed-text';
 import { activeOrderPollInterval, type CustomerPaymentStatus } from '@/contracts/customer-payment';
 import { useAuth } from '@/context/AuthContext';
+import { useCart } from '@/context/CartContext';
 import { radii, shadows, spacing, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
@@ -25,6 +26,7 @@ import {
   reconcilePaidOrder,
   waitForPaymentOutcome,
 } from '@/services/customer-payments';
+import { buildCartFromRevalidation } from '@/services/revalidated-cart';
 
 export default function OrderDetailRoute() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -32,6 +34,7 @@ export default function OrderDetailRoute() {
   const theme = useTheme();
   const router = useRouter();
   const { user, session } = useAuth();
+  const { replaceCart } = useCart();
 
   const [order, setOrder] = useState<CustomerOrderRecord | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<CustomerPaymentStatus>('NOT_STARTED');
@@ -99,14 +102,27 @@ export default function OrderDetailRoute() {
     setActionLoading(true);
     try {
       const result = await reorderItems(order.id, session.access_token);
+      if (!result.canReorder) {
+        const unavailable = result.items
+          .filter((item) => !item.isAvailable)
+          .map((item) => `${item.offeringName}: ${item.message ?? 'Unavailable'}`)
+          .join('\n');
+        Alert.alert('Reorder unavailable', unavailable || 'The provider is not currently serviceable.');
+        return;
+      }
+
+      const nextItems = await buildCartFromRevalidation(result);
+      await replaceCart(nextItems);
       Alert.alert(
-        result.canReorder ? 'Reorder ready' : 'Reorder unavailable',
-        result.canReorder
-          ? 'All items are currently available. Add them from the provider catalog to continue.'
-          : 'One or more items are unavailable or outside the service area.',
+        'Reorder ready',
+        'Current products, stock and prices were loaded into your cart. Checkout will generate a new authoritative quote.',
+        [
+          { text: 'Later', style: 'cancel' },
+          { text: 'View cart', onPress: () => router.push('/cart' as never) },
+        ],
       );
     } catch (cause: unknown) {
-      Alert.alert(t('common.error'), cause instanceof Error ? cause.message : 'Could not revalidate reorder.');
+      Alert.alert(t('common.error'), cause instanceof Error ? cause.message : 'Could not rebuild the cart.');
     } finally {
       setActionLoading(false);
     }
@@ -177,7 +193,7 @@ export default function OrderDetailRoute() {
             </View>
             {activeOrderPollInterval(order.status) ? (
               <ThemedText type="small" themeColor="textSecondary">
-                Refreshing automatically every 8 seconds.
+                Refreshing automatically while the order is active.
               </ThemedText>
             ) : null}
           </View>
@@ -186,10 +202,7 @@ export default function OrderDetailRoute() {
             <View style={[styles.card, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
               <View style={styles.headerRow}>
                 <ThemedText style={styles.sectionTitle}>Online payment</ThemedText>
-                <StatusBadge
-                  label={paymentStatus}
-                  tone={paymentStatus === 'SUCCESS' ? 'success' : 'warning'}
-                />
+                <StatusBadge label={paymentStatus} tone={paymentStatus === 'SUCCESS' ? 'success' : 'warning'} />
               </View>
               <ThemedText type="small" themeColor="textSecondary">
                 Method: {order.paymentMethod}. Only webhook-confirmed success can advance this order.
@@ -240,7 +253,7 @@ export default function OrderDetailRoute() {
               </Pressable>
             ) : null}
             {['DELIVERED', 'COMPLETED', 'CANCELLED'].includes(order.status) ? (
-              <PrimaryAction label="Revalidate reorder" onPress={() => void handleReorder()} loading={actionLoading} />
+              <PrimaryAction label="Reorder with current stock" onPress={() => void handleReorder()} loading={actionLoading} />
             ) : null}
           </View>
         </View>
