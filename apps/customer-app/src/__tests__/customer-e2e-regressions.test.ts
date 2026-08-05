@@ -85,7 +85,7 @@ describe('customer end-to-end regression contracts', () => {
     const context = source('src/context/LocationContext.tsx');
     const modal = source('src/components/location-modal.tsx');
     const locationService = source('src/services/device-location.ts');
-    const config = source('../app.json');
+    const config = source('app.json');
 
     expect(context).toMatch(/requestCurrentCoordinates/);
     expect(context).toMatch(/nearestEnabledCity/);
