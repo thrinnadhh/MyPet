@@ -146,7 +146,7 @@ export function FavouritesProvider({ children }: { children: React.ReactNode }) 
         return currentlyFavourite;
       }
     },
-    [favourites, requireAuth, session?.access_token],
+    [favourites, requireAuth, session],
   );
 
   return (
