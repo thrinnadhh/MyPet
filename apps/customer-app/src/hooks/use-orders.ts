@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+
 import { useAuth } from '@/context/AuthContext';
+import { useCart } from '@/context/CartContext';
 import {
   cancelOrder,
   fetchCustomerOrders,
@@ -9,11 +11,13 @@ import {
   type ReorderValidationResult,
 } from '@/services/customer-orders';
 import { isOfflineError } from '@/services/customer-profile';
+import { buildCartFromRevalidation } from '@/services/revalidated-cart';
 
 export type OrdersStateKind = 'idle' | 'loading' | 'ready' | 'error' | 'offline';
 
 export function useOrders() {
   const { user, session } = useAuth();
+  const { replaceCart } = useCart();
   const [orders, setOrders] = useState<CustomerOrderRecord[]>([]);
   const [state, setState] = useState<OrdersStateKind>('idle');
   const [activeTab, setActiveTab] = useState<OrderTabCategory>('active');
@@ -38,7 +42,6 @@ export function useOrders() {
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
-      // Tab filter logic
       const isPast = ['DELIVERED', 'COMPLETED', 'CANCELLED', 'REJECTED'].includes(order.status);
       const isSub = Boolean(order.isSubscription);
 
@@ -46,11 +49,10 @@ export function useOrders() {
       if (activeTab === 'past' && !isPast) return false;
       if (activeTab === 'active' && (isPast || isSub)) return false;
 
-      // Search query filter
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase().trim();
         const matchProvider = order.providerName.toLowerCase().includes(query);
-        const matchItem = order.items.some((i) => i.toLowerCase().includes(query));
+        const matchItem = order.items.some((item) => item.toLowerCase().includes(query));
         const matchId = order.id.toLowerCase().includes(query);
         if (!matchProvider && !matchItem && !matchId) return false;
       }
@@ -78,12 +80,17 @@ export function useOrders() {
       if (!session) return null;
       setActionLoading(true);
       try {
-        return await reorderItems(orderId, session.access_token);
+        const result = await reorderItems(orderId, session.access_token);
+        if (result.canReorder) {
+          const nextItems = await buildCartFromRevalidation(result);
+          await replaceCart(nextItems);
+        }
+        return result;
       } finally {
         setActionLoading(false);
       }
     },
-    [session],
+    [replaceCart, session],
   );
 
   return {
