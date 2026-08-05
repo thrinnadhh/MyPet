@@ -1,9 +1,9 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppIcon } from '@/components/app-icon';
-import { FilterChip } from '@/components/foundation/primitives';
+import { FilterChip, StateView } from '@/components/foundation/primitives';
 import { ThemedText } from '@/components/themed-text';
 import { PrimaryButton } from '@/components/ui/primary-button';
 import { ScreenHeader } from '@/components/ui/screen-header';
@@ -12,7 +12,11 @@ import { useCart } from '@/context/CartContext';
 import { useFavourites } from '@/context/FavouritesContext';
 import { radii, shadows, spacing, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
-import { SAMPLE_PRODUCTS, type ProductVariant } from '@/services/catalog-data';
+import type { CommerceProduct, ProductVariant } from '@/services/catalog-data';
+import { fetchCommerceProduct } from '@/services/customer-catalog';
+import { isOfflineError } from '@/services/customer-profile';
+
+type LoadState = 'loading' | 'ready' | 'offline' | 'error';
 
 export default function ProductDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -20,134 +24,165 @@ export default function ProductDetailScreen() {
   const theme = useTheme();
   const { addToCart, items, updateQuantity } = useCart();
   const { isFavourite, toggleFavourite } = useFavourites();
+  const [product, setProduct] = useState<CommerceProduct | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
+  const [state, setState] = useState<LoadState>('loading');
 
-  const product = useMemo(() => {
-    return SAMPLE_PRODUCTS.find((p) => p.id === id) ?? SAMPLE_PRODUCTS[0];
+  const load = useCallback(async () => {
+    if (!id) {
+      setState('error');
+      return;
+    }
+
+    setState('loading');
+    try {
+      const nextProduct = await fetchCommerceProduct(id);
+      setProduct(nextProduct);
+      setSelectedVariant(nextProduct.variants[0] ?? null);
+      setState('ready');
+    } catch (error) {
+      setProduct(null);
+      setSelectedVariant(null);
+      setState(isOfflineError(error) ? 'offline' : 'error');
+    }
   }, [id]);
 
-  const [selectedVariant, setSelectedVariant] = useState<ProductVariant>(
-    product.variants[0] ?? { id: 'v1', name: 'Standard Pack', price: product.price, inStock: true, stockCount: 10 }
-  );
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (state === 'loading') {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <ScreenHeader title="Product" subtitle="Loading live price and stock" />
+        <StateView kind="loading" title="Loading product" />
+      </View>
+    );
+  }
+
+  if (state === 'offline' || state === 'error' || !product || !selectedVariant) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <ScreenHeader title="Product" subtitle="Live catalog" />
+        <StateView
+          kind={state === 'offline' ? 'offline' : 'error'}
+          title={state === 'offline' ? 'You are offline' : 'Product unavailable'}
+          message={state === 'offline' ? 'Reconnect to verify the latest price and stock.' : 'This product is no longer available.'}
+          actionLabel="Retry"
+          onAction={() => void load()}
+        />
+      </View>
+    );
+  }
 
   const isFav = isFavourite('PRODUCT', product.id);
   const cartItem = items.find(
-    (i) => i.product.id === product.id && i.selectedVariant?.id === selectedVariant.id
+    (item) => item.product.id === product.id && item.selectedVariant?.id === selectedVariant.id,
   );
-  const qtyInCart = cartItem ? cartItem.quantity : 0;
-
-  const currentPrice = selectedVariant ? selectedVariant.price : product.price;
-  const currentOriginalPrice = selectedVariant ? selectedVariant.originalPrice : product.originalPrice;
+  const qtyInCart = cartItem?.quantity ?? 0;
+  const currentPrice = selectedVariant.price;
+  const currentOriginalPrice = selectedVariant.originalPrice ?? product.originalPrice;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScreenHeader title={product.brand} subtitle={product.name} />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Main Image Gallery */}
         <View style={styles.imageCard}>
           <Image source={{ uri: product.imageUrl }} style={styles.mainImage} resizeMode="cover" />
           <Pressable
             onPress={() => void toggleFavourite('PRODUCT', product.id)}
             style={[styles.favBadge, { backgroundColor: theme.background }]}
-            accessibilityLabel="Toggle Favourite"
+            accessibilityRole="button"
+            accessibilityLabel={isFav ? 'Remove from favourites' : 'Add to favourites'}
+            accessibilityState={{ selected: isFav }}
           >
-            <AppIcon name={isFav ? 'check' : 'warning'} color={isFav ? theme.danger : theme.textSecondary} size={22} />
+            <AppIcon name="heart" color={isFav ? theme.danger : theme.textSecondary} size={22} />
           </Pressable>
         </View>
 
-        {/* Header Details */}
         <View style={styles.section}>
           <View style={styles.badgeRow}>
             <StatusBadge label={product.rating} color={theme.warning} />
-            <StatusBadge label={`⚡ Delivery: ${product.deliveryTime}`} color={theme.success} />
-            {product.inStock ? (
-              <StatusBadge label={`In Stock (${product.stockCount} left)`} color={theme.primary} />
-            ) : (
-              <StatusBadge label="Out of Stock" color={theme.danger} />
-            )}
+            <StatusBadge label={`Delivery: ${product.deliveryTime}`} color={theme.success} />
+            <StatusBadge
+              label={selectedVariant.inStock ? `In stock (${selectedVariant.stockCount})` : 'Out of stock'}
+              color={selectedVariant.inStock ? theme.primary : theme.danger}
+            />
           </View>
 
           <ThemedText style={[styles.title, { color: theme.text }]}>{product.name}</ThemedText>
-          <ThemedText style={{ fontSize: 13, color: theme.textSecondary }}>By {product.brand}</ThemedText>
+          <ThemedText style={{ fontSize: 13, color: theme.textSecondary }}>Sold by {product.providerName}</ThemedText>
 
           <View style={styles.priceRow}>
             <ThemedText style={[styles.priceText, { color: theme.primary }]}>₹{currentPrice}</ThemedText>
-            {currentOriginalPrice && (
-              <ThemedText style={styles.strikethrough}>₹{currentOriginalPrice}</ThemedText>
-            )}
+            {currentOriginalPrice ? <ThemedText style={styles.strikethrough}>₹{currentOriginalPrice}</ThemedText> : null}
           </View>
         </View>
 
-        {/* Variant Selector */}
-        {product.variants.length > 1 && (
+        {product.variants.length > 1 ? (
           <View style={styles.section}>
             <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Select Pack / Size</ThemedText>
             <View style={styles.chipGrid}>
-              {product.variants.map((v) => (
+              {product.variants.map((variant) => (
                 <FilterChip
-                  key={v.id}
-                  label={`${v.name} - ₹${v.price}`}
-                  selected={selectedVariant.id === v.id}
-                  onPress={() => setSelectedVariant(v)}
+                  key={variant.id}
+                  label={`${variant.name} - ₹${variant.price}`}
+                  selected={selectedVariant.id === variant.id}
+                  onPress={() => setSelectedVariant(variant)}
                 />
               ))}
             </View>
           </View>
-        )}
+        ) : null}
 
-        {/* Product Description */}
         <View style={styles.section}>
           <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Description</ThemedText>
           <ThemedText style={[styles.bodyText, { color: theme.textSecondary }]}>{product.description}</ThemedText>
         </View>
 
-        {/* Specifications */}
         <View style={styles.section}>
           <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Specifications</ThemedText>
           <View style={[styles.specCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-            {Object.entries(product.specifications).map(([key, val], idx) => (
-              <View key={idx} style={styles.specRow}>
+            {Object.entries(product.specifications).map(([key, value]) => (
+              <View key={key} style={styles.specRow}>
                 <ThemedText style={{ fontSize: 13, color: theme.textSecondary, width: 120 }}>{key}</ThemedText>
-                <ThemedText style={{ fontSize: 13, color: theme.text, fontWeight: '600', flex: 1 }}>{val}</ThemedText>
+                <ThemedText style={{ fontSize: 13, color: theme.text, fontWeight: '600', flex: 1 }}>{value}</ThemedText>
               </View>
             ))}
           </View>
         </View>
 
-        {/* Ingredients */}
-        {product.ingredients && product.ingredients.length > 0 && (
+        {product.ingredients && product.ingredients.length > 0 ? (
           <View style={styles.section}>
             <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Key Ingredients</ThemedText>
             <ThemedText style={[styles.bodyText, { color: theme.textSecondary }]}>
               {product.ingredients.join(', ')}
             </ThemedText>
           </View>
-        )}
+        ) : null}
 
-        {/* Suitability Tags */}
         <View style={styles.section}>
           <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Suitable For</ThemedText>
           <View style={styles.chipGrid}>
-            {product.suitability.map((tag, idx) => (
-              <StatusBadge key={idx} label={`✓ ${tag}`} color={theme.primary} />
+            {product.suitability.map((tag) => (
+              <StatusBadge key={tag} label={`✓ ${tag}`} color={theme.primary} />
             ))}
           </View>
         </View>
 
-        {/* Seller Info Card */}
         <Pressable
-          onPress={() => router.push(`/shop/${product.sellerInfo.id}` as never)}
+          onPress={() => router.push(`/shop/${product.providerId}` as never)}
           style={[styles.sellerCard, shadows.raised, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
         >
           <AppIcon name="store" color={theme.primary} size={24} />
           <View style={{ flex: 1 }}>
-            <ThemedText style={{ fontWeight: '700', fontSize: 14, color: theme.text }}>{product.sellerInfo.name}</ThemedText>
-            <ThemedText style={{ fontSize: 12, color: theme.textSecondary }}>📍 {product.sellerInfo.address}</ThemedText>
+            <ThemedText style={{ fontWeight: '700', fontSize: 14, color: theme.text }}>{product.providerName}</ThemedText>
+            <ThemedText style={{ fontSize: 12, color: theme.textSecondary }}>{product.sellerInfo.address}</ThemedText>
           </View>
           <ThemedText style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>Visit Store →</ThemedText>
         </Pressable>
 
-        {/* Delivery & Return Policy */}
         <View style={[styles.policyBox, { backgroundColor: theme.muted }]}>
           <View style={styles.policyRow}>
             <AppIcon name="location" color={theme.primary} size={18} />
@@ -166,9 +201,7 @@ export default function ProductDetailScreen() {
         </View>
       </ScrollView>
 
-      {/* Sticky Bottom Action Bar */}
       <View style={[styles.stickyFooter, shadows.raised, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-
         <View>
           <ThemedText style={{ fontSize: 12, color: theme.textSecondary }}>Total Price</ThemedText>
           <ThemedText style={[styles.footerPrice, { color: theme.primary }]}>₹{currentPrice * (qtyInCart || 1)}</ThemedText>
@@ -187,7 +220,7 @@ export default function ProductDetailScreen() {
         ) : (
           <PrimaryButton
             label="ADD TO CART"
-            disabled={!product.inStock}
+            disabled={!selectedVariant.inStock}
             onPress={() => addToCart(product, selectedVariant)}
           />
         )}
