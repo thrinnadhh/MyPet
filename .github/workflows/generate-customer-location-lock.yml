@@ -1,0 +1,31 @@
+name: Generate Customer Location Lock
+
+on:
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19'
+          cache: npm
+          cache-dependency-path: apps/customer-app/package-lock.json
+      - name: Generate dependency metadata
+        working-directory: apps/customer-app
+        run: npm install --save expo-location@~56.0.22 --package-lock-only
+      - name: Upload generated metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-location-lock
+          path: |
+            apps/customer-app/package.json
+            apps/customer-app/package-lock.json
+          if-no-files-found: error
+          retention-days: 1
