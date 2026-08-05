@@ -18,6 +18,8 @@ interface CatalogOffering {
   name: string;
   price: number | string;
   status?: string;
+  durationMinutes?: number | null;
+  stockQuantity?: number | null;
 }
 
 interface CatalogSlot {
@@ -38,22 +40,18 @@ interface AppointmentResponse {
 interface HoldAppointmentInput {
   slot: AppointmentSlotOption;
   userId: string | null | undefined;
+  petId: string;
   accessToken: string | null | undefined;
 }
 
 function authHeaders(accessToken: string | null | undefined): Record<string, string> {
   const headers: Record<string, string> = { Accept: 'application/json' };
-  if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`;
-  }
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   return headers;
 }
 
 function jsonHeaders(accessToken: string | null | undefined): Record<string, string> {
-  return {
-    ...authHeaders(accessToken),
-    'Content-Type': 'application/json',
-  };
+  return { ...authHeaders(accessToken), 'Content-Type': 'application/json' };
 }
 
 function resolveBookingUserId(userId: string | null | undefined): string {
@@ -63,31 +61,44 @@ function resolveBookingUserId(userId: string | null | undefined): string {
 }
 
 function toPrice(value: number | string): number {
-  return typeof value === 'number' ? value : Number.parseFloat(value);
+  const parsed = typeof value === 'number' ? value : Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function formatSlotTime(value: string | undefined, options: Intl.DateTimeFormatOptions): string {
+function formatSlotTime(
+  value: string | undefined,
+  options: Intl.DateTimeFormatOptions,
+): string {
   if (!value) return 'Slot time unavailable';
   return new Date(value).toLocaleString('en-IN', options);
 }
 
-export async function fetchAvailableAppointmentSlots(providerId: string): Promise<AppointmentSlotOption[]> {
-  const offeringsResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/offerings?providerId=${providerId}`, {
-    headers: authHeaders(undefined),
-  });
-  if (!offeringsResponse.ok) {
-    throw new Error('Could not load appointment services.');
-  }
+async function apiError(response: Response, fallback: string): Promise<Error> {
+  const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+  return new Error(body?.error ?? body?.message ?? fallback);
+}
+
+export async function fetchAvailableAppointmentSlots(
+  providerId: string,
+): Promise<AppointmentSlotOption[]> {
+  const offeringsResponse = await fetch(
+    `${appConfig.apiBaseUrl}/api/v1/catalog/offerings?providerId=${encodeURIComponent(providerId)}`,
+    { headers: authHeaders(undefined) },
+  );
+  if (!offeringsResponse.ok) throw await apiError(offeringsResponse, 'Could not load appointment services.');
 
   const offerings = ((await offeringsResponse.json()) as CatalogOffering[]).filter(
-    (offering) => !offering.status || offering.status === 'ACTIVE',
+    (offering) =>
+      (!offering.status || offering.status === 'ACTIVE') &&
+      (offering.durationMinutes != null || offering.stockQuantity == null),
   );
 
   const slotGroups = await Promise.all(
     offerings.map(async (offering) => {
-      const slotsResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/catalog/slots?offeringId=${offering.offeringId}`, {
-        headers: authHeaders(undefined),
-      });
+      const slotsResponse = await fetch(
+        `${appConfig.apiBaseUrl}/api/v1/catalog/slots?offeringId=${encodeURIComponent(offering.offeringId)}`,
+        { headers: authHeaders(undefined) },
+      );
       if (!slotsResponse.ok) return [];
 
       const slots = (await slotsResponse.json()) as CatalogSlot[];
@@ -101,8 +112,17 @@ export async function fetchAvailableAppointmentSlots(providerId: string): Promis
             providerId: offering.providerId,
             offeringId: offering.offeringId,
             serviceName: offering.name,
-            startTime: formatSlotTime(slotStart, { weekday: 'short', hour: '2-digit', minute: '2-digit' }),
-            endTime: formatSlotTime(slotEnd, { hour: '2-digit', minute: '2-digit' }),
+            startTime: formatSlotTime(slotStart, {
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+            endTime: formatSlotTime(slotEnd, {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
             price: toPrice(offering.price),
           };
         });
@@ -114,6 +134,8 @@ export async function fetchAvailableAppointmentSlots(providerId: string): Promis
 
 export async function holdAppointmentSlot(input: HoldAppointmentInput): Promise<string> {
   const bookingUserId = resolveBookingUserId(input.userId);
+  if (!input.petId) throw new Error('Select a pet before booking.');
+
   const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/appointments/hold`, {
     method: 'POST',
     headers: jsonHeaders(input.accessToken),
@@ -122,15 +144,14 @@ export async function holdAppointmentSlot(input: HoldAppointmentInput): Promise<
       providerId: input.slot.providerId,
       offeringId: input.slot.offeringId,
       slotId: input.slot.id,
-      petId: bookingUserId,
+      petId: input.petId,
       priceAmount: input.slot.price,
       payAtClinic: true,
     }),
   });
 
   if (!response.ok) {
-    const errorBody = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-    throw new Error(errorBody?.error ?? errorBody?.message ?? 'This slot was just taken. Please choose another.');
+    throw await apiError(response, 'This slot was just taken. Please choose another.');
   }
 
   const data = (await response.json()) as AppointmentResponse;
@@ -141,14 +162,16 @@ export async function holdAppointmentSlot(input: HoldAppointmentInput): Promise<
   return appointmentId;
 }
 
-export async function confirmAppointmentHold(appointmentId: string, accessToken: string | null | undefined): Promise<void> {
-  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/appointments/${appointmentId}/confirm`, {
-    method: 'POST',
-    headers: authHeaders(accessToken),
-  });
+export async function confirmAppointmentHold(
+  appointmentId: string,
+  accessToken: string | null | undefined,
+): Promise<void> {
+  const response = await fetch(
+    `${appConfig.apiBaseUrl}/api/v1/appointments/${encodeURIComponent(appointmentId)}/confirm`,
+    { method: 'POST', headers: authHeaders(accessToken) },
+  );
 
   if (!response.ok) {
-    const errorBody = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-    throw new Error(errorBody?.error ?? errorBody?.message ?? 'The appointment was not confirmed. Please retry.');
+    throw await apiError(response, 'The appointment was not confirmed. Please retry.');
   }
 }
