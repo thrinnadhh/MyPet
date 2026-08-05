@@ -67,7 +67,8 @@ async function registerPushToken(accessToken: string): Promise<string | null> {
     });
   }
 
-  const projectId = Constants.easConfig?.projectId ??
+  const projectId =
+    Constants.easConfig?.projectId ??
     (Constants.expoConfig?.extra?.eas as { projectId?: string } | undefined)?.projectId;
   const tokenResponse = projectId
     ? await Notifications.getExpoPushTokenAsync({ projectId })
@@ -92,11 +93,33 @@ async function registerPushToken(accessToken: string): Promise<string | null> {
   return token;
 }
 
-function notificationIntent(data: Record<string, unknown>): AuthIntent | null {
-  const templateCode = typeof data.templateCode === 'string' ? data.templateCode.toUpperCase() : '';
-  const referenceId = typeof data.referenceId === 'string' ? data.referenceId : undefined;
+async function unregisterPushToken(
+  token: string,
+  accessToken: string,
+): Promise<void> {
+  const response = await fetch(
+    `${appConfig.apiBaseUrl}/api/v1/notifications/push-tokens?token=${encodeURIComponent(token)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+  if (!response.ok && response.status !== 404) throw await responseError(response);
+}
 
-  if (templateCode.startsWith('APPOINTMENT_') || templateCode.startsWith('VACCINATION_')) {
+function notificationIntent(data: Record<string, unknown>): AuthIntent | null {
+  const templateCode =
+    typeof data.templateCode === 'string' ? data.templateCode.toUpperCase() : '';
+  const referenceId =
+    typeof data.referenceId === 'string' ? data.referenceId : undefined;
+
+  if (
+    templateCode.startsWith('APPOINTMENT_') ||
+    templateCode.startsWith('VACCINATION_')
+  ) {
     return {
       action: 'ORDER_HISTORY',
       returnTo: '/appointments',
@@ -141,13 +164,20 @@ export function usePushNotifications(
   const handledResponseId = useRef<string | null>(null);
   const expoGoNoticeShown = useRef(false);
   const registeredForUser = useRef<string | null>(null);
+  const registeredToken = useRef<string | null>(null);
+  const previousAuthentication = useRef<{
+    userId: string;
+    accessToken: string;
+  } | null>(null);
 
   const handleNotificationResponse = useCallback(
     async (response: NotificationResponse) => {
       const responseId = response.notification.request.identifier;
       if (handledResponseId.current === responseId) return;
 
-      const intent = notificationIntent(response.notification.request.content.data ?? {});
+      const intent = notificationIntent(
+        response.notification.request.content.data ?? {},
+      );
       if (!intent) return;
 
       handledResponseId.current = responseId;
@@ -165,7 +195,9 @@ export function usePushNotifications(
     if (isExpoGo) {
       if (!expoGoNoticeShown.current) {
         expoGoNoticeShown.current = true;
-        console.info('Remote push notifications are disabled in Expo Go. Use a development build to test push notifications.');
+        console.info(
+          'Remote push notifications are disabled in Expo Go. Use a development build to test push notifications.',
+        );
       }
       return;
     }
@@ -176,13 +208,17 @@ export function usePushNotifications(
     void getNotificationsModule()
       .then(async (Notifications) => {
         if (!Notifications || disposed) return;
-        subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-          void handleNotificationResponse(response);
-        });
+        subscription = Notifications.addNotificationResponseReceivedListener(
+          (response) => {
+            void handleNotificationResponse(response);
+          },
+        );
         const response = await Notifications.getLastNotificationResponseAsync();
         if (response && !disposed) await handleNotificationResponse(response);
       })
-      .catch((error) => console.warn('Unable to initialize notification response handling', error));
+      .catch((error) =>
+        console.warn('Unable to initialize notification response handling', error),
+      );
 
     return () => {
       disposed = true;
@@ -191,18 +227,42 @@ export function usePushNotifications(
   }, [handleNotificationResponse]);
 
   useEffect(() => {
-    if (Platform.OS === 'web' || isExpoGo || !userId || !accessToken || appConfig.allowDemoMode) {
-      if (!userId) registeredForUser.current = null;
+    const previous = previousAuthentication.current;
+    if (previous && !userId && registeredToken.current) {
+      const token = registeredToken.current;
+      registeredToken.current = null;
+      registeredForUser.current = null;
+      void unregisterPushToken(token, previous.accessToken).catch((error) => {
+        console.warn('Unable to unregister push token', error);
+      });
+    }
+
+    previousAuthentication.current =
+      userId && accessToken ? { userId, accessToken } : null;
+  }, [accessToken, userId]);
+
+  useEffect(() => {
+    if (
+      Platform.OS === 'web' ||
+      isExpoGo ||
+      !userId ||
+      !accessToken ||
+      appConfig.allowDemoMode
+    ) {
       return;
     }
-    if (registeredForUser.current === userId) return;
+    if (registeredForUser.current === userId && registeredToken.current) return;
 
     void registerPushToken(accessToken)
       .then((token) => {
-        if (token) registeredForUser.current = userId;
+        if (token) {
+          registeredForUser.current = userId;
+          registeredToken.current = token;
+        }
       })
       .catch((error) => {
         registeredForUser.current = null;
+        registeredToken.current = null;
         console.warn('Unable to register push token', error);
       });
   }, [accessToken, userId]);
