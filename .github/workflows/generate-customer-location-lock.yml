@@ -5,13 +5,15 @@ on:
     branches: [main, master]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: '20.19'
@@ -20,12 +22,14 @@ jobs:
       - name: Generate dependency metadata
         working-directory: apps/customer-app
         run: npm install --save expo-location@~56.0.22 --package-lock-only
-      - name: Upload generated metadata
-        uses: actions/upload-artifact@v4
-        with:
-          name: customer-location-lock
-          path: |
-            apps/customer-app/package.json
-            apps/customer-app/package-lock.json
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit generated metadata
+        run: |
+          if git diff --quiet -- apps/customer-app/package.json apps/customer-app/package-lock.json; then
+            echo "Dependency metadata is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/customer-app/package.json apps/customer-app/package-lock.json
+          git commit -m "add customer device location dependency"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
