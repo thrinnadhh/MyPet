@@ -4,9 +4,6 @@ import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.Id
 import jakarta.persistence.Table
-import jakarta.validation.Valid
-import jakarta.validation.constraints.NotBlank
-import jakarta.validation.constraints.Size
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.http.HttpStatus
@@ -58,11 +55,7 @@ interface CityLaunchRequestRepository : JpaRepository<CityLaunchRequest, UUID> {
 }
 
 data class CityLaunchRequestInput(
-    @field:NotBlank
-    @field:Size(max = 120)
     val cityName: String,
-    @field:NotBlank
-    @field:Size(max = 254)
     val contactInfo: String,
 )
 
@@ -80,10 +73,16 @@ class CityLaunchRequestController(
 ) {
     @PostMapping
     fun create(
-        @Valid @RequestBody input: CityLaunchRequestInput,
+        @RequestBody input: CityLaunchRequestInput,
     ): ResponseEntity<CityLaunchRequestResponse> {
         val cityName = input.cityName.trim().replace(Regex("\\s+"), " ")
         val contactInfo = input.contactInfo.trim()
+        require(cityName.isNotBlank() && cityName.length <= 120) {
+            "Enter a city name between 1 and 120 characters."
+        }
+        require(contactInfo.isNotBlank() && contactInfo.length <= 254) {
+            "Enter contact information between 1 and 254 characters."
+        }
         require(validContact(contactInfo)) {
             "Enter a valid email address or Indian mobile number."
         }
