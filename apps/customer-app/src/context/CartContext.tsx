@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Alert } from 'react-native';
 
-import { type CommerceProduct, type ProductVariant } from '@/services/catalog-data';
+import { useAuth } from '@/context/AuthContext';
+import type { CommerceProduct, ProductVariant } from '@/services/catalog-data';
 
 export interface CartItem {
   product: CommerceProduct;
@@ -22,176 +23,269 @@ interface CartContextType {
   removeFromCart: (productId: string, variantId?: string) => void;
   updateQuantity: (productId: string, variantId: string | undefined, qty: number) => void;
   clearCart: () => Promise<void>;
+  replaceCart: (nextItems: CartItem[]) => Promise<void>;
   revalidateCart: () => boolean;
 }
 
+interface StoredCart {
+  items: CartItem[];
+  providerId: string | null;
+  providerName: string | null;
+}
+
 const CartContext = createContext<CartContextType | null>(null);
-const STORAGE_KEY = 'mypet_cart_v1';
+const LEGACY_STORAGE_KEY = 'mypet_cart_v1';
+const STORAGE_PREFIX = 'mypet_cart_v2';
+
+function clampQuantity(value: number, maxStock: number): number {
+  const normalizedMax = Math.max(0, maxStock);
+  return Math.min(Math.max(1, Math.floor(value)), normalizedMax);
+}
+
+function stockFor(product: CommerceProduct, variant?: ProductVariant): number {
+  return Math.max(0, variant?.stockCount ?? product.stockCount);
+}
+
+function storageIdentity(userId?: string | null): string {
+  return userId ? `customer_${userId}` : 'guest';
+}
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const storageKey = useMemo(
+    () => `${STORAGE_PREFIX}_${storageIdentity(user?.id)}`,
+    [user?.id],
+  );
   const [items, setItems] = useState<CartItem[]>([]);
   const [providerId, setProviderId] = useState<string | null>(null);
   const [providerName, setProviderName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Load stored cart on mount
+  const applyCart = useCallback((cartItems: CartItem[]) => {
+    const first = cartItems[0];
+    setItems(cartItems);
+    setProviderId(first?.product.providerId ?? null);
+    setProviderName(first?.product.providerName ?? null);
+  }, []);
+
+  const saveCartToStorage = useCallback(async (newItems: CartItem[]) => {
+    const first = newItems[0];
+    const payload: StoredCart = {
+      items: newItems,
+      providerId: first?.product.providerId ?? null,
+      providerName: first?.product.providerName ?? null,
+    };
+    await AsyncStorage.setItem(storageKey, JSON.stringify(payload));
+  }, [storageKey]);
+
   useEffect(() => {
+    let active = true;
+
     const loadStoredCart = async () => {
+      setLoading(true);
+      applyCart([]);
       try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed.items) && parsed.items.length > 0) {
-            setItems(parsed.items);
-            setProviderId(parsed.providerId ?? null);
-            setProviderName(parsed.providerName ?? null);
+        let stored = await AsyncStorage.getItem(storageKey);
+        if (!stored && !user?.id) {
+          stored = await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
+          if (stored) {
+            await AsyncStorage.setItem(storageKey, stored);
+            await AsyncStorage.removeItem(LEGACY_STORAGE_KEY);
           }
         }
-      } catch (e) {
-        console.warn('Failed to load stored cart', e);
+
+        if (!active || !stored) return;
+        const parsed = JSON.parse(stored) as Partial<StoredCart>;
+        if (!Array.isArray(parsed.items)) return;
+
+        const validItems = parsed.items.filter((item): item is CartItem =>
+          Boolean(
+            item?.product?.id &&
+              item.product.providerId &&
+              Number.isFinite(item.quantity) &&
+              item.quantity > 0 &&
+              Number.isFinite(item.unitPrice),
+          ),
+        );
+        applyCart(validItems);
+      } catch (error) {
+        console.warn('Failed to load stored cart', error);
+        if (active) applyCart([]);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
-    void loadStoredCart();
-  }, []);
 
-  // Sync to AsyncStorage
-  const saveCartToStorage = useCallback(async (newItems: CartItem[], pId: string | null, pName: string | null) => {
-    try {
-      await AsyncStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ items: newItems, providerId: pId, providerName: pName })
-      );
-    } catch (e) {
-      console.warn('Failed to save cart to storage', e);
-    }
-  }, []);
+    void loadStoredCart();
+    return () => {
+      active = false;
+    };
+  }, [applyCart, storageKey, user?.id]);
 
   const clearCart = useCallback(async () => {
-    setItems([]);
-    setProviderId(null);
-    setProviderName(null);
-    await AsyncStorage.removeItem(STORAGE_KEY);
-  }, []);
+    applyCart([]);
+    await AsyncStorage.removeItem(storageKey);
+  }, [applyCart, storageKey]);
+
+  const replaceCart = useCallback(async (nextItems: CartItem[]) => {
+    const providerIds = new Set(nextItems.map((item) => item.product.providerId));
+    if (providerIds.size > 1) {
+      throw new Error('A cart can contain items from only one provider.');
+    }
+
+    const normalized = nextItems
+      .map((item) => {
+        const maxStock = stockFor(item.product, item.selectedVariant);
+        if (!item.product.inStock || maxStock <= 0) return null;
+        const quantity = clampQuantity(item.quantity, maxStock);
+        return {
+          ...item,
+          quantity,
+          unitPrice: item.selectedVariant?.price ?? item.product.price,
+        };
+      })
+      .filter((item): item is CartItem => item !== null);
+
+    applyCart(normalized);
+    if (normalized.length === 0) {
+      await AsyncStorage.removeItem(storageKey);
+    } else {
+      await saveCartToStorage(normalized);
+    }
+  }, [applyCart, saveCartToStorage, storageKey]);
 
   const addToCart = useCallback(
-    (product: CommerceProduct, variant?: ProductVariant, qty: number = 1): boolean => {
-      // 1. Single Provider Constraint Check
+    (product: CommerceProduct, variant?: ProductVariant, qty = 1): boolean => {
+      const maxStock = stockFor(product, variant);
+      if (!product.inStock || !variant?.inStock || maxStock <= 0) {
+        Alert.alert('Out of stock', `${product.name} is currently unavailable.`);
+        return false;
+      }
+
       if (providerId && providerId !== product.providerId && items.length > 0) {
         Alert.alert(
           'Replace Cart Items?',
-          `Your cart contains items from "${providerName ?? 'another shop'}". Would you like to clear your cart and start a new order from "${product.providerName}"?`,
+          `Your cart contains items from "${providerName ?? 'another shop'}". Clear it and start a new order from "${product.providerName}"?`,
           [
             { text: 'Cancel', style: 'cancel' },
             {
               text: 'Clear & Continue',
               style: 'destructive',
               onPress: () => {
-                const unitPrice = variant ? variant.price : product.price;
-                const newItem: CartItem = { product, selectedVariant: variant, quantity: qty, unitPrice };
-                const newItems = [newItem];
-                setItems(newItems);
-                setProviderId(product.providerId);
-                setProviderName(product.providerName);
-                void saveCartToStorage(newItems, product.providerId, product.providerName);
+                const quantity = clampQuantity(qty, maxStock);
+                const newItems: CartItem[] = [{
+                  product,
+                  selectedVariant: variant,
+                  quantity,
+                  unitPrice: variant.price,
+                }];
+                applyCart(newItems);
+                void saveCartToStorage(newItems).catch((error) =>
+                  console.warn('Failed to replace stored cart', error),
+                );
               },
             },
-          ]
+          ],
         );
         return false;
       }
 
-      // 2. Add or increment item quantity
-      const unitPrice = variant ? variant.price : product.price;
-      setItems((prev) => {
-        const existingIndex = prev.findIndex(
-          (i) => i.product.id === product.id && i.selectedVariant?.id === variant?.id
+      setItems((current) => {
+        const existingIndex = current.findIndex(
+          (item) => item.product.id === product.id && item.selectedVariant?.id === variant.id,
         );
         let next: CartItem[];
         if (existingIndex >= 0) {
-          next = [...prev];
-          const currentQty = next[existingIndex].quantity;
-          const maxStock = variant ? variant.stockCount : product.stockCount;
+          next = [...current];
+          const existing = next[existingIndex];
           next[existingIndex] = {
-            ...next[existingIndex],
-            quantity: Math.min(currentQty + qty, maxStock),
+            ...existing,
+            product,
+            selectedVariant: variant,
+            unitPrice: variant.price,
+            quantity: Math.min(existing.quantity + Math.max(1, Math.floor(qty)), maxStock),
           };
         } else {
-          next = [...prev, { product, selectedVariant: variant, quantity: qty, unitPrice }];
+          next = [
+            ...current,
+            {
+              product,
+              selectedVariant: variant,
+              quantity: clampQuantity(qty, maxStock),
+              unitPrice: variant.price,
+            },
+          ];
         }
-        const nextPId = product.providerId;
-        const nextPName = product.providerName;
-        setProviderId(nextPId);
-        setProviderName(nextPName);
-        void saveCartToStorage(next, nextPId, nextPName);
+        setProviderId(product.providerId);
+        setProviderName(product.providerName);
+        void saveCartToStorage(next).catch((error) => console.warn('Failed to save cart', error));
         return next;
       });
       return true;
     },
-    [items.length, providerId, providerName, saveCartToStorage]
+    [applyCart, items.length, providerId, providerName, saveCartToStorage],
   );
 
-  const removeFromCart = useCallback(
-    (productId: string, variantId?: string) => {
-      setItems((prev) => {
-        const next = prev.filter(
-          (i) => !(i.product.id === productId && i.selectedVariant?.id === variantId)
-        );
-        const nextPId = next.length > 0 ? providerId : null;
-        const nextPName = next.length > 0 ? providerName : null;
-        if (next.length === 0) {
-          setProviderId(null);
-          setProviderName(null);
-        }
-        void saveCartToStorage(next, nextPId, nextPName);
-        return next;
-      });
-    },
-    [providerId, providerName, saveCartToStorage]
-  );
+  const removeFromCart = useCallback((productId: string, variantId?: string) => {
+    setItems((current) => {
+      const next = current.filter(
+        (item) => !(item.product.id === productId && item.selectedVariant?.id === variantId),
+      );
+      const first = next[0];
+      setProviderId(first?.product.providerId ?? null);
+      setProviderName(first?.product.providerName ?? null);
+      void (next.length > 0 ? saveCartToStorage(next) : AsyncStorage.removeItem(storageKey)).catch((error) =>
+        console.warn('Failed to update stored cart', error),
+      );
+      return next;
+    });
+  }, [saveCartToStorage, storageKey]);
 
-  const updateQuantity = useCallback(
-    (productId: string, variantId: string | undefined, qty: number) => {
-      if (qty <= 0) {
-        removeFromCart(productId, variantId);
-        return;
-      }
-      setItems((prev) => {
-        const next = prev.map((i) => {
-          if (i.product.id === productId && i.selectedVariant?.id === variantId) {
-            const maxStock = i.selectedVariant ? i.selectedVariant.stockCount : i.product.stockCount;
-            return { ...i, quantity: Math.min(qty, maxStock) };
-          }
-          return i;
-        });
-        void saveCartToStorage(next, providerId, providerName);
-        return next;
+  const updateQuantity = useCallback((productId: string, variantId: string | undefined, qty: number) => {
+    if (qty <= 0) {
+      removeFromCart(productId, variantId);
+      return;
+    }
+
+    setItems((current) => {
+      const next = current.map((item) => {
+        if (item.product.id !== productId || item.selectedVariant?.id !== variantId) return item;
+        const maxStock = stockFor(item.product, item.selectedVariant);
+        return { ...item, quantity: clampQuantity(qty, maxStock) };
       });
-    },
-    [providerId, providerName, removeFromCart, saveCartToStorage]
-  );
+      void saveCartToStorage(next).catch((error) => console.warn('Failed to save quantity', error));
+      return next;
+    });
+  }, [removeFromCart, saveCartToStorage]);
 
   const revalidateCart = useCallback((): boolean => {
-    // Check if any items are out of stock
     let valid = true;
-    setItems((prev) => {
-      const next = prev.filter((i) => {
-        const inStock = i.selectedVariant ? i.selectedVariant.inStock : i.product.inStock;
-        if (!inStock) {
+    setItems((current) => {
+      const next = current.flatMap((item) => {
+        const maxStock = stockFor(item.product, item.selectedVariant);
+        if (!item.product.inStock || !item.selectedVariant?.inStock || maxStock <= 0) {
           valid = false;
-          return false;
+          return [];
         }
-        return true;
+        if (item.quantity > maxStock) {
+          valid = false;
+          return [{ ...item, quantity: maxStock }];
+        }
+        return [item];
       });
-      void saveCartToStorage(next, next.length > 0 ? providerId : null, next.length > 0 ? providerName : null);
+      const first = next[0];
+      setProviderId(first?.product.providerId ?? null);
+      setProviderName(first?.product.providerName ?? null);
+      void (next.length > 0 ? saveCartToStorage(next) : AsyncStorage.removeItem(storageKey)).catch((error) =>
+        console.warn('Failed to persist cart revalidation', error),
+      );
       return next;
     });
     return valid;
-  }, [providerId, providerName, saveCartToStorage]);
+  }, [saveCartToStorage, storageKey]);
 
-  const totalItemsCount = items.reduce((acc, i) => acc + i.quantity, 0);
-  const subtotalAmount = items.reduce((acc, i) => acc + i.unitPrice * i.quantity, 0);
+  const totalItemsCount = items.reduce((total, item) => total + item.quantity, 0);
+  const subtotalAmount = items.reduce((total, item) => total + item.unitPrice * item.quantity, 0);
 
   return (
     <CartContext.Provider
@@ -206,6 +300,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         removeFromCart,
         updateQuantity,
         clearCart,
+        replaceCart,
         revalidateCart,
       }}
     >
@@ -216,8 +311,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
 export function useCart() {
   const context = useContext(CartContext);
-  if (!context) {
-    throw new Error('useCart must be used within CartProvider');
-  }
+  if (!context) throw new Error('useCart must be used within CartProvider');
   return context;
 }
