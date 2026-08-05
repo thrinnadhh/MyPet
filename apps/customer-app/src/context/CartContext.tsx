@@ -50,6 +50,11 @@ function storageIdentity(userId?: string | null): string {
   return userId ? `customer_${userId}` : 'guest';
 }
 
+function matchesCartLine(item: CartItem, productId: string, variantId?: string): boolean {
+  return item.product.id === productId &&
+    (variantId === undefined || item.selectedVariant?.id === variantId);
+}
+
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const storageKey = useMemo(
@@ -228,9 +233,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const removeFromCart = useCallback((productId: string, variantId?: string) => {
     setItems((current) => {
-      const next = current.filter(
-        (item) => !(item.product.id === productId && item.selectedVariant?.id === variantId),
-      );
+      const next = current.filter((item) => !matchesCartLine(item, productId, variantId));
       const first = next[0];
       setProviderId(first?.product.providerId ?? null);
       setProviderName(first?.product.providerName ?? null);
@@ -248,8 +251,10 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }
 
     setItems((current) => {
+      let updated = false;
       const next = current.map((item) => {
-        if (item.product.id !== productId || item.selectedVariant?.id !== variantId) return item;
+        if (updated || !matchesCartLine(item, productId, variantId)) return item;
+        updated = true;
         const maxStock = stockFor(item.product, item.selectedVariant);
         return { ...item, quantity: clampQuantity(qty, maxStock) };
       });
