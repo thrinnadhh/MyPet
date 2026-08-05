@@ -93,7 +93,7 @@ export function FavouritesProvider({ children }: { children: React.ReactNode }) 
       );
 
       if (!session?.access_token) {
-        await requireAuth({ action: 'SAVE_FAVOURITE', returnTo: '/favourites' });
+        await requireAuth({ action: 'FAVOURITE', returnTo: '/favourites' });
         return currentlyFavourite;
       }
 
