@@ -16,7 +16,13 @@ MEDICAL_REPORTS_ACCESS_KEY=local-test-access-key
 MEDICAL_REPORTS_SECRET_KEY=local-test-secret-key
 MEDICAL_DOCUMENT_SIGNING_KEY=0123456789abcdef0123456789abcdef
 CASE_EVIDENCE_SIGNING_KEY=abcdef0123456789abcdef0123456789
-RAZORPAY_WEBHOOK_SECRET=local-webhook-secret
+CASHFREE_CLIENT_ID=ci-interpolation-only-client-id
+CASHFREE_CLIENT_SECRET=ci-interpolation-only-client-secret
+CASHFREE_WEBHOOK_SECRET=local-cashfree-webhook-secret
+PAYMENT_CHECKOUT_TOKEN_SECRET=0123456789abcdef0123456789abcdef
+# Retained only for legacy payment-service unit/contract coverage; active customer
+# online payments are routed through Cashfree.
+RAZORPAY_WEBHOOK_SECRET=local-legacy-webhook-secret
 EOF
 
 COMPOSE=(
