@@ -1,5 +1,6 @@
 package com.pawsnearme.application.module
 
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
@@ -78,19 +79,22 @@ class M2ModuleBoundaryTest {
     }
 
     @Test
-    fun `consolidated application links modules without transitive infrastructure`() {
+    fun `consolidated application packages every module runtime transitively`() {
         val build = Files.readString(
             backendRoot.resolve("mypet-application").resolve("build.gradle.kts")
         )
 
         modules.forEach { module ->
-            val declaration = Regex(
-                """implementation\(project\(\":${Regex.escape(module.projectName)}\"\)\)\s*\{\s*isTransitive\s*=\s*false\s*}"""
-            )
+            val activeDeclaration =
+                "implementation(project(\":${module.projectName}\"))"
             assertTrue(
-                declaration.containsMatchIn(build),
-                "${module.projectName} must be linked as a non-transitive dormant library"
+                activeDeclaration in build,
+                "${module.projectName} must be packaged into the monolith runtime"
             )
         }
+        assertFalse(
+            "isTransitive = false" in build,
+            "M9 must not package business modules as dormant non-transitive libraries"
+        )
     }
 }
