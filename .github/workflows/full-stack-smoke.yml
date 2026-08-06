@@ -53,7 +53,7 @@ jobs:
 
   modular-monolith-stack:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     env:
       COMPOSE_PARALLEL_LIMIT: "3"
     steps:
@@ -69,18 +69,20 @@ jobs:
       - name: Configure Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Boot and verify the modular monolith
-        run: bash scripts/test-monolith-stack.sh
+      - name: Certify the modular monolith end to end
+        run: bash scripts/test-monolith-release-certification.sh
 
-      - name: Upload monolith validation reports
+      - name: Upload monolith release-certification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: monolith-validation-${{ github.run_id }}
+          name: monolith-release-certification-${{ github.run_id }}
           if-no-files-found: warn
           retention-days: 14
           path: |
-            build/reports/monolith-smoke.md
+            build/reports/monolith-release-certification.md
             build/reports/monolith-diagnostics/**
+            build/reports/docker-diagnostics/**
+            build/reports/database-backup-restore/evidence.json
             backend/mypet-application/build/reports/tests/test/**
             backend/mypet-application/build/test-results/test/**
