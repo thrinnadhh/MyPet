@@ -1,4 +1,4 @@
-const createClientMock = jest.fn(() => ({ auth: {} }));
+const createClientMock = jest.fn((_url: string, _key: string, _options: unknown) => ({ auth: {} }));
 const getItemAsync = jest.fn();
 const setItemAsync = jest.fn();
 const deleteItemAsync = jest.fn();
@@ -10,6 +10,7 @@ function loadStorage(os: 'ios' | 'web') {
   setItemAsync.mockReset();
   deleteItemAsync.mockReset();
 
+  jest.doMock('react-native-url-polyfill/auto', () => ({}));
   jest.doMock('@supabase/supabase-js', () => ({ createClient: createClientMock }));
   jest.doMock('expo-secure-store', () => ({
     WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
@@ -51,8 +52,8 @@ describe('Supabase session storage', () => {
   });
 
   it('uses device-only SecureStore and chunks large native sessions', async () => {
-    getItemAsync.mockImplementation(async (key: string) => key === 'session.count' ? '2' : null);
     const auth = loadStorage('ios');
+    getItemAsync.mockImplementation(async (key: string) => key === 'session.count' ? '2' : null);
     const value = 'x'.repeat(3_700);
 
     await auth.storage.setItem('session', value);
