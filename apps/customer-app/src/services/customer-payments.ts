@@ -96,24 +96,10 @@ export async function openCashfreeOrder(initialization: CashfreeOrderInitializat
 /** Compatibility alias. New code should use openCashfreeOrder. */
 export const openRazorpayOrder = openCashfreeOrder;
 
-async function requestCashfreeReconciliation(userId: string, orderId: string, amount: number): Promise<void> {
-  await apiClient.post('/api/v1/payments/transactions/result', {
-    userId,
-    referenceId: orderId,
-    transactionType: 'ORDER_PAYMENT',
-    amount,
-    gatewayTransactionId: null,
-    success: false,
-  });
-}
-
-export async function reconcilePaidOrder(
-  userId: string,
-  orderId: string,
-  amount: number,
-): Promise<CustomerPaymentStatusView> {
-  await requestCashfreeReconciliation(userId, orderId, amount);
-  const payment = await fetchOrderPaymentStatus(orderId);
+export async function reconcilePaidOrder(orderId: string): Promise<CustomerPaymentStatusView> {
+  const payment = await apiClient.post<CustomerPaymentStatusView>(
+    `/api/v1/payments/transactions/reference/${encodeURIComponent(orderId)}/reconcile`,
+  );
   if (payment.status === 'SUCCESS') {
     await confirmPaidOrder(orderId, payment.transactionId);
   }
@@ -121,16 +107,14 @@ export async function reconcilePaidOrder(
 }
 
 export async function waitForPaymentOutcome(
-  userId: string,
   orderId: string,
-  amount: number,
   attempts = 15,
   delayMs = 2_000,
 ): Promise<CustomerPaymentStatusView> {
-  let latest = await reconcilePaidOrder(userId, orderId, amount);
+  let latest = await reconcilePaidOrder(orderId);
   for (let attempt = 1; attempt < attempts && latest.status === 'PENDING'; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
-    latest = await reconcilePaidOrder(userId, orderId, amount);
+    latest = await reconcilePaidOrder(orderId);
   }
   return latest;
 }
