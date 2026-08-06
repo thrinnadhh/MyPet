@@ -5,7 +5,7 @@ on:
     paths:
       - "apps/customer-app/src/services/**"
       - "apps/customer-app/src/contracts/**"
-      - "apps/customer-app/src/utils/app-config.ts"
+      - "apps/customer-app/src/utils/**"
       - "apps/customer-app/package.json"
       - "apps/customer-app/package-lock.json"
       - ".github/workflows/customer-high-risk-service-contracts.yml"
