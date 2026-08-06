@@ -23,6 +23,13 @@ spring:
   jpa:
     open-in-view: false
 
+# The provider bounded context retains gRPC source compatibility for rollback,
+# but the modular monolith communicates in-process and must not bind a legacy
+# network listener. The grpc-spring server starter treats -1 as disabled.
+grpc:
+  server:
+    port: ${GRPC_PORT:-1}
+
 mypet:
   runtime:
     # Unit tests retain the lightweight application shell. The monolith
