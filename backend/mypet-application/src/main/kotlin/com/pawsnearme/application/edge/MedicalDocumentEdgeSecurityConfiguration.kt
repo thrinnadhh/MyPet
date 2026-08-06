@@ -4,10 +4,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
-import org.springframework.http.HttpMethod
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.web.SecurityFilterChain
-import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher
 
 /**
  * The document endpoint is public only because MedicalDocumentService validates
@@ -20,12 +18,8 @@ class MedicalDocumentEdgeSecurityConfiguration {
     @Bean
     @Order(-1)
     fun medicalDocumentEdgeSecurityFilterChain(http: HttpSecurity): SecurityFilterChain {
-        val signedMedicalDocument = PathPatternRequestMatcher.withDefaults().matcher(
-            HttpMethod.GET,
-            "/api/v1/appointments/medical-documents/{documentId}/content",
-        )
         http
-            .securityMatcher(signedMedicalDocument)
+            .securityMatcher(SignedContentRequestMatchers.medicalDocument)
             .csrf { it.disable() }
             .cors { it.disable() }
             .httpBasic { it.disable() }
