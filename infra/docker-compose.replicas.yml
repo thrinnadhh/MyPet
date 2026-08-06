@@ -13,7 +13,6 @@ x-backend-common: &backend-common
     KAFKA_LISTENER_CONCURRENCY: 3
     GATEWAY_SECRET: ${GATEWAY_SECRET:?GATEWAY_SECRET must be set}
     GATEWAY_TRUST_ENABLED: "true"
-    RAZORPAY_SANDBOX_MODE: "false"
     INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?INTERNAL_API_SECRET must be set}
     NOTIFICATION_DELIVERY_MODE: EXPO_FCM
     ORDER_AUTO_COMPLETE_HOURS: "1"
@@ -179,6 +178,12 @@ services:
       SERVER_PORT: 8090
       DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=payments,orders,appointments,captains,providers,public&stringtype=unspecified
       SPRING_FLYWAY_TABLE: flyway_schema_history_payment
+      CASHFREE_SANDBOX_MODE: "false"
+      CASHFREE_API_VERSION: "2025-01-01"
+      CASHFREE_CLIENT_ID: ${CASHFREE_CLIENT_ID:?CASHFREE_CLIENT_ID must be set}
+      CASHFREE_CLIENT_SECRET: ${CASHFREE_CLIENT_SECRET:?CASHFREE_CLIENT_SECRET must be set}
+      CASHFREE_WEBHOOK_SECRET: ${CASHFREE_WEBHOOK_SECRET:-}
+      PAYMENT_CHECKOUT_TOKEN_SECRET: ${PAYMENT_CHECKOUT_TOKEN_SECRET:?PAYMENT_CHECKOUT_TOKEN_SECRET must be set}
 
   chat-service:
     <<: *backend-common

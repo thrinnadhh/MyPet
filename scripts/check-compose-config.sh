@@ -15,7 +15,7 @@ MEDICAL_REPORTS_BUCKET=mypet-local-medical-reports
 MEDICAL_REPORTS_REGION=ap-south-1
 MEDICAL_REPORTS_ACCESS_KEY=local-test-access-key
 MEDICAL_REPORTS_SECRET_KEY=local-test-secret-key
-RAZORPAY_WEBHOOK_SECRET=local-webhook-secret
+CASHFREE_CLIENT_SECRET=local-webhook-secret
 EOF
 
 COMPOSE=(

@@ -20,6 +20,8 @@ data:
   DB_POOL_MAX_SIZE_CONTENT: '4'
   KAFKA_LISTENER_CONCURRENCY: '3'
   GATEWAY_TRUST_ENABLED: 'true'
+  CASHFREE_API_VERSION: '2025-01-01'
+  CASHFREE_SANDBOX_MODE: 'false'
   GATEWAY_RATE_LIMIT_REPLENISH_RATE: '100'
   GATEWAY_RATE_LIMIT_BURST_CAPACITY: '200'
   PROVIDER_PUBLIC_BASE_URL: 'https://api.mypet.in'
@@ -1047,21 +1049,21 @@ spec:
         - secretRef:
             name: pawsnearme-backend-secrets
         env:
-        - name: RAZORPAY_KEY_ID
+        - name: CASHFREE_CLIENT_ID
           valueFrom:
             secretKeyRef:
               name: pawsnearme-backend-secrets
-              key: RAZORPAY_KEY_ID
-        - name: RAZORPAY_KEY_SECRET
+              key: CASHFREE_CLIENT_ID
+        - name: CASHFREE_CLIENT_SECRET
           valueFrom:
             secretKeyRef:
               name: pawsnearme-backend-secrets
-              key: RAZORPAY_KEY_SECRET
-        - name: RAZORPAY_WEBHOOK_SECRET
+              key: CASHFREE_CLIENT_SECRET
+        - name: CASHFREE_WEBHOOK_SECRET
           valueFrom:
             secretKeyRef:
               name: pawsnearme-backend-secrets
-              key: RAZORPAY_WEBHOOK_SECRET
+              key: CASHFREE_WEBHOOK_SECRET
         - name: INTERNAL_API_SECRET
           valueFrom:
             secretKeyRef:
