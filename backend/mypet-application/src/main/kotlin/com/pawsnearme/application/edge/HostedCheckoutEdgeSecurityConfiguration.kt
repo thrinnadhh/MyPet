@@ -6,7 +6,6 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.web.SecurityFilterChain
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher
 
 /**
  * Public browser access is limited to the signed hosted-checkout document.
@@ -21,7 +20,7 @@ class HostedCheckoutEdgeSecurityConfiguration {
     @Order(0)
     fun hostedCheckoutEdgeSecurityFilterChain(http: HttpSecurity): SecurityFilterChain {
         http
-            .securityMatcher(AntPathRequestMatcher("/api/v1/payments/checkout/**", "GET"))
+            .securityMatcher(SignedContentRequestMatchers.hostedCheckout)
             .csrf { it.disable() }
             .cors { it.disable() }
             .httpBasic { it.disable() }
