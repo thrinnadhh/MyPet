@@ -21,15 +21,15 @@ class MyPetApplicationTest {
     }
 
     @Test
-    fun `application exposes milestone and consolidation metadata`() {
+    fun `application exposes cutover and consolidation metadata`() {
         val response = restTemplate.getForEntity("/actuator/info", Map::class.java)
 
         assertEquals(HttpStatus.OK, response.statusCode)
         val appInfo = response.body?.get("app") as? Map<*, *>
         assertNotNull(appInfo)
         assertEquals("MyPet Application", appInfo?.get("name"))
-        assertEquals("M8", appInfo?.get("milestone"))
-        assertEquals("modular-monolith-full-feature-verification", appInfo?.get("architecture"))
+        assertEquals("M10", appInfo?.get("milestone"))
+        assertEquals("modular-monolith", appInfo?.get("architecture"))
 
         val edgeInfo = response.body?.get("edgeSecurity") as? Map<*, *>
         assertNotNull(edgeInfo)
@@ -73,11 +73,12 @@ class MyPetApplicationTest {
 
         val verificationInfo = response.body?.get("featureVerification") as? Map<*, *>
         assertNotNull(verificationInfo)
-        assertEquals("M8", verificationInfo?.get("milestone"))
-        assertEquals("clean-volume-connected-matrix", verificationInfo?.get("mode"))
+        assertEquals("M10", verificationInfo?.get("milestone"))
+        assertEquals("modular-monolith-cutover", verificationInfo?.get("mode"))
         assertEquals(14, verificationInfo?.get("domainCount"))
-        assertEquals(false, verificationInfo?.get("cutoverAuthorized"))
-        assertEquals(true, verificationInfo?.get("legacyRollbackRequired"))
+        assertEquals(true, verificationInfo?.get("cutoverAuthorized"))
+        assertEquals(false, verificationInfo?.get("legacyRollbackRequired"))
+        assertEquals(true, verificationInfo?.get("legacyRollbackAvailable"))
         assertEquals(14, (verificationInfo?.get("domains") as? List<*>)?.size)
     }
 

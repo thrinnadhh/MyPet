@@ -20,38 +20,44 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
+    implementation("org.springframework.kafka:spring-kafka")
     implementation("org.flywaydb:flyway-core")
     implementation("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
+    implementation("net.javacrumbs.shedlock:shedlock-spring:5.10.2")
+    implementation("net.javacrumbs.shedlock:shedlock-provider-jdbc-template:5.10.2")
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
 
-    // M2 links each business module as a dormant library. Transitive runtime
-    // dependencies remain disabled until their owning migration milestones
-    // explicitly activate persistence, messaging and infrastructure concerns.
-    implementation(project(":common")) { isTransitive = false }
-    implementation(project(":provider-service")) { isTransitive = false }
-    implementation(project(":catalog-service")) { isTransitive = false }
-    implementation(project(":discovery-service")) { isTransitive = false }
-    implementation(project(":order-service")) { isTransitive = false }
-    implementation(project(":appointment-service")) { isTransitive = false }
-    implementation(project(":dispatch-service")) { isTransitive = false }
-    implementation(project(":captain-service")) { isTransitive = false }
-    implementation(project(":notification-service")) { isTransitive = false }
-    implementation(project(":review-service")) { isTransitive = false }
-    implementation(project(":payment-service")) { isTransitive = false }
-    implementation(project(":chat-service")) { isTransitive = false }
-    implementation(project(":content-service")) { isTransitive = false }
+    // M9 activates the existing bounded-context projects inside one Spring Boot
+    // process. Their runtime dependencies are now deliberately transitive so
+    // controllers, persistence, messaging and integrations are packaged into
+    // the single mypet-application executable JAR.
+    implementation(project(":common"))
+    implementation(project(":provider-service"))
+    implementation(project(":catalog-service"))
+    implementation(project(":discovery-service"))
+    implementation(project(":order-service"))
+    implementation(project(":appointment-service"))
+    implementation(project(":dispatch-service"))
+    implementation(project(":captain-service"))
+    implementation(project(":notification-service"))
+    implementation(project(":review-service"))
+    implementation(project(":payment-service"))
+    implementation(project(":chat-service"))
+    implementation(project(":content-service"))
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-// M4 packages service-owned migrations under namespaced application paths.
-// Original service resources and filenames remain untouched for rollback.
+// Preserve every service-owned migration and history table. The consolidated
+// runtime orchestrates them sequentially against the existing schemas.
 val migrationProjects = linkedMapOf(
     "provider" to ":provider-service",
     "catalog" to ":catalog-service",

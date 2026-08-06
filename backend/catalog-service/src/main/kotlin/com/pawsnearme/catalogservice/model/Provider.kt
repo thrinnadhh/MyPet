@@ -3,7 +3,13 @@ package com.pawsnearme.catalogservice.model
 import jakarta.persistence.*
 import java.util.UUID
 
-@Entity
+/**
+ * Catalog-owned read projection of the provider table.
+ *
+ * Its explicit JPA name is distinct from the provider module's authoritative
+ * aggregate when both bounded contexts share the monolith persistence unit.
+ */
+@Entity(name = "CatalogProviderProjection")
 @Table(name = "providers", schema = "providers")
 class Provider(
     @Id
@@ -17,5 +23,3 @@ class Provider(
     @Column(name = "owner_user_id")
     var ownerUserId: UUID? = null
 )
-
-

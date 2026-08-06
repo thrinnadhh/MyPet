@@ -67,7 +67,7 @@ interface OrderRefRepository : JpaRepository<OrderRef, UUID> {
     @Query("""
         SELECT o.providerId, p.ownerUserId, SUM(o.totalAmount)
         FROM OrderRef o
-        JOIN ProviderRef p ON p.providerId = o.providerId
+        JOIN PaymentProviderRef p ON p.providerId = o.providerId
         WHERE o.status = :status
           AND o.deliveredAt >= :start
           AND o.deliveredAt < :end
@@ -88,7 +88,7 @@ interface AppointmentRefRepository : JpaRepository<AppointmentRef, UUID> {
     @Query("""
         SELECT a.providerId, p.ownerUserId, SUM(a.priceAmount)
         FROM AppointmentRef a
-        JOIN ProviderRef p ON p.providerId = a.providerId
+        JOIN PaymentProviderRef p ON p.providerId = a.providerId
         WHERE a.status = :status
           AND a.completedAt >= :start
           AND a.completedAt < :end

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static completeness gate for the M8 full-feature verification milestone."""
+"""Retain M8 evidence while enforcing the current M10 cutover metadata."""
 
 from __future__ import annotations
 
@@ -105,10 +105,14 @@ if catalog_path.is_file():
     ):
         if evidence not in catalog:
             failures.append(f"M8 feature catalog is missing {evidence}")
-    if '"cutoverAuthorized" to false' not in catalog:
-        failures.append("M8 must not authorize infrastructure cutover")
-    if '"legacyRollbackRequired" to true' not in catalog:
-        failures.append("M8 must retain the distributed rollback requirement")
+    for required in (
+        '"milestone" to "M10"',
+        '"cutoverAuthorized" to true',
+        '"legacyRollbackRequired" to false',
+        '"legacyRollbackAvailable" to true',
+    ):
+        if required not in catalog:
+            failures.append(f"M10 cutover catalog is missing {required}")
 
 if test_path.is_file():
     tests = test_path.read_text(encoding="utf-8")
@@ -118,7 +122,7 @@ if test_path.is_file():
 if test_all_path.is_file():
     test_all = test_all_path.read_text(encoding="utf-8")
     if 'python3 "$ROOT/scripts/run-m8-feature-matrix.py"' not in test_all:
-        failures.append("scripts/test-all.sh must execute the M8 contract-aware runner")
+        failures.append("scripts/test-all.sh must retain the M8 contract-aware rollback runner")
 
 if doc_path.is_file():
     doc = doc_path.read_text(encoding="utf-8")
@@ -126,7 +130,7 @@ if doc_path.is_file():
         if f"`{domain}`" not in doc:
             failures.append(f"M8 runbook is missing domain {domain}")
     if "M9" not in doc or "not authorized" not in doc.lower():
-        failures.append("M8 runbook must state that M9 cutover is not authorized")
+        failures.append("M8 runbook must preserve the historical pre-cutover boundary")
 
 if failures:
     for failure in failures:
@@ -134,7 +138,6 @@ if failures:
     raise SystemExit(1)
 
 print(
-    "M8 verification completeness passed for "
-    f"{len(DOMAINS)} domains, scenario/runner syntax, COD placement, evidence classes, "
-    "async/commerce diagnostics and cutover guard."
+    "M8 verification evidence remains complete for "
+    f"{len(DOMAINS)} domains and the current M10 cutover/rollback metadata is explicit."
 )

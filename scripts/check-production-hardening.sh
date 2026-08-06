@@ -31,7 +31,9 @@ fail_if_found \
   'image: .*:latest' infra/k8s
 
 python3 scripts/check-flyway-migrations.py
+python3 scripts/check-jpa-entity-names.py
 python3 scripts/check-runtime-wiring.py
 python3 scripts/check-order-module-trust.py
 python3 scripts/check-m8-feature-verification.py
+bash scripts/check-monolith-compose.sh
 python3 backend/scan_dependencies.py
