@@ -98,7 +98,8 @@ import javax.sql.DataSource
         "com.pawsnearme.contentservice",
         "com.pawsnearme.common.idempotency",
         "com.pawsnearme.common.outbox"
-    ]
+    ],
+    nameGenerator = FullyQualifiedAnnotationBeanNameGenerator::class
 )
 @ComponentScan(
     basePackages = [
