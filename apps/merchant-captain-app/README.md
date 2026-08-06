@@ -1,56 +1,74 @@
-# Welcome to your Expo app 👋
+# MyPet Operations App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo React Native application for merchant, captain and operational-admin
+workflows: onboarding, catalog and barcode inventory, order fulfilment,
+appointments, dispatch, delivery proof, support cases and controlled admin
+operations.
 
-## Get started
+## Requirements
 
-1. Install dependencies
+- Node.js `20.19.x`
+- npm
+- a reachable MyPet API environment
+- physical devices for camera and foreground/background location validation
+- Expo/EAS credentials only when producing signed internal builds
 
-   ```bash
-   npm install
-   ```
+## Install and validate
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+Use the committed lockfile and keep framework dependencies aligned with Expo
+SDK 56.
 
 ```bash
-npm run reset-project
+npm ci
+npx --yes expo-doctor@1.20.1
+npm run typecheck
+npm run lint
+npm test
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+When Expo Doctor reports framework compatibility drift, regenerate both package
+files with Expo's installer rather than editing lockfile versions or integrity
+values manually:
 
-### Other setup steps
+```bash
+npx expo install --fix --npm
+npm ci
+npx --yes expo-doctor@1.20.1
+npm run typecheck
+npm run lint
+npm test
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## Run locally
 
-## Learn more
+```bash
+npm run start
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+Native targets:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+npm run android
+npm run ios
+```
 
-## Join the community
+Expo Go is insufficient for release evidence involving barcode-camera behavior,
+background captain tracking, foreground-service disclosure, permanent permission
+denial recovery, notification taps or force-stopped application restart.
 
-Join our community of developers creating universal apps.
+## Release validation
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+`eas.json` defines development, preview and internal-beta build profiles. Signed
+artifacts require the repository's Expo project credentials and should be
+validated on the physical-device matrix before distribution.
+
+For captain location flows, record all of the following:
+
+- device and operating-system version
+- foreground and background permission grant/deny behavior
+- GPS-disabled recovery
+- foreground-service disclosure on Android
+- restart and offline recovery during an active delivery
+- sign-out stopping background tracking
+
+A successful native build does not authorize release distribution by itself.
