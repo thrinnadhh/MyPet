@@ -19,6 +19,10 @@ CLASS_DECLARATION = re.compile(
     r"^\s*(?:(?:public|internal|private|protected|open|abstract|sealed|data|enum|value|annotation)\s+)*class\s+([A-Za-z_][A-Za-z0-9_]*)\b"
 )
 PACKAGE_DECLARATION = re.compile(r"^\s*package\s+([A-Za-z0-9_.]+)\s*$")
+QUERY_ANNOTATION = re.compile(
+    r'@Query\s*\(\s*(?:"""(?P<triple>.*?)"""|"(?P<single>(?:\\.|[^"\\])*)")',
+    re.DOTALL,
+)
 
 
 @dataclass(frozen=True)
@@ -73,22 +77,38 @@ def scan_file(path: Path) -> list[EntityDefinition]:
     return definitions
 
 
+def query_bodies(text: str) -> list[tuple[str, int]]:
+    bodies: list[tuple[str, int]] = []
+    for match in QUERY_ANNOTATION.finditer(text):
+        body = match.group("triple")
+        if body is None:
+            body = bytes(match.group("single"), "utf-8").decode("unicode_escape")
+        line = text.count("\n", 0, match.start()) + 1
+        bodies.append((body, line))
+    return bodies
+
+
 def stale_jpql_references(
     source_files: list[Path],
     renamed_entities: list[EntityDefinition],
 ) -> list[tuple[EntityDefinition, Path, int, str]]:
     stale: list[tuple[EntityDefinition, Path, int, str]] = []
-    for entity in renamed_entities:
-        pattern = re.compile(
+    patterns = {
+        entity: re.compile(
             rf"\b(?:FROM|JOIN|UPDATE|DELETE\s+FROM)\s+{re.escape(entity.class_name)}\b",
             re.IGNORECASE,
         )
-        for path in source_files:
-            text = path.read_text(encoding="utf-8")
-            for match in pattern.finditer(text):
-                line = text.count("\n", 0, match.start()) + 1
-                excerpt = " ".join(match.group(0).split())
-                stale.append((entity, path, line, excerpt))
+        for entity in renamed_entities
+    }
+
+    for path in source_files:
+        text = path.read_text(encoding="utf-8")
+        for body, annotation_line in query_bodies(text):
+            for entity, pattern in patterns.items():
+                for match in pattern.finditer(body):
+                    query_line = annotation_line + body.count("\n", 0, match.start())
+                    excerpt = " ".join(match.group(0).split())
+                    stale.append((entity, path, query_line, excerpt))
     return stale
 
 
@@ -133,8 +153,8 @@ def main() -> int:
     if stale_queries:
         failed = True
         print(
-            "ERROR: JPQL still references a Kotlin class name after its JPA entity "
-            "name was explicitly qualified:",
+            "ERROR: an @Query annotation still references a Kotlin class name "
+            "after its JPA entity name was explicitly qualified:",
             file=sys.stderr,
         )
         for entity, path, line, excerpt in stale_queries:
