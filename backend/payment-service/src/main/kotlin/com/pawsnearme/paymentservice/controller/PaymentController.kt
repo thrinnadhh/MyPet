@@ -82,7 +82,7 @@ class PaymentController(
         @Valid @RequestBody request: com.pawsnearme.paymentservice.service.RegisterLinkedAccountRequest,
         @RequestHeader("X-User-Id", required = false) userId: String?,
         @RequestHeader("X-User-Role", required = false) role: String?,
-    ): ResponseEntity<com.pawsnearme.paymentservice.model.LinkedAccount> {
+    ): ResponseEntity<Any> {
         if (role !in setOf("ADMIN", "MERCHANT", "CAPTAIN")) {
             throw PaymentAccessDeniedException("Access denied for linked account registration")
         }
@@ -92,8 +92,13 @@ class PaymentController(
         if (role != "ADMIN" && role != request.payeeRole) {
             throw PaymentAccessDeniedException("Payout account role does not match authenticated role")
         }
-        val account = paymentService.registerLinkedAccount(request)
-        return ResponseEntity.status(HttpStatus.CREATED).body(account)
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(
+            mapOf(
+                "error" to "Cashfree Easy Split onboarding is not activated for this environment",
+                "code" to "CASHFREE_EASY_SPLIT_NOT_ACTIVE",
+                "action" to "Complete Cashfree marketplace activation and vendor KYC before enabling settlements",
+            ),
+        )
     }
 
     @PostMapping("/payouts/calculate")
