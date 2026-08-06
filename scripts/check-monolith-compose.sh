@@ -70,6 +70,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 application = config["services"]["mypet-application"]
 environment = application.get("environment", {})
 required = {
+    "GRPC_PORT": "-1",
     "MYPET_MODULES_ENABLED": "true",
     "MYPET_EDGE_ENABLED": "true",
     "MYPET_DATABASE_ENABLED": "true",
