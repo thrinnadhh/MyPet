@@ -27,8 +27,12 @@ jobs:
           cache: npm
           cache-dependency-path: apps/customer-app/package-lock.json
 
-      - name: Run high-risk customer service contracts
+      - name: Run focused high-risk service contracts
         working-directory: apps/customer-app
         run: |
           npm ci
           npx jest --runInBand src/services/__tests__/high-risk-customer-services.test.ts
+
+      - name: Run the complete customer coverage suite
+        working-directory: apps/customer-app
+        run: npm run test:coverage
