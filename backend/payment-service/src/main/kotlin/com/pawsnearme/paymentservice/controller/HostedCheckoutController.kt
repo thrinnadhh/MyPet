@@ -140,11 +140,10 @@ class HostedCheckoutController(
     ): ResponseEntity<String> {
         val view = hostedCheckoutService.resolve(transactionId, expires, token)
         val transaction = view.transaction
-        val callback = "customerapp://payments/result?referenceId=${transaction.referenceId}"
-        val callbackJson = objectMapper.writeValueAsString(callback)
         val paymentSessionJson = objectMapper.writeValueAsString(view.paymentSessionId)
         val environmentJson = objectMapper.writeValueAsString(view.environment)
         val orderJson = objectMapper.writeValueAsString(view.cashfreeOrderId)
+        val referenceJson = objectMapper.writeValueAsString(transaction.referenceId.toString())
         val html = """
             <!doctype html>
             <html lang="en">
@@ -169,16 +168,19 @@ class HostedCheckoutController(
                 <p id="status">Payment success is confirmed only by the MyPet server after Cashfree verification.</p>
               </main>
               <script>
-                const callbackUrl = $callbackJson;
                 const orderId = $orderJson;
+                const referenceId = $referenceJson;
                 const cashfree = Cashfree({ mode: $environmentJson });
+                const returnUrl = new URL('/api/v1/payments/checkout-return', window.location.origin);
+                returnUrl.searchParams.set('referenceId', referenceId);
+                returnUrl.searchParams.set('cashfreeOrderId', orderId);
                 document.getElementById('order').textContent = orderId;
                 async function openCheckout() {
                   document.getElementById('status').textContent = 'Opening Cashfree secure checkout…';
                   try {
                     const result = await cashfree.checkout({
                       paymentSessionId: $paymentSessionJson,
-                      returnUrl: callbackUrl + '&cashfreeOrderId=' + encodeURIComponent(orderId),
+                      returnUrl: returnUrl.toString(),
                       redirectTarget: '_self'
                     });
                     if (result && result.error) {
@@ -195,9 +197,56 @@ class HostedCheckoutController(
             </html>
         """.trimIndent()
 
-        return ResponseEntity.ok()
-            .contentType(MediaType.TEXT_HTML)
-            .cacheControl(CacheControl.noStore())
-            .body(html)
+        return noStoreHtml(html)
     }
+
+    @GetMapping("/checkout-return", produces = [MediaType.TEXT_HTML_VALUE])
+    fun checkoutReturn(
+        @RequestParam referenceId: UUID,
+        @RequestParam(required = false) cashfreeOrderId: String?,
+    ): ResponseEntity<String> {
+        val callback = buildString {
+            append("customerapp://payments/result?referenceId=")
+            append(referenceId)
+            cashfreeOrderId?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }?.let {
+                append("&cashfreeOrderId=")
+                append(it)
+            }
+        }
+        val callbackJson = objectMapper.writeValueAsString(callback)
+        val html = """
+            <!doctype html>
+            <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width,initial-scale=1" />
+              <title>Returning to MyPet</title>
+              <style>
+                body{font-family:system-ui,-apple-system,sans-serif;background:#f7f9fc;color:#15213a;margin:0;display:grid;min-height:100vh;place-items:center;text-align:center}
+                main{max-width:420px;padding:28px}
+                a{display:inline-block;margin-top:16px;color:#1565d8;font-weight:700}
+              </style>
+            </head>
+            <body>
+              <main>
+                <h1>Returning to MyPet…</h1>
+                <p>The MyPet server will verify your Cashfree payment status. This page does not mark the payment as successful.</p>
+                <a id="continue" href="#">Open MyPet</a>
+              </main>
+              <script>
+                const callbackUrl = $callbackJson;
+                const link = document.getElementById('continue');
+                link.href = callbackUrl;
+                window.location.replace(callbackUrl);
+              </script>
+            </body>
+            </html>
+        """.trimIndent()
+        return noStoreHtml(html)
+    }
+
+    private fun noStoreHtml(html: String): ResponseEntity<String> = ResponseEntity.ok()
+        .contentType(MediaType.TEXT_HTML)
+        .cacheControl(CacheControl.noStore())
+        .body(html)
 }
