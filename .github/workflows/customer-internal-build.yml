@@ -1,0 +1,121 @@
+name: Customer Internal Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Customer build platform
+        required: true
+        default: android
+        type: choice
+        options:
+          - android
+          - ios
+          - all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: customer-internal-build-${{ inputs.platform }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19"
+          cache: npm
+          cache-dependency-path: apps/customer-app/package-lock.json
+
+      - name: Validate customer application
+        working-directory: apps/customer-app
+        run: |
+          npm ci
+          npm audit --audit-level=high
+          npx --yes expo-doctor@1.20.1
+          npm run typecheck
+          npm run lint
+          npm test -- --runInBand
+
+  android:
+    if: ${{ inputs.platform == 'android' || inputs.platform == 'all' }}
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: internal-beta
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19"
+          cache: npm
+          cache-dependency-path: apps/customer-app/package-lock.json
+
+      - name: Build customer Android APK with EAS
+        working-directory: apps/customer-app
+        run: |
+          test -n "$EXPO_TOKEN" || { echo "EXPO_TOKEN is required" >&2; exit 1; }
+          npm ci
+          npx --yes eas-cli@latest build \
+            --platform android \
+            --profile internal-beta \
+            --non-interactive \
+            --wait \
+            --json > customer-android-build.json
+
+      - name: Upload Android build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-android-internal-build-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: apps/customer-app/customer-android-build.json
+
+  ios:
+    if: ${{ inputs.platform == 'ios' || inputs.platform == 'all' }}
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: internal-beta
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19"
+          cache: npm
+          cache-dependency-path: apps/customer-app/package-lock.json
+
+      - name: Build customer iOS internal distribution with EAS
+        working-directory: apps/customer-app
+        run: |
+          test -n "$EXPO_TOKEN" || { echo "EXPO_TOKEN is required" >&2; exit 1; }
+          npm ci
+          npx --yes eas-cli@latest build \
+            --platform ios \
+            --profile internal-beta \
+            --non-interactive \
+            --wait \
+            --json > customer-ios-build.json
+
+      - name: Upload iOS build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-ios-internal-build-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: apps/customer-app/customer-ios-build.json
