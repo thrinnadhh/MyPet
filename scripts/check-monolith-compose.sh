@@ -99,7 +99,13 @@ if build_args.get("SERVICE_NAME") != "mypet-application":
     raise SystemExit("ERROR: monolith must build the mypet-application executable")
 
 ports = application.get("ports", [])
-if not any(str(port).startswith("8080:") for port in ports):
+
+def publishes_api(port):
+    if isinstance(port, dict):
+        return str(port.get("published")) == "8080" and int(port.get("target", 0)) == 8080
+    return str(port).startswith("8080:")
+
+if not any(publishes_api(port) for port in ports):
     raise SystemExit("ERROR: monolith must retain the public API on host port 8080")
 
 print("Monolith Compose cutover contract passed: one backend process and six infrastructure services.")
