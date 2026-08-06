@@ -6,7 +6,14 @@ import java.time.Instant
 import java.util.UUID
 import org.locationtech.jts.geom.Point
 
-@Entity
+/**
+ * Authoritative provider aggregate owned by the provider bounded context.
+ *
+ * The explicit JPA entity name prevents collisions with read-only provider
+ * projections owned by other modules when all contexts share one persistence
+ * unit in the modular monolith. The physical table mapping is unchanged.
+ */
+@Entity(name = "ProviderAggregate")
 @Table(name = "providers", schema = "providers")
 class Provider(
     @Id
