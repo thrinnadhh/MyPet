@@ -1,0 +1,108 @@
+x-monolith-environment: &monolith-environment
+  SERVER_PORT: 8080
+  MYPET_MODULES_ENABLED: "true"
+  MYPET_EDGE_ENABLED: "true"
+  MYPET_DATABASE_ENABLED: "true"
+  MYPET_EVENT_DELIVERY_MODE: KAFKA_ONLY
+  MYPET_SCHEDULING_ROLE: ALL
+  MYPET_SCHEDULING_LOCK_TABLE: orders.shedlock
+  MYPET_DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=orders,appointments,providers,catalog,dispatch,captains,notifications,reviews,payments,chat,content,identity,customer,public&stringtype=unspecified
+  MYPET_DB_USERNAME: postgres
+  MYPET_DB_PASSWORD: postgres
+  MYPET_DB_POOL_MAX_SIZE: 12
+  MYPET_DB_POOL_MIN_IDLE: 2
+  MYPET_DB_CONNECTION_TIMEOUT_MS: 5000
+  MYPET_FLYWAY_MIGRATE_ON_STARTUP: "true"
+  MYPET_FLYWAY_CONNECT_RETRIES: 10
+  MYPET_FLYWAY_LOCK_RETRY_COUNT: 50
+  DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=orders,appointments,providers,catalog,dispatch,captains,notifications,reviews,payments,chat,content,identity,customer,public&stringtype=unspecified
+  DB_USERNAME: postgres
+  DB_PASSWORD: postgres
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  KAFKA_LISTENER_CONCURRENCY: 3
+  GATEWAY_TRUST_ENABLED: "false"
+  INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?INTERNAL_API_SECRET must be set}
+  ALLOW_UNSIGNED_JWT: ${ALLOW_UNSIGNED_JWT:-false}
+  SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
+  SUPABASE_JWT_JWK_SET_URI: ${SUPABASE_JWT_JWK_SET_URI:-}
+  GATEWAY_CORS_ALLOWED_ORIGINS: ${GATEWAY_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8081}
+  GATEWAY_RATE_LIMIT_REPLENISH_RATE: ${GATEWAY_RATE_LIMIT_REPLENISH_RATE:-100}
+  GATEWAY_RATE_LIMIT_BURST_CAPACITY: ${GATEWAY_RATE_LIMIT_BURST_CAPACITY:-200}
+  MYPET_TRUST_FORWARDED_FOR: ${MYPET_TRUST_FORWARDED_FOR:-false}
+  BANK_DATA_ENCRYPTION_KEY: ${BANK_DATA_ENCRYPTION_KEY:?BANK_DATA_ENCRYPTION_KEY must be set}
+  MEDICAL_REPORTS_BUCKET: ${MEDICAL_REPORTS_BUCKET:?MEDICAL_REPORTS_BUCKET must be set}
+  MEDICAL_REPORTS_REGION: ${MEDICAL_REPORTS_REGION:-ap-south-1}
+  MEDICAL_REPORTS_ACCESS_KEY: ${MEDICAL_REPORTS_ACCESS_KEY:?MEDICAL_REPORTS_ACCESS_KEY must be set}
+  MEDICAL_REPORTS_SECRET_KEY: ${MEDICAL_REPORTS_SECRET_KEY:?MEDICAL_REPORTS_SECRET_KEY must be set}
+  MEDICAL_DOCUMENT_SIGNING_KEY: ${MEDICAL_DOCUMENT_SIGNING_KEY:?MEDICAL_DOCUMENT_SIGNING_KEY must be set}
+  CASE_EVIDENCE_SIGNING_KEY: ${CASE_EVIDENCE_SIGNING_KEY:?CASE_EVIDENCE_SIGNING_KEY must be set}
+  APPOINTMENT_MEDICAL_DOCUMENTS_PUBLIC_BASE_URL: ${APPOINTMENT_MEDICAL_DOCUMENTS_PUBLIC_BASE_URL:-http://localhost:8080}
+  ORDER_CASE_EVIDENCE_PUBLIC_BASE_URL: ${ORDER_CASE_EVIDENCE_PUBLIC_BASE_URL:-http://localhost:8080}
+  PROVIDER_PUBLIC_BASE_URL: ${PROVIDER_PUBLIC_BASE_URL:-http://localhost:8080}
+  CHAT_PUBLIC_BASE_URL: ${CHAT_PUBLIC_BASE_URL:-http://localhost:8080}
+  ORDER_ONLINE_PAYMENTS_ENABLED: ${ORDER_ONLINE_PAYMENTS_ENABLED:-true}
+  ORDER_AUTO_COMPLETE_HOURS: ${ORDER_AUTO_COMPLETE_HOURS:-1}
+  NOTIFICATION_DELIVERY_MODE: ${NOTIFICATION_DELIVERY_MODE:-LOGGED_DEV}
+  CASHFREE_SANDBOX_MODE: ${CASHFREE_SANDBOX_MODE:-true}
+  CASHFREE_API_VERSION: ${CASHFREE_API_VERSION:-2025-01-01}
+  CASHFREE_CLIENT_ID: ${CASHFREE_CLIENT_ID:-}
+  CASHFREE_CLIENT_SECRET: ${CASHFREE_CLIENT_SECRET:-}
+  CASHFREE_WEBHOOK_SECRET: ${CASHFREE_WEBHOOK_SECRET:-}
+  PAYMENT_CHECKOUT_TOKEN_SECRET: ${PAYMENT_CHECKOUT_TOKEN_SECRET:?PAYMENT_CHECKOUT_TOKEN_SECRET must be set}
+
+services:
+  mypet-application:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE_NAME: mypet-application
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *monolith-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init-topics:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://localhost:8080/actuator/health/readiness | grep -q '"status":"UP"'
+      interval: 10s
+      timeout: 5s
+      retries: 24
+      start_period: 45s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1536M
+        reservations:
+          cpus: "0.5"
+          memory: 768M
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports:
+      - "9095:9090"
+    volumes:
+      - ./prometheus.monolith.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      mypet-application:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:11.1.4
+    ports:
+      - "3005:3000"
+    depends_on:
+      - prometheus
