@@ -1,0 +1,55 @@
+name: Expo SDK 56 Lockfile Refresh
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/expo-sdk56-lockfile-refresh.yml"
+      - "apps/customer-app/package.json"
+      - "apps/customer-app/package-lock.json"
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19"
+          cache: npm
+          cache-dependency-path: apps/customer-app/package-lock.json
+
+      - name: Generate Expo-compatible package files
+        working-directory: apps/customer-app
+        run: |
+          npm ci
+          npx expo install \
+            @expo/ui@~56.0.25 \
+            expo@~56.0.19 \
+            expo-constants@~56.0.23 \
+            expo-file-system@~56.0.9 \
+            expo-image-picker@~56.0.23 \
+            expo-location@~56.0.23 \
+            expo-notifications@~56.0.23 \
+            expo-router@~56.2.18 \
+            expo-symbols@~56.0.7 \
+            --npm
+          npx --yes expo-doctor@1.20.1
+          npm run typecheck
+          npm run lint
+          npm run test:coverage
+
+      - name: Upload generated package files
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-expo-sdk56-package-files-${{ github.run_id }}
+          retention-days: 3
+          if-no-files-found: error
+          path: |
+            apps/customer-app/package.json
+            apps/customer-app/package-lock.json
