@@ -1,56 +1,67 @@
-# Welcome to your Expo app 👋
+# MyPet Customer App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo React Native customer application for MyPet shopping, veterinary,
+grooming, delivery, loyalty, support and recurring-order journeys.
 
-## Get started
+## Requirements
 
-1. Install dependencies
+- Node.js `20.19.x`
+- npm
+- an API base URL for the target MyPet environment
+- Expo/EAS credentials only when producing native internal builds
 
-   ```bash
-   npm install
-   ```
+## Install and validate
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+Use the committed lockfile. Do not run a broad dependency upgrade during a
+feature change.
 
 ```bash
-npm run reset-project
+npm ci
+npx --yes expo-doctor@1.20.1
+npm run typecheck
+npm run lint
+npm run test:coverage
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+The package versions are aligned to Expo SDK 56. When Expo Doctor reports a
+framework compatibility mismatch, regenerate both package files with Expo's
+installer rather than editing `package-lock.json` manually:
 
-### Other setup steps
+```bash
+npx expo install --fix --npm
+npm ci
+npx --yes expo-doctor@1.20.1
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+Review the generated `package.json` and `package-lock.json` together and rerun
+all validation commands before committing them.
 
-## Learn more
+## Run locally
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+npm run start
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Other targets:
 
-## Join the community
+```bash
+npm run android
+npm run ios
+npm run web
+```
 
-Join our community of developers creating universal apps.
+A development client or signed internal build is required for device behavior
+that Expo Go cannot faithfully reproduce, including production push handling,
+native deep links and release permission flows.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Release builds
+
+`eas.json` defines the checked-in build profiles. The repository's manual
+**Customer Internal Build** workflow validates the app and requests Android or
+iOS internal-distribution artifacts. It fails closed unless the `internal-beta`
+environment contains a valid `EXPO_TOKEN` and the Expo project has the required
+signing credentials.
+
+Native build completion does not replace physical-device QA. Record device,
+OS, build identifier and evidence in the repository QA matrix before enabling
+release distribution.
