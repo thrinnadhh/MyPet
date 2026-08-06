@@ -77,7 +77,7 @@ class CashfreeGatewayServiceTests {
 
         assertTrue(result.orderId.startsWith("mypet_"))
         assertTrue(result.paymentSessionId.startsWith("session_mock_"))
-        assertEquals("CASHFREE", result.environment.removeSuffix("SANDBOX").let { if (it.isEmpty()) "CASHFREE" else it })
+        assertEquals("SANDBOX", result.environment)
         assertEquals(BigDecimal("499.00"), result.amount)
     }
 
