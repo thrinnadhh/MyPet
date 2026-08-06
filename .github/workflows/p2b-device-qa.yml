@@ -29,7 +29,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           git init .
-          git -c http.extraheader="AUTHORIZATION: bearer $GH_TOKEN" \
+          auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth_header" \
             fetch --depth=1 "https://github.com/${GITHUB_REPOSITORY}.git" "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
       - name: Validate matrix structure
@@ -46,7 +47,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           git init .
-          git -c http.extraheader="AUTHORIZATION: bearer $GH_TOKEN" \
+          auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth_header" \
             fetch --depth=1 "https://github.com/${GITHUB_REPOSITORY}.git" "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
       - name: Verify built-in Node runtime
