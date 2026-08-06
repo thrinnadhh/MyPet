@@ -38,7 +38,7 @@ data class CreateCashfreeOrderRequest(
     @field:DecimalMin("0.01")
     @field:DecimalMax("10000000.00")
     val amount: BigDecimal,
-    @field:Pattern(regexp = "ORDER_PAYMENT|APPOINTMENT_PAYMENT")
+    @field:Pattern(regexp = "ORDER_PAYMENT")
     val transactionType: String,
     @field:Pattern(regexp = "(?:\\+?91)?[6-9][0-9]{9}")
     val customerPhone: String,
@@ -104,19 +104,21 @@ class CashfreeGatewayService(
     }
 
     private fun validateReference(request: CreateCashfreeOrderRequest) {
+        require(request.transactionType == "ORDER_PAYMENT") {
+            "Cashfree order initiation currently supports order payments only"
+        }
         require(request.amount > BigDecimal.ZERO) { "Payment amount must be greater than zero" }
-        if (request.transactionType == "ORDER_PAYMENT") {
-            val order = orderRefRepository.findById(request.referenceId)
-                .orElseThrow { IllegalArgumentException("Order not found for payment reference") }
-            if (order.customerId != request.userId) {
-                throw IllegalArgumentException("Payment reference does not belong to this user")
-            }
-            if (order.status != "PLACED") {
-                throw IllegalStateException("Order is not awaiting online payment")
-            }
-            if (order.totalAmount.compareTo(request.amount) != 0) {
-                throw IllegalArgumentException("Payment amount does not match the server-authoritative order total")
-            }
+
+        val order = orderRefRepository.findById(request.referenceId)
+            .orElseThrow { IllegalArgumentException("Order not found for payment reference") }
+        if (order.customerId != request.userId) {
+            throw IllegalArgumentException("Payment reference does not belong to this user")
+        }
+        if (order.status != "PLACED") {
+            throw IllegalStateException("Order is not awaiting online payment")
+        }
+        if (order.totalAmount.compareTo(request.amount) != 0) {
+            throw IllegalArgumentException("Payment amount does not match the server-authoritative order total")
         }
     }
 
@@ -156,51 +158,12 @@ class CashfreeGatewayService(
         )
         val transactionId = transaction.transactionId
             ?: throw IllegalStateException("Payment transaction ID was not generated")
-        val cashfreeOrderId = "mypet_${transactionId.toString().replace("-", "")}" 
+        val cashfreeOrderId = "mypet_${transactionId.toString().replace("-", "")}"
 
         val sessionId = if (sandboxMode && !credentialsConfigured()) {
             "session_mock_${transactionId.toString().replace("-", "")}"
         } else {
-            if (!credentialsConfigured()) {
-                throw IllegalStateException("Cashfree credentials are not configured")
-            }
-            val body = linkedMapOf<String, Any>(
-                "order_id" to cashfreeOrderId,
-                "order_amount" to transaction.amount,
-                "order_currency" to transaction.currency,
-                "customer_details" to linkedMapOf(
-                    "customer_id" to request.userId.toString(),
-                    "customer_phone" to normalizePhone(request.customerPhone),
-                ).apply {
-                    request.customerEmail?.trim()?.takeIf(String::isNotBlank)?.let { put("customer_email", it) }
-                    request.customerName?.trim()?.takeIf(String::isNotBlank)?.let { put("customer_name", it) }
-                },
-                "order_note" to "MyPet ${request.transactionType.lowercase()} for ${request.referenceId}",
-                "order_tags" to mapOf(
-                    "mypet_reference_id" to request.referenceId.toString(),
-                    "mypet_transaction_id" to transactionId.toString(),
-                ),
-            )
-            val response = try {
-                restTemplate.exchange(
-                    "$baseUrl/orders",
-                    HttpMethod.POST,
-                    HttpEntity(body, authenticatedHeaders(transactionId)),
-                    Map::class.java,
-                )
-            } catch (error: Exception) {
-                transaction.status = "FAILED"
-                transactionRepository.save(transaction)
-                throw IllegalStateException("Failed to create Cashfree order: ${error.message}", error)
-            }
-            val responseBody = response.body ?: throw IllegalStateException("Cashfree returned an empty order response")
-            val returnedOrderId = responseBody["order_id"] as? String
-                ?: throw IllegalStateException("Cashfree response did not contain order_id")
-            if (returnedOrderId != cashfreeOrderId) {
-                throw IllegalStateException("Cashfree returned an unexpected order ID")
-            }
-            responseBody["payment_session_id"] as? String
-                ?: throw IllegalStateException("Cashfree response did not contain payment_session_id")
+            createRemoteOrder(transaction, request, cashfreeOrderId, transactionId)
         }
 
         transaction.gatewayTransactionId = cashfreeOrderId
@@ -213,6 +176,57 @@ class CashfreeGatewayService(
             transactionId = transactionId,
             environment = environment,
         )
+    }
+
+    private fun createRemoteOrder(
+        transaction: Transaction,
+        request: CreateCashfreeOrderRequest,
+        cashfreeOrderId: String,
+        transactionId: UUID,
+    ): String {
+        if (!credentialsConfigured()) {
+            throw IllegalStateException("Cashfree credentials are not configured")
+        }
+        val customerDetails = linkedMapOf<String, Any>(
+            "customer_id" to request.userId.toString(),
+            "customer_phone" to normalizePhone(request.customerPhone),
+        ).apply {
+            request.customerEmail?.trim()?.takeIf { it.isNotBlank() }?.let { put("customer_email", it) }
+            request.customerName?.trim()?.takeIf { it.isNotBlank() }?.let { put("customer_name", it) }
+        }
+        val body = linkedMapOf<String, Any>(
+            "order_id" to cashfreeOrderId,
+            "order_amount" to transaction.amount,
+            "order_currency" to transaction.currency,
+            "customer_details" to customerDetails,
+            "order_note" to "MyPet order payment for ${request.referenceId}",
+            "order_tags" to mapOf(
+                "mypet_reference_id" to request.referenceId.toString(),
+                "mypet_transaction_id" to transactionId.toString(),
+            ),
+        )
+
+        try {
+            val response = restTemplate.exchange(
+                "$baseUrl/orders",
+                HttpMethod.POST,
+                HttpEntity(body, authenticatedHeaders(transactionId)),
+                Map::class.java,
+            )
+            val responseBody = response.body
+                ?: throw IllegalStateException("Cashfree returned an empty order response")
+            val returnedOrderId = responseBody["order_id"] as? String
+                ?: throw IllegalStateException("Cashfree response did not contain order_id")
+            if (returnedOrderId != cashfreeOrderId) {
+                throw IllegalStateException("Cashfree returned an unexpected order ID")
+            }
+            return responseBody["payment_session_id"] as? String
+                ?: throw IllegalStateException("Cashfree response did not contain payment_session_id")
+        } catch (error: Exception) {
+            transaction.status = "FAILED"
+            transactionRepository.save(transaction)
+            throw IllegalStateException("Failed to create Cashfree order: ${error.message}", error)
+        }
     }
 
     private fun responseForExisting(transaction: Transaction): CashfreeOrderResponse {
@@ -327,17 +341,19 @@ class CashfreeGatewayService(
         } catch (error: Exception) {
             throw IllegalArgumentException("Invalid Cashfree webhook payload", error)
         }
-        val data = event["data"] as? Map<*, *> ?: throw IllegalArgumentException("Cashfree webhook data is missing")
-        val order = data["order"] as? Map<*, *> ?: throw IllegalArgumentException("Cashfree webhook order is missing")
+        val data = event["data"] as? Map<*, *>
+            ?: throw IllegalArgumentException("Cashfree webhook data is missing")
+        val order = data["order"] as? Map<*, *>
+            ?: throw IllegalArgumentException("Cashfree webhook order is missing")
         val payment = data["payment"] as? Map<*, *>
-        val orderId = order["order_id"] as? String ?: throw IllegalArgumentException("Cashfree order_id is missing")
+        val orderId = order["order_id"] as? String
+            ?: throw IllegalArgumentException("Cashfree order_id is missing")
         val paymentId = payment?.get("cf_payment_id")?.toString()
         val type = event["type"]?.toString()?.uppercase() ?: "UNKNOWN"
-        val eventKey = idempotencyKey?.trim()?.takeIf(String::isNotBlank)
-            ?: "$type|$orderId|${paymentId.orEmpty()}|${event["event_time"].orEmpty()}"
+        val eventKey = idempotencyKey?.trim()?.takeIf { it.isNotBlank() }
+            ?: "$type|$orderId|${paymentId.orEmpty()}|${event["event_time"]?.toString().orEmpty()}"
         val eventUuid = runCatching { UUID.fromString(eventKey) }
             .getOrElse { UUID.nameUUIDFromBytes(eventKey.toByteArray(StandardCharsets.UTF_8)) }
-        if (!idempotencyService.checkAndRecord(eventUuid)) return false
 
         val transaction = transactionRepository.findByGatewayTransactionId(orderId)
             ?: throw IllegalArgumentException("Cashfree order is not associated with a MyPet transaction")
@@ -345,6 +361,7 @@ class CashfreeGatewayService(
             throw IllegalArgumentException("Webhook order is not a Cashfree transaction")
         }
         validateWebhookAmount(transaction, order, payment)
+        if (!idempotencyService.checkAndRecord(eventUuid)) return false
 
         val paymentStatus = payment?.get("payment_status")?.toString()?.uppercase()
         if (type == "PAYMENT_SUCCESS_WEBHOOK" && paymentStatus == "SUCCESS") {
