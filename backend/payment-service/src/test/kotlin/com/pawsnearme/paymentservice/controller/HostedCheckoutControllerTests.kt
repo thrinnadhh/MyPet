@@ -2,6 +2,7 @@ package com.pawsnearme.paymentservice.controller
 
 import com.pawsnearme.paymentservice.model.Transaction
 import com.pawsnearme.paymentservice.repository.TransactionRepository
+import com.pawsnearme.paymentservice.service.CashfreeGatewayService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -14,11 +15,14 @@ import java.util.UUID
 
 class HostedCheckoutControllerTests {
     private val repository: TransactionRepository = mock()
+    private val cashfreeGatewayService: CashfreeGatewayService = mock()
     private val service = HostedCheckoutService(
         transactionRepository = repository,
+        cashfreeGatewayService = cashfreeGatewayService,
         checkoutTokenSecret = "checkout-secret-with-sufficient-entropy",
-        webhookSecret = "",
-        razorpayKeyId = "rzp_test_123"
+        cashfreeWebhookSecret = "",
+        cashfreeClientSecret = "cashfree-client-secret",
+        sandboxMode = true,
     )
 
     @Test
@@ -32,9 +36,12 @@ class HostedCheckoutControllerTests {
             referenceId = UUID.randomUUID(),
             amount = BigDecimal("499.00"),
             status = "PENDING",
-            gatewayTransactionId = "order_test_123"
+            gateway = "CASHFREE",
+            gatewayTransactionId = "mypet_order_123",
         )
         whenever(repository.findById(transactionId)).thenReturn(Optional.of(transaction))
+        whenever(cashfreeGatewayService.fetchPaymentSession("mypet_order_123", transactionId))
+            .thenReturn("session_123")
 
         val session = service.createSession(transactionId, userId.toString(), "CUSTOMER")
         assertTrue(session.checkoutPath.startsWith("/api/v1/payments/checkout/$transactionId?"))
@@ -46,11 +53,12 @@ class HostedCheckoutControllerTests {
         val resolved = service.resolve(
             transactionId,
             query.getValue("expires").toLong(),
-            query.getValue("token")
+            query.getValue("token"),
         )
 
-        assertEquals("order_test_123", resolved.razorpayOrderId)
-        assertEquals("rzp_test_123", resolved.keyId)
+        assertEquals("mypet_order_123", resolved.cashfreeOrderId)
+        assertEquals("session_123", resolved.paymentSessionId)
+        assertEquals("sandbox", resolved.environment)
     }
 
     @Test
@@ -66,9 +74,10 @@ class HostedCheckoutControllerTests {
                     referenceId = UUID.randomUUID(),
                     amount = BigDecimal("100.00"),
                     status = "PENDING",
-                    gatewayTransactionId = "order_test_456"
-                )
-            )
+                    gateway = "CASHFREE",
+                    gatewayTransactionId = "mypet_order_456",
+                ),
+            ),
         )
 
         assertThrows<PaymentAccessDeniedException> {
@@ -89,9 +98,34 @@ class HostedCheckoutControllerTests {
                     referenceId = UUID.randomUUID(),
                     amount = BigDecimal("100.00"),
                     status = "SUCCESS",
-                    gatewayTransactionId = "order_test_789"
-                )
-            )
+                    gateway = "CASHFREE",
+                    gatewayTransactionId = "mypet_order_789",
+                ),
+            ),
+        )
+
+        assertThrows<IllegalStateException> {
+            service.createSession(transactionId, userId.toString(), "CUSTOMER")
+        }
+    }
+
+    @Test
+    fun `Razorpay transaction cannot open Cashfree checkout`() {
+        val userId = UUID.randomUUID()
+        val transactionId = UUID.randomUUID()
+        whenever(repository.findById(transactionId)).thenReturn(
+            Optional.of(
+                Transaction(
+                    transactionId = transactionId,
+                    userId = userId,
+                    transactionType = "ORDER_PAYMENT",
+                    referenceId = UUID.randomUUID(),
+                    amount = BigDecimal("100.00"),
+                    status = "PENDING",
+                    gateway = "RAZORPAY",
+                    gatewayTransactionId = "order_legacy",
+                ),
+            ),
         )
 
         assertThrows<IllegalStateException> {
