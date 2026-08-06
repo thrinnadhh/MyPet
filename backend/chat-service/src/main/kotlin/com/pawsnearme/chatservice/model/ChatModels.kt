@@ -118,7 +118,7 @@ class ProfileRef(
     var phoneNumber: String
 )
 
-@Entity
+@Entity(name = "ChatProviderRef")
 @Immutable
 @Table(name = "providers", schema = "providers")
 class ProviderRef(
