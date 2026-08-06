@@ -4,9 +4,10 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
+import org.springframework.http.HttpMethod
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.web.SecurityFilterChain
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher
 
 /**
  * Public browser access is limited to the signed hosted-checkout document.
@@ -20,8 +21,12 @@ class HostedCheckoutEdgeSecurityConfiguration {
     @Bean
     @Order(0)
     fun hostedCheckoutEdgeSecurityFilterChain(http: HttpSecurity): SecurityFilterChain {
+        val signedHostedCheckout = PathPatternRequestMatcher.withDefaults().matcher(
+            HttpMethod.GET,
+            "/api/v1/payments/checkout/**",
+        )
         http
-            .securityMatcher(AntPathRequestMatcher("/api/v1/payments/checkout/**", "GET"))
+            .securityMatcher(signedHostedCheckout)
             .csrf { it.disable() }
             .cors { it.disable() }
             .httpBasic { it.disable() }
