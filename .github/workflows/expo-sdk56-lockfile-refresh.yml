@@ -8,14 +8,17 @@ on:
       - "apps/customer-app/package-lock.json"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
+      - name: Check out pull-request branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -24,7 +27,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/customer-app/package-lock.json
 
-      - name: Generate Expo-compatible package files
+      - name: Generate and validate Expo-compatible package files
         working-directory: apps/customer-app
         run: |
           npm ci
@@ -44,12 +47,13 @@ jobs:
           npm run lint
           npm run test:coverage
 
-      - name: Upload generated package files
-        uses: actions/upload-artifact@v4
-        with:
-          name: customer-expo-sdk56-package-files-${{ github.run_id }}
-          retention-days: 3
-          if-no-files-found: error
-          path: |
-            apps/customer-app/package.json
-            apps/customer-app/package-lock.json
+      - name: Commit generated package files and remove generator
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/customer-app/package.json apps/customer-app/package-lock.json
+          git rm .github/workflows/expo-sdk56-lockfile-refresh.yml
+          git commit -m "chore: align customer Expo SDK 56 patches"
+          git push origin "HEAD:$HEAD_BRANCH"
