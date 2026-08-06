@@ -30,7 +30,9 @@ for event in ("CustomerCaseCreated", "CustomerCaseUpdated", "PaymentCaptured", "
 
 runner = (ROOT / "scripts/run-p2b-connected-e2e.py").read_text(encoding="utf-8")
 entrypoint = (ROOT / "scripts/run-p2b-connected-e2e-entry.py").read_text(encoding="utf-8")
+recurring = (ROOT / "scripts/test-recurring-order-scheduler-e2e.py").read_text(encoding="utf-8")
 test_all = (ROOT / "scripts/test-all.sh").read_text(encoding="utf-8")
+monolith_certification = (ROOT / "scripts/test-monolith-release-certification.sh").read_text(encoding="utf-8")
 for token in (
     "verify_m8_report",
     "verify_persisted_graph",
@@ -50,6 +52,18 @@ for token in (
 ):
     assert token in entrypoint, token
 
-assert 'python3 "$ROOT/scripts/run-p2b-connected-e2e-entry.py"' in test_all
+for token in (
+    "AWAITING_CONFIRMATION",
+    "RecurringOrderConfirmationRequired",
+    "automaticCharge",
+    "payments.transactions",
+    "silently created an order",
+    "second scheduler cycle",
+):
+    assert token in recurring, token
 
-print("P2B_CONNECTED_E2E_CONTRACT_OK journeys=10 dimensions=6")
+assert 'python3 "$ROOT/scripts/run-p2b-connected-e2e-entry.py"' in test_all
+assert 'python3 "$ROOT/scripts/test-recurring-order-scheduler-e2e.py"' in monolith_certification
+assert 'ORDER_RECURRING_REMINDER_CRON="*/5 * * * * *"' in monolith_certification
+
+print("P2B_CONNECTED_E2E_CONTRACT_OK journeys=10 dimensions=6 recurring_scheduler=1")
