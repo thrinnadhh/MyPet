@@ -4,13 +4,17 @@ import type { CustomerPaymentStatus } from '../contracts/customer-payment';
 import { appConfig } from '../utils/app-config';
 import { apiClient } from './api-client';
 
-export interface RazorpayOrderInitialization {
-  keyId: string;
+export interface CashfreeOrderInitialization {
   orderId: string;
+  paymentSessionId: string;
   amount: number;
   currency: string;
   transactionId: string;
+  environment: 'SANDBOX' | 'PRODUCTION';
 }
+
+/** Compatibility alias while downstream consumers migrate their type imports. */
+export type RazorpayOrderInitialization = CashfreeOrderInitialization;
 
 export interface HostedCheckoutSession {
   checkoutPath: string;
@@ -28,16 +32,33 @@ export interface CustomerPaymentStatusView {
   updatedAt: string;
 }
 
+export interface CashfreeCustomerDetails {
+  phone: string;
+  email?: string | null;
+  name?: string | null;
+}
+
+function normalizedPhone(value: string): string {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) return digits.slice(-10);
+  if (digits.length === 10) return digits;
+  throw new Error('Add a valid Indian mobile number before paying online.');
+}
+
 export async function initiateOrderPayment(
   userId: string,
   orderId: string,
   amount: number,
-): Promise<RazorpayOrderInitialization> {
-  return apiClient.post<RazorpayOrderInitialization>('/api/v1/payments/orders', {
+  customer: CashfreeCustomerDetails,
+): Promise<CashfreeOrderInitialization> {
+  return apiClient.post<CashfreeOrderInitialization>('/api/v1/payments/orders', {
     userId,
     referenceId: orderId,
     amount,
     transactionType: 'ORDER_PAYMENT',
+    customerPhone: normalizedPhone(customer.phone),
+    customerEmail: customer.email?.trim() || null,
+    customerName: customer.name?.trim() || null,
   });
 }
 
@@ -57,7 +78,10 @@ export async function confirmPaidOrder(orderId: string, transactionId: string): 
   );
 }
 
-export async function openRazorpayOrder(initialization: RazorpayOrderInitialization): Promise<void> {
+export async function openCashfreeOrder(initialization: CashfreeOrderInitialization): Promise<void> {
+  if (!initialization.paymentSessionId || !initialization.orderId) {
+    throw new Error('Cashfree returned an invalid checkout session.');
+  }
   const session = await createHostedCheckoutSession(initialization.transactionId);
   const baseUrl = (appConfig.apiBaseUrl || 'http://localhost:8080').replace(/\/+$/, '');
   const checkoutUrl = session.checkoutPath.startsWith('http')
@@ -69,6 +93,9 @@ export async function openRazorpayOrder(initialization: RazorpayOrderInitializat
     preferEphemeralSession: true,
   });
 }
+
+/** Compatibility alias. New code should use openCashfreeOrder. */
+export const openRazorpayOrder = openCashfreeOrder;
 
 export async function reconcilePaidOrder(orderId: string): Promise<CustomerPaymentStatusView> {
   const payment = await fetchOrderPaymentStatus(orderId);
