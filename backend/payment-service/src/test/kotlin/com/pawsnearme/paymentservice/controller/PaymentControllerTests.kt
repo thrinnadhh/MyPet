@@ -5,6 +5,7 @@ import com.pawsnearme.paymentservice.service.CashfreeGatewayService
 import com.pawsnearme.paymentservice.service.CashfreeOrderResponse
 import com.pawsnearme.paymentservice.service.CreateCashfreeOrderRequest
 import com.pawsnearme.paymentservice.service.PaymentService
+import com.pawsnearme.paymentservice.service.RegisterLinkedAccountRequest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -88,6 +89,30 @@ class PaymentControllerTests {
         assertThrows<PaymentAccessDeniedException> {
             controller.getTransaction(txId, UUID.randomUUID().toString(), "CUSTOMER")
         }
+    }
+
+    @Test
+    fun `linked account onboarding fails closed until Cashfree Easy Split is active`() {
+        val linkedAccountRequest = RegisterLinkedAccountRequest(
+            payeeUserId = userId,
+            payeeRole = "MERCHANT",
+            accountNumber = "123456789012",
+            ifsc = "SBIN0000001",
+            businessName = "MyPet Merchant",
+            email = "merchant@example.com",
+        )
+
+        val response = controller.registerLinkedAccount(
+            linkedAccountRequest,
+            userId.toString(),
+            "MERCHANT",
+        )
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.statusCode)
+        assertEquals(
+            "CASHFREE_EASY_SPLIT_NOT_ACTIVE",
+            (response.body as Map<*, *>)["code"],
+        )
     }
 
     @Test
