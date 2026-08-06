@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  full-stack:
+  legacy-rollback-stack:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -35,14 +35,14 @@ jobs:
       - name: Configure Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Run complete backend and Docker validation
+      - name: Verify complete distributed rollback stack
         run: bash scripts/test-all.sh
 
-      - name: Upload validation reports
+      - name: Upload rollback validation reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: full-stack-validation-${{ github.run_id }}
+          name: legacy-rollback-validation-${{ github.run_id }}
           if-no-files-found: warn
           retention-days: 14
           path: |
@@ -50,3 +50,37 @@ jobs:
             build/reports/docker-diagnostics/**
             backend/*/build/reports/tests/test/**
             backend/*/build/test-results/test/**
+
+  modular-monolith-stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE_PARALLEL_LIMIT: "3"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Configure Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Boot and verify the modular monolith
+        run: bash scripts/test-monolith-stack.sh
+
+      - name: Upload monolith validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monolith-validation-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            build/reports/monolith-smoke.md
+            build/reports/monolith-diagnostics/**
+            backend/mypet-application/build/reports/tests/test/**
+            backend/mypet-application/build/test-results/test/**
