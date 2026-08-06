@@ -9,8 +9,25 @@ spring:
     name: mypet-application
   lifecycle:
     timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:20s}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      auto-offset-reset: earliest
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+  jpa:
+    open-in-view: false
 
 mypet:
+  runtime:
+    # Unit tests retain the lightweight application shell. The monolith
+    # deployment enables all bounded contexts explicitly in Compose.
+    modules-enabled: ${MYPET_MODULES_ENABLED:false}
   edge:
     enabled: ${MYPET_EDGE_ENABLED:false}
     jwt:
@@ -35,18 +52,19 @@ mypet:
     url: ${MYPET_DB_URL:${DB_URL:}}
     username: ${MYPET_DB_USERNAME:${DB_USERNAME:}}
     password: ${MYPET_DB_PASSWORD:${DB_PASSWORD:}}
-    maximum-pool-size: ${MYPET_DB_POOL_MAX_SIZE:5}
-    minimum-idle: ${MYPET_DB_POOL_MIN_IDLE:1}
+    maximum-pool-size: ${MYPET_DB_POOL_MAX_SIZE:12}
+    minimum-idle: ${MYPET_DB_POOL_MIN_IDLE:2}
     connection-timeout-ms: ${MYPET_DB_CONNECTION_TIMEOUT_MS:5000}
     migrate-on-startup: ${MYPET_FLYWAY_MIGRATE_ON_STARTUP:true}
     connect-retries: ${MYPET_FLYWAY_CONNECT_RETRIES:10}
     lock-retry-count: ${MYPET_FLYWAY_LOCK_RETRY_COUNT:50}
   events:
+    # Kafka remains the durable event transport during M9/M10. It is
+    # infrastructure, not an independently deployed business service.
     delivery-mode: ${MYPET_EVENT_DELIVERY_MODE:KAFKA_ONLY}
   scheduling:
-    # M8 verifies the existing deployment without authorizing cutover. The
-    # consolidated API shell therefore remains API-only by default.
     role: ${MYPET_SCHEDULING_ROLE:API}
+    lock-table: ${MYPET_SCHEDULING_LOCK_TABLE:orders.shedlock}
 
 management:
   endpoints:
@@ -74,5 +92,5 @@ management:
 info:
   app:
     name: MyPet Application
-    milestone: M8
-    architecture: modular-monolith-full-feature-verification
+    milestone: M10
+    architecture: modular-monolith
