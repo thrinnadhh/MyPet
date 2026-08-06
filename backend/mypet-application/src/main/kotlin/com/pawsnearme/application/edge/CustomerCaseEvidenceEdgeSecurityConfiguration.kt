@@ -4,10 +4,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
-import org.springframework.http.HttpMethod
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.web.SecurityFilterChain
-import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher
 
 /** Public access is limited to HMAC-signed, short-lived case-evidence content. */
 @Configuration(proxyBeanMethods = false)
@@ -16,12 +14,8 @@ class CustomerCaseEvidenceEdgeSecurityConfiguration {
     @Bean
     @Order(-2)
     fun customerCaseEvidenceEdgeSecurityFilterChain(http: HttpSecurity): SecurityFilterChain {
-        val signedEvidenceContent = PathPatternRequestMatcher.withDefaults().matcher(
-            HttpMethod.GET,
-            "/api/v1/orders/customer-cases/evidence/{evidenceId}/content",
-        )
         http
-            .securityMatcher(signedEvidenceContent)
+            .securityMatcher(SignedContentRequestMatchers.customerCaseEvidence)
             .csrf { it.disable() }
             .cors { it.disable() }
             .httpBasic { it.disable() }
