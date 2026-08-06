@@ -3,15 +3,22 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import importlib.util
 import json
 import sys
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIO_PATH = ROOT / "scripts/test-m8-feature-matrix.py"
 DIAGNOSTICS = ROOT / "build/reports/docker-diagnostics"
+CASHFREE_TEST_WEBHOOK_SECRET = "local-cashfree-webhook-secret"
 
 spec = importlib.util.spec_from_file_location("mypet_m8_feature_matrix", SCENARIO_PATH)
 if spec is None or spec.loader is None:
@@ -25,6 +32,60 @@ _original_request = matrix.request
 _original_poll = matrix.poll
 _original_require = matrix.require
 _payment_transactions: dict[str, str] = {}
+
+
+def post_cashfree_success_webhook(order_id: str, amount: Any) -> Any:
+    """Deliver a correctly signed Cashfree sandbox success event through the gateway."""
+    timestamp = str(int(time.time() * 1000))
+    payload = {
+        "type": "PAYMENT_SUCCESS_WEBHOOK",
+        "event_time": "2026-08-06T00:00:00Z",
+        "data": {
+            "order": {
+                "order_id": order_id,
+                "order_amount": amount,
+                "order_currency": "INR",
+            },
+            "payment": {
+                "cf_payment_id": f"m8_{order_id[-20:]}",
+                "payment_status": "SUCCESS",
+                "payment_amount": amount,
+                "payment_currency": "INR",
+            },
+        },
+    }
+    raw_body = json.dumps(payload, separators=(",", ":"))
+    signature = base64.b64encode(
+        hmac.new(
+            CASHFREE_TEST_WEBHOOK_SECRET.encode("utf-8"),
+            (timestamp + raw_body).encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("ascii")
+    request = urllib.request.Request(
+        f"{matrix.GATEWAY}/api/v1/payments/webhook",
+        data=raw_body.encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Webhook-Timestamp": timestamp,
+            "X-Webhook-Signature": signature,
+            "X-Idempotency-Key": f"m8-cashfree-{order_id}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            status = response.status
+            decoded = matrix.decode_body(response.read())
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        decoded = matrix.decode_body(exc.read())
+    if status != 200:
+        raise AssertionError(
+            f"POST /api/v1/payments/webhook expected 200, received {status}: {decoded}"
+        )
+    return decoded
 
 
 def contract_request(
@@ -43,7 +104,7 @@ def contract_request(
 
     # The base scenario first proves COD eligibility. For the connected payment
     # proof, place the shared order as CARD so it can exercise initiation,
-    # capture persistence and the paid-order confirmation boundary.
+    # verified capture persistence and the paid-order confirmation boundary.
     if (
         method == "POST"
         and path == "/api/v1/orders"
@@ -63,8 +124,10 @@ def contract_request(
         online_payload["quoteToken"] = online_quote["quoteToken"]
         return _original_request(method, path, actor, online_payload, expected)
 
-    # Payment results are only valid after a durable PENDING transaction exists.
-    # Initiate the sandbox Razorpay order first, then record the result against it.
+    # Payment results are valid only after a durable PENDING Cashfree transaction
+    # exists and a correctly signed webhook has marked it successful. The local
+    # adapter never calls Cashfree externally; this proof exercises the public
+    # webhook, HMAC, idempotency, persistence and reconciliation boundaries.
     if (
         method == "POST"
         and path == "/api/v1/payments/transactions/result"
@@ -79,11 +142,15 @@ def contract_request(
                 "referenceId": payload["referenceId"],
                 "amount": payload["amount"],
                 "transactionType": payload["transactionType"],
+                "customerPhone": "9999999999",
+                "customerEmail": "m8-cashfree@example.com",
+                "customerName": "M8 Cashfree Customer",
             },
             expected=(201,),
         )
+        post_cashfree_success_webhook(initiation["orderId"], payload["amount"])
         _payment_transactions[str(payload["referenceId"])] = str(initiation["transactionId"])
-        return _original_request(method, path, actor, payload, expected)
+        return _original_request(method, path, actor, payload, expected=(200,))
 
     # The stale scenario asks the merchant to set ACCEPTED directly. Online
     # orders must instead cross the payment verification boundary via confirm.
