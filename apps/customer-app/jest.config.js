@@ -10,13 +10,13 @@ module.exports = {
     'src/utils/**/*.ts',
     '!src/**/__tests__/**',
   ],
+  coverageReporters: ['text', 'json-summary', 'lcov'],
   coverageThreshold: {
-    // Initial whole-business-layer ratchet; raise it as service modules gain unit coverage.
     global: {
-      statements: 20,
-      branches: 20,
-      functions: 20,
-      lines: 20,
+      statements: 80,
+      branches: 70,
+      functions: 85,
+      lines: 80,
     },
   },
 };
