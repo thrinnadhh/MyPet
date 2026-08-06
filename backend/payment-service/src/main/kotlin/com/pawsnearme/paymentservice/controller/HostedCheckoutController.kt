@@ -3,6 +3,7 @@ package com.pawsnearme.paymentservice.controller
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.paymentservice.model.Transaction
 import com.pawsnearme.paymentservice.repository.TransactionRepository
+import com.pawsnearme.paymentservice.service.CashfreeGatewayService
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.CacheControl
 import org.springframework.http.MediaType
@@ -31,23 +32,28 @@ data class HostedCheckoutRequest(val transactionId: UUID)
 
 data class HostedCheckoutSession(
     val checkoutPath: String,
-    val expiresAt: Instant
+    val expiresAt: Instant,
 )
 
 data class HostedCheckoutView(
     val transaction: Transaction,
-    val razorpayOrderId: String,
-    val keyId: String
+    val cashfreeOrderId: String,
+    val paymentSessionId: String,
+    val environment: String,
 )
 
 @Service
 class HostedCheckoutService(
     private val transactionRepository: TransactionRepository,
+    private val cashfreeGatewayService: CashfreeGatewayService,
     @Value("\${PAYMENT_CHECKOUT_TOKEN_SECRET:}") private val checkoutTokenSecret: String,
-    @Value("\${RAZORPAY_WEBHOOK_SECRET:}") private val webhookSecret: String,
-    @Value("\${RAZORPAY_KEY_ID:}") private val razorpayKeyId: String
+    @Value("\${CASHFREE_WEBHOOK_SECRET:}") private val cashfreeWebhookSecret: String,
+    @Value("\${CASHFREE_CLIENT_SECRET:}") private val cashfreeClientSecret: String,
+    @Value("\${CASHFREE_SANDBOX_MODE:false}") private val sandboxMode: Boolean,
 ) {
-    private fun signingSecret(): String = checkoutTokenSecret.ifBlank { webhookSecret }
+    private fun signingSecret(): String = checkoutTokenSecret
+        .ifBlank { cashfreeWebhookSecret }
+        .ifBlank { cashfreeClientSecret }
         .ifBlank { throw IllegalStateException("Payment checkout signing secret is not configured") }
 
     private fun sign(value: String): String {
@@ -58,7 +64,7 @@ class HostedCheckoutService(
 
     private fun verify(value: String, token: String): Boolean = MessageDigest.isEqual(
         sign(value).toByteArray(StandardCharsets.UTF_8),
-        token.lowercase().toByteArray(StandardCharsets.UTF_8)
+        token.lowercase().toByteArray(StandardCharsets.UTF_8),
     )
 
     @Transactional(readOnly = true)
@@ -71,8 +77,11 @@ class HostedCheckoutService(
         if (transaction.status != "PENDING") {
             throw IllegalStateException("Only pending payments can open checkout")
         }
+        if (transaction.gateway != "CASHFREE") {
+            throw IllegalStateException("Only Cashfree transactions can open this checkout")
+        }
         if (transaction.gatewayTransactionId.isNullOrBlank()) {
-            throw IllegalStateException("Razorpay order has not been initialized")
+            throw IllegalStateException("Cashfree order has not been initialized")
         }
 
         val expiresAt = Instant.now().plus(CHECKOUT_TTL_MINUTES, ChronoUnit.MINUTES)
@@ -80,7 +89,7 @@ class HostedCheckoutService(
         val token = sign(signedValue)
         return HostedCheckoutSession(
             checkoutPath = "/api/v1/payments/checkout/$transactionId?expires=${expiresAt.epochSecond}&token=$token",
-            expiresAt = expiresAt
+            expiresAt = expiresAt,
         )
     }
 
@@ -94,10 +103,17 @@ class HostedCheckoutService(
         if (transaction.status != "PENDING") {
             throw IllegalStateException("Payment is no longer pending")
         }
+        if (transaction.gateway != "CASHFREE") {
+            throw IllegalStateException("Payment transaction is not configured for Cashfree")
+        }
         val orderId = transaction.gatewayTransactionId
-            ?: throw IllegalStateException("Razorpay order has not been initialized")
-        val keyId = razorpayKeyId.ifBlank { "rzp_test_mockkey" }
-        return HostedCheckoutView(transaction, orderId, keyId)
+            ?: throw IllegalStateException("Cashfree order has not been initialized")
+        return HostedCheckoutView(
+            transaction = transaction,
+            cashfreeOrderId = orderId,
+            paymentSessionId = cashfreeGatewayService.fetchPaymentSession(orderId, transactionId),
+            environment = if (sandboxMode) "sandbox" else "production",
+        )
     }
 }
 
@@ -105,30 +121,30 @@ class HostedCheckoutService(
 @RequestMapping("/api/v1/payments")
 class HostedCheckoutController(
     private val hostedCheckoutService: HostedCheckoutService,
-    private val objectMapper: ObjectMapper
+    private val objectMapper: ObjectMapper,
 ) {
     @PostMapping("/checkout-sessions")
     fun createSession(
         @RequestBody request: HostedCheckoutRequest,
         @RequestHeader("X-User-Id", required = false) xUserId: String?,
-        @RequestHeader("X-User-Role", required = false) xUserRole: String?
+        @RequestHeader("X-User-Role", required = false) xUserRole: String?,
     ): ResponseEntity<HostedCheckoutSession> = ResponseEntity.ok(
-        hostedCheckoutService.createSession(request.transactionId, xUserId, xUserRole)
+        hostedCheckoutService.createSession(request.transactionId, xUserId, xUserRole),
     )
 
     @GetMapping("/checkout/{transactionId}", produces = [MediaType.TEXT_HTML_VALUE])
     fun checkout(
         @PathVariable transactionId: UUID,
         @RequestParam expires: Long,
-        @RequestParam token: String
+        @RequestParam token: String,
     ): ResponseEntity<String> {
         val view = hostedCheckoutService.resolve(transactionId, expires, token)
         val transaction = view.transaction
         val callback = "customerapp://payments/result?referenceId=${transaction.referenceId}"
-        val keyJson = objectMapper.writeValueAsString(view.keyId)
-        val orderJson = objectMapper.writeValueAsString(view.razorpayOrderId)
         val callbackJson = objectMapper.writeValueAsString(callback)
-        val amountInPaise = transaction.amount.movePointRight(2).setScale(0).toLong()
+        val paymentSessionJson = objectMapper.writeValueAsString(view.paymentSessionId)
+        val environmentJson = objectMapper.writeValueAsString(view.environment)
+        val orderJson = objectMapper.writeValueAsString(view.cashfreeOrderId)
         val html = """
             <!doctype html>
             <html lang="en">
@@ -142,36 +158,38 @@ class HostedCheckoutController(
                 button{border:0;border-radius:12px;background:#1565d8;color:#fff;font-weight:700;padding:14px 22px;font-size:16px}
                 p{line-height:1.5;color:#536078}
               </style>
-              <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+              <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
             </head>
             <body>
               <main>
                 <h1>MyPet secure checkout</h1>
                 <p>Amount: ₹${transaction.amount.toPlainString()}</p>
-                <button id="pay">Continue to Razorpay</button>
-                <p id="status">Payment success is confirmed only by the MyPet server after Razorpay verification.</p>
+                <p>Order: <code id="order"></code></p>
+                <button id="pay">Continue to Cashfree</button>
+                <p id="status">Payment success is confirmed only by the MyPet server after Cashfree verification.</p>
               </main>
               <script>
                 const callbackUrl = $callbackJson;
-                const options = {
-                  key: $keyJson,
-                  order_id: $orderJson,
-                  amount: $amountInPaise,
-                  currency: ${objectMapper.writeValueAsString(transaction.currency)},
-                  name: 'MyPet',
-                  description: 'Pet care marketplace order',
-                  handler: function () {
-                    document.getElementById('status').textContent = 'Payment received. Confirming securely with MyPet…';
-                    window.location.href = callbackUrl + '&checkout=completed';
-                  },
-                  modal: {
-                    ondismiss: function () { window.location.href = callbackUrl + '&checkout=cancelled'; }
-                  },
-                  theme: { color: '#1565D8' }
-                };
-                const checkout = new Razorpay(options);
-                document.getElementById('pay').addEventListener('click', function () { checkout.open(); });
-                window.addEventListener('load', function () { checkout.open(); });
+                const orderId = $orderJson;
+                const cashfree = Cashfree({ mode: $environmentJson });
+                document.getElementById('order').textContent = orderId;
+                async function openCheckout() {
+                  document.getElementById('status').textContent = 'Opening Cashfree secure checkout…';
+                  try {
+                    const result = await cashfree.checkout({
+                      paymentSessionId: $paymentSessionJson,
+                      returnUrl: callbackUrl + '&cashfreeOrderId=' + encodeURIComponent(orderId),
+                      redirectTarget: '_self'
+                    });
+                    if (result && result.error) {
+                      document.getElementById('status').textContent = result.error.message || 'Cashfree checkout could not be opened.';
+                    }
+                  } catch (error) {
+                    document.getElementById('status').textContent = error && error.message ? error.message : 'Cashfree checkout could not be opened.';
+                  }
+                }
+                document.getElementById('pay').addEventListener('click', openCheckout);
+                window.addEventListener('load', openCheckout);
               </script>
             </body>
             </html>
