@@ -87,8 +87,7 @@ export async function openCashfreeOrder(initialization: CashfreeOrderInitializat
   const checkoutUrl = session.checkoutPath.startsWith('http')
     ? session.checkoutPath
     : `${baseUrl}/${session.checkoutPath.replace(/^\/+/, '')}`;
-  const redirectUrl = 'customerapp://payments/result';
-  await WebBrowser.openAuthSessionAsync(checkoutUrl, redirectUrl, {
+  await WebBrowser.openAuthSessionAsync(checkoutUrl, 'customerapp://payments/result', {
     showInRecents: true,
     preferEphemeralSession: true,
   });
@@ -97,7 +96,23 @@ export async function openCashfreeOrder(initialization: CashfreeOrderInitializat
 /** Compatibility alias. New code should use openCashfreeOrder. */
 export const openRazorpayOrder = openCashfreeOrder;
 
-export async function reconcilePaidOrder(orderId: string): Promise<CustomerPaymentStatusView> {
+async function requestCashfreeReconciliation(userId: string, orderId: string, amount: number): Promise<void> {
+  await apiClient.post('/api/v1/payments/transactions/result', {
+    userId,
+    referenceId: orderId,
+    transactionType: 'ORDER_PAYMENT',
+    amount,
+    gatewayTransactionId: null,
+    success: false,
+  });
+}
+
+export async function reconcilePaidOrder(
+  userId: string,
+  orderId: string,
+  amount: number,
+): Promise<CustomerPaymentStatusView> {
+  await requestCashfreeReconciliation(userId, orderId, amount);
   const payment = await fetchOrderPaymentStatus(orderId);
   if (payment.status === 'SUCCESS') {
     await confirmPaidOrder(orderId, payment.transactionId);
@@ -106,17 +121,16 @@ export async function reconcilePaidOrder(orderId: string): Promise<CustomerPayme
 }
 
 export async function waitForPaymentOutcome(
+  userId: string,
   orderId: string,
+  amount: number,
   attempts = 15,
   delayMs = 2_000,
 ): Promise<CustomerPaymentStatusView> {
-  let latest = await fetchOrderPaymentStatus(orderId);
+  let latest = await reconcilePaidOrder(userId, orderId, amount);
   for (let attempt = 1; attempt < attempts && latest.status === 'PENDING'; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
-    latest = await fetchOrderPaymentStatus(orderId);
-  }
-  if (latest.status === 'SUCCESS') {
-    await confirmPaidOrder(orderId, latest.transactionId);
+    latest = await reconcilePaidOrder(userId, orderId, amount);
   }
   return latest;
 }
