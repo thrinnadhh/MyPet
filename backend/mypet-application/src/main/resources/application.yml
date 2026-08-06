@@ -9,12 +9,18 @@ spring:
     name: mypet-application
   lifecycle:
     timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:20s}
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
   data:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    listener:
+      concurrency: ${KAFKA_LISTENER_CONCURRENCY:3}
     consumer:
       auto-offset-reset: earliest
     producer:
@@ -29,6 +35,66 @@ spring:
 grpc:
   server:
     port: ${GRPC_PORT:-1}
+
+# Module-owned settings are promoted here because dependency JAR
+# application.yml files are not merged into the executable's Environment.
+order:
+  auto-complete:
+    hours-after-delivery: ${ORDER_AUTO_COMPLETE_HOURS:1}
+  online-payments-enabled: ${ORDER_ONLINE_PAYMENTS_ENABLED:false}
+  case-evidence:
+    dir: ${ORDER_CASE_EVIDENCE_DIR:./private-case-evidence}
+    public-base-url: ${ORDER_CASE_EVIDENCE_PUBLIC_BASE_URL:http://localhost:8080}
+
+appointment:
+  medical-documents:
+    dir: ${APPOINTMENT_MEDICAL_DOCUMENTS_DIR:./private-medical-documents}
+    public-base-url: ${APPOINTMENT_MEDICAL_DOCUMENTS_PUBLIC_BASE_URL:http://localhost:8080}
+
+provider:
+  public-base-url: ${PROVIDER_PUBLIC_BASE_URL:http://localhost:8080}
+
+internal:
+  api:
+    secret: ${INTERNAL_API_SECRET:}
+
+storage:
+  medical-reports:
+    bucket: ${MEDICAL_REPORTS_BUCKET:}
+    region: ${MEDICAL_REPORTS_REGION:${AWS_REGION:ap-south-1}}
+    url-ttl-seconds: ${MEDICAL_REPORTS_URL_TTL_SECONDS:900}
+    access-key: ${MEDICAL_REPORTS_ACCESS_KEY:}
+    secret-key: ${MEDICAL_REPORTS_SECRET_KEY:}
+
+security:
+  bank-data:
+    encryption-key: ${BANK_DATA_ENCRYPTION_KEY:}
+
+chat:
+  uploads:
+    dir: ${CHAT_UPLOAD_DIR:./uploads/chat}
+  public-base-url: ${CHAT_PUBLIC_BASE_URL:http://localhost:8080}
+
+notification:
+  templates:
+    APPOINTMENT_T24H: "Your appointment is tomorrow! Ref: {referenceId}"
+    APPOINTMENT_T1H: "Your appointment is in 1 hour! Ref: {referenceId}"
+    ORDER_DELIVERED: "Your order has been delivered! Order: {referenceId}"
+    ORDER_PLACED: "Your order has been placed successfully! Order: {referenceId}"
+    MERCHANT_ORDER_ALERT: "New order received! Order: {referenceId}"
+    VACCINATION_DUE: "Vaccination reminder for your pet. Ref: {referenceId}"
+    VACCINATION_DUE_7D: "Vaccination due in 7 days. Ref: {referenceId}"
+    VACCINATION_DUE_1D: "Vaccination due tomorrow. Ref: {referenceId}"
+    CHAT_MESSAGE: "New message: {referenceId}"
+  delivery:
+    mode: ${NOTIFICATION_DELIVERY_MODE:LOGGED_DEV}
+
+# Legacy gateway-trust properties remain resolvable for any module components
+# that still bind them, but the filters themselves are excluded in monolith mode.
+gateway:
+  trust:
+    enabled: false
+    secret: ${INTERNAL_API_SECRET:}
 
 mypet:
   runtime:
