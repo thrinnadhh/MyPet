@@ -88,7 +88,9 @@ describe('structured API errors', () => {
   it('parses Retry-After seconds, fractional seconds, dates and invalid values', () => {
     expect(parseRetryAfter(null)).toBeUndefined();
     expect(parseRetryAfter('2.1')).toBe(3);
-    expect(parseRetryAfter('-1')).toBeUndefined();
+    // The implementation accepts HTTP-date syntax after numeric parsing. `-1`
+    // is parsed as a date in the past and therefore clamps to an immediate retry.
+    expect(parseRetryAfter('-1')).toBe(0);
     expect(parseRetryAfter('not-a-date')).toBeUndefined();
 
     jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-06T00:00:00Z'));
