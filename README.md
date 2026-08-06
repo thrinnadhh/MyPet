@@ -1,216 +1,235 @@
-# MyPet — On-Demand Pet Care & Store Marketplace
+# MyPet — Pet Care & Store Marketplace
 
-MyPet is a premium, multi-service on-demand pet care platform and marketplace (Blinkit/Swiggy model for pet supplies, and Urban Company/Zocdoc model for veterinary/grooming appointments). 
+MyPet is an on-demand pet supplies, veterinary, grooming and delivery
+marketplace. The backend is a **Spring Boot + Kotlin modular monolith** with
+twelve bounded contexts packaged into one production process. The customer and
+merchant/captain mobile applications are built with Expo React Native.
 
-The platform consists of a distributed Spring Boot + Kotlin microservices backend, shared storage and streaming infrastructure, and two mobile applications built with Expo SDK 56.
-
----
-
-## 🏗️ System Architecture
+## Architecture
 
 ```mermaid
 graph TD
-    classDef gateway fill:#8e44ad,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef service fill:#3498db,stroke:#fff,stroke-width:1px,color:#fff;
-    classDef infra fill:#2ecc71,stroke:#fff,stroke-width:1px,color:#fff;
-    classDef client fill:#e67e22,stroke:#fff,stroke-width:1px,color:#fff;
+    C1[Customer App] --> APP
+    C2[Merchant and Captain App] --> APP
 
-    subgraph Clients
-        C1["Customer App (Expo RN)"]:::client
-        C2["Merchant & Captain App"]:::client
+    subgraph Backend[Single backend deployment]
+        APP[mypet-application :8080]
+        APP --> PROVIDER[Provider module]
+        APP --> CATALOG[Catalog module]
+        APP --> DISCOVERY[Discovery module]
+        APP --> ORDER[Order module]
+        APP --> APPOINTMENT[Appointment module]
+        APP --> DISPATCH[Dispatch module]
+        APP --> CAPTAIN[Captain module]
+        APP --> NOTIFICATION[Notification module]
+        APP --> REVIEW[Review module]
+        APP --> PAYMENT[Payment module]
+        APP --> CHAT[Chat module]
+        APP --> CONTENT[Content module]
     end
 
-    subgraph API Gateway Layer
-        GW["API Gateway (8080)"]:::gateway
-    end
-
-    subgraph Service Layer (Spring Boot + Kotlin)
-        DS["Discovery Service (Eureka)"]:::service
-        PROV["Provider Service (8081)"]:::service
-        CAT["Catalog Service (8082)"]:::service
-        APP["Appointment Service (8083)"]:::service
-        ORD["Order Service (8084)"]:::service
-        PAY["Payment Service (8090)"]:::service
-        DISP["Dispatch Service (8086)"]:::service
-        NOTIF["Notification Service (8087)"]:::service
-        REV["Review Service (8085)"]:::service
-        CHAT["Chat Service (8088)"]:::service
-        CONT["Content Service (8092)"]:::service
-    end
-
-    subgraph Datastores & Infrastructure
-        DB[("PostgreSQL (5433)")]:::infra
-        RD[("Redis (6380)")]:::infra
-        KF[("Apache Kafka (9092)")]:::infra
-        PROM["Prometheus (9095)"]:::infra
-        GRAF["Grafana (3005)"]:::infra
-    end
-
-    %% Client communication
-    C1 -->|REST / WebSockets| GW
-    C2 -->|REST / WebSockets| GW
-
-    %% Gateway Routing
-    GW --> PROV
-    GW --> CAT
-    GW --> APP
-    GW --> ORD
-    GW --> PAY
-    GW --> DISP
-    GW --> CHAT
-    GW --> CONT
-
-    %% Discovery Registry
-    PROV & CAT & APP & ORD & PAY & DISP & NOTIF & REV & CHAT & CONT -->|Register| DS
-
-    %% Database schemas
-    PROV & CAT & APP & ORD & PAY & DISP & REV & CONT -->|JDBC / JPA| DB
-    
-    %% Cache & Pub/Sub
-    PAY & PROV -->|Cache| RD
-    ORD & DISP & NOTIF & PAY -->|Events| KF
-
-    %% Monitoring
-    PROM -->|Metrics| PROV & PAY & APP & ORD
-    GRAF -->|Visualize| PROM
+    APP --> DB[(PostgreSQL)]
+    APP --> REDIS[(Redis)]
+    APP --> KAFKA[Kafka]
+    PROM[Prometheus] --> APP
+    GRAF[Grafana] --> PROM
 ```
 
----
+### Runtime properties
 
-## 📁 Repository Structure
+- **One backend process:** `mypet-application` on port `8080`.
+- **Embedded API edge:** JWT validation, identity propagation, CORS, rate
+  limiting, request IDs and idempotency are handled inside the application.
+- **One database pool:** all existing domain schemas and twelve Flyway history
+  tables are retained.
+- **In-process module calls:** synchronous cross-domain work uses typed module
+  interfaces rather than HTTP.
+- **Durable asynchronous work:** Kafka remains infrastructure for outbox jobs
+  and projections.
+- **One scheduler owner:** scheduled jobs use a shared JDBC ShedLock provider.
+- **Rollback available:** the previous distributed topology is retained only as
+  a temporary rollback stack.
 
-```
-Mypet/
+## Repository structure
+
+```text
+MyPet/
 ├── apps/
-│   ├── customer-app/            # Customer mobile app (Expo Go / standalone APK)
-│   └── merchant-captain-app/    # Merchant/Captain unified app (Expo Go / standalone APK)
+│   ├── customer-app/
+│   └── merchant-captain-app/
 ├── backend/
-│   ├── api-gateway/             # Spring Cloud Gateway (Port 8080)
-│   ├── discovery-service/       # Netflix Eureka Service Registry (Port 8761)
-│   ├── provider-service/        # Merchant provider profiles, ratings, and commission (Port 8081)
-│   ├── catalog-service/         # Product catalog and pet care services inventory (Port 8082)
-│   ├── appointment-service/     # Doctor consultation and grooming appointments booking (Port 8083)
-│   ├── order-service/           # On-demand store product checkout and order flow (Port 8084)
-│   ├── payment-service/         # Razorpay checkout, route accounts, transfers, clawbacks (Port 8090)
-│   ├── dispatch-service/        # Matchmaking algorithms assigning captains to orders (Port 8086)
-│   ├── review-service/          # Ratings and user review system (Port 8085)
-│   ├── chat-service/            # Messaging between customer, merchant, and captain (Port 8088)
-│   ├── notification-service/    # Push notifications delivery service (Port 8087)
-│   ├── content-service/         # Guides, landing banners, static metadata (Port 8092)
-│   └── common/                  # Shared security, filters, and utilities library
-└── infra/
-    ├── docker-compose.yml       # Local database, queue, cache, and monitoring services
-    ├── docker-compose.replicas.yml # Bounded scale service configurations for local development
-    └── prometheus.yml           # Monitoring metrics collection config
+│   ├── mypet-application/       # Production executable
+│   ├── provider-service/        # Provider bounded-context source module
+│   ├── catalog-service/         # Catalog bounded-context source module
+│   ├── discovery-service/
+│   ├── order-service/
+│   ├── appointment-service/
+│   ├── dispatch-service/
+│   ├── captain-service/
+│   ├── notification-service/
+│   ├── review-service/
+│   ├── payment-service/
+│   ├── chat-service/
+│   ├── content-service/
+│   └── common/
+├── infra/
+│   ├── docker-compose.yml               # PostgreSQL, Redis and Kafka
+│   ├── docker-compose.monolith.yml      # Primary backend topology
+│   ├── docker-compose.replicas.yml      # Rollback-only distributed topology
+│   └── prometheus.monolith.yml
+└── scripts/
+    ├── check-monolith-compose.sh
+    ├── test-monolith-stack.sh
+    └── test-all.sh                       # Distributed rollback certification
 ```
 
----
+The `*-service` project names are retained to preserve bounded-context source
+ownership and migration history. They are libraries inside the production JAR;
+they are not independently deployed by the primary topology.
 
-## 🚀 Setup & Execution Manual
+## Prerequisites
 
-### Prerequisites
-* **Java**: JDK 21 (Temurin / Android Studio Java Home recommended)
-* **Node.js**: v18+ and npm
-* **Docker**: Docker Desktop with Compose V2
+- JDK 21
+- Docker Desktop or Docker Engine with Compose V2
+- Node.js 18 or later
+- npm
 
----
+## Build
 
-### Step 1: Compile the Backend Services
-Before building Docker images, compile the Kotlin source code into runnable Spring Boot Fat JARs on the host machine to bypass heavy memory compilation overhead:
 ```bash
 cd backend
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew bootJar
+./gradlew clean test :mypet-application:bootJar
 ```
 
----
+The executable JAR is generated under:
 
-### Step 2: Spin Up the Infrastructure and Services
-Initialize the complete 19-container stack (relational schemas, cache, queue, monitoring, gateway, and all microservices):
-```bash
-cd ../
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.replicas.yml up -d --build
+```text
+backend/mypet-application/build/libs/
 ```
 
-#### Ports Overview (Host Bindings)
-* **API Gateway**: `8080` (Consolidated Entrypoint)
-* **PostgreSQL**: `5433` (isolated schemas per domain)
-* **Redis Cache**: `6380`
-* **Apache Kafka**: `9092`
-* **Prometheus**: `9095`
-* **Grafana Dashboard**: `3005`
-* **Payment Service**: `8090` (Exposed directly for local API and Webhook testing)
+## Run the modular monolith locally
 
----
+Create an environment file, for example `.env.monolith.local`:
 
-### Step 3: Run Mobile Apps
-Navigate into the respective application folder and start the Expo Metro Bundler:
+```dotenv
+INTERNAL_API_SECRET=replace-with-a-long-random-secret
+BANK_DATA_ENCRYPTION_KEY=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+MEDICAL_REPORTS_BUCKET=mypet-local-medical-reports
+MEDICAL_REPORTS_REGION=ap-south-1
+MEDICAL_REPORTS_ACCESS_KEY=local-test-access-key
+MEDICAL_REPORTS_SECRET_KEY=local-test-secret-key
+MEDICAL_DOCUMENT_SIGNING_KEY=replace-with-at-least-32-characters
+CASE_EVIDENCE_SIGNING_KEY=replace-with-at-least-32-characters
+PAYMENT_CHECKOUT_TOKEN_SECRET=replace-with-at-least-32-characters
+CASHFREE_WEBHOOK_SECRET=local-cashfree-webhook-secret
+ALLOW_UNSIGNED_JWT=true
+NOTIFICATION_DELIVERY_MODE=LOGGED_DEV
+```
+
+Start the application:
+
 ```bash
-# Customer Mobile App
+docker compose \
+  --env-file .env.monolith.local \
+  -f infra/docker-compose.yml \
+  -f infra/docker-compose.monolith.yml \
+  up -d --build
+```
+
+Primary endpoints:
+
+- API: `http://localhost:8080`
+- Readiness: `http://localhost:8080/actuator/health/readiness`
+- Application metadata: `http://localhost:8080/actuator/info`
+- Prometheus: `http://localhost:9095`
+- Grafana: `http://localhost:3005`
+
+Stop and remove the local stack:
+
+```bash
+docker compose \
+  --env-file .env.monolith.local \
+  -f infra/docker-compose.yml \
+  -f infra/docker-compose.monolith.yml \
+  down -v
+```
+
+## Run the mobile applications
+
+```bash
 cd apps/customer-app
 npm install
 npx expo start
+```
 
-# Merchant/Captain Unified Mobile App
-cd ../merchant-captain-app
+```bash
+cd apps/merchant-captain-app
 npm install
 npx expo start
 ```
-Scan the printed terminal QR code with your iOS Camera or Android Expo Go app.
 
----
+Both applications continue to use the backend API on port `8080`; the
+architecture conversion does not change their public API base path.
 
-## 💸 Automatic Commission & Payout System (Razorpay Route)
+## Payments
 
-Implemented in Sprint 22, the payouts architecture deducts the platform's commission automatically and triggers direct payouts to merchants and captains immediately.
+Customer online payments use Cashfree. Production must configure:
 
-### 1. Linked Accounts Creation
-Administrators link merchant and captain bank details directly to Razorpay's Route API.
-* **Endpoint**: `POST /api/v1/payments/linked-accounts`
-* **Payload**:
-```json
-{
-  "payeeUserId": "98765432-1234-1234-1234-123456789abc",
-  "payeeRole": "MERCHANT",
-  "accountNumber": "123456789",
-  "ifsc": "UTIB0001234",
-  "businessName": "Test Store Inc",
-  "email": "owner@store.com"
-}
-```
+- `CASHFREE_SANDBOX_MODE=false`
+- `CASHFREE_CLIENT_ID`
+- `CASHFREE_CLIENT_SECRET`
+- `CASHFREE_WEBHOOK_SECRET`
+- `PAYMENT_CHECKOUT_TOKEN_SECRET`
 
-### 2. Commission Retained Ledger
-* Calculates dynamic commission per provider by checking their `commissionPct` via the **Provider Service** (utilizing a local JVM map cache to minimize duplicate HTTP overhead).
-* Logs platform earnings per provider, per period into the `platform_commission_ledger` table.
-* Deducts the commission (`original_amount * commission_pct / 100`) and issues the rest to the payee.
+Payment success is accepted only after server-side verification or
+reconciliation. Cashfree Easy Split payout operations remain fail-closed until
+the account capability is activated and verified.
 
-### 3. Stateful Clawback Netting (Option 2.B)
-* When a payment refund occurs, Razorpay triggers a `transfer.reversed` webhook event.
-* The system catches the event, updates the Payout status to `REVERSED`, and increments the payee's stateful `pending_clawback_balance` on the `LinkedAccount` table.
-* On the next payout calculation cycle, the system nets this clawback balance out:
-  * `netAmount = calculatedPayout - pendingClawbackBalance`
-  * If `netAmount < 0`, the payee is issued a `0.00` payout, and the remaining deficit stays on `pending_clawback_balance`.
-  * If `netAmount >= 0`, the payout is issued for `netAmount` and the `pending_clawback_balance` resets to `0.00`.
+## Verification
 
-### 4. Automatic Webhooks
-* **Webhook path**: `/api/v1/payments/webhook`
-* **Signature Bypass**: For frictionless local sandbox testing, signature checks are bypassed if `razorpayWebhookSecret` is left blank in local environments.
-* **Webhook Events**:
-  * `transfer.processed` ➡️ Updates payout status to `PAID`.
-  * `transfer.failed` ➡️ Updates payout status to `FAILED`.
-  * `transfer.reversed` ➡️ Updates payout status to `REVERSED` and increments clawback balance.
+Static topology and environment validation:
 
----
-
-## 🧪 Testing Guidelines
-
-### Unit and Service Tests
-Execute standard unit and service mock tests inside the `backend` folder:
 ```bash
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew :payment-service:test
+bash scripts/check-monolith-compose.sh
 ```
 
-### End-to-End Integration Verification Script
-Run the automated python script verifying route accounts registration, payouts calculation, webhook reversals, and subsequent netting:
+Live clean-volume modular-monolith verification:
+
 ```bash
-python3 backend/verify_sprint22.py
+bash scripts/test-monolith-stack.sh
 ```
+
+This test builds the consolidated JAR, starts the one-process topology, checks
+readiness and M10 actuator metadata, verifies all twelve Flyway history tables
+and executes an authenticated business API request.
+
+Complete distributed rollback certification:
+
+```bash
+bash scripts/test-all.sh
+```
+
+The GitHub **Full Stack Smoke** workflow runs the monolith and rollback suites
+as independent jobs.
+
+## Rollback topology
+
+The previous distributed runtime is not the normal startup path. Use it only
+for a controlled rollback:
+
+```bash
+docker compose \
+  --env-file .env.production \
+  -f infra/docker-compose.yml \
+  -f infra/docker-compose.replicas.yml \
+  up -d --build
+```
+
+Never run the monolith and distributed backend topologies simultaneously
+against the same production database because that would create duplicate
+scheduler, consumer and outbox ownership.
+
+## Deployment documentation
+
+See `docs/implementation/m10-modular-monolith-cutover.md` for production
+settings, validation, observation and rollback procedures.
