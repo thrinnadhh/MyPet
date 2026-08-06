@@ -1,5 +1,6 @@
 x-monolith-environment: &monolith-environment
   SERVER_PORT: 8080
+  GRPC_PORT: -1
   MYPET_MODULES_ENABLED: "true"
   MYPET_EDGE_ENABLED: "true"
   MYPET_DATABASE_ENABLED: "true"
