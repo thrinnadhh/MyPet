@@ -1,0 +1,38 @@
+name: Customer High-Risk Service Contracts
+
+on:
+  pull_request:
+    paths:
+      - "apps/customer-app/src/services/**"
+      - "apps/customer-app/src/contracts/**"
+      - "apps/customer-app/src/utils/**"
+      - "apps/customer-app/package.json"
+      - "apps/customer-app/package-lock.json"
+      - ".github/workflows/customer-high-risk-service-contracts.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19"
+          cache: npm
+          cache-dependency-path: apps/customer-app/package-lock.json
+
+      - name: Run focused high-risk service contracts
+        working-directory: apps/customer-app
+        run: |
+          npm ci
+          npx jest --runInBand src/services/__tests__/high-risk-customer-services.test.ts
+
+      - name: Run the complete customer coverage suite
+        working-directory: apps/customer-app
+        run: npm run test:coverage
