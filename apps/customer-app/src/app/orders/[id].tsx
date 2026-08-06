@@ -22,7 +22,7 @@ import {
 import {
   fetchOrderPaymentStatus,
   initiateOrderPayment,
-  openRazorpayOrder,
+  openCashfreeOrder,
   reconcilePaidOrder,
   waitForPaymentOutcome,
 } from '@/services/customer-payments';
@@ -132,15 +132,20 @@ export default function OrderDetailRoute() {
     if (!order || !user) return;
     setActionLoading(true);
     try {
-      const initialization = await initiateOrderPayment(user.id, order.id, order.rawTotal);
-      await openRazorpayOrder(initialization);
+      const metadata = user.user_metadata as Record<string, unknown> | undefined;
+      const initialization = await initiateOrderPayment(user.id, order.id, order.rawTotal, {
+        phone: user.phone || String(metadata?.phone || metadata?.mobile || ''),
+        email: user.email,
+        name: String(metadata?.full_name || metadata?.name || '').trim() || null,
+      });
+      await openCashfreeOrder(initialization);
       const payment = await waitForPaymentOutcome(order.id);
       setPaymentStatus(payment.status);
       if (payment.status === 'SUCCESS') {
         await loadOrder(false);
         Alert.alert('Payment confirmed', 'The server verified your payment and confirmed the order.');
       } else if (payment.status === 'PENDING') {
-        Alert.alert('Confirmation pending', 'Razorpay webhook confirmation is still pending. This screen will keep checking.');
+        Alert.alert('Confirmation pending', 'Cashfree webhook confirmation is still pending. This screen will keep checking.');
       } else {
         Alert.alert('Payment not completed', 'No successful payment was confirmed. You can retry safely.');
       }
@@ -205,11 +210,11 @@ export default function OrderDetailRoute() {
                 <StatusBadge label={paymentStatus} tone={paymentStatus === 'SUCCESS' ? 'success' : 'warning'} />
               </View>
               <ThemedText type="small" themeColor="textSecondary">
-                Method: {order.paymentMethod}. Only webhook-confirmed success can advance this order.
+                Method: {order.paymentMethod}. Only Cashfree webhook-confirmed success can advance this order.
               </ThemedText>
               {order.status === 'PLACED' && paymentStatus !== 'SUCCESS' ? (
                 <PrimaryAction
-                  label={paymentStatus === 'PENDING' ? 'Open payment / check again' : 'Pay securely'}
+                  label={paymentStatus === 'PENDING' ? 'Open Cashfree / check again' : 'Pay securely with Cashfree'}
                   onPress={() => void handlePayment()}
                   loading={actionLoading}
                 />
