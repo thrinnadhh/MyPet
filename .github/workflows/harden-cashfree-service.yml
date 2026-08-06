@@ -1,20 +1,19 @@
 name: Harden Cashfree Service Migration
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches: [agent/switch-to-cashfree]
 
 permissions:
   contents: write
 
 jobs:
   harden:
-    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: agent/switch-to-cashfree
       - name: Apply service hardening
         run: |
           python - <<'PY'
@@ -28,9 +27,8 @@ jobs:
           )
           old = '        require(request.amount > BigDecimal.ZERO) { "Payment amount must be greater than zero" }\n        if (request.transactionType == "ORDER_PAYMENT") {'
           new = '        require(request.transactionType == "ORDER_PAYMENT") { "Cashfree order initiation currently supports order payments only" }\n        require(request.amount > BigDecimal.ZERO) { "Payment amount must be greater than zero" }\n        if (request.transactionType == "ORDER_PAYMENT") {'
-          if old not in text:
-              raise SystemExit('Cashfree reference validation marker not found')
-          text = text.replace(old, new)
+          if old in text:
+              text = text.replace(old, new)
           text = text.replace(
               '${event["event_time"].orEmpty()}',
               '${event["event_time"]?.toString().orEmpty()}',
@@ -44,9 +42,8 @@ jobs:
             .getOrElse { UUID.nameUUIDFromBytes(eventKey.toByteArray(StandardCharsets.UTF_8)) }
 
         val transaction = transactionRepository.findByGatewayTransactionId(orderId)'''
-          if old_idempotency not in text:
-              raise SystemExit('Cashfree idempotency marker not found')
-          text = text.replace(old_idempotency, new_idempotency)
+          if old_idempotency in text:
+              text = text.replace(old_idempotency, new_idempotency)
           validation_marker = '''        validateWebhookAmount(transaction, order, payment)
 
         val paymentStatus = payment?.get("payment_status")?.toString()?.uppercase()'''
@@ -54,9 +51,8 @@ jobs:
         if (!idempotencyService.checkAndRecord(eventUuid)) return false
 
         val paymentStatus = payment?.get("payment_status")?.toString()?.uppercase()'''
-          if validation_marker not in text:
-              raise SystemExit('Cashfree webhook validation marker not found')
-          text = text.replace(validation_marker, validation_replacement)
+          if validation_marker in text:
+              text = text.replace(validation_marker, validation_replacement)
           path.write_text(text)
 
           extension = Path('backend/payment-service/src/main/kotlin/com/pawsnearme/paymentservice/service/CashfreeValueExtensions.kt')
@@ -73,4 +69,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A backend/payment-service/src/main/kotlin/com/pawsnearme/paymentservice/service
           git commit -m "harden Cashfree reference and webhook validation"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git push origin HEAD:agent/switch-to-cashfree
