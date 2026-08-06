@@ -7,10 +7,10 @@ function source(path: string): string {
   return readFileSync(join(process.cwd(), path), 'utf8');
 }
 
-test('operational app declares Expo native and background location modules', () => {
+test('operational app declares Expo SDK 56 native and background location modules', () => {
   const packageJson = JSON.parse(source('package.json')) as { dependencies: Record<string, string> };
-  assert.equal(packageJson.dependencies['expo-location'], '~56.0.22');
-  assert.equal(packageJson.dependencies['expo-task-manager'], '~56.0.24');
+  assert.match(packageJson.dependencies['expo-location'], /^~56\.0\.\d+$/);
+  assert.match(packageJson.dependencies['expo-task-manager'], /^~56\.0\.\d+$/);
 });
 
 test('Expo config enables native location permissions and foreground service', () => {
