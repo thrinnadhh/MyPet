@@ -158,7 +158,6 @@ class PlatformCommissionLedger(
     var createdAt: Instant = Instant.now()
 )
 
-
 @Entity
 @Table(name = "promotions", schema = "payments")
 class Promotion(
@@ -213,22 +212,22 @@ class OrderRef(
     @Id
     @Column(name = "order_id")
     val orderId: UUID,
-    
+
     @Column(name = "provider_id")
     val providerId: UUID,
 
     @Column(name = "customer_id")
     val customerId: UUID,
-    
+
     @Column(name = "captain_id")
     val captainId: UUID?,
-    
+
     @Column(name = "status")
     val status: String,
-    
+
     @Column(name = "total_amount")
     val totalAmount: BigDecimal,
-    
+
     @Column(name = "delivered_at")
     val deliveredAt: Instant?
 )
@@ -239,16 +238,16 @@ class AppointmentRef(
     @Id
     @Column(name = "appointment_id")
     val appointmentId: UUID,
-    
+
     @Column(name = "provider_id")
     val providerId: UUID,
-    
+
     @Column(name = "status")
     val status: String,
-    
+
     @Column(name = "price_amount")
     val priceAmount: BigDecimal,
-    
+
     @Column(name = "completed_at")
     val completedAt: Instant?
 )
@@ -259,27 +258,27 @@ class CaptainEarningRef(
     @Id
     @Column(name = "earning_id")
     val earningId: UUID,
-    
+
     @Column(name = "captain_id")
     val captainId: UUID,
-    
+
     @Column(name = "amount")
     val amount: BigDecimal,
-    
+
     @Column(name = "earned_at")
     val earnedAt: Instant,
-    
+
     @Column(name = "payout_id")
     var payoutId: UUID?
 )
 
-@Entity
+@Entity(name = "PaymentProviderRef")
 @Table(name = "providers", schema = "providers")
 class ProviderRef(
     @Id
     @Column(name = "provider_id")
     val providerId: UUID,
-    
+
     @Column(name = "owner_user_id")
     val ownerUserId: UUID,
 
