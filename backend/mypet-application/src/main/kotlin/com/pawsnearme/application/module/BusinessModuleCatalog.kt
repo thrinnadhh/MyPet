@@ -17,6 +17,7 @@ import org.springframework.boot.actuate.info.Info
 import org.springframework.boot.actuate.info.InfoContributor
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.env.Environment
 import org.springframework.stereotype.Component
 
 class BusinessModuleCatalog(descriptors: List<BusinessModuleDescriptor>) {
@@ -59,15 +60,21 @@ class BusinessModuleCatalogConfiguration {
 
 @Component
 class BusinessModuleInfoContributor(
-    private val catalog: BusinessModuleCatalog
+    private val catalog: BusinessModuleCatalog,
+    private val environment: Environment
 ) : InfoContributor {
     override fun contribute(builder: Info.Builder) {
+        val modulesEnabled = environment.getProperty(
+            "mypet.runtime.modules-enabled",
+            Boolean::class.java,
+            false
+        )
         builder.withDetail(
             "businessModules",
             mapOf(
                 "count" to catalog.modules.size,
                 "ids" to catalog.modules.map(BusinessModuleDescriptor::id),
-                "runtimeMode" to "linked-dormant"
+                "runtimeMode" to if (modulesEnabled) "active-in-process" else "linked-dormant"
             )
         )
     }
