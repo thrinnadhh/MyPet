@@ -15,7 +15,10 @@ MEDICAL_REPORTS_BUCKET=mypet-local-medical-reports
 MEDICAL_REPORTS_REGION=ap-south-1
 MEDICAL_REPORTS_ACCESS_KEY=local-test-access-key
 MEDICAL_REPORTS_SECRET_KEY=local-test-secret-key
-RAZORPAY_WEBHOOK_SECRET=local-webhook-secret
+CASHFREE_CLIENT_ID=compose-validation-client-id
+CASHFREE_CLIENT_SECRET=compose-validation-client-secret
+CASHFREE_WEBHOOK_SECRET=compose-validation-webhook-secret
+PAYMENT_CHECKOUT_TOKEN_SECRET=0123456789abcdef0123456789abcdef
 EOF
 
 COMPOSE=(
@@ -93,6 +96,16 @@ for service, table in expected.items():
 if len(set(actual.values())) != len(actual):
     raise SystemExit("ERROR: Flyway history tables must be unique per service")
 
+payment_environment = config["services"]["payment-service"].get("environment", {})
+if str(payment_environment.get("CASHFREE_SANDBOX_MODE", "")).lower() != "true":
+    raise SystemExit("ERROR: local validation must keep Cashfree sandbox mode enabled")
+if payment_environment.get("CASHFREE_CLIENT_ID") not in (None, ""):
+    raise SystemExit("ERROR: local validation must not send Cashfree client credentials to the container")
+if payment_environment.get("CASHFREE_CLIENT_SECRET") not in (None, ""):
+    raise SystemExit("ERROR: local validation must not send Cashfree client secrets to the container")
+if not payment_environment.get("PAYMENT_CHECKOUT_TOKEN_SECRET"):
+    raise SystemExit("ERROR: local validation must configure checkout URL signing")
+
 m4_environment = config["services"]["mypet-application"].get("environment", {})
 if str(m4_environment.get("MYPET_DATABASE_ENABLED", "")).lower() != "true":
     raise SystemExit("ERROR: M4 shadow runtime must enable database consolidation")
@@ -112,8 +125,6 @@ scheduler_owners = {
     "content-service",
 }
 
-# The default clean-volume stack must retain the M0-M6 ALL behavior by leaving
-# the scheduling role unset. This is the rollback path exercised by smoke tests.
 for service in scheduler_owners:
     environment = config["services"][service].get("environment", {})
     if "MYPET_SCHEDULING_ROLE" in environment:
@@ -122,7 +133,6 @@ for service in scheduler_owners:
             f"found {environment['MYPET_SCHEDULING_ROLE']!r}"
         )
 
-# The optional M7 overlay must move periodic execution out of every API owner.
 for service in scheduler_owners:
     environment = m7_config["services"][service].get("environment", {})
     role = str(environment.get("MYPET_SCHEDULING_ROLE", "")).upper()

@@ -21,7 +21,7 @@ import {
 } from '@/services/customer-orders';
 import {
   initiateOrderPayment,
-  openRazorpayOrder,
+  openCashfreeOrder,
   waitForPaymentOutcome,
 } from '@/services/customer-payments';
 import { fetchDefaultAddress, isOfflineError, type CustomerAddress } from '@/services/customer-profile';
@@ -142,8 +142,13 @@ export default function CheckoutScreen() {
         return;
       }
 
-      const initialization = await initiateOrderPayment(user.id, order.id, order.rawTotal);
-      await openRazorpayOrder(initialization);
+      const metadata = user.user_metadata as Record<string, unknown> | undefined;
+      const initialization = await initiateOrderPayment(user.id, order.id, order.rawTotal, {
+        phone: user.phone || String(metadata?.phone || metadata?.mobile || ''),
+        email: user.email,
+        name: String(metadata?.full_name || metadata?.name || '').trim() || null,
+      });
+      await openCashfreeOrder(initialization);
       const payment = await waitForPaymentOutcome(order.id);
 
       if (payment.status === 'SUCCESS') {
@@ -153,7 +158,7 @@ export default function CheckoutScreen() {
       } else if (payment.status === 'PENDING') {
         Alert.alert(
           'Payment confirmation pending',
-          'Razorpay has not confirmed the payment yet. Track or retry from the order screen.',
+          'Cashfree has not confirmed the payment yet. Track or retry from the order screen.',
           [{ text: 'View order', onPress: () => router.replace(`/orders/${order.id}` as never) }],
         );
       } else {
@@ -281,7 +286,7 @@ export default function CheckoutScreen() {
             })}
           </View>
           <ThemedText type="small" themeColor="textSecondary">
-            Online payment success is accepted only after Razorpay webhook verification.
+            Online payment success is accepted only after Cashfree webhook verification.
           </ThemedText>
           {paymentMethod === 'COD' && quote && !quote.isCodAvailable ? (
             <View style={styles.warningRow}>
@@ -345,7 +350,7 @@ export default function CheckoutScreen() {
         ) : null}
 
         <PrimaryAction
-          label={paymentMethod === 'COD' ? 'Place COD order' : `Pay securely with ${paymentMethod}`}
+          label={paymentMethod === 'COD' ? 'Place COD order' : 'Pay securely with Cashfree'}
           onPress={() => void handlePlaceOrder()}
           loading={placing}
         />

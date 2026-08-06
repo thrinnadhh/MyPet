@@ -20,9 +20,11 @@ At minimum, the secret must define:
 - `KAFKA_BOOTSTRAP_SERVERS`
 - `REDIS_HOST`, `REDIS_PORT`
 - either `SUPABASE_JWT_SECRET` or `SUPABASE_JWT_JWK_SET_URI`
-- `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` when
-  online payments are enabled
+- `CASHFREE_CLIENT_ID` and `CASHFREE_CLIENT_SECRET` when online payments are enabled
+- `CASHFREE_WEBHOOK_SECRET` only when a dedicated webhook secret is configured; otherwise the client secret verifies payment webhooks
+- `PAYMENT_CHECKOUT_TOKEN_SECRET` for MyPet's short-lived hosted-checkout URLs
 
+Set `CASHFREE_SANDBOX_MODE=false` and `CASHFREE_API_VERSION=2025-01-01` in production configuration.
 Set `GATEWAY_CORS_ALLOWED_ORIGINS` to the explicit HTTPS origins of the customer
 and merchant frontends. Keep `ALLOW_UNSIGNED_JWT` unset in every deployed
 environment.
