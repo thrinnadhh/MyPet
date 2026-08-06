@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject duplicate JPA entity names in the modular-monolith persistence unit."""
+"""Validate entity names and JPQL references for the shared persistence unit."""
 
 from __future__ import annotations
 
@@ -73,13 +73,32 @@ def scan_file(path: Path) -> list[EntityDefinition]:
     return definitions
 
 
+def stale_jpql_references(
+    source_files: list[Path],
+    renamed_entities: list[EntityDefinition],
+) -> list[tuple[EntityDefinition, Path, int, str]]:
+    stale: list[tuple[EntityDefinition, Path, int, str]] = []
+    for entity in renamed_entities:
+        pattern = re.compile(
+            rf"\b(?:FROM|JOIN|UPDATE|DELETE\s+FROM)\s+{re.escape(entity.class_name)}\b",
+            re.IGNORECASE,
+        )
+        for path in source_files:
+            text = path.read_text(encoding="utf-8")
+            for match in pattern.finditer(text):
+                line = text.count("\n", 0, match.start()) + 1
+                excerpt = " ".join(match.group(0).split())
+                stale.append((entity, path, line, excerpt))
+    return stale
+
+
 def main() -> int:
-    entity_files = sorted(
+    source_files = sorted(
         path
         for path in BACKEND.glob("*/src/main/kotlin/**/*.kt")
         if path.is_file()
     )
-    definitions = [definition for path in entity_files for definition in scan_file(path)]
+    definitions = [definition for path in source_files for definition in scan_file(path)]
 
     by_name: dict[str, list[EntityDefinition]] = defaultdict(list)
     for definition in definitions:
@@ -91,7 +110,12 @@ def main() -> int:
         if len({entry.qualified_class_name for entry in entries}) > 1
     }
 
+    renamed = [definition for definition in definitions if definition.entity_name != definition.class_name]
+    stale_queries = stale_jpql_references(source_files, renamed)
+
+    failed = False
     if duplicates:
+        failed = True
         print(
             "ERROR: duplicate JPA entity names are incompatible with the shared "
             "modular-monolith persistence unit:",
@@ -105,16 +129,32 @@ def main() -> int:
                     f"    - {entry.qualified_class_name} ({relative}:{entry.line})",
                     file=sys.stderr,
                 )
+
+    if stale_queries:
+        failed = True
         print(
-            "Assign each conflicting entity an explicit module-qualified "
-            '@Entity(name = "...") value.',
+            "ERROR: JPQL still references a Kotlin class name after its JPA entity "
+            "name was explicitly qualified:",
+            file=sys.stderr,
+        )
+        for entity, path, line, excerpt in stale_queries:
+            print(
+                f"  - {path.relative_to(ROOT)}:{line}: {excerpt!r}; use "
+                f"{entity.entity_name!r} instead of {entity.class_name!r}",
+                file=sys.stderr,
+            )
+
+    if failed:
+        print(
+            "Assign unique module-qualified @Entity names and update every JPQL "
+            "FROM/JOIN/UPDATE reference to the effective entity name.",
             file=sys.stderr,
         )
         return 1
 
     print(
-        f"JPA entity-name contract passed: {len(definitions)} entities have "
-        f"{len(by_name)} unique persistence-unit names."
+        f"JPA persistence-unit contract passed: {len(definitions)} entities have "
+        f"{len(by_name)} unique names and {len(renamed)} explicit-name JPQL mappings are current."
     )
     return 0
 
