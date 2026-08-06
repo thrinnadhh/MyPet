@@ -25,8 +25,10 @@ services:
     environment:
       CASHFREE_SANDBOX_MODE: "true"
       CASHFREE_API_VERSION: "2025-01-01"
-      CASHFREE_CLIENT_ID: ${CASHFREE_CLIENT_ID:-}
-      CASHFREE_CLIENT_SECRET: ${CASHFREE_CLIENT_SECRET:-}
+      # Explicitly blank in local/full-stack validation so the payment service uses
+      # its deterministic Cashfree sandbox adapter instead of making external calls.
+      CASHFREE_CLIENT_ID: ""
+      CASHFREE_CLIENT_SECRET: ""
       CASHFREE_WEBHOOK_SECRET: ${CASHFREE_WEBHOOK_SECRET:-local-cashfree-webhook-secret}
       PAYMENT_CHECKOUT_TOKEN_SECRET: ${PAYMENT_CHECKOUT_TOKEN_SECRET:-0123456789abcdef0123456789abcdef}
 
