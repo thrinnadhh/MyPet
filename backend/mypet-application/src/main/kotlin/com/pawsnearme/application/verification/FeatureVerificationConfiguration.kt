@@ -92,8 +92,8 @@ class FeatureVerificationInfoContributor : InfoContributor {
         builder.withDetail(
             "featureVerification",
             mapOf(
-                "milestone" to "M8",
-                "mode" to "clean-volume-connected-matrix",
+                "milestone" to "M10",
+                "mode" to "modular-monolith-cutover",
                 "domainCount" to catalog.domains.size,
                 "domains" to catalog.domains.map { domain ->
                     mapOf(
@@ -102,8 +102,9 @@ class FeatureVerificationInfoContributor : InfoContributor {
                         "evidence" to domain.evidence.map { it.name }.sorted()
                     )
                 },
-                "cutoverAuthorized" to false,
-                "legacyRollbackRequired" to true
+                "cutoverAuthorized" to true,
+                "legacyRollbackRequired" to false,
+                "legacyRollbackAvailable" to true
             )
         )
     }
