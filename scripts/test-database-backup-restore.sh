@@ -42,7 +42,7 @@ SELECT jsonb_build_object(
   'dispatch_jobs', (SELECT count(*) FROM dispatch.dispatch_jobs),
   'transactions', (SELECT count(*) FROM payments.transactions),
   'reviews', (SELECT count(*) FROM reviews.reviews),
-  'notifications', (SELECT count(*) FROM notifications.notifications),
+  'scheduled_reminders', (SELECT count(*) FROM notifications.scheduled_reminders),
   'conversations', (SELECT count(*) FROM chat.conversations),
   'content_banners', (SELECT count(*) FROM content.promo_banners),
   'subscriptions', (SELECT count(*) FROM orders.recurring_order_subscriptions),
