@@ -9,11 +9,6 @@ import type { AuthIntent } from '@/auth/auth-intent';
 import { useAuthIntent } from '@/context/AuthIntentContext';
 import { appConfig } from '@/utils/app-config';
 
-/**
- * Expo Go does not support Android remote push notifications from SDK 53.
- * Avoid importing expo-notifications at module load time because the import
- * itself throws inside Expo Go.
- */
 const isExpoGo = Constants.appOwnership === 'expo';
 
 let notificationsModulePromise:
@@ -21,9 +16,7 @@ let notificationsModulePromise:
   | null = null;
 
 async function getNotificationsModule() {
-  if (Platform.OS === 'web' || isExpoGo) {
-    return null;
-  }
+  if (Platform.OS === 'web' || isExpoGo) return null;
 
   if (!notificationsModulePromise) {
     notificationsModulePromise = import('expo-notifications')
@@ -37,7 +30,6 @@ async function getNotificationsModule() {
             shouldShowList: true,
           }),
         });
-
         return Notifications;
       })
       .catch((error) => {
@@ -50,25 +42,22 @@ async function getNotificationsModule() {
   return notificationsModulePromise;
 }
 
-async function registerPushToken(accessToken?: string | null) {
-  if (Platform.OS === 'web' || isExpoGo) {
-    return;
-  }
+async function responseError(response: Response): Promise<Error> {
+  const body = (await response.json().catch(() => null)) as { message?: string; error?: string } | null;
+  return new Error(body?.message || body?.error || `Push registration failed (${response.status})`);
+}
+
+async function registerPushToken(accessToken: string): Promise<string | null> {
+  if (Platform.OS === 'web' || isExpoGo) return null;
 
   const Notifications = await getNotificationsModule();
-  if (!Notifications) {
-    return;
-  }
+  if (!Notifications) return null;
 
   const Device = await import('expo-device');
-  if (!Device.isDevice) {
-    return;
-  }
+  if (!Device.isDevice) return null;
 
   const permission = await Notifications.requestPermissionsAsync();
-  if (!permission.granted) {
-    return;
-  }
+  if (!permission.granted) return null;
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('customer-reminders', {
@@ -78,16 +67,20 @@ async function registerPushToken(accessToken?: string | null) {
     });
   }
 
-  const token = (await Notifications.getExpoPushTokenAsync()).data;
+  const projectId =
+    Constants.easConfig?.projectId ??
+    (Constants.expoConfig?.extra?.eas as { projectId?: string } | undefined)?.projectId;
+  const tokenResponse = projectId
+    ? await Notifications.getExpoPushTokenAsync({ projectId })
+    : await Notifications.getExpoPushTokenAsync();
+  const token = tokenResponse.data;
 
-  await fetch(`${appConfig.apiBaseUrl}/api/v1/notifications/push-tokens`, {
+  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/notifications/push-tokens`, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      ...(accessToken
-        ? { Authorization: `Bearer ${accessToken}` }
-        : {}),
+      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
       expoPushToken: token,
@@ -96,20 +89,32 @@ async function registerPushToken(accessToken?: string | null) {
       soundProfile: 'default',
     }),
   });
+  if (!response.ok) throw await responseError(response);
+  return token;
 }
 
-function notificationIntent(
-  data: Record<string, unknown>,
-): AuthIntent | null {
-  const templateCode =
-    typeof data.templateCode === 'string'
-      ? data.templateCode.toUpperCase()
-      : '';
+async function unregisterPushToken(
+  token: string,
+  accessToken: string,
+): Promise<void> {
+  const response = await fetch(
+    `${appConfig.apiBaseUrl}/api/v1/notifications/push-tokens?token=${encodeURIComponent(token)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+  if (!response.ok && response.status !== 404) throw await responseError(response);
+}
 
+function notificationIntent(data: Record<string, unknown>): AuthIntent | null {
+  const templateCode =
+    typeof data.templateCode === 'string' ? data.templateCode.toUpperCase() : '';
   const referenceId =
-    typeof data.referenceId === 'string'
-      ? data.referenceId
-      : undefined;
+    typeof data.referenceId === 'string' ? data.referenceId : undefined;
 
   if (
     templateCode.startsWith('APPOINTMENT_') ||
@@ -118,29 +123,19 @@ function notificationIntent(
     return {
       action: 'ORDER_HISTORY',
       returnTo: '/appointments',
-      params: referenceId
-        ? { appointmentId: referenceId }
-        : undefined,
+      params: referenceId ? { appointmentId: referenceId } : undefined,
     };
   }
 
-  if (
-    templateCode.includes('RECURRING') ||
-    templateCode.includes('SUBSCRIPTION')
-  ) {
-    return {
-      action: 'ORDER_HISTORY',
-      returnTo: '/subscriptions',
-    };
+  if (templateCode.includes('RECURRING') || templateCode.includes('SUBSCRIPTION')) {
+    return { action: 'ORDER_HISTORY', returnTo: '/subscriptions' };
   }
 
   if (templateCode.includes('MEDICAL_DOCUMENT')) {
     return {
       action: 'MEDICAL_WRITE',
       returnTo: '/health/reports',
-      params: referenceId
-        ? { appointmentId: referenceId }
-        : undefined,
+      params: referenceId ? { appointmentId: referenceId } : undefined,
     };
   }
 
@@ -153,9 +148,7 @@ function notificationIntent(
   ) {
     return {
       action: 'ORDER_HISTORY',
-      returnTo: referenceId
-        ? `/orders/${referenceId}`
-        : '/(tabs)/orders',
+      returnTo: referenceId ? `/orders/${referenceId}` : '/(tabs)/orders',
     };
   }
 
@@ -170,51 +163,42 @@ export function usePushNotifications(
   const { requireAuth } = useAuthIntent();
   const handledResponseId = useRef<string | null>(null);
   const expoGoNoticeShown = useRef(false);
+  const registeredForUser = useRef<string | null>(null);
+  const registeredToken = useRef<string | null>(null);
+  const previousAuthentication = useRef<{
+    userId: string;
+    accessToken: string;
+  } | null>(null);
 
   const handleNotificationResponse = useCallback(
     async (response: NotificationResponse) => {
       const responseId = response.notification.request.identifier;
-
-      if (handledResponseId.current === responseId) {
-        return;
-      }
+      if (handledResponseId.current === responseId) return;
 
       const intent = notificationIntent(
         response.notification.request.content.data ?? {},
       );
-
-      if (!intent) {
-        return;
-      }
+      if (!intent) return;
 
       handledResponseId.current = responseId;
-
       const alreadyAuthenticated = await requireAuth(intent);
-
       if (alreadyAuthenticated) {
-        router.push({
-          pathname: intent.returnTo,
-          params: intent.params,
-        } as never);
+        router.push({ pathname: intent.returnTo, params: intent.params } as never);
       }
     },
     [requireAuth, router],
   );
 
   useEffect(() => {
-    if (Platform.OS === 'web') {
-      return;
-    }
+    if (Platform.OS === 'web') return;
 
     if (isExpoGo) {
       if (!expoGoNoticeShown.current) {
         expoGoNoticeShown.current = true;
         console.info(
-          'Remote push notifications are disabled in Expo Go. ' +
-            'Use a development build to test push notifications.',
+          'Remote push notifications are disabled in Expo Go. Use a development build to test push notifications.',
         );
       }
-
       return;
     }
 
@@ -223,30 +207,18 @@ export function usePushNotifications(
 
     void getNotificationsModule()
       .then(async (Notifications) => {
-        if (!Notifications || disposed) {
-          return;
-        }
-
-        subscription =
-          Notifications.addNotificationResponseReceivedListener(
-            (response) => {
-              void handleNotificationResponse(response);
-            },
-          );
-
-        const response =
-          await Notifications.getLastNotificationResponseAsync();
-
-        if (response && !disposed) {
-          await handleNotificationResponse(response);
-        }
-      })
-      .catch((error) => {
-        console.warn(
-          'Unable to initialize notification response handling',
-          error,
+        if (!Notifications || disposed) return;
+        subscription = Notifications.addNotificationResponseReceivedListener(
+          (response) => {
+            void handleNotificationResponse(response);
+          },
         );
-      });
+        const response = await Notifications.getLastNotificationResponseAsync();
+        if (response && !disposed) await handleNotificationResponse(response);
+      })
+      .catch((error) =>
+        console.warn('Unable to initialize notification response handling', error),
+      );
 
     return () => {
       disposed = true;
@@ -255,17 +227,43 @@ export function usePushNotifications(
   }, [handleNotificationResponse]);
 
   useEffect(() => {
+    const previous = previousAuthentication.current;
+    if (previous && !userId && registeredToken.current) {
+      const token = registeredToken.current;
+      registeredToken.current = null;
+      registeredForUser.current = null;
+      void unregisterPushToken(token, previous.accessToken).catch((error) => {
+        console.warn('Unable to unregister push token', error);
+      });
+    }
+
+    previousAuthentication.current =
+      userId && accessToken ? { userId, accessToken } : null;
+  }, [accessToken, userId]);
+
+  useEffect(() => {
     if (
       Platform.OS === 'web' ||
       isExpoGo ||
       !userId ||
+      !accessToken ||
       appConfig.allowDemoMode
     ) {
       return;
     }
+    if (registeredForUser.current === userId && registeredToken.current) return;
 
-    void registerPushToken(accessToken).catch((error) => {
-      console.warn('Unable to register push token', error);
-    });
+    void registerPushToken(accessToken)
+      .then((token) => {
+        if (token) {
+          registeredForUser.current = userId;
+          registeredToken.current = token;
+        }
+      })
+      .catch((error) => {
+        registeredForUser.current = null;
+        registeredToken.current = null;
+        console.warn('Unable to register push token', error);
+      });
   }, [accessToken, userId]);
 }

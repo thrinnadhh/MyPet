@@ -1,21 +1,23 @@
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppIcon } from '@/components/app-icon';
 import { AppBar, StateView } from '@/components/foundation/primitives';
 import { ScreenShell } from '@/components/foundation/screen-shell';
 import { ThemedText } from '@/components/themed-text';
-import { PrimaryButton } from '@/components/ui/primary-button';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { INITIAL_MARKET } from '@/config/markets';
+import type { LaunchMarket } from '@/config/markets';
 import { useCart } from '@/context/CartContext';
+import { useLocation } from '@/context/LocationContext';
 import { radii, shadows, spacing, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
-import { SHOPS_DATA, type ShopProfileData } from '@/services/catalog-data';
 import { isOfflineError } from '@/services/customer-profile';
-import { fetchProviders, type ProviderSummary } from '@/services/provider-discovery';
+import {
+  fetchProviders,
+  type ProviderSummary,
+} from '@/services/provider-discovery';
 
 type LoadState = 'loading' | 'ready' | 'offline' | 'error';
 
@@ -37,17 +39,17 @@ export function ShopCategoryNav() {
     <View style={styles.section}>
       <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Shop by Category</ThemedText>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catScroll}>
-        {COMMERCE_CATEGORIES.map((cat) => (
+        {COMMERCE_CATEGORIES.map((category) => (
           <Pressable
-            key={cat.id}
-            onPress={() => router.push(`/category/${cat.id}` as never)}
+            key={category.id}
+            onPress={() => router.push(`/category/${category.id}` as never)}
             style={({ pressed }) => [styles.catItem, pressed && styles.pressed]}
           >
             <View style={[styles.catIconBox, { backgroundColor: theme.primarySoft, borderColor: theme.primary }]}>
-              <AppIcon name={cat.icon as never} color={theme.primary} size={22} />
+              <AppIcon name={category.icon as never} color={theme.primary} size={22} />
             </View>
             <ThemedText style={[styles.catLabel, { color: theme.text }]} numberOfLines={1}>
-              {cat.title}
+              {category.title}
             </ThemedText>
           </Pressable>
         ))}
@@ -56,18 +58,20 @@ export function ShopCategoryNav() {
   );
 }
 
-export function ShopStoreCards({ shops }: { shops: ShopProfileData[] }) {
+function LiveStoreCards({ stores }: { stores: ProviderSummary[] }) {
   const router = useRouter();
   const theme = useTheme();
 
   return (
     <View style={styles.section}>
-      <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Nearby Pet Superstores</ThemedText>
+      <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Nearby Pet Stores</ThemedText>
       <View style={styles.shopGrid}>
-        {shops.map((shop) => (
+        {stores.map((store) => (
           <Pressable
-            key={shop.id}
-            onPress={() => router.push(`/shop/${shop.id}` as never)}
+            key={store.id}
+            onPress={() => router.push(`/shop/${store.id}` as never)}
+            accessibilityRole="button"
+            accessibilityLabel={`${store.name}, ${store.distanceKm.toFixed(1)} kilometres away`}
             style={({ pressed }) => [
               styles.shopCard,
               shadows.raised,
@@ -75,19 +79,24 @@ export function ShopStoreCards({ shops }: { shops: ShopProfileData[] }) {
               pressed && styles.pressed,
             ]}
           >
-            <Image source={{ uri: shop.heroImageUrl }} style={styles.shopBanner} resizeMode="cover" />
+            <View style={[styles.storeIcon, { backgroundColor: theme.primarySoft }]}>
+              <AppIcon name="store" size={30} color={theme.primary} />
+            </View>
             <View style={styles.shopContent}>
               <View style={styles.rowBetween}>
-                <ThemedText style={[styles.shopTitle, { color: theme.text }]}>{shop.name}</ThemedText>
-                <StatusBadge label={shop.rating} color={theme.warning} />
+                <ThemedText style={[styles.shopTitle, { color: theme.text }]} numberOfLines={1}>
+                  {store.name}
+                </ThemedText>
+                <StatusBadge label={`${store.rating.toFixed(1)} ★`} color={theme.warning} />
               </View>
-
-              <ThemedText style={{ fontSize: 12, color: theme.textSecondary }}>{shop.tagline}</ThemedText>
-              <ThemedText style={{ fontSize: 12, color: theme.textSecondary }}>📍 {shop.address}</ThemedText>
-
+              <ThemedText style={{ fontSize: 12, color: theme.textSecondary }} numberOfLines={2}>
+                {store.description || 'Verified local pet supplies and essentials'}
+              </ThemedText>
               <View style={styles.rowBetween}>
-                <ThemedText style={{ fontSize: 12, color: theme.primary, fontWeight: '700' }}>⚡ Delivery: {shop.deliveryEta}</ThemedText>
-                <PrimaryButton label="Explore Shop" onPress={() => router.push(`/shop/${shop.id}` as never)} />
+                <ThemedText style={{ fontSize: 12, color: theme.primary, fontWeight: '700' }}>
+                  {store.distanceKm.toFixed(1)} km away
+                </ThemedText>
+                <ThemedText style={{ color: theme.primary, fontWeight: '800' }}>Explore →</ThemedText>
               </View>
             </View>
           </Pressable>
@@ -101,24 +110,66 @@ export default function CommerceDiscoveryScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { t } = useTranslation();
+  const { activeCity } = useLocation();
   const { providerName, totalItemsCount, subtotalAmount } = useCart();
+  const [stores, setStores] = useState<ProviderSummary[]>([]);
+  const [state, setState] = useState<LoadState>('loading');
 
-  const [state, setState] = useState<LoadState>('ready');
-  const shopsList = Object.values(SHOPS_DATA);
+  const market = useMemo<LaunchMarket>(() => ({
+    id: activeCity.id,
+    city: activeCity.displayName,
+    state: activeCity.state,
+    latitude: activeCity.centerLatitude,
+    longitude: activeCity.centerLongitude,
+    discoveryRadiusKm: activeCity.radiusKm,
+  }), [activeCity]);
+
+  const load = useCallback(async () => {
+    setState('loading');
+    try {
+      setStores(await fetchProviders('PET_STORE', market));
+      setState('ready');
+    } catch (error) {
+      setStores([]);
+      setState(isOfflineError(error) ? 'offline' : 'error');
+    }
+  }, [market]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
     <ScreenShell
-      header={<AppBar title={t('commerceFoundation.title')} subtitle="Pet Stores & Express Delivery in Tirupati" />}
+      header={<AppBar title={t('commerceFoundation.title')} subtitle={`Live pet stores in ${activeCity.displayName}`} />}
       testID="commerce-discovery-screen"
     >
       <View style={styles.container}>
         <ShopCategoryNav />
-        <ShopStoreCards shops={shopsList} />
+        {state === 'loading' ? (
+          <StateView kind="loading" title="Finding nearby stores" />
+        ) : null}
+        {state === 'offline' || state === 'error' ? (
+          <StateView
+            kind={state}
+            title={state === 'offline' ? 'You are offline' : 'Stores unavailable'}
+            message={state === 'offline' ? 'Reconnect to load live stores.' : 'Could not load active pet stores.'}
+            actionLabel="Retry"
+            onAction={() => void load()}
+          />
+        ) : null}
+        {state === 'ready' && stores.length === 0 ? (
+          <StateView
+            kind="empty"
+            title="No active pet stores nearby"
+            message={`MyPet has not enabled product delivery in ${activeCity.displayName} yet.`}
+          />
+        ) : null}
+        {state === 'ready' && stores.length > 0 ? <LiveStoreCards stores={stores} /> : null}
       </View>
 
-      {totalItemsCount > 0 && (
+      {totalItemsCount > 0 ? (
         <View style={[styles.stickyCart, shadows.raised, { backgroundColor: theme.primary }]}>
-
           <View>
             <ThemedText style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 14 }}>
               {totalItemsCount} {totalItemsCount === 1 ? 'Item' : 'Items'} | ₹{subtotalAmount}
@@ -134,7 +185,7 @@ export default function CommerceDiscoveryScreen() {
             <ThemedText style={{ color: theme.primary, fontWeight: '800' }}>View Cart →</ThemedText>
           </Pressable>
         </View>
-      )}
+      ) : null}
     </ScreenShell>
   );
 }
@@ -148,11 +199,11 @@ const styles = StyleSheet.create({
   catIconBox: { width: 56, height: 56, borderRadius: 28, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   catLabel: { fontSize: 11, fontWeight: '600', textAlign: 'center' },
   shopGrid: { gap: spacing.x3 },
-  shopCard: { borderRadius: radii.card, borderWidth: 1, overflow: 'hidden' },
-  shopBanner: { width: '100%', height: 120 },
-  shopContent: { padding: spacing.x3, gap: spacing.x2 },
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  shopTitle: { ...typography.headline, fontSize: 16, fontWeight: '700' },
+  shopCard: { borderRadius: radii.card, borderWidth: 1, padding: spacing.x3, flexDirection: 'row', gap: spacing.x3 },
+  storeIcon: { width: 64, height: 64, borderRadius: radii.card, alignItems: 'center', justifyContent: 'center' },
+  shopContent: { flex: 1, gap: spacing.x2 },
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.x2 },
+  shopTitle: { ...typography.headline, fontSize: 16, fontWeight: '700', flex: 1 },
   stickyCart: { position: 'absolute', bottom: 16, left: 16, right: 16, borderRadius: radii.card, paddingHorizontal: spacing.x4, paddingVertical: spacing.x3, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   viewCartBtn: { backgroundColor: '#FFFFFF', paddingHorizontal: spacing.x4, paddingVertical: spacing.x2, borderRadius: radii.compact },
   pressed: { opacity: 0.88 },

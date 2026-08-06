@@ -2,6 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 
+import {
+  DeviceLocationError,
+  nearestEnabledCity,
+  requestCurrentCoordinates,
+} from '@/services/device-location';
 import { appConfig } from '@/utils/app-config';
 
 export interface ServiceRegionFeatureFlags {
@@ -55,10 +60,12 @@ interface LocationContextType {
   isNotifyModalOpen: boolean;
   requestedUnavailableCity: string | null;
   loading: boolean;
+  locating: boolean;
   openLocationModal: () => void;
   closeLocationModal: () => void;
   closeNotifyModal: () => void;
   selectCity: (city: ActiveCity) => Promise<void>;
+  selectCurrentLocation: () => Promise<void>;
   requestUnavailableCityLaunch: (cityName: string) => void;
   submitCityNotificationRequest: (contactInfo: string) => Promise<void>;
   refreshCities: () => Promise<void>;
@@ -67,6 +74,11 @@ interface LocationContextType {
 const LocationContext = createContext<LocationContextType | null>(null);
 const STORAGE_KEY = 'mypet_active_city_v1';
 
+async function responseError(response: Response): Promise<Error> {
+  const body = (await response.json().catch(() => null)) as { message?: string; error?: string } | null;
+  return new Error(body?.message || body?.error || `Launch request failed (${response.status})`);
+}
+
 export function LocationProvider({ children }: { children: React.ReactNode }) {
   const [activeCity, setActiveCity] = useState<ActiveCity>(DEFAULT_TIRUPATI_REGION);
   const [enabledCities, setEnabledCities] = useState<ActiveCity[]>([DEFAULT_TIRUPATI_REGION]);
@@ -74,69 +86,112 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
   const [isNotifyModalOpen, setIsNotifyModalOpen] = useState(false);
   const [requestedUnavailableCity, setRequestedUnavailableCity] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [locating, setLocating] = useState(false);
 
   const fetchActiveCities = useCallback(async (): Promise<ActiveCity[]> => {
     try {
-      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/service-regions/active`);
-      if (response.ok) {
-        const data = (await response.json()) as ActiveCity[];
-        if (Array.isArray(data) && data.length > 0) {
-          return data;
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to fetch active service regions', e);
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/service-regions/active`, {
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) throw await responseError(response);
+      const data = (await response.json()) as ActiveCity[];
+      if (Array.isArray(data) && data.length > 0) return data;
+    } catch (error) {
+      console.warn('Failed to fetch active service regions', error);
     }
     return [DEFAULT_TIRUPATI_REGION];
   }, []);
 
+  const persistCity = useCallback(async (city: ActiveCity) => {
+    setActiveCity(city);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(city));
+  }, []);
+
   const refreshCities = useCallback(async () => {
     setLoading(true);
-    const cities = await fetchActiveCities();
-    setEnabledCities(cities);
-
-    // If current active city is no longer in enabled cities, fallback to first enabled city
-    setActiveCity((current) => {
-      const stillActive = cities.find((c) => c.cityIdentity === current.cityIdentity);
-      return stillActive ?? cities[0] ?? DEFAULT_TIRUPATI_REGION;
-    });
-    setLoading(false);
+    try {
+      const cities = await fetchActiveCities();
+      setEnabledCities(cities);
+      setActiveCity((current) =>
+        cities.find((city) => city.cityIdentity === current.cityIdentity) ??
+        cities[0] ??
+        DEFAULT_TIRUPATI_REGION,
+      );
+    } finally {
+      setLoading(false);
+    }
   }, [fetchActiveCities]);
 
   useEffect(() => {
+    let active = true;
+
     const initLocation = async () => {
       const cities = await fetchActiveCities();
+      if (!active) return;
       setEnabledCities(cities);
 
       try {
         const stored = await AsyncStorage.getItem(STORAGE_KEY);
+        if (!active) return;
         if (stored) {
           const parsed = JSON.parse(stored) as ActiveCity;
-          const matched = cities.find((c) => c.cityIdentity === parsed.cityIdentity);
-          if (matched) {
-            setActiveCity(matched);
-          } else if (cities.length > 0) {
-            setActiveCity(cities[0]);
-          }
+          const matched = cities.find((city) => city.cityIdentity === parsed.cityIdentity);
+          setActiveCity(matched ?? cities[0] ?? DEFAULT_TIRUPATI_REGION);
+        } else {
+          setActiveCity(cities[0] ?? DEFAULT_TIRUPATI_REGION);
         }
-      } catch (e) {
-        console.warn('Error reading stored active city', e);
+      } catch (error) {
+        console.warn('Error reading stored active city', error);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
+
     void initLocation();
+    return () => {
+      active = false;
+    };
   }, [fetchActiveCities]);
 
   const selectCity = useCallback(async (city: ActiveCity) => {
-    setActiveCity(city);
-    setIsLocationModalOpen(false);
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(city));
-    } catch (e) {
-      console.warn('Error persisting active city', e);
+      await persistCity(city);
+      setIsLocationModalOpen(false);
+    } catch (error) {
+      console.warn('Error persisting active city', error);
+      Alert.alert('Location not saved', 'Select the city again.');
     }
-  }, []);
+  }, [persistCity]);
+
+  const selectCurrentLocation = useCallback(async () => {
+    if (locating) return;
+    setLocating(true);
+    try {
+      const coordinates = await requestCurrentCoordinates();
+      const match = nearestEnabledCity(coordinates, enabledCities);
+      if (!match) {
+        throw new DeviceLocationError(
+          'OUTSIDE_SERVICE_AREA',
+          'MyPet is not active at your current location yet. Search for your city to request a launch notification.',
+        );
+      }
+      await persistCity(match.city);
+      setIsLocationModalOpen(false);
+      Alert.alert(
+        'Location selected',
+        `${match.city.displayName} is ${match.distanceKm.toFixed(1)} km from your current position.`,
+      );
+    } catch (error) {
+      Alert.alert(
+        error instanceof DeviceLocationError && error.code === 'OUTSIDE_SERVICE_AREA'
+          ? 'Outside service area'
+          : 'Current location unavailable',
+        error instanceof Error ? error.message : 'Select a city manually.',
+      );
+    } finally {
+      setLocating(false);
+    }
+  }, [enabledCities, locating, persistCity]);
 
   const openLocationModal = useCallback(() => setIsLocationModalOpen(true), []);
   const closeLocationModal = useCallback(() => setIsLocationModalOpen(false), []);
@@ -146,16 +201,41 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const requestUnavailableCityLaunch = useCallback((cityName: string) => {
-    setRequestedUnavailableCity(cityName);
+    const normalizedCity = cityName.trim();
+    if (!normalizedCity) return;
+    setRequestedUnavailableCity(normalizedCity);
     setIsLocationModalOpen(false);
     setIsNotifyModalOpen(true);
   }, []);
 
   const submitCityNotificationRequest = useCallback(async (contactInfo: string) => {
-    if (!contactInfo.trim()) return;
-    Alert.alert('Thank you!', `We've recorded your interest for ${requestedUnavailableCity ?? 'your city'}. We will notify ${contactInfo} when we launch!`);
-    setIsNotifyModalOpen(false);
-    setRequestedUnavailableCity(null);
+    const cityName = requestedUnavailableCity?.trim();
+    const contact = contactInfo.trim();
+    if (!cityName || !contact) {
+      Alert.alert('Details required', 'Enter a city and a valid email address or mobile number.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/service-regions/launch-requests`, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cityName, contactInfo: contact }),
+      });
+      if (!response.ok) throw await responseError(response);
+      const result = (await response.json()) as { status?: string };
+      Alert.alert(
+        result.status === 'ALREADY_REGISTERED' ? 'Already registered' : 'Request saved',
+        `MyPet will notify ${contact} when ${cityName} becomes available.`,
+      );
+      setIsNotifyModalOpen(false);
+      setRequestedUnavailableCity(null);
+    } catch (error) {
+      Alert.alert(
+        'Request not saved',
+        error instanceof Error ? error.message : 'Could not save your launch notification request.',
+      );
+    }
   }, [requestedUnavailableCity]);
 
   return (
@@ -167,10 +247,12 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         isNotifyModalOpen,
         requestedUnavailableCity,
         loading,
+        locating,
         openLocationModal,
         closeLocationModal,
         closeNotifyModal,
         selectCity,
+        selectCurrentLocation,
         requestUnavailableCityLaunch,
         submitCityNotificationRequest,
         refreshCities,
@@ -183,8 +265,6 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
 
 export function useLocation() {
   const context = useContext(LocationContext);
-  if (!context) {
-    throw new Error('useLocation must be used within LocationProvider');
-  }
+  if (!context) throw new Error('useLocation must be used within LocationProvider');
   return context;
 }

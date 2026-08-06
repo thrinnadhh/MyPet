@@ -32,6 +32,12 @@
       "expo-notifications",
       "expo-secure-store",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow MyPet Customer to use your location while selecting the nearest active service city."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#004AC6",

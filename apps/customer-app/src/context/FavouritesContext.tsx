@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { Alert } from 'react-native';
 
 import { useAuth } from '@/context/AuthContext';
 import { useAuthIntent } from '@/context/AuthIntentContext';
@@ -20,127 +21,133 @@ interface FavouritesContextType {
 }
 
 const FavouritesContext = createContext<FavouritesContextType | null>(null);
-const STORAGE_KEY = 'mypet_favourites_v1';
+const STORAGE_KEY = 'mypet_favourites_v2_guest';
+
+function authHeaders(accessToken: string): Record<string, string> {
+  return {
+    Accept: 'application/json',
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+  };
+}
+
+async function serverError(response: Response): Promise<Error> {
+  const body = (await response.json().catch(() => null)) as { message?: string; error?: string } | null;
+  return new Error(body?.message || body?.error || `Favourite request failed (${response.status})`);
+}
 
 export function FavouritesProvider({ children }: { children: React.ReactNode }) {
   const { user, session } = useAuth();
-  const authIntent = useAuthIntent();
+  const { requireAuth } = useAuthIntent();
   const [favourites, setFavourites] = useState<FavouriteItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Sync / load favourites
   useEffect(() => {
+    let active = true;
+
     const loadFavourites = async () => {
       setLoading(true);
-      if (user?.id && session?.access_token) {
-        // Authenticated mode: Fetch from server API
-        try {
-          const res = await fetch(`${appConfig.apiBaseUrl}/api/v1/customer/favourites`, {
-            headers: {
-              'X-User-Id': user.id,
-              Authorization: `Bearer ${session.access_token}`,
-            },
+      try {
+        if (session?.access_token) {
+          const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/customer/favourites`, {
+            headers: authHeaders(session.access_token),
           });
-          if (res.ok) {
-            const data = (await res.json()) as FavouriteItem[];
-            setFavourites(data);
-          }
-        } catch (e) {
-          console.warn('Failed to fetch server favourites', e);
-        }
-      } else {
-        // Guest mode: Read local AsyncStorage
-        try {
+          if (!response.ok) throw await serverError(response);
+          const data = (await response.json()) as FavouriteItem[];
+          if (active) setFavourites(Array.isArray(data) ? data : []);
+        } else {
           const stored = await AsyncStorage.getItem(STORAGE_KEY);
-          if (stored) {
-            setFavourites(JSON.parse(stored));
-          }
-        } catch (e) {
-          console.warn('Failed to load guest favourites', e);
+          if (active) setFavourites(stored ? (JSON.parse(stored) as FavouriteItem[]) : []);
         }
+      } catch (error) {
+        console.warn('Failed to load favourites', error);
+        if (active) setFavourites([]);
+      } finally {
+        if (active) setLoading(false);
       }
-      setLoading(false);
     };
+
     void loadFavourites();
-  }, [user?.id, session?.access_token]);
+    return () => {
+      active = false;
+    };
+  }, [session?.access_token, user?.id]);
 
   const isFavourite = useCallback(
-    (targetType: 'PRODUCT' | 'SHOP', targetId: string): boolean => {
-      return favourites.some(
-        (f) => f.targetType.toUpperCase() === targetType.toUpperCase() && f.targetId === targetId
-      );
-    },
-    [favourites]
+    (targetType: 'PRODUCT' | 'SHOP', targetId: string): boolean =>
+      favourites.some(
+        (favourite) =>
+          favourite.targetType.toUpperCase() === targetType.toUpperCase() &&
+          favourite.targetId === targetId,
+      ),
+    [favourites],
   );
 
   const toggleFavourite = useCallback(
     async (targetType: 'PRODUCT' | 'SHOP', targetId: string): Promise<boolean> => {
-      const typeUpper = targetType.toUpperCase() as 'PRODUCT' | 'SHOP';
-      const currentlyFav = favourites.some(
-        (f) => f.targetType.toUpperCase() === typeUpper && f.targetId === targetId
+      const normalizedType = targetType.toUpperCase() as 'PRODUCT' | 'SHOP';
+      const currentlyFavourite = favourites.some(
+        (favourite) =>
+          favourite.targetType.toUpperCase() === normalizedType &&
+          favourite.targetId === targetId,
       );
 
-      // S10 Auth Intent Guard: If guest and attempting to add, prompt auth intent
-      if (!session && authIntent && typeof authIntent.requireAuth === 'function') {
-        void authIntent.requireAuth({ kind: 'SAVE_FAVOURITE', returnTo: '/favourites' } as never);
+      if (!session?.access_token) {
+        await requireAuth({ action: 'FAVOURITE', returnTo: '/favourites' });
+        return currentlyFavourite;
       }
 
-
-      if (currentlyFav) {
-        // Remove favourite
-        const next = favourites.filter(
-          (f) => !(f.targetType.toUpperCase() === typeUpper && f.targetId === targetId)
-        );
-        setFavourites(next);
-
-        if (user?.id && session?.access_token) {
-          try {
-            await fetch(
-              `${appConfig.apiBaseUrl}/api/v1/customer/favourites?targetType=${typeUpper}&targetId=${targetId}`,
-              {
-                method: 'DELETE',
-                headers: {
-                  'X-User-Id': user.id,
-                  Authorization: `Bearer ${session.access_token}`,
-                },
-              }
-            );
-          } catch (e) {
-            console.warn('Error deleting server favourite', e);
-          }
-        } else {
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      try {
+        if (currentlyFavourite) {
+          const response = await fetch(
+            `${appConfig.apiBaseUrl}/api/v1/customer/favourites?targetType=${encodeURIComponent(normalizedType)}&targetId=${encodeURIComponent(targetId)}`,
+            {
+              method: 'DELETE',
+              headers: authHeaders(session.access_token),
+            },
+          );
+          if (!response.ok) throw await serverError(response);
+          setFavourites((current) =>
+            current.filter(
+              (favourite) =>
+                !(
+                  favourite.targetType.toUpperCase() === normalizedType &&
+                  favourite.targetId === targetId
+                ),
+            ),
+          );
+          return false;
         }
-        return false;
-      } else {
-        // Add favourite
-        const newItem: FavouriteItem = { targetType: typeUpper, targetId, createdAt: new Date().toISOString() };
-        const next = [newItem, ...favourites];
-        setFavourites(next);
 
-        if (user?.id && session?.access_token) {
-          try {
-            await fetch(`${appConfig.apiBaseUrl}/api/v1/customer/favourites`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-User-Id': user.id,
-                Authorization: `Bearer ${session.access_token}`,
-              },
-              body: JSON.stringify({ targetType: typeUpper, targetId }),
-            });
-          } catch (e) {
-            console.warn('Error saving server favourite', e);
-          }
-        } else {
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        }
+        const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/customer/favourites`, {
+          method: 'POST',
+          headers: authHeaders(session.access_token),
+          body: JSON.stringify({ targetType: normalizedType, targetId }),
+        });
+        if (!response.ok) throw await serverError(response);
+        const saved = (await response.json().catch(() => null)) as FavouriteItem | null;
+        const newItem: FavouriteItem = saved?.targetId
+          ? saved
+          : { targetType: normalizedType, targetId, createdAt: new Date().toISOString() };
+        setFavourites((current) => [
+          newItem,
+          ...current.filter(
+            (favourite) =>
+              !(
+                favourite.targetType.toUpperCase() === normalizedType &&
+                favourite.targetId === targetId
+              ),
+          ),
+        ]);
         return true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Could not update favourite.';
+        Alert.alert('Favourite not updated', message);
+        return currentlyFavourite;
       }
     },
-    [authIntent, favourites, session, user]
+    [favourites, requireAuth, session],
   );
-
 
   return (
     <FavouritesContext.Provider value={{ favourites, loading, isFavourite, toggleFavourite }}>
@@ -151,8 +158,6 @@ export function FavouritesProvider({ children }: { children: React.ReactNode }) 
 
 export function useFavourites() {
   const context = useContext(FavouritesContext);
-  if (!context) {
-    throw new Error('useFavourites must be used within FavouritesProvider');
-  }
+  if (!context) throw new Error('useFavourites must be used within FavouritesProvider');
   return context;
 }

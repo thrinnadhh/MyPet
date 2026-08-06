@@ -1,4 +1,4 @@
-import { SAMPLE_PRODUCTS, type CommerceProduct } from '@/services/catalog-data';
+import type { CommerceProduct } from '@/services/catalog-data';
 
 export type CatalogRouteDefinition = {
   slug: string;
@@ -121,14 +121,6 @@ export function normalizeRouteParam(value: string | string[] | undefined): strin
 export function getCatalogRoute(value: string | string[] | undefined): CatalogRouteDefinition | null {
   const slug = normalizeRouteParam(value);
   return ROUTES[slug] ?? null;
-}
-
-export function getCatalogProducts(definition: CatalogRouteDefinition): CommerceProduct[] {
-  if (definition.onlyNewArrivals) {
-    return SAMPLE_PRODUCTS.filter((product) => product.isNewArrival);
-  }
-  if (!definition.category) return SAMPLE_PRODUCTS;
-  return SAMPLE_PRODUCTS.filter((product) => product.category === definition.category);
 }
 
 export const catalogRouteSlugs = Object.freeze(Object.keys(ROUTES));

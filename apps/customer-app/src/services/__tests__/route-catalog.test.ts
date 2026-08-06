@@ -1,4 +1,8 @@
-import { getCatalogProducts, getCatalogRoute, normalizeRouteParam } from '@/services/route-catalog';
+import {
+  catalogRouteSlugs,
+  getCatalogRoute,
+  normalizeRouteParam,
+} from '@/services/route-catalog';
 
 describe('customer catalog route registry', () => {
   it('normalizes Expo route parameters', () => {
@@ -6,27 +10,27 @@ describe('customer catalog route registry', () => {
     expect(normalizeRouteParam(undefined)).toBe('');
   });
 
-  it('resolves Stitch catalog aliases', () => {
+  it('resolves catalog aliases to live category queries', () => {
     expect(getCatalogRoute('food-nutrition')?.category).toBe('food');
     expect(getCatalogRoute('toys-enrichment')?.category).toBe('toys');
     expect(getCatalogRoute('travel-apparel')?.category).toBe('travel');
     expect(getCatalogRoute('waste-management')?.category).toBe('waste');
   });
 
-  it('returns only products belonging to a category', () => {
-    const route = getCatalogRoute('furniture-sleep');
-    expect(route).not.toBeNull();
-    const products = getCatalogProducts(route!);
-    expect(products.length).toBeGreaterThan(0);
-    expect(products.every((product) => product.category === 'furniture')).toBe(true);
+  it('marks new arrivals as a live recency query', () => {
+    const route = getCatalogRoute('new-arrivals');
+    expect(route).toMatchObject({
+      slug: 'new-arrivals',
+      onlyNewArrivals: true,
+    });
+    expect(route?.category).toBeUndefined();
   });
 
-  it('filters the new-arrivals screen without inventing products', () => {
-    const route = getCatalogRoute('new-arrivals');
-    expect(route).not.toBeNull();
-    const products = getCatalogProducts(route!);
-    expect(products.length).toBeGreaterThan(0);
-    expect(products.every((product) => product.isNewArrival)).toBe(true);
+  it('publishes every supported alias once', () => {
+    expect(new Set(catalogRouteSlugs).size).toBe(catalogRouteSlugs.length);
+    expect(catalogRouteSlugs).toContain('food');
+    expect(catalogRouteSlugs).toContain('food-nutrition');
+    expect(catalogRouteSlugs).toContain('new-arrivals');
   });
 
   it('rejects unknown route slugs', () => {

@@ -17,6 +17,7 @@ import { RECURRING_CADENCES, type RecurringCadence, type RecurringOrderSubscript
 import { apiErrorMessage } from '@/contracts/api-error';
 import { useAuth } from '@/context/AuthContext';
 import { useAuthIntent } from '@/context/AuthIntentContext';
+import { useCart } from '@/context/CartContext';
 import { spacing, typography } from '@/design/tokens';
 import {
   confirmRecurringOrder,
@@ -24,6 +25,7 @@ import {
   fetchRecurringOrders,
   updateRecurringOrder,
 } from '@/services/recurring-orders';
+import { buildCartFromRevalidation } from '@/services/revalidated-cart';
 
 function statusTone(status: RecurringOrderSubscription['status']): 'success' | 'warning' | 'error' | 'neutral' {
   if (status === 'ACTIVE') return 'success';
@@ -47,6 +49,7 @@ export default function RecurringOrdersScreen() {
   const params = useLocalSearchParams<{ sourceOrderId?: string }>();
   const { user, session } = useAuth();
   const { requireAuth } = useAuthIntent();
+  const { replaceCart } = useCart();
   const [subscriptions, setSubscriptions] = useState<RecurringOrderSubscription[]>([]);
   const [cadence, setCadence] = useState<RecurringCadence>(30);
   const [quantityMultiplier, setQuantityMultiplier] = useState(1);
@@ -122,12 +125,21 @@ export default function RecurringOrdersScreen() {
       const result = await confirmRecurringOrder(subscription.subscriptionId, session.access_token);
       setSubscriptions((current) => current.map((item) => item.subscriptionId === result.subscription.subscriptionId ? result.subscription : item));
       if (result.reorder.canReorder) {
-        Alert.alert('Order revalidated', 'Stock and current prices are available. Continue to cart for a new quote and payment.', [
-          { text: 'Later', style: 'cancel' },
-          { text: 'Open cart', onPress: () => router.push('/cart' as never) },
-        ]);
+        const nextItems = await buildCartFromRevalidation(result.reorder);
+        await replaceCart(nextItems);
+        Alert.alert(
+          'Order revalidated',
+          'Current products and quantities are in your cart. Checkout will calculate a new server-authoritative quote.',
+          [
+            { text: 'Later', style: 'cancel' },
+            { text: 'Open cart', onPress: () => router.push('/cart' as never) },
+          ],
+        );
       } else {
-        const unavailable = result.reorder.items.filter((item) => !item.isAvailable).map((item) => `${item.offeringName}: ${item.message ?? 'Unavailable'}`).join('\n');
+        const unavailable = result.reorder.items
+          .filter((item) => !item.isAvailable)
+          .map((item) => `${item.offeringName}: ${item.message ?? 'Unavailable'}`)
+          .join('\n');
         Alert.alert('Confirmation needs changes', unavailable || 'The provider or one of the items is currently unavailable.');
       }
     } catch (nextError) {
@@ -135,7 +147,7 @@ export default function RecurringOrdersScreen() {
     } finally {
       setBusyId(null);
     }
-  }, [router, session]);
+  }, [replaceCart, router, session]);
 
   if (!user || !session) {
     return (

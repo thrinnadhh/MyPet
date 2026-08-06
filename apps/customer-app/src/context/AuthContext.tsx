@@ -2,6 +2,7 @@ import type { Session, User } from '@supabase/supabase-js';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { isFreshOtp } from '@/auth/fresh-otp';
+import { apiClient } from '@/services/api-client';
 import { syncAuthenticatedProfile } from '@/utils/profile-sync';
 import { supabase } from '@/utils/supabase';
 
@@ -26,8 +27,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [lastOtpVerifiedAt, setLastOtpVerifiedAt] = useState<number | null>(null);
 
   const applySession = useCallback((nextSession: Session | null) => {
+    apiClient.setSessionToken(nextSession?.access_token ?? null);
     setSession(nextSession);
     setLoading(false);
+
     if (nextSession) {
       void syncAuthenticatedProfile(nextSession, 'CUSTOMER').catch((error) => {
         console.warn('Profile sync failed', error);
@@ -37,18 +40,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let active = true;
+
     void supabase.auth.getSession().then(({ data, error }) => {
       if (!active) return;
       if (error) console.warn('Session restoration failed', error);
       applySession(error ? null : data.session);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (active) applySession(nextSession);
     });
-    return () => { active = false; subscription.unsubscribe(); };
-  }, [applySession]);
 
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [applySession]);
 
   const markOtpVerified = useCallback(() => {
     const now = Date.now();
@@ -63,20 +72,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     lastOtpVerifiedAtRef.current = null;
     setLastOtpVerifiedAt(null);
+    apiClient.setSessionToken(null);
+
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
   }, []);
 
-  const value = useMemo<AuthContextType>(() => ({
-    user: session?.user ?? null,
-    session,
-    role: (session?.user?.app_metadata?.role as string | undefined) ?? (session ? 'CUSTOMER' : null),
-    loading,
-    lastOtpVerifiedAt,
-    markOtpVerified,
-    hasFreshOtp,
-    signOut,
-  }), [hasFreshOtp, lastOtpVerifiedAt, loading, markOtpVerified, session, signOut]);
+  const value = useMemo<AuthContextType>(
+    () => ({
+      user: session?.user ?? null,
+      session,
+      role:
+        (session?.user?.app_metadata?.role as string | undefined) ??
+        (session ? 'CUSTOMER' : null),
+      loading,
+      lastOtpVerifiedAt,
+      markOtpVerified,
+      hasFreshOtp,
+      signOut,
+    }),
+    [hasFreshOtp, lastOtpVerifiedAt, loading, markOtpVerified, session, signOut],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

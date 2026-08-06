@@ -52,6 +52,31 @@ verify_file() {
   echo "$label verified: $actual"
 }
 
+validate_integrated_customer() {
+  local repo="$1"
+  local app="$repo/apps/customer-app"
+
+  echo "Detected an already-integrated customer E2E implementation; validating instead of reapplying the generated patch."
+  (
+    cd "$app"
+    npm run typecheck
+    npm run lint
+    npm run test:coverage
+  )
+
+  mkdir -p "$repo/build/reports"
+  cat > "$repo/build/reports/customer-e2e-readiness.md" <<'EOF'
+# Customer E2E Readiness
+
+The repository already contains the connected customer implementation, so the
+legacy generated patch was not reapplied. Customer type checking, linting, and
+the complete coverage suite passed against the current source tree.
+EOF
+  cat > "$repo/build/reports/customer-e2e-readiness.json" <<'EOF'
+{"status":"PASS","mode":"already-integrated","checks":["typecheck","lint","test:coverage"]}
+EOF
+}
+
 shopt -s nullglob
 parts=("$PAYLOAD_DIR"/installer.sh.gz.b64.part*)
 modern_parts=("${MODERN_PATCH_PREFIX}"*)
@@ -109,6 +134,14 @@ fi
 REPO="${1:-/Users/trinadh/projects/Mypet}"
 HOME_FILE="$REPO/apps/customer-app/src/screens/home-screen.tsx"
 [ -f "$HOME_FILE" ] || fail "Customer home screen not found at $HOME_FILE"
+
+if [ -f "$REPO/apps/customer-app/src/services/customer-catalog.ts" ] \
+  && grep -q "fetchCommerceProducts" "$REPO/apps/customer-app/src/app/category/[id].tsx" \
+  && grep -q "holdAppointmentSlot" "$REPO/apps/customer-app/src/screens/appointment-discovery-screen.tsx" \
+  && grep -q "apiClient.setSessionToken" "$REPO/apps/customer-app/src/context/AuthContext.tsx"; then
+  validate_integrated_customer "$REPO"
+  exit 0
+fi
 
 if grep -q "const CATEGORIES: CategoryItem\[\]" "$HOME_FILE"; then
   echo "Detected modern customer UI; applying the current-tree patch."
