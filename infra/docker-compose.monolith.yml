@@ -10,7 +10,7 @@ x-monolith-environment: &monolith-environment
   MYPET_SCHEDULING_LOCK_TABLE: orders.shedlock
   MYPET_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=orders,appointments,providers,catalog,dispatch,captains,notifications,reviews,payments,chat,content,identity,customer,public&stringtype=unspecified
   MYPET_DB_USERNAME: ${POSTGRES_USER:-postgres}
-  MYPET_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+  MYPET_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
   MYPET_DB_POOL_MAX_SIZE: 12
   MYPET_DB_POOL_MIN_IDLE: 2
   MYPET_DB_CONNECTION_TIMEOUT_MS: 5000
@@ -19,7 +19,7 @@ x-monolith-environment: &monolith-environment
   MYPET_FLYWAY_LOCK_RETRY_COUNT: 50
   DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=orders,appointments,providers,catalog,dispatch,captains,notifications,reviews,payments,chat,content,identity,customer,public&stringtype=unspecified
   DB_USERNAME: ${POSTGRES_USER:-postgres}
-  DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
   REDIS_HOST: redis
   REDIS_PORT: 6379
   KAFKA_BOOTSTRAP_SERVERS: kafka:29092
