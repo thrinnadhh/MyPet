@@ -4,11 +4,15 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-mypet-monolith-e2e}"
 REPORT="${MYPET_MONOLITH_REPORT:-$ROOT/build/reports/monolith-smoke.md}"
-ENV_FILE="$(mktemp)"
+ENV_FILE="${MYPET_ENV_FILE:-}"
+OWNS_ENV_FILE="false"
 DIAGNOSTICS_DIR="$ROOT/build/reports/monolith-diagnostics"
 mkdir -p "$(dirname "$REPORT")" "$DIAGNOSTICS_DIR"
 
-cat > "$ENV_FILE" <<'EOF'
+if [[ -z "$ENV_FILE" ]]; then
+  ENV_FILE="$(mktemp)"
+  OWNS_ENV_FILE="true"
+  cat > "$ENV_FILE" <<'EOF'
 SPRING_PROFILES_ACTIVE=local
 INTERNAL_API_SECRET=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 BANK_DATA_ENCRYPTION_KEY=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
@@ -23,6 +27,7 @@ CASHFREE_WEBHOOK_SECRET=local-cashfree-webhook-secret
 ALLOW_UNSIGNED_JWT=true
 NOTIFICATION_DELIVERY_MODE=LOGGED_DEV
 EOF
+fi
 
 COMPOSE=(
   docker compose
@@ -50,7 +55,9 @@ cleanup() {
   if [[ "${KEEP_STACK:-0}" != "1" ]]; then
     "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
   fi
-  rm -f "$ENV_FILE"
+  if [[ "$OWNS_ENV_FILE" == "true" ]]; then
+    rm -f "$ENV_FILE"
+  fi
 }
 
 on_error() {
