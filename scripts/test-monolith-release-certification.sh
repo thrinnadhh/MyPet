@@ -51,6 +51,9 @@ export MYPET_ENV_FILE="$ENV_FILE"
 export MYPET_GATEWAY_URL="http://localhost:8080"
 export MYPET_SMOKE_REPORT="$REPORT"
 export MYPET_MONOLITH_REPORT="$REPORT"
+export MYPET_COMPOSE_FILES="$ROOT/infra/docker-compose.yml,$ROOT/infra/docker-compose.monolith.yml"
+export MYPET_SCHEDULER_SERVICE="mypet-application"
+export MYPET_EXPECT_RECURRING_CRON="*/5 * * * * *"
 
 # The base smoke owns stack startup. KEEP_STACK keeps the clean-volume monolith
 # alive so the exact barcode, M8 and P2B runners execute against that process.
