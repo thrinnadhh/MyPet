@@ -1,6 +1,7 @@
 package com.pawsnearme.paymentservice.controller
 
 import com.pawsnearme.common.module.ProviderModuleApi
+import com.pawsnearme.paymentservice.service.LoyaltyReconciliationService
 import com.pawsnearme.paymentservice.service.LoyaltyService
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -14,8 +15,9 @@ import java.util.UUID
 class LoyaltyInternalEventAuthorizationTests {
     private val loyaltyService: LoyaltyService = mock()
     private val providerModule: ProviderModuleApi = mock()
+    private val reconciliationService: LoyaltyReconciliationService = mock()
     private val secret = "0123456789abcdef0123456789abcdef"
-    private val controller = LoyaltyController(loyaltyService, providerModule, secret)
+    private val controller = LoyaltyController(loyaltyService, providerModule, reconciliationService, secret)
 
     @Test
     fun `delivered loyalty event rejects requests without internal authorization`() {
