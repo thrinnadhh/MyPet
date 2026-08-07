@@ -90,6 +90,10 @@ assert "ORDER_RECURRING_REMINDER_LOCK_AT_MOST_FOR=PT30S" in monolith_certificati
 assert "ORDER_RECURRING_REMINDER_LOCK_AT_LEAST_FOR=PT0S" in monolith_certification
 assert "MYPET_COMPOSE_FILES=" in monolith_certification
 assert 'MYPET_SCHEDULER_SERVICE="mypet-application"' in monolith_certification
+assert "CASHFREE_SANDBOX_MODE=true" in monolith_certification
+assert "CASHFREE_CLIENT_ID=\n" in monolith_certification
+assert "CASHFREE_CLIENT_SECRET=\n" in monolith_certification
+assert "ci-interpolation-only-client" not in monolith_certification
 assert 'ENV_FILE="${MYPET_ENV_FILE:-}"' in monolith_stack
 assert 'OWNS_ENV_FILE="false"' in monolith_stack
 assert 'if [[ "$OWNS_ENV_FILE" == "true" ]]' in monolith_stack
@@ -106,4 +110,4 @@ assert 'scheduler = "outboxTaskScheduler"' in outbox_poller
 assert "ORDER_RECURRING_REMINDER_LOCK_AT_MOST_FOR" in monolith_compose
 assert "ORDER_RECURRING_REMINDER_LOCK_AT_LEAST_FOR" in monolith_compose
 
-print("P2B_CONNECTED_E2E_CONTRACT_OK journeys=10 dimensions=6 recurring_scheduler=1 outbox_scheduler=isolated")
+print("P2B_CONNECTED_E2E_CONTRACT_OK journeys=10 dimensions=6 recurring_scheduler=1 outbox_scheduler=isolated cashfree=local-sandbox")
