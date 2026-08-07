@@ -29,6 +29,13 @@ assert_json() {
   python3 -c "import json,sys; data=json.load(sys.stdin); assert $expression, data"
 }
 
+internal_api_secret="${INTERNAL_API_SECRET:-}"
+if [[ -z "$internal_api_secret" ]]; then
+  internal_api_secret="$(sed -n 's/^INTERNAL_API_SECRET=//p' "$ENV_FILE" | head -n 1)"
+fi
+[[ -n "$internal_api_secret" ]] || fail "INTERNAL_API_SECRET is required for protected loyalty event smoke calls"
+INTERNAL_HEADERS=(-H "X-Internal-Secret: $internal_api_secret")
+
 cat >> "$REPORT" <<'EOF'
 
 ## Extended feature flows
@@ -106,14 +113,14 @@ welcome_repeat="$(curl -fsS "${AUTH_HEADERS[@]}" -X POST \
 printf '%s' "$welcome_repeat" | assert_json 'data["starBalance"] == 1 and data["welcomeStarClaimed"] is True'
 pass "Welcome-star claim is idempotent"
 
-order_event="$(curl -fsS "${AUTH_HEADERS[@]}" -X POST \
+order_event="$(curl -fsS "${AUTH_HEADERS[@]}" "${INTERNAL_HEADERS[@]}" -X POST \
   http://localhost:8080/api/v1/loyalty/events/order-delivered \
   -H 'Content-Type: application/json' \
   --data "{\"orderId\":\"$order_id\",\"customerId\":\"11111111-1111-1111-1111-111111111111\",\"providerId\":\"$provider_id\",\"netAmount\":250.00}")"
 printf '%s' "$order_event" | assert_json 'data["processed"] is True'
 pass "Delivered-order event awarded one purchase star"
 
-order_event_repeat="$(curl -fsS "${AUTH_HEADERS[@]}" -X POST \
+order_event_repeat="$(curl -fsS "${AUTH_HEADERS[@]}" "${INTERNAL_HEADERS[@]}" -X POST \
   http://localhost:8080/api/v1/loyalty/events/order-delivered \
   -H 'Content-Type: application/json' \
   --data "{\"orderId\":\"$order_id\",\"customerId\":\"11111111-1111-1111-1111-111111111111\",\"providerId\":\"$provider_id\",\"netAmount\":250.00}")"
