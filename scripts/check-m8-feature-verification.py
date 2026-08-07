@@ -74,10 +74,12 @@ if runner_path.is_file():
         "matrix.require = contract_require",
         "published AppointmentBooked outbox event with slot_start",
         "appointment-outbox.txt",
+        "all-outbox-counts.txt",
+        "shedlock-state.txt",
         "catalog-offerings.txt",
         "orders.txt",
         "order-outbox.txt",
-        'services = (',
+        'services = [',
         '"api-gateway"',
         '"order-service"',
         '"catalog-service"',
@@ -85,8 +87,9 @@ if runner_path.is_file():
         '"payment-service"',
         '"dispatch-service"',
         'f"{service}.log"',
-        "notification-consumer-group.txt",
         "appointments-events.txt",
+        "MYPET_COMPOSE_FILES",
+        "MYPET_SCHEDULER_SERVICE",
     ):
         if required not in runner:
             failures.append(f"M8 runner is missing explicit contract or diagnostic mapping: {required}")
