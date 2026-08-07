@@ -202,12 +202,16 @@ class CatalogService(
             ?: throw IllegalArgumentException("Idempotency key is required")
         val existingBill = billRepository.findByIdempotencyKey(idempotencyKey)
         if (existingBill != null) {
+            if (existingBill.status != "SYNCED") {
+                throw IllegalStateException("Previous bill attempt with this idempotency key did not complete atomically")
+            }
             val items = billItemRepository.findByBillId(existingBill.id!!)
             return BillResponse(existingBill, items, emptyList())
         }
 
         val storeId = request.storeId ?: throw IllegalArgumentException("Store ID is required")
         val staffId = request.staffId ?: throw IllegalArgumentException("Staff ID is required")
+        require(request.items.isNotEmpty()) { "At least one bill item is required" }
         val savedBill = billRepository.save(
             Bill(
                 storeId = storeId,
@@ -227,7 +231,15 @@ class CatalogService(
         var calculatedDiscount = BigDecimal.ZERO
 
         request.items.forEach { item ->
-            val productId = item.productId ?: return@forEach
+            val productId = item.productId
+            if (productId == null) {
+                failedItems += FailedBillItem(
+                    productId = null,
+                    barcode = BarcodeSupport.normalize(item.barcodeScanned) ?: "",
+                    reason = "Product ID is required"
+                )
+                return@forEach
+            }
             try {
                 val quantity = item.quantity ?: throw IllegalArgumentException("Quantity is required")
                 require(quantity > 0) { "Quantity must be at least 1" }
@@ -287,12 +299,17 @@ class CatalogService(
             }
         }
 
+        if (failedItems.isNotEmpty()) {
+            val reasons = failedItems.joinToString("; ") { failed ->
+                val itemRef = failed.productId?.toString() ?: failed.barcode.ifBlank { "unknown item" }
+                "$itemRef: ${failed.reason}"
+            }
+            throw IllegalArgumentException("Bill rejected atomically; no items were finalized: $reasons")
+        }
         if (successfulItems.isEmpty()) {
-            val reason = failedItems.firstOrNull()?.reason ?: "No valid bill items were supplied"
-            throw IllegalArgumentException("No bill items could be finalized: $reason")
+            throw IllegalArgumentException("No bill items could be finalized")
         }
 
-        val finalStatus = if (failedItems.isEmpty()) "SYNCED" else "FINALIZED"
         val finalTax = calculatedSubtotal
             .subtract(calculatedDiscount)
             .multiply(BigDecimal("0.18"))
@@ -302,17 +319,17 @@ class CatalogService(
             .add(finalTax)
             .max(BigDecimal.ZERO)
 
-        savedBill.status = finalStatus
+        savedBill.status = "SYNCED"
         savedBill.subtotal = calculatedSubtotal
         savedBill.totalDiscount = calculatedDiscount
         savedBill.tax = finalTax
         savedBill.grandTotal = finalGrandTotal
-        savedBill.syncedAt = if (finalStatus == "SYNCED") Instant.now() else null
+        savedBill.syncedAt = Instant.now()
 
         return BillResponse(
             bill = billRepository.save(savedBill),
             successfulItems = successfulItems,
-            failedItems = failedItems
+            failedItems = emptyList()
         )
     }
 
