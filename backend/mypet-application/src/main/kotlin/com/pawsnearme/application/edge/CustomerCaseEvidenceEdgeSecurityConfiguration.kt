@@ -6,7 +6,6 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.web.SecurityFilterChain
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher
 
 /** Public access is limited to HMAC-signed, short-lived case-evidence content. */
 @Configuration(proxyBeanMethods = false)
@@ -16,7 +15,7 @@ class CustomerCaseEvidenceEdgeSecurityConfiguration {
     @Order(-2)
     fun customerCaseEvidenceEdgeSecurityFilterChain(http: HttpSecurity): SecurityFilterChain {
         http
-            .securityMatcher(AntPathRequestMatcher("/api/v1/orders/customer-cases/evidence/*/content", "GET"))
+            .securityMatcher(SignedContentRequestMatchers.customerCaseEvidence)
             .csrf { it.disable() }
             .cors { it.disable() }
             .httpBasic { it.disable() }

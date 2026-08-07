@@ -24,27 +24,38 @@ jobs:
   evidence-contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Check out the exact workflow commit without external actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git init .
+          auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth_header" \
+            fetch --depth=1 "https://github.com/${GITHUB_REPOSITORY}.git" "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
       - name: Validate matrix structure
-        run: python scripts/validate-p2b-device-qa.py
+        run: python3 scripts/validate-p2b-device-qa.py
       - name: Enforce release evidence
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_gate }}
-        run: python scripts/validate-p2b-device-qa.py --release
+        run: python3 scripts/validate-p2b-device-qa.py --release
 
   mobile-accessibility-contracts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20.19
-          cache: npm
-          cache-dependency-path: |
-            apps/customer-app/package-lock.json
-            apps/merchant-captain-app/package-lock.json
+      - name: Check out the exact workflow commit without external actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git init .
+          auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth_header" \
+            fetch --depth=1 "https://github.com/${GITHUB_REPOSITORY}.git" "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Verify built-in Node runtime
+        run: |
+          node --version
+          npm --version
+          node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 20 || (major === 20 && minor < 19)) process.exit(1)'
       - name: Customer accessibility contracts
         working-directory: apps/customer-app
         run: |

@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import importlib.util
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -27,6 +28,22 @@ if spec is None or spec.loader is None:
 matrix = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = matrix
 spec.loader.exec_module(matrix)
+
+compose_files_raw = os.environ.get("MYPET_COMPOSE_FILES", "")
+if compose_files_raw:
+    matrix.COMPOSE = [
+        "docker",
+        "compose",
+        "-p",
+        matrix.PROJECT_NAME,
+        "--env-file",
+        matrix.ENV_FILE,
+    ]
+    for compose_file in compose_files_raw.split(","):
+        if compose_file:
+            matrix.COMPOSE.extend(("-f", compose_file))
+
+SCHEDULER_SERVICE = os.environ.get("MYPET_SCHEDULER_SERVICE", "")
 
 _original_request = matrix.request
 _original_poll = matrix.poll
@@ -102,9 +119,6 @@ def contract_request(
         _original_request(method, path, actor, payload, expected=(400,))
         return {"status": "CONFIRMED", "unsupportedStatusRejected": True}
 
-    # The base scenario first proves COD eligibility. For the connected payment
-    # proof, place the shared order as CARD so it can exercise initiation,
-    # verified capture persistence and the paid-order confirmation boundary.
     if (
         method == "POST"
         and path == "/api/v1/orders"
@@ -124,10 +138,6 @@ def contract_request(
         online_payload["quoteToken"] = online_quote["quoteToken"]
         return _original_request(method, path, actor, online_payload, expected)
 
-    # Payment results are valid only after a durable PENDING Cashfree transaction
-    # exists and a correctly signed webhook has marked it successful. The local
-    # adapter never calls Cashfree externally; this proof exercises the public
-    # webhook, HMAC, idempotency, persistence and reconciliation boundaries.
     if (
         method == "POST"
         and path == "/api/v1/payments/transactions/result"
@@ -152,8 +162,6 @@ def contract_request(
         _payment_transactions[str(payload["referenceId"])] = str(initiation["transactionId"])
         return _original_request(method, path, actor, payload, expected=(200,))
 
-    # The stale scenario asks the merchant to set ACCEPTED directly. Online
-    # orders must instead cross the payment verification boundary via confirm.
     if (
         method == "PUT"
         and path.startswith("/api/v1/orders/")
@@ -169,11 +177,6 @@ def contract_request(
                 expected=(200,),
             )
 
-    # The production dispatch API no longer exposes proof codes or allows a
-    # captain to use the administrator's global order lookup. Keep the legacy
-    # scenario shape while exercising the captain-safe restart endpoint. Proof
-    # codes are read only from the isolated test database and never cross the
-    # HTTP boundary.
     if method == "GET" and path.startswith("/api/v1/dispatch/jobs/by-order/"):
         order_id = path.rsplit("/", 1)[-1]
         jobs = _original_request(
@@ -218,10 +221,6 @@ def contract_require(condition: bool, message: str, details: Any = None) -> None
         )
         return
     if message == "first loyalty event not processed" and not condition:
-        # Delivery now awards loyalty through the real order-service integration.
-        # A manual replay may therefore correctly report processed=false. The
-        # scenario still proves idempotency with the following replay assertion
-        # and proves the award through the persisted progress balance.
         matrix.append_report(
             "- ✅ **loyalty delivery integration** — the delivered-order award "
             "was already processed before the explicit replay.\n"
@@ -271,6 +270,18 @@ def capture_failure_diagnostics(error: BaseException) -> None:
             "SELECT event_id,event_type,payload,published_at,created_at "
             "FROM appointments.outbox_events ORDER BY created_at DESC LIMIT 20;"
         ),
+        "all-outbox-counts.txt": (
+            "SELECT 'orders|' || count(*) FILTER (WHERE published_at IS NULL) || '|' || count(*) FROM orders.outbox_events "
+            "UNION ALL SELECT 'appointments|' || count(*) FILTER (WHERE published_at IS NULL) || '|' || count(*) FROM appointments.outbox_events "
+            "UNION ALL SELECT 'providers|' || count(*) FILTER (WHERE published_at IS NULL) || '|' || count(*) FROM providers.outbox_events "
+            "UNION ALL SELECT 'catalog|' || count(*) FILTER (WHERE published_at IS NULL) || '|' || count(*) FROM catalog.outbox_events "
+            "UNION ALL SELECT 'dispatch|' || count(*) FILTER (WHERE published_at IS NULL) || '|' || count(*) FROM dispatch.outbox_events "
+            "UNION ALL SELECT 'reviews|' || count(*) FILTER (WHERE published_at IS NULL) || '|' || count(*) FROM reviews.outbox_events "
+            "UNION ALL SELECT 'payments|' || count(*) FILTER (WHERE published_at IS NULL) || '|' || count(*) FROM payments.outbox_events;"
+        ),
+        "shedlock-state.txt": (
+            "SELECT name,lock_until,locked_at,locked_by FROM orders.shedlock ORDER BY name;"
+        ),
         "notification-reminders.txt": (
             "SELECT reminder_id,user_id,reference_type,reference_id,fire_at,template_code,"
             "fired,delivery_status,created_at "
@@ -306,7 +317,7 @@ def capture_failure_diagnostics(error: BaseException) -> None:
             value = f"diagnostic query failed: {diagnostic_error}"
         (DIAGNOSTICS / file_name).write_text(value, encoding="utf-8")
 
-    services = (
+    services = [
         "api-gateway",
         "appointment-service",
         "notification-service",
@@ -316,24 +327,16 @@ def capture_failure_diagnostics(error: BaseException) -> None:
         "payment-service",
         "dispatch-service",
         "kafka",
-    )
-    for service in services:
+    ]
+    if SCHEDULER_SERVICE:
+        services.insert(0, SCHEDULER_SERVICE)
+
+    for service in dict.fromkeys(services):
         try:
-            value = matrix.compose("logs", "--no-color", "--tail", "600", service)
+            value = matrix.compose("logs", "--no-color", "--tail", "1000", service)
         except Exception as diagnostic_error:
             value = f"diagnostic log capture failed: {diagnostic_error}"
         (DIAGNOSTICS / f"{service}.log").write_text(value, encoding="utf-8")
-
-    try:
-        group_state = matrix.compose(
-            "exec", "-T", "kafka",
-            "/opt/kafka/bin/kafka-consumer-groups.sh",
-            "--bootstrap-server", "kafka:29092",
-            "--describe", "--group", "notification-service",
-        )
-    except Exception as diagnostic_error:
-        group_state = f"consumer group diagnostic failed: {diagnostic_error}"
-    (DIAGNOSTICS / "notification-consumer-group.txt").write_text(group_state, encoding="utf-8")
 
     try:
         latest_events = matrix.compose(

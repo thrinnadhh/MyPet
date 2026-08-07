@@ -158,6 +158,16 @@ object MyPetSchedulerCatalog {
                 lockName = "orderCompensationWorker"
             ),
             SchedulerJobDescriptor(
+                id = "order.recurring-confirmation-reminders",
+                ownerModule = "order",
+                component = "RecurringOrderScheduler",
+                method = "requestDueConfirmations",
+                cadenceKind = SchedulerCadenceKind.CRON,
+                cadence = "${'$'}{order.recurring-reminder-cron:0 0 * * * *}",
+                lockTable = "orders.shedlock",
+                lockName = "recurringOrderConfirmationReminder"
+            ),
+            SchedulerJobDescriptor(
                 id = "appointment.expire-holds",
                 ownerModule = "appointment",
                 component = "AppointmentService",

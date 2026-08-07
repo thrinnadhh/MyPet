@@ -6,8 +6,8 @@ import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import com.pawsnearme.common.outbox.OutboxEventPublisherFactory
+import com.pawsnearme.common.outbox.OutboxPersistence
 import com.pawsnearme.common.outbox.OutboxPoller
-import com.pawsnearme.common.outbox.OutboxRepository
 import com.pawsnearme.common.scheduling.SchedulerLockProviderFactory
 import net.javacrumbs.shedlock.core.LockProvider
 import net.javacrumbs.shedlock.spring.annotation.EnableSchedulerLock
@@ -45,7 +45,7 @@ import javax.sql.DataSource
 @ConditionalOnProperty(
     prefix = "mypet.runtime",
     name = ["modules-enabled"],
-    havingValue = "true"
+    havingValue = "true",
 )
 @EnableScheduling
 @EnableSchedulerLock(defaultLockAtMostFor = "PT30M")
@@ -62,8 +62,8 @@ import javax.sql.DataSource
         "com.pawsnearme.reviewservice",
         "com.pawsnearme.paymentservice",
         "com.pawsnearme.chatservice",
-        "com.pawsnearme.contentservice"
-    ]
+        "com.pawsnearme.contentservice",
+    ],
 )
 @EntityScan(
     basePackages = [
@@ -79,8 +79,8 @@ import javax.sql.DataSource
         "com.pawsnearme.paymentservice",
         "com.pawsnearme.chatservice",
         "com.pawsnearme.contentservice",
-        "com.pawsnearme.common"
-    ]
+        "com.pawsnearme.common",
+    ],
 )
 @EnableJpaRepositories(
     basePackages = [
@@ -97,9 +97,9 @@ import javax.sql.DataSource
         "com.pawsnearme.chatservice",
         "com.pawsnearme.contentservice",
         "com.pawsnearme.common.idempotency",
-        "com.pawsnearme.common.outbox"
+        "com.pawsnearme.common.outbox",
     ],
-    nameGenerator = FullyQualifiedAnnotationBeanNameGenerator::class
+    nameGenerator = FullyQualifiedAnnotationBeanNameGenerator::class,
 )
 @ComponentScan(
     basePackages = [
@@ -115,31 +115,31 @@ import javax.sql.DataSource
         "com.pawsnearme.paymentservice",
         "com.pawsnearme.chatservice",
         "com.pawsnearme.contentservice",
-        "com.pawsnearme.common"
+        "com.pawsnearme.common",
     ],
     nameGenerator = FullyQualifiedAnnotationBeanNameGenerator::class,
     excludeFilters = [
         ComponentScan.Filter(
             type = FilterType.ANNOTATION,
-            classes = [SpringBootConfiguration::class]
+            classes = [SpringBootConfiguration::class],
         ),
         ComponentScan.Filter(
             type = FilterType.REGEX,
-            pattern = ["com\\.pawsnearme\\..*\\.config\\.(OutboxConfig|ShedLockConfig)"]
+            pattern = ["com\\.pawsnearme\\..*\\.config\\.(OutboxConfig|ShedLockConfig)"],
         ),
         ComponentScan.Filter(
             type = FilterType.REGEX,
-            pattern = ["com\\.pawsnearme\\.(orderservice|paymentservice)\\.config\\.InfraConfig"]
+            pattern = ["com\\.pawsnearme\\.(orderservice|paymentservice)\\.config\\.InfraConfig"],
         ),
         ComponentScan.Filter(
             type = FilterType.REGEX,
-            pattern = ["com\\.pawsnearme\\..*\\.module\\..*RemoteModuleConfiguration"]
+            pattern = ["com\\.pawsnearme\\..*\\.module\\..*RemoteModuleConfiguration"],
         ),
         ComponentScan.Filter(
             type = FilterType.REGEX,
-            pattern = ["com\\.pawsnearme\\.common\\.security\\..*"]
-        )
-    ]
+            pattern = ["com\\.pawsnearme\\.common\\.security\\..*"],
+        ),
+    ],
 )
 class MonolithModuleRuntimeConfiguration {
 
@@ -164,29 +164,29 @@ class MonolithModuleRuntimeConfiguration {
         configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
     }
 
-    /** One durable outbox publisher owns the shared monolith event stream. */
+    /** One durable poller drains every schema-owned outbox through the primary adapter. */
     @Bean
     fun monolithOutboxPoller(
-        outboxRepository: OutboxRepository,
+        outboxPersistence: OutboxPersistence,
         kafkaTemplate: KafkaTemplate<String, Any>,
         objectMapper: ObjectMapper,
         applicationEventPublisher: ApplicationEventPublisher,
-        @Value("\${mypet.events.delivery-mode:KAFKA_ONLY}") deliveryMode: String
+        @Value("\${mypet.events.delivery-mode:KAFKA_ONLY}") deliveryMode: String,
     ): OutboxPoller = OutboxPoller(
-        outboxRepository,
+        outboxPersistence,
         OutboxEventPublisherFactory.create(
             kafkaTemplate,
             objectMapper,
             applicationEventPublisher,
-            deliveryMode
-        )
+            deliveryMode,
+        ),
     )
 
     /** All scheduled jobs coordinate through one schema-qualified lock table. */
     @Bean
     fun monolithLockProvider(
         dataSource: DataSource,
-        @Value("\${mypet.scheduling.lock-table:orders.shedlock}") tableName: String
+        @Value("\${mypet.scheduling.lock-table:orders.shedlock}") tableName: String,
     ): LockProvider = SchedulerLockProviderFactory.create(dataSource, tableName)
 
     @Bean
@@ -202,9 +202,10 @@ class MonolithModuleRuntimeConfiguration {
                 "objectMappers" to 1,
                 "httpClients" to 1,
                 "outboxPublishers" to 1,
+                "outboxSchemas" to MonolithOutboxOwnerRegistry.schemas.size,
                 "lockProviders" to 1,
-                "legacyServiceContainersRequired" to false
-            )
+                "legacyServiceContainersRequired" to false,
+            ),
         )
     }
 }

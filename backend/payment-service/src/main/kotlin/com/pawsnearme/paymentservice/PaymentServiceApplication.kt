@@ -28,7 +28,8 @@ import org.springframework.scheduling.annotation.EnableScheduling
         "com.pawsnearme.paymentservice",
         "com.pawsnearme.common.security",
         "com.pawsnearme.common.idempotency",
-        "com.pawsnearme.common.outbox"
+        "com.pawsnearme.common.outbox",
+        "com.pawsnearme.common.scheduling"
     ]
 )
 class PaymentServiceApplication

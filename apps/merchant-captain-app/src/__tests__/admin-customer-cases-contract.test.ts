@@ -20,9 +20,17 @@ test('signed content routes expose only HMAC protected reads', () => {
   const gateway = source('../../backend/api-gateway/src/main/kotlin/com/pawsnearme/apigateway/config/SecurityConfig.kt');
   const medicalEdge = source('../../backend/mypet-application/src/main/kotlin/com/pawsnearme/application/edge/MedicalDocumentEdgeSecurityConfiguration.kt');
   const caseEdge = source('../../backend/mypet-application/src/main/kotlin/com/pawsnearme/application/edge/CustomerCaseEvidenceEdgeSecurityConfiguration.kt');
+  const matchers = source('../../backend/mypet-application/src/main/kotlin/com/pawsnearme/application/edge/SignedContentRequestMatchers.kt');
+
   assert.match(gateway, /medical-documents\/\*\/content/);
   assert.match(gateway, /customer-cases\/evidence\/\*\/content/);
-  assert.match(medicalEdge, /AntPathRequestMatcher/);
-  assert.match(caseEdge, /AntPathRequestMatcher/);
+  assert.match(medicalEdge, /SignedContentRequestMatchers\.medicalDocument/);
+  assert.match(caseEdge, /SignedContentRequestMatchers\.customerCaseEvidence/);
+  assert.match(matchers, /PathPatternRequestMatcher\.withDefaults\(\)/);
+  assert.match(matchers, /HttpMethod\.GET/);
+  assert.match(matchers, /medical-documents\/\{documentId\}\/content/);
+  assert.match(matchers, /customer-cases\/evidence\/\{evidenceId\}\/content/);
+  assert.doesNotMatch(medicalEdge, /AntPathRequestMatcher/);
+  assert.doesNotMatch(caseEdge, /AntPathRequestMatcher/);
   assert.doesNotMatch(gateway, /medical-documents\/\*\*/);
 });

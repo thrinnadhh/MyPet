@@ -18,6 +18,7 @@ CASE_EVIDENCE_SIGNING_KEY=abcdef0123456789abcdef0123456789
 PAYMENT_CHECKOUT_TOKEN_SECRET=0123456789abcdef0123456789abcdef
 CASHFREE_WEBHOOK_SECRET=local-cashfree-webhook-secret
 ALLOW_UNSIGNED_JWT=true
+ORDER_RECURRING_REMINDER_CRON="*/5 * * * * *"
 EOF
 
 COMPOSE=(
@@ -29,6 +30,12 @@ COMPOSE=(
 
 "${COMPOSE[@]}" config > /dev/null
 "${COMPOSE[@]}" config --format json > "$CONFIG_JSON"
+
+grep -Fq 'ORDER_RECURRING_REMINDER_CRON: ${ORDER_RECURRING_REMINDER_CRON:-0 0 * * * *}' \
+  "$ROOT/infra/docker-compose.monolith.yml" || {
+    echo "ERROR: monolith recurring reminder cron must retain the hourly production default" >&2
+    exit 1
+  }
 
 services="$("${COMPOSE[@]}" config --services)"
 expected=(
@@ -77,6 +84,7 @@ required = {
     "MYPET_SCHEDULING_ROLE": "ALL",
     "MYPET_SCHEDULING_LOCK_TABLE": "orders.shedlock",
     "GATEWAY_TRUST_ENABLED": "false",
+    "ORDER_RECURRING_REMINDER_CRON": "*/5 * * * * *",
 }
 for key, expected in required.items():
     actual = str(environment.get(key, ""))

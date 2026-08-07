@@ -6,7 +6,6 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.web.SecurityFilterChain
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher
 
 /**
  * The document endpoint is public only because MedicalDocumentService validates
@@ -20,7 +19,7 @@ class MedicalDocumentEdgeSecurityConfiguration {
     @Order(-1)
     fun medicalDocumentEdgeSecurityFilterChain(http: HttpSecurity): SecurityFilterChain {
         http
-            .securityMatcher(AntPathRequestMatcher("/api/v1/appointments/medical-documents/*/content", "GET"))
+            .securityMatcher(SignedContentRequestMatchers.medicalDocument)
             .csrf { it.disable() }
             .cors { it.disable() }
             .httpBasic { it.disable() }

@@ -7,8 +7,8 @@ import java.util.UUID
 
 @Service
 class OutboxService(
-    private val outboxRepository: OutboxRepository,
-    private val objectMapper: ObjectMapper
+    private val outboxPersistence: OutboxPersistence,
+    private val objectMapper: ObjectMapper,
 ) {
 
     @Transactional
@@ -17,7 +17,7 @@ class OutboxService(
         aggregateType: String,
         aggregateId: UUID,
         eventType: String,
-        eventPayload: Any
+        eventPayload: Any,
     ) {
         val payloadStr = when (eventPayload) {
             is String -> eventPayload
@@ -28,8 +28,8 @@ class OutboxService(
             aggregateType = aggregateType,
             aggregateId = aggregateId,
             eventType = eventType,
-            payload = payloadStr
+            payload = payloadStr,
         )
-        outboxRepository.save(outboxEvent)
+        outboxPersistence.save(outboxEvent)
     }
 }

@@ -1,0 +1,56 @@
+name: Customer Production Coverage
+
+on:
+  pull_request:
+    paths:
+      - "apps/customer-app/src/auth/**"
+      - "apps/customer-app/src/services/**"
+      - "apps/customer-app/src/contracts/**"
+      - "apps/customer-app/src/utils/**"
+      - "apps/customer-app/scripts/**"
+      - "apps/customer-app/jest.config.js"
+      - "apps/customer-app/package.json"
+      - "apps/customer-app/package-lock.json"
+      - ".github/workflows/customer-high-risk-service-contracts.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19"
+          cache: npm
+          cache-dependency-path: apps/customer-app/package-lock.json
+
+      - name: Install customer dependencies
+        working-directory: apps/customer-app
+        run: npm ci
+
+      - name: Run focused high-risk service contracts
+        working-directory: apps/customer-app
+        run: npx jest --runInBand src/services/__tests__/high-risk-customer-services.test.ts
+
+      - name: Enforce global and critical-module production coverage
+        working-directory: apps/customer-app
+        run: |
+          npm run test:coverage
+          node scripts/check-production-coverage.cjs
+
+      - name: Upload customer coverage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-production-coverage-${{ github.run_id }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            apps/customer-app/coverage/coverage-summary.json
+            apps/customer-app/coverage/lcov-report/**
