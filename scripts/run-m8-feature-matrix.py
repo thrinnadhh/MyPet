@@ -76,6 +76,7 @@ def configured_env_value(name: str) -> str:
 
 
 INTERNAL_API_SECRET = configured_env_value("INTERNAL_API_SECRET")
+GATEWAY_SECRET = configured_env_value("GATEWAY_SECRET")
 
 _original_request = matrix.request
 _original_poll = matrix.poll
@@ -197,6 +198,7 @@ def internal_loyalty_request(
     headers = {
         "Accept": "application/json",
         "X-Internal-Secret": INTERNAL_API_SECRET,
+        "X-Internal-Gateway-Secret": GATEWAY_SECRET,
         "X-Service-Name": "m8-certification",
     }
     if body is not None:
