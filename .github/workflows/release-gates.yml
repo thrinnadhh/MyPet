@@ -47,7 +47,7 @@ jobs:
         working-directory: apps/customer-app
         run: |
           npm ci
-          npm audit --omit=dev --audit-level=high
+          npm audit --audit-level=high
           npx --yes expo-doctor@1.20.1
           npm run typecheck
           npm run lint
@@ -57,7 +57,7 @@ jobs:
         working-directory: apps/merchant-captain-app
         run: |
           npm ci
-          npm audit --omit=dev --audit-level=high
+          npm audit --audit-level=high
           npx --yes expo-doctor@1.20.1
           npm run typecheck
           npm run lint
