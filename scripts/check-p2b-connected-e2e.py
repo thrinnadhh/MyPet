@@ -33,6 +33,11 @@ entrypoint = (ROOT / "scripts/run-p2b-connected-e2e-entry.py").read_text(encodin
 recurring = (ROOT / "scripts/test-recurring-order-scheduler-e2e.py").read_text(encoding="utf-8")
 test_all = (ROOT / "scripts/test-all.sh").read_text(encoding="utf-8")
 monolith_certification = (ROOT / "scripts/test-monolith-release-certification.sh").read_text(encoding="utf-8")
+recurring_scheduler = (
+    ROOT
+    / "backend/order-service/src/main/kotlin/com/pawsnearme/orderservice/service/RecurringOrderScheduler.kt"
+).read_text(encoding="utf-8")
+monolith_compose = (ROOT / "infra/docker-compose.monolith.yml").read_text(encoding="utf-8")
 for token in (
     "verify_m8_report",
     "verify_persisted_graph",
@@ -65,5 +70,11 @@ for token in (
 assert 'python3 "$ROOT/scripts/run-p2b-connected-e2e-entry.py"' in test_all
 assert 'python3 "$ROOT/scripts/test-recurring-order-scheduler-e2e.py"' in monolith_certification
 assert 'ORDER_RECURRING_REMINDER_CRON="*/5 * * * * *"' in monolith_certification
+assert "ORDER_RECURRING_REMINDER_LOCK_AT_MOST_FOR=PT30S" in monolith_certification
+assert "ORDER_RECURRING_REMINDER_LOCK_AT_LEAST_FOR=PT0S" in monolith_certification
+assert "order.recurring-reminder-lock-at-most-for:PT55M" in recurring_scheduler
+assert "order.recurring-reminder-lock-at-least-for:PT1M" in recurring_scheduler
+assert "ORDER_RECURRING_REMINDER_LOCK_AT_MOST_FOR" in monolith_compose
+assert "ORDER_RECURRING_REMINDER_LOCK_AT_LEAST_FOR" in monolith_compose
 
 print("P2B_CONNECTED_E2E_CONTRACT_OK journeys=10 dimensions=6 recurring_scheduler=1")
