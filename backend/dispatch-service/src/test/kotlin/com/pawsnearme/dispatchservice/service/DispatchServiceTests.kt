@@ -3,6 +3,7 @@ package com.pawsnearme.dispatchservice.service
 import com.pawsnearme.dispatchservice.model.*
 import com.pawsnearme.dispatchservice.repository.*
 import jakarta.persistence.EntityManager
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -32,6 +33,26 @@ class DispatchServiceTests {
         jobRepository, offerRepository, redisTemplate, kafkaTemplate, entityManager,
         outboxService, idempotencyService, restTemplate = restTemplate
     )
+
+    @Test
+    fun `order event idempotency is scoped to dispatch consumer`() {
+        val eventId = UUID.randomUUID()
+        val orderId = UUID.randomUUID()
+        whenever(idempotencyService.checkAndRecord("dispatch-orders", eventId)).thenReturn(false)
+        val record = ConsumerRecord(
+            "orders.events",
+            0,
+            0L,
+            orderId.toString(),
+            """{"eventId":"$eventId","toStatus":"READY_FOR_PICKUP","orderId":"$orderId"}"""
+        )
+
+        service.handleOrderStatusChanged(record)
+
+        verify(idempotencyService).checkAndRecord("dispatch-orders", eventId)
+        verify(idempotencyService, never()).checkAndRecord(eventId)
+        verify(jobRepository, never()).findByOrderId(any())
+    }
 
     @Test
     fun `startDispatchProcess - duplicate job - returns existing without saving again`() {

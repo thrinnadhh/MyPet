@@ -73,6 +73,7 @@ class DispatchService @Autowired constructor(
     companion object {
         private val logger = LoggerFactory.getLogger(DispatchService::class.java)
         private const val GEO_KEY = "captains:locations"
+        private const val ORDER_EVENT_CONSUMER_SCOPE = "dispatch-orders"
     }
 
     @RetryableTopic(
@@ -97,8 +98,8 @@ class DispatchService @Autowired constructor(
             return
         }
 
-        if (!idempotencyService.checkAndRecord(eventId)) {
-            logger.info("Duplicate event ignored: {}", eventId)
+        if (!idempotencyService.checkAndRecord(ORDER_EVENT_CONSUMER_SCOPE, eventId)) {
+            logger.info("Duplicate dispatch order event ignored: {}", eventId)
             return
         }
 
