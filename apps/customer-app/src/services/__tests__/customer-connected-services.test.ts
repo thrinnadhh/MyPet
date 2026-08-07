@@ -132,7 +132,7 @@ describe('connected customer services', () => {
     expect(shop.categories).toEqual(['toys']);
   });
 
-  it('discovers service slots and books with the selected pet', async () => {
+  it('discovers service slots and holds with online payment required', async () => {
     mockedFetch
       .mockResolvedValueOnce(
         jsonResponse([
@@ -177,14 +177,17 @@ describe('connected customer services', () => {
       petId: '88888888-8888-4888-8888-888888888888',
       accessToken: 'token',
     });
-    await confirmAppointmentHold(appointmentId, 'token');
+    await confirmAppointmentHold(appointmentId, 'token', '99999999-9999-4999-8999-999999999999');
 
     expect(appointmentId).toBe('66666666-6666-4666-8666-666666666666');
     expect(JSON.parse(mockedFetch.mock.calls[2][1]?.body as string)).toMatchObject({
       petId: '88888888-8888-4888-8888-888888888888',
       customerId: '77777777-7777-4777-8777-777777777777',
-      payAtClinic: true,
+      payAtClinic: false,
     });
+    expect(mockedFetch.mock.calls[3][0]).toContain(
+      'paymentId=99999999-9999-4999-8999-999999999999',
+    );
   });
 
   it('reconstructs a validated cart with current live products', async () => {
