@@ -29,12 +29,23 @@ assert_json() {
   python3 -c "import json,sys; data=json.load(sys.stdin); assert $expression, data"
 }
 
-internal_api_secret="${INTERNAL_API_SECRET:-}"
-if [[ -z "$internal_api_secret" ]]; then
-  internal_api_secret="$(sed -n 's/^INTERNAL_API_SECRET=//p' "$ENV_FILE" | head -n 1)"
-fi
-[[ -n "$internal_api_secret" ]] || fail "INTERNAL_API_SECRET is required for protected loyalty event smoke calls"
-INTERNAL_HEADERS=(-H "X-Internal-Secret: $internal_api_secret")
+read_required_env() {
+  local name="$1"
+  local value="${!name:-}"
+  if [[ -z "$value" ]]; then
+    value="$(sed -n "s/^${name}=//p" "$ENV_FILE" | head -n 1)"
+  fi
+  [[ -n "$value" ]] || fail "$name is required for protected internal smoke calls"
+  printf '%s' "$value"
+}
+
+internal_api_secret="$(read_required_env INTERNAL_API_SECRET)"
+gateway_secret="$(read_required_env GATEWAY_SECRET)"
+INTERNAL_HEADERS=(
+  -H "X-Internal-Secret: $internal_api_secret"
+  -H "X-Internal-Gateway-Secret: $gateway_secret"
+  -H "X-Service-Name: smoke-certification"
+)
 
 cat >> "$REPORT" <<'EOF'
 
@@ -118,7 +129,7 @@ order_event="$(curl -fsS "${INTERNAL_HEADERS[@]}" -X POST \
   -H 'Content-Type: application/json' \
   --data "{\"orderId\":\"$order_id\",\"customerId\":\"11111111-1111-1111-1111-111111111111\",\"providerId\":\"$provider_id\",\"netAmount\":250.00}")"
 printf '%s' "$order_event" | assert_json 'data["processed"] is True'
-pass "Delivered-order event awarded one purchase star through the internal payment boundary"
+pass "Delivered-order event awarded one purchase star through the trusted internal payment boundary"
 
 order_event_repeat="$(curl -fsS "${INTERNAL_HEADERS[@]}" -X POST \
   http://localhost:8090/api/v1/loyalty/events/order-delivered \
