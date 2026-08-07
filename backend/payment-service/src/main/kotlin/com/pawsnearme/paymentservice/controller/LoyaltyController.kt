@@ -5,6 +5,7 @@ import com.pawsnearme.paymentservice.model.LoyaltyLedgerEntry
 import com.pawsnearme.paymentservice.model.LoyaltyProgram
 import com.pawsnearme.paymentservice.model.LoyaltyRewardInstance
 import com.pawsnearme.paymentservice.service.LoyaltyProgressResponse
+import com.pawsnearme.paymentservice.service.LoyaltyReconciliationService
 import com.pawsnearme.paymentservice.service.LoyaltyService
 import com.pawsnearme.paymentservice.service.LoyaltyWalletRewardDto
 import org.springframework.beans.factory.annotation.Value
@@ -47,6 +48,7 @@ data class ReserveRewardRequest(
 class LoyaltyController(
     private val loyaltyService: LoyaltyService,
     private val providerModule: ProviderModuleApi,
+    private val loyaltyReconciliationService: LoyaltyReconciliationService,
     @Value("\${internal.api.secret:}") private val internalApiSecret: String,
 ) {
     @PostMapping("/welcome-star/claim")
@@ -141,7 +143,14 @@ class LoyaltyController(
         @RequestParam providerId: UUID,
         @RequestHeader("X-User-Id", required = false) xUserId: String?
     ): ResponseEntity<Any> =
-        ResponseEntity.ok(mapOf("starBalance" to loyaltyService.reconcileAccountFromLedger(requireUser(xUserId), providerId)))
+        ResponseEntity.ok(
+            mapOf(
+                "starBalance" to loyaltyReconciliationService.reconcile(
+                    requireUser(xUserId),
+                    providerId,
+                )
+            )
+        )
 
     @GetMapping("/programs")
     fun getProgram(@RequestParam(required = false) providerId: UUID?): ResponseEntity<LoyaltyProgram> =
