@@ -15,12 +15,20 @@ class SchedulerRuntimeTests {
     fun `catalog inventories every scheduler owner and lock identity`() {
         val catalog = MyPetSchedulerCatalog.create()
 
-        assertEquals(14, catalog.jobs.size)
+        assertEquals(15, catalog.jobs.size)
         assertEquals(8, catalog.ownerModules.size)
         assertEquals(13, catalog.jobs.count { it.cadenceKind == SchedulerCadenceKind.FIXED_DELAY })
-        assertEquals(1, catalog.jobs.count { it.cadenceKind == SchedulerCadenceKind.CRON })
+        assertEquals(2, catalog.jobs.count { it.cadenceKind == SchedulerCadenceKind.CRON })
         assertEquals(catalog.jobs.size, catalog.jobs.map { it.lockIdentity }.distinct().size)
-        assertEquals(3, catalog.jobsOwnedBy("order").size)
+        assertEquals(4, catalog.jobsOwnedBy("order").size)
+        assertTrue(
+            catalog.jobs.any {
+                it.id == "order.recurring-confirmation-reminders" &&
+                    it.component == "RecurringOrderScheduler" &&
+                    it.method == "requestDueConfirmations" &&
+                    it.lockIdentity == "orders.shedlock/recurringOrderConfirmationReminder"
+            }
+        )
     }
 
     @Test
