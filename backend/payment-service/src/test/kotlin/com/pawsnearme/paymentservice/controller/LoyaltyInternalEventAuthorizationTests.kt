@@ -61,8 +61,9 @@ class LoyaltyInternalEventAuthorizationTests {
         ).thenReturn(true)
 
         val response = controller.handleOrderDelivered(payload, secret)
+        val body = response.body as Map<*, *>
 
-        assertTrue(response.body?.get("processed") == true)
+        assertTrue(body["processed"] == true)
         verify(lifecycleService).recordDelivered(
             payload.orderId,
             payload.customerId,
