@@ -1,5 +1,7 @@
 name: Refresh Customer Lockfile
 
+# One-shot maintenance workflow used to make the committed npm lockfile match
+# the security override before normal npm ci validation runs.
 on:
   pull_request:
     paths:
