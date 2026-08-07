@@ -107,7 +107,7 @@ export default function AppointmentPaymentScreen() {
     <ScreenShell header={<AppBar title="Appointment payment" subtitle="Review before paying" />}>
       <View style={styles.container}>
         {demoPayment ? (
-          <View style={[styles.demoNotice, { backgroundColor: theme.warningSoft ?? theme.primarySoft }]}>
+          <View style={[styles.demoNotice, { backgroundColor: theme.primarySoft }]}>
             <StatusBadge label="DEMO PAYMENT" tone="warning" />
             <ThemedText type="small" themeColor="textSecondary">
               Development fixture only. No real money will be charged.
