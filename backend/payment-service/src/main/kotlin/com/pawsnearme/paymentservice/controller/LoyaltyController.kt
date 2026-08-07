@@ -7,6 +7,7 @@ import com.pawsnearme.paymentservice.model.LoyaltyRewardInstance
 import com.pawsnearme.paymentservice.service.LoyaltyProgressResponse
 import com.pawsnearme.paymentservice.service.LoyaltyService
 import com.pawsnearme.paymentservice.service.LoyaltyWalletRewardDto
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
@@ -18,6 +19,8 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.math.BigDecimal
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.UUID
 
 data class OrderDeliveredEventPayload(
@@ -43,7 +46,8 @@ data class ReserveRewardRequest(
 @RequestMapping("/api/v1/loyalty")
 class LoyaltyController(
     private val loyaltyService: LoyaltyService,
-    private val providerModule: ProviderModuleApi
+    private val providerModule: ProviderModuleApi,
+    @Value("\${internal.api.secret:}") private val internalApiSecret: String,
 ) {
     @PostMapping("/welcome-star/claim")
     fun claimWelcomeStar(
@@ -98,8 +102,12 @@ class LoyaltyController(
         ResponseEntity.ok(loyaltyService.redeemReward(code, requireUser(xUserId), orderId))
 
     @PostMapping("/events/order-delivered")
-    fun handleOrderDelivered(@RequestBody payload: OrderDeliveredEventPayload): ResponseEntity<Any> =
-        ResponseEntity.ok(
+    fun handleOrderDelivered(
+        @RequestBody payload: OrderDeliveredEventPayload,
+        @RequestHeader("X-Internal-Secret", required = false) internalSecret: String?,
+    ): ResponseEntity<Any> {
+        requireInternalCaller(internalSecret)
+        return ResponseEntity.ok(
             mapOf(
                 "processed" to loyaltyService.processOrderDeliveredEvent(
                     payload.orderId,
@@ -109,10 +117,15 @@ class LoyaltyController(
                 )
             )
         )
+    }
 
     @PostMapping("/events/order-refunded")
-    fun handleOrderRefunded(@RequestBody payload: OrderRefundedEventPayload): ResponseEntity<Any> =
-        ResponseEntity.ok(
+    fun handleOrderRefunded(
+        @RequestBody payload: OrderRefundedEventPayload,
+        @RequestHeader("X-Internal-Secret", required = false) internalSecret: String?,
+    ): ResponseEntity<Any> {
+        requireInternalCaller(internalSecret)
+        return ResponseEntity.ok(
             mapOf(
                 "processed" to loyaltyService.processOrderRefundEvent(
                     payload.orderId,
@@ -121,6 +134,7 @@ class LoyaltyController(
                 )
             )
         )
+    }
 
     @PostMapping("/reconcile")
     fun reconcileAccount(
@@ -176,6 +190,17 @@ class LoyaltyController(
         if (program.minOrderValue < BigDecimal.ZERO) throw IllegalArgumentException("Minimum order value cannot be negative")
         if (program.expiryDays !in 1..365) throw IllegalArgumentException("Reward expiry must be between 1 and 365 days")
         program.isStackable = true
+    }
+
+    private fun requireInternalCaller(providedSecret: String?) {
+        if (internalApiSecret.isBlank() || providedSecret.isNullOrBlank()) {
+            throw PaymentAccessDeniedException("Internal loyalty event authorization is required")
+        }
+        val expected = internalApiSecret.toByteArray(StandardCharsets.UTF_8)
+        val provided = providedSecret.toByteArray(StandardCharsets.UTF_8)
+        if (!MessageDigest.isEqual(expected, provided)) {
+            throw PaymentAccessDeniedException("Internal loyalty event authorization is invalid")
+        }
     }
 
     private fun requireUser(value: String?): UUID = try {
