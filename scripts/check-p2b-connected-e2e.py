@@ -37,6 +37,9 @@ recurring_scheduler = (
     ROOT
     / "backend/order-service/src/main/kotlin/com/pawsnearme/orderservice/service/RecurringOrderScheduler.kt"
 ).read_text(encoding="utf-8")
+scheduler_runtime = (
+    ROOT / "backend/common/src/main/kotlin/com/pawsnearme/common/scheduling/SchedulerRuntime.kt"
+).read_text(encoding="utf-8")
 monolith_compose = (ROOT / "infra/docker-compose.monolith.yml").read_text(encoding="utf-8")
 for token in (
     "verify_m8_report",
@@ -64,6 +67,11 @@ for token in (
     "payments.transactions",
     "silently created an order",
     "second scheduler cycle",
+    "MYPET_COMPOSE_FILES",
+    "MYPET_SCHEDULER_SERVICE",
+    "scheduler_lock_state",
+    "scheduler_logs",
+    "lock_until=now()-interval '1 second'",
 ):
     assert token in recurring, token
 
@@ -72,8 +80,13 @@ assert 'python3 "$ROOT/scripts/test-recurring-order-scheduler-e2e.py"' in monoli
 assert 'ORDER_RECURRING_REMINDER_CRON="*/5 * * * * *"' in monolith_certification
 assert "ORDER_RECURRING_REMINDER_LOCK_AT_MOST_FOR=PT30S" in monolith_certification
 assert "ORDER_RECURRING_REMINDER_LOCK_AT_LEAST_FOR=PT0S" in monolith_certification
+assert "MYPET_COMPOSE_FILES=" in monolith_certification
+assert 'MYPET_SCHEDULER_SERVICE="mypet-application"' in monolith_certification
+assert "@WorkerScheduler" in recurring_scheduler
 assert "order.recurring-reminder-lock-at-most-for:PT55M" in recurring_scheduler
 assert "order.recurring-reminder-lock-at-least-for:PT1M" in recurring_scheduler
+assert "order.recurring-confirmation-reminders" in scheduler_runtime
+assert "recurringOrderConfirmationReminder" in scheduler_runtime
 assert "ORDER_RECURRING_REMINDER_LOCK_AT_MOST_FOR" in monolith_compose
 assert "ORDER_RECURRING_REMINDER_LOCK_AT_LEAST_FOR" in monolith_compose
 
