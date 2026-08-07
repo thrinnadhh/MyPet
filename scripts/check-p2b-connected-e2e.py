@@ -33,6 +33,7 @@ entrypoint = (ROOT / "scripts/run-p2b-connected-e2e-entry.py").read_text(encodin
 recurring = (ROOT / "scripts/test-recurring-order-scheduler-e2e.py").read_text(encoding="utf-8")
 test_all = (ROOT / "scripts/test-all.sh").read_text(encoding="utf-8")
 monolith_certification = (ROOT / "scripts/test-monolith-release-certification.sh").read_text(encoding="utf-8")
+monolith_stack = (ROOT / "scripts/test-monolith-stack.sh").read_text(encoding="utf-8")
 recurring_scheduler = (
     ROOT
     / "backend/order-service/src/main/kotlin/com/pawsnearme/orderservice/service/RecurringOrderScheduler.kt"
@@ -82,6 +83,9 @@ assert "ORDER_RECURRING_REMINDER_LOCK_AT_MOST_FOR=PT30S" in monolith_certificati
 assert "ORDER_RECURRING_REMINDER_LOCK_AT_LEAST_FOR=PT0S" in monolith_certification
 assert "MYPET_COMPOSE_FILES=" in monolith_certification
 assert 'MYPET_SCHEDULER_SERVICE="mypet-application"' in monolith_certification
+assert 'ENV_FILE="${MYPET_ENV_FILE:-}"' in monolith_stack
+assert 'OWNS_ENV_FILE="false"' in monolith_stack
+assert 'if [[ "$OWNS_ENV_FILE" == "true" ]]' in monolith_stack
 assert "@WorkerScheduler" in recurring_scheduler
 assert "order.recurring-reminder-lock-at-most-for:PT55M" in recurring_scheduler
 assert "order.recurring-reminder-lock-at-least-for:PT1M" in recurring_scheduler
