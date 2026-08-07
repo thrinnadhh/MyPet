@@ -1,6 +1,7 @@
 package com.pawsnearme.paymentservice.controller
 
 import com.pawsnearme.common.module.ProviderModuleApi
+import com.pawsnearme.paymentservice.service.LoyaltyLifecycleService
 import com.pawsnearme.paymentservice.service.LoyaltyReconciliationService
 import com.pawsnearme.paymentservice.service.LoyaltyService
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -15,9 +16,16 @@ import java.util.UUID
 class LoyaltyInternalEventAuthorizationTests {
     private val loyaltyService: LoyaltyService = mock()
     private val providerModule: ProviderModuleApi = mock()
+    private val lifecycleService: LoyaltyLifecycleService = mock()
     private val reconciliationService: LoyaltyReconciliationService = mock()
     private val secret = "0123456789abcdef0123456789abcdef"
-    private val controller = LoyaltyController(loyaltyService, providerModule, reconciliationService, secret)
+    private val controller = LoyaltyController(
+        loyaltyService,
+        providerModule,
+        lifecycleService,
+        reconciliationService,
+        secret,
+    )
 
     @Test
     fun `delivered loyalty event rejects requests without internal authorization`() {
@@ -44,7 +52,7 @@ class LoyaltyInternalEventAuthorizationTests {
             netAmount = BigDecimal("500.00"),
         )
         whenever(
-            loyaltyService.processOrderDeliveredEvent(
+            lifecycleService.recordDelivered(
                 payload.orderId,
                 payload.customerId,
                 payload.providerId,
@@ -55,7 +63,7 @@ class LoyaltyInternalEventAuthorizationTests {
         val response = controller.handleOrderDelivered(payload, secret)
 
         assertTrue(response.body?.get("processed") == true)
-        verify(loyaltyService).processOrderDeliveredEvent(
+        verify(lifecycleService).recordDelivered(
             payload.orderId,
             payload.customerId,
             payload.providerId,
