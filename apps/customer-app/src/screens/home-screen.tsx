@@ -1,19 +1,13 @@
-import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { AppIcon, type AppIconName } from '@/components/app-icon';
 import { LocationModal, NotifyCityModal } from '@/components/location-modal';
 import { ThemedText } from '@/components/themed-text';
 import { BannerCarousel } from '@/components/ui/banner-carousel';
+import { ResilientRemoteImage } from '@/components/ui/resilient-remote-image';
 import { PROMO_BANNERS } from '@/constants/content';
 import { Radius, Shadows, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
@@ -21,6 +15,7 @@ import { useLocation } from '@/context/LocationContext';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
 import { fetchBanners, fetchGuides, type GuideArticle, type PromoBanner } from '@/services/content';
+import { DEMO_MEDIA } from '@/services/demo-customer-data';
 
 const CARD_WIDTH = 236;
 const CARD_GAP = 12;
@@ -44,6 +39,7 @@ interface DiscoveryCardItem {
   title: string;
   subtitle: string;
   image: string;
+  fallbackImage?: string;
   rating?: string;
   meta: string;
   metaIcon: AppIconName;
@@ -66,42 +62,12 @@ const HEALTH_ACTIONS: ShortcutItem[] = [
 ];
 
 const CATEGORIES: CategoryItem[] = [
-  {
-    id: 'food',
-    label: 'Food & Nutrition',
-    route: '/category/food',
-    image: 'https://lh3.googleusercontent.com/aida/AP1WRLtm0J5MuRuW4w4olkkflcjkSX-9bxCk23-GrLzJRiqZ3_Zhhy2q5eirMvjXv9zBuFs-CX_wO-6hy7L6dSiuCztDtcMr-ivqfjh1miBnYaJCBqeENN0uVuip23wlVEFdtlPGQnFLRX3DX5fIQbX-zxuI7suRgPsZfrgEES97W4eShI8nPsgFqE4D5gfrllobU8d8bK_gIhaDhfBFjG_xFI4evQH34o8Zj-nfArMBARfijbV2pPvCBxZhVNc',
-  },
-  {
-    id: 'grooming',
-    label: 'Grooming Services',
-    route: '/category/grooming',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCLDcsiQzTJ35jcCpCNHSC0CPGtsB--0Xdb-LVHpAoteDtktABgPSTQMMPGcfAgwvMEa22Twz_PWoxMANUVHDlfmcOgn53ytuQl7eHMq2kD2oBJX8mNowGEJjxAIHOdSyARgHYwDg6TFxoXYoYnVogC8c3QqEQxzKXQHBhPxhv1VK3mWc1o8kwr-eyteIwsACN_yi3C9LZwRdXcVVbk_7sQFr6t-JFQsx7yaIuZTVNVZeEEPbhBBDvdW00lu99huqxwo4ClJpdhVnY',
-  },
-  {
-    id: 'hospitals',
-    label: 'Hospitals & Care',
-    route: '/category/hospitals',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB5z2g3IHBH5gz3oR6QqQl6XDHPXhUN4b482F_jJ_bPPyD_OnMLA-gnGMdyNXz7v-jaFvfwW2nZgw5KX9NdTC9YFXzkoNU1GbbdvagvvRSdasnjCk7_elM2rSKuGbzmVkaxSgZdguhWDkjbumkNBU7ppWfcO0BHE2XmNjU2nF4ild_5dbokZ4jck5r_IU4B0KaW73XkasFSbOjZBQL9xAMihZ9AWDirYg99ysJl5RAKEqRVNyjhtIeMcQILmQFS97_A-HBozb9Kz-k',
-  },
-  {
-    id: 'treats',
-    label: 'Treats & Chews',
-    route: '/category/treats',
-    image: 'https://lh3.googleusercontent.com/aida/AP1WRLu2j9XUv_Re8vRJWJIq3otI7IoX2NgLk7u6dz-Q8YcKZM56ZhlEEG2hhVjR_8a8TLk1hk-4Tl9pMOlZyJGEzTBYJn_bkhNE9uLeijZ6EWFbm_jLi4gI6TBl8Gw26ZsyNvJfA59F0JWB29hKlzMIleF_-IFt7EarCxyfY7nXTlogfRnnfkUY63uBoXugR7m67gBg3tiS5d5irmOdJvPRSbNWfAdde8rkOop9HKp5a_RfrM4tCAPcR1ICVDY',
-  },
-  {
-    id: 'toys',
-    label: 'Toys & Enrichment',
-    route: '/category/toys',
-    image: 'https://lh3.googleusercontent.com/aida/AP1WRLtxvZTVCFJV_VWo3wS_Re5Qq0invY-1glo_OjI0J4hnMPR5MsjoVIKEEB49TttNQJp72uxI1VSi0wNPgKqXEtHAdcpBZuG27EMpH_1RfaFojtTrIRgPUv35DFFVg-9ecM4jajxDGRfXVSmtgvzxmHysSJYFIWRJ2SMSFm1lNrv4u-Ghvt7H5oCHglK5OaRJ6K3T0Op6_cCx801FfzvuWPMT2d8gdn5EVH4KwwsSeKMDpOeSeMGimOg2jHY',
-  },
-  {
-    id: 'travel',
-    label: 'Travel & Apparel',
-    route: '/category/travel',
-    image: 'https://lh3.googleusercontent.com/aida/AP1WRLtGMKTRDD97W5R-veADg2j3lfveNZ2oerY0hevdFnQgDaTJbt99ZIlpABlOxwf1kGlPaGHbVZr7PUJCnX_EqmzDgRXFImh97MiasRQu_kNuciIDGp_S8g_B8MuPXvZLKO5kwtSueMsWt0dFZ7G13zv6VLEpf_WPg54CPQsq_GGFnu6K70UjqfxgalRLTUqFmz49cSXfKPKZstWqH44WXlNCUPSDxaZcoGPJPblVe195H6OdCKuPMTGxRTo',
-  },
+  { id: 'food', label: 'Food & Nutrition', route: '/category/food', image: DEMO_MEDIA.food },
+  { id: 'grooming', label: 'Grooming Services', route: '/groom', image: DEMO_MEDIA.grooming },
+  { id: 'hospitals', label: 'Hospitals & Care', route: '/vet', image: DEMO_MEDIA.hospital },
+  { id: 'treats', label: 'Treats & Chews', route: '/category/treats', image: DEMO_MEDIA.treats },
+  { id: 'toys', label: 'Toys & Enrichment', route: '/category/toys', image: DEMO_MEDIA.toys },
+  { id: 'travel', label: 'Travel & Apparel', route: '/category/travel', image: DEMO_MEDIA.travel },
 ];
 
 const FILTERS = ['All', 'Dry Food', 'Wet Food', 'Puppy', 'Adult', 'Senior'];
@@ -109,33 +75,33 @@ const FILTERS = ['All', 'Dry Food', 'Wet Food', 'Puppy', 'Adult', 'Senior'];
 const FOOD_AND_NUTRITION: DiscoveryCardItem[] = [
   {
     id: 'shop-1',
-    title: 'The Posh Paws',
-    subtitle: 'Luxury Accessories & Food',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDP0Bso5NdUTuYfQmdxjGfrU18IgCERDgWEobR1RzRKk0phJmTjprXxrZ2e6MSiBzYHNllyH_O29w9XG-5RgKbo7sx9KygQhzOHoPj74CO-x1GqUujm5wEjiMN462Jd5zLvEnUDGElVK2fb7LGOI7ziuz25lE42roHK7gbnIVfpE7H3TXg8vXkDQ8iQBLfj3YiIarAthoLCqep7tQ7gY0S0wJwunX30RA3VqJ-IO10PEIcc7YJiBsxCcI9DaozwNmO6Uu30bknpLIc',
-    rating: '4.8',
+    title: 'The Healthy Hound Nutrition Hub',
+    subtitle: 'Premium Food, Supplements & Diet Care',
+    image: DEMO_MEDIA.food,
+    rating: '4.9',
     meta: '20 mins',
     metaIcon: 'clock',
-    route: '/category/food',
+    route: '/shop/the-healthy-hound',
   },
   {
     id: 'shop-2',
-    title: 'Healthy Hounds Pantry',
-    subtitle: 'Organic & Raw Diet Specialist',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuASfM4FE2gFaBN0OhgeTBOjES2tuJHOL72sgaRGgO-tENBpVYDnBud9une2vRaHplLerDL25aSx0vh9cJz69DTuFIW1egWGJvltzY6_RQn4GF_mmvas_iU801N87_y6-JFB3H3zQFxvQwyYXfEgQuV0F3BI5heqbe6Fn_zOitcCR1esBTCKNBI4NVMHkzRxgVe8mC0fGuNb2htuR3f91sz8odhN4x_vfPmxh9MBA5fDQuWEqnrBtDvcw7nJsN8Qi7g7AzJId8',
-    rating: '4.5',
+    title: 'The Posh Paws Superstore',
+    subtitle: 'Food, Treats, Toys & Travel Essentials',
+    image: DEMO_MEDIA.nutrition,
+    rating: '4.8',
     meta: '25 mins',
     metaIcon: 'clock',
-    route: '/category/food',
+    route: '/shop/the-posh-paws',
   },
   {
     id: 'shop-3',
-    title: 'PetCare Pharmacy',
-    subtitle: 'Nutrition, supplements & wellness',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuD6AeLhg79H-Qs95EgMOGxSG2HjJa3jlosvBXsvXE5r1rnCSeml3ETIaLhK2r2kkY8l014vbMq3CO9DvXCeF_udak6kApRBpmmenOLebPTGJDX0lNUEn2c_IpOj50T6QSmzoOy6xOPOOdMY2evfXi4nMgs9TZbCWytwpJvN8ZpQmxIi2hs9iM4G6ZZ-KAAlvmuhSUGUnp0BytQTvH3Yv5djAj6xrWVYt-TSyCg82T7EA5fDQuWEqnrBtDvcw7nJsN8Qi7g7AzJId8',
+    title: 'PetCare Pharmacy & Essentials',
+    subtitle: 'Nutrition, Hygiene & Wellness Supplies',
+    image: DEMO_MEDIA.store,
     rating: '4.7',
     meta: '30 mins',
     metaIcon: 'clock',
-    route: '/category/food',
+    route: '/shop/petcare-pharmacy',
   },
 ];
 
@@ -144,21 +110,22 @@ const GROOMING_NEARBY: DiscoveryCardItem[] = [
     id: 'groom-1',
     title: 'Paws & Bubbles Spa',
     subtitle: 'Luxury Grooming & Styling',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCLDcsiQzTJ35jcCpCNHSC0CPGtsB--0Xdb-LVHpAoteDtktABgPSTQMMPGcfAgwvMEa22Twz_PWoxMANUVHDlfmcOgn53ytuQl7eHMq2kD2oBJX8mNowGEJjxAIHOdSyARgHYwDg6TFxoXYoYnVogC8c3QqEQxzKXQHBhPxhv1VK3mWc1o8kwr-eyteIwsACN_yi3C9LZwRdXcVVbk_7sQFr6t-JFQsx7yaIuZTVNVZeEEPbhBBDvdW00lu99huqxwo4ClJpdhVnY',
+    image: DEMO_MEDIA.grooming,
     rating: '4.8',
     meta: '0.8 km away',
     metaIcon: 'location',
-    route: '/groomer/groom-1',
+    route: '/groom',
   },
   {
     id: 'groom-2',
     title: 'The Grooming Room',
     subtitle: 'Professional Pet Grooming',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuA8-OnbYbH6ervRc4iDKjRxKLt6mO6wKvK8uA3YF7QqP3s6MzG7DILE7cEzhjoG1QhhOujkvk6kROOkrlX_HL2AqoacPYkIXR9PWO8eOCuNrkd24m2rUzV3v_SsO_Tt-eng-sTQpDJE-rHj2Ksx8Qw8uGaUZB-6jpIsSfhmFTkAVrxBXvue6givMDI98jjybom420pH3sbIUeml2Io6RygcKD0Xk279U3oRRXPXcZSjpIgZMptmDBLqWFDLWZce7mlSIJJ-aZXYgOs',
+    image: DEMO_MEDIA.toys,
+    fallbackImage: DEMO_MEDIA.grooming,
     rating: '4.6',
     meta: '1.9 km away',
     metaIcon: 'location',
-    route: '/groomer/groom-2',
+    route: '/groom',
   },
 ];
 
@@ -167,21 +134,22 @@ const HOSPITALS_AND_CARE: DiscoveryCardItem[] = [
     id: 'hosp-1',
     title: 'City Pet Hospital',
     subtitle: 'Emergency & General Care',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB5z2g3IHBH5gz3oR6QqQl6XDHPXhUN4b482F_jJ_bPPyD_OnMLA-gnGMdyNXz7v-jaFvfwW2nZgw5KX9NdTC9YFXzkoNU1GbbdvagvvRSdasnjCk7_elM2rSKuGbzmVkaxSgZdguhWDkjbumkNBU7ppWfcO0BHE2XmNjU2nF4ild_5dbokZ4jck5r_IU4B0KaW73XkasFSbOjZBQL9xAMihZ9AWDirYg99ysJl5RAKEqRVNyjhtIeMcQILmQFS97_A-HBozb9Kz-k',
+    image: DEMO_MEDIA.hospital,
     rating: '4.9',
     meta: '1.2 km away',
     metaIcon: 'location',
-    route: '/hospital/hosp-1',
+    route: '/vet',
   },
   {
     id: 'hosp-2',
     title: 'PetCare Wellness Center',
-    subtitle: 'Specialized Veterinary Services',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDYKJG83KcL1yNh-w9EyZpJJHjgLNuCQIwoxOy4oxO9897FscAQj38VOtNLWetFhV0UcGvbpvYFMlMNisc1N7np5cd_0qaZcKNYGqSiaBeZDsParI4mxGmOxyw6mMU4RnJGckXQcWZv9-HU08XqZzmVBHFvSqAiJicfb1bes3T14Iv-yfAJJflwwAUl-CIk_HMUPFxRcCa1f_RtBSqklHewyESVhtAzbgZgixnF5Psbz6VhIkMXq-m2KovO2SB4RSYINa5KONreaS8',
+    subtitle: 'Preventive & Specialist Veterinary Care',
+    image: DEMO_MEDIA.store,
+    fallbackImage: DEMO_MEDIA.hospital,
     rating: '4.7',
     meta: '2.5 km away',
     metaIcon: 'location',
-    route: '/hospital/hosp-2',
+    route: '/vet',
   },
 ];
 
@@ -190,7 +158,7 @@ const GUIDES: DiscoveryCardItem[] = [
     id: 'guide-1',
     title: 'Puppy Nutrition (0–2 mo)',
     subtitle: 'Dietary guide',
-    image: HOSPITALS_AND_CARE[0].image,
+    image: DEMO_MEDIA.food,
     meta: '3 min read',
     metaIcon: 'document',
     route: '/guides',
@@ -202,7 +170,7 @@ const GUIDES: DiscoveryCardItem[] = [
     id: 'guide-2',
     title: 'Puppy Growth (2–12 mo)',
     subtitle: 'Milestone tracking',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCwFpaCtKFAmO7u4LFhgbudFkcsabYvyZjr-jxBxNF4vzO99nSWyB1ctF35zFChTfG2kDD7lTnLyX3yqYMgslq2MKyTOED_O2D5wQ2IngywdmQOVbanZTXPwBa9bpdjzT3ViUDhNrkfbU-HKFLtGNI_9NRmi_NOj_ELxWiZJ-ZMpz9hOQhsTHA133HKuZbZbwUsiQeLUzzEbOmVrpylOe0dkYv5ib-0mHIRkyZllWTFC9L8NfD9mD0yqX9w1ck6HEsH3Z0tUxdpdpQ',
+    image: DEMO_MEDIA.guide,
     meta: '4 min read',
     metaIcon: 'document',
     route: '/guides',
@@ -214,7 +182,7 @@ const GUIDES: DiscoveryCardItem[] = [
     id: 'guide-3',
     title: 'Coat & Skin Health',
     subtitle: 'Seasonal care essentials',
-    image: GROOMING_NEARBY[0].image,
+    image: DEMO_MEDIA.grooming,
     meta: '5 min read',
     metaIcon: 'document',
     route: '/guides',
@@ -252,7 +220,11 @@ function DiscoveryCard({ item }: { item: DiscoveryCardItem }) {
       ]}
     >
       <View style={styles.cardImageWrap}>
-        <Image source={{ uri: item.image }} style={styles.cardImage} contentFit="cover" transition={180} />
+        <ResilientRemoteImage
+          uri={item.image}
+          fallbackUri={item.fallbackImage ?? DEMO_MEDIA.store}
+          style={styles.cardImage}
+        />
         {item.rating ? (
           <View style={styles.ratingBadge}>
             <ThemedText style={styles.ratingText}>{item.rating}</ThemedText>
@@ -335,12 +307,13 @@ export default function HomeScreen() {
     void fetchGuides(null)
       .then((articles) => {
         if (articles.length === 0) return;
-        const images = GUIDES.map((guide) => guide.image);
+        const images = [DEMO_MEDIA.food, DEMO_MEDIA.guide, DEMO_MEDIA.grooming, DEMO_MEDIA.hospital];
         setGuideItems(articles.slice(0, 6).map((article: GuideArticle, index) => ({
           id: article.id,
           title: article.title,
           subtitle: article.summary,
           image: images[index % images.length],
+          fallbackImage: DEMO_MEDIA.guide,
           meta: `${article.readMinutes} min read`,
           metaIcon: 'document',
           route: '/guides',
@@ -383,9 +356,7 @@ export default function HomeScreen() {
 
           <View style={styles.profileSummary}>
             <View style={styles.profileCopy}>
-              <View style={styles.premiumPill}>
-                <ThemedText style={styles.premiumText}>Premium</ThemedText>
-              </View>
+              <View style={styles.premiumPill}><ThemedText style={styles.premiumText}>Premium</ThemedText></View>
               <ThemedText style={[styles.profileName, { color: theme.textSecondary }]} numberOfLines={1}>{firstName}</ThemedText>
             </View>
             <View style={[styles.avatar, { borderColor: theme.warning, backgroundColor: theme.primarySoft }]}>
@@ -438,11 +409,7 @@ export default function HomeScreen() {
               <Pressable
                 key={action.id}
                 onPress={() => router.push(action.route as never)}
-                style={({ pressed }) => [
-                  styles.healthCard,
-                  { backgroundColor: theme.backgroundElement },
-                  pressed && styles.pressed,
-                ]}
+                style={({ pressed }) => [styles.healthCard, { backgroundColor: theme.backgroundElement }, pressed && styles.pressed]}
               >
                 <AppIcon name={action.icon} color={theme.primary} size={22} />
                 <ThemedText style={[styles.healthLabel, { color: theme.text }]} numberOfLines={2}>{action.label}</ThemedText>
@@ -463,7 +430,7 @@ export default function HomeScreen() {
                 style={({ pressed }) => [styles.categoryItem, pressed && styles.pressed]}
               >
                 <View style={[styles.categoryImageWrap, { backgroundColor: theme.muted }]}>
-                  <Image source={{ uri: category.image }} style={styles.categoryImage} contentFit="cover" transition={180} />
+                  <ResilientRemoteImage uri={category.image} fallbackUri={DEMO_MEDIA.store} style={styles.categoryImage} />
                 </View>
                 <ThemedText style={[styles.categoryLabel, { color: theme.textSecondary }]} numberOfLines={2}>{category.label}</ThemedText>
               </Pressable>
@@ -477,10 +444,7 @@ export default function HomeScreen() {
                 <Pressable
                   key={filter}
                   onPress={() => setActiveFilter(filter)}
-                  style={[
-                    styles.filterChip,
-                    { backgroundColor: active ? theme.primary : theme.muted },
-                  ]}
+                  style={[styles.filterChip, { backgroundColor: active ? theme.primary : theme.muted }]}
                 >
                   <ThemedText style={[styles.filterText, { color: active ? '#FFFFFF' : theme.textSecondary }]}>{filter}</ThemedText>
                 </Pressable>
@@ -489,33 +453,10 @@ export default function HomeScreen() {
           </ScrollView>
         </View>
 
-        <HorizontalCardSection
-          title="Food & Nutrition Nearby 🏆"
-          items={FOOD_AND_NUTRITION}
-          actionLabel="View all"
-          onAction={() => router.push('/category/food' as never)}
-        />
-
-        <HorizontalCardSection
-          title="Grooming Nearby ✂️"
-          items={GROOMING_NEARBY}
-          actionLabel="View spas"
-          onAction={() => router.push('/groom' as never)}
-        />
-
-        <HorizontalCardSection
-          title="Hospitals & Care Nearby 🏥"
-          items={HOSPITALS_AND_CARE}
-          actionLabel="View hospitals"
-          onAction={() => router.push('/vet' as never)}
-        />
-
-        <HorizontalCardSection
-          title="Guides 🩺"
-          items={guideItems}
-          actionLabel="All guides"
-          onAction={() => router.push('/guides' as never)}
-        />
+        <HorizontalCardSection title="Food & Nutrition Nearby 🏆" items={FOOD_AND_NUTRITION} actionLabel="View all" onAction={() => router.push('/category/food' as never)} />
+        <HorizontalCardSection title="Grooming Nearby ✂️" items={GROOMING_NEARBY} actionLabel="View spas" onAction={() => router.push('/groom' as never)} />
+        <HorizontalCardSection title="Hospitals & Care Nearby 🏥" items={HOSPITALS_AND_CARE} actionLabel="View hospitals" onAction={() => router.push('/vet' as never)} />
+        <HorizontalCardSection title="Guides 🩺" items={guideItems} actionLabel="All guides" onAction={() => router.push('/guides' as never)} />
       </ScrollView>
       <LocationModal />
       <NotifyCityModal />
@@ -525,20 +466,10 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  contentContainer: {
-    paddingHorizontal: Spacing.three,
-    paddingBottom: 112,
-    gap: 14,
-  },
+  contentContainer: { paddingHorizontal: Spacing.three, paddingBottom: 112, gap: 14 },
   flexOne: { flex: 1 },
   pressed: { opacity: 0.86 },
-  topRow: {
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-  },
+  topRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two },
   locationSummary: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   locationTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   locationTitle: { fontSize: 14, lineHeight: 18, fontWeight: '800' },
@@ -549,27 +480,10 @@ const styles = StyleSheet.create({
   premiumText: { color: '#4A2C00', fontSize: 9, lineHeight: 11, fontWeight: '900' },
   profileName: { marginTop: 2, fontSize: 10, lineHeight: 13 },
   avatar: { width: 39, height: 39, borderRadius: 20, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  searchField: {
-    height: 48,
-    borderWidth: 1,
-    borderRadius: 13,
-    paddingHorizontal: 13,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    ...Shadows.card,
-  },
+  searchField: { height: 48, borderWidth: 1, borderRadius: 13, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', gap: 10, ...Shadows.card },
   searchInput: { flex: 1, height: 46, fontSize: 14, paddingVertical: 0 },
   searchDivider: { width: 1, height: 20 },
-  quickActions: {
-    minHeight: 68,
-    borderWidth: 1,
-    borderRadius: Radius.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-    ...Shadows.card,
-  },
+  quickActions: { minHeight: 68, borderWidth: 1, borderRadius: Radius.xl, flexDirection: 'row', alignItems: 'center', paddingVertical: 6, ...Shadows.card },
   quickAction: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 7 },
   quickDivider: { width: 1, height: 32 },
   quickLabel: { fontSize: 10, lineHeight: 13, fontWeight: '700' },
@@ -577,16 +491,7 @@ const styles = StyleSheet.create({
   healthTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   healthTitle: { fontSize: 13, lineHeight: 17, fontWeight: '800' },
   healthGrid: { flexDirection: 'row', gap: 7 },
-  healthCard: {
-    flex: 1,
-    minHeight: 74,
-    borderRadius: 9,
-    paddingHorizontal: 6,
-    paddingVertical: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
+  healthCard: { flex: 1, minHeight: 74, borderRadius: 9, paddingHorizontal: 6, paddingVertical: 9, alignItems: 'center', justifyContent: 'center', gap: 6 },
   healthLabel: { textAlign: 'center', fontSize: 10, lineHeight: 13, fontWeight: '600' },
   section: { gap: 10, marginTop: 3 },
   sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
@@ -603,43 +508,16 @@ const styles = StyleSheet.create({
   filterChip: { minHeight: 30, borderRadius: 999, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
   filterText: { fontSize: 11, lineHeight: 15, fontWeight: '700' },
   horizontalCards: { gap: CARD_GAP, paddingRight: Spacing.three, paddingBottom: 2 },
-  discoveryCard: {
-    width: CARD_WIDTH,
-    borderWidth: 1,
-    borderRadius: 12,
-    overflow: 'hidden',
-    ...Shadows.card,
-  },
+  discoveryCard: { width: CARD_WIDTH, borderWidth: 1, borderRadius: 12, overflow: 'hidden', ...Shadows.card },
   cardImageWrap: { height: 130, position: 'relative', overflow: 'hidden' },
   cardImage: { width: '100%', height: '100%' },
-  ratingBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    minHeight: 27,
-    borderRadius: 7,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
+  ratingBadge: { position: 'absolute', top: 8, right: 8, minHeight: 27, borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.94)', flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 4 },
   ratingText: { color: '#152338', fontSize: 11, lineHeight: 14, fontWeight: '900' },
   cardBody: { padding: 10, gap: 3 },
   cardTitle: { fontSize: 14, lineHeight: 18, fontWeight: '800' },
   cardSubtitle: { fontSize: 11, lineHeight: 15 },
   metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  metaPill: {
-    alignSelf: 'flex-start',
-    minHeight: 25,
-    marginTop: 4,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
+  metaPill: { alignSelf: 'flex-start', minHeight: 25, marginTop: 4, borderRadius: 6, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 5 },
   metaText: { fontSize: 10, lineHeight: 13, fontWeight: '700' },
   likePill: { minHeight: 25, borderRadius: 999, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 4 },
   likeText: { fontSize: 10, lineHeight: 13, fontWeight: '800' },
