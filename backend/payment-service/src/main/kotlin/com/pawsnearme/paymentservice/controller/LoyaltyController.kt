@@ -4,6 +4,7 @@ import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.paymentservice.model.LoyaltyLedgerEntry
 import com.pawsnearme.paymentservice.model.LoyaltyProgram
 import com.pawsnearme.paymentservice.model.LoyaltyRewardInstance
+import com.pawsnearme.paymentservice.service.LoyaltyLifecycleService
 import com.pawsnearme.paymentservice.service.LoyaltyProgressResponse
 import com.pawsnearme.paymentservice.service.LoyaltyReconciliationService
 import com.pawsnearme.paymentservice.service.LoyaltyService
@@ -48,6 +49,7 @@ data class ReserveRewardRequest(
 class LoyaltyController(
     private val loyaltyService: LoyaltyService,
     private val providerModule: ProviderModuleApi,
+    private val loyaltyLifecycleService: LoyaltyLifecycleService,
     private val loyaltyReconciliationService: LoyaltyReconciliationService,
     @Value("\${internal.api.secret:}") private val internalApiSecret: String,
 ) {
@@ -111,7 +113,7 @@ class LoyaltyController(
         requireInternalCaller(internalSecret)
         return ResponseEntity.ok(
             mapOf(
-                "processed" to loyaltyService.processOrderDeliveredEvent(
+                "processed" to loyaltyLifecycleService.recordDelivered(
                     payload.orderId,
                     payload.customerId,
                     payload.providerId,
@@ -129,7 +131,7 @@ class LoyaltyController(
         requireInternalCaller(internalSecret)
         return ResponseEntity.ok(
             mapOf(
-                "processed" to loyaltyService.processOrderRefundEvent(
+                "processed" to loyaltyLifecycleService.recordRefunded(
                     payload.orderId,
                     payload.customerId,
                     payload.providerId
