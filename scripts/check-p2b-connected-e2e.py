@@ -41,6 +41,13 @@ recurring_scheduler = (
 scheduler_runtime = (
     ROOT / "backend/common/src/main/kotlin/com/pawsnearme/common/scheduling/SchedulerRuntime.kt"
 ).read_text(encoding="utf-8")
+scheduler_executors = (
+    ROOT
+    / "backend/common/src/main/kotlin/com/pawsnearme/common/scheduling/SchedulerExecutorsConfiguration.kt"
+).read_text(encoding="utf-8")
+outbox_poller = (
+    ROOT / "backend/common/src/main/kotlin/com/pawsnearme/common/outbox/OutboxPoller.kt"
+).read_text(encoding="utf-8")
 monolith_compose = (ROOT / "infra/docker-compose.monolith.yml").read_text(encoding="utf-8")
 for token in (
     "verify_m8_report",
@@ -91,7 +98,12 @@ assert "order.recurring-reminder-lock-at-most-for:PT55M" in recurring_scheduler
 assert "order.recurring-reminder-lock-at-least-for:PT1M" in recurring_scheduler
 assert "order.recurring-confirmation-reminders" in scheduler_runtime
 assert "recurringOrderConfirmationReminder" in scheduler_runtime
+assert 'Bean(name = ["taskScheduler"])' in scheduler_executors
+assert 'Bean(name = ["outboxTaskScheduler"])' in scheduler_executors
+assert "mypet.scheduling.pool-size:8" in scheduler_executors
+assert "mypet.scheduling.outbox-pool-size:2" in scheduler_executors
+assert 'scheduler = "outboxTaskScheduler"' in outbox_poller
 assert "ORDER_RECURRING_REMINDER_LOCK_AT_MOST_FOR" in monolith_compose
 assert "ORDER_RECURRING_REMINDER_LOCK_AT_LEAST_FOR" in monolith_compose
 
-print("P2B_CONNECTED_E2E_CONTRACT_OK journeys=10 dimensions=6 recurring_scheduler=1")
+print("P2B_CONNECTED_E2E_CONTRACT_OK journeys=10 dimensions=6 recurring_scheduler=1 outbox_scheduler=isolated")
