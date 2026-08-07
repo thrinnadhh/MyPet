@@ -6,6 +6,7 @@ import { AppIcon } from '@/components/app-icon';
 import { AppBar, PrimaryAction, StateView, StatusBadge } from '@/components/foundation/primitives';
 import { ScreenShell } from '@/components/foundation/screen-shell';
 import { ThemedText } from '@/components/themed-text';
+import { ResilientRemoteImage } from '@/components/ui/resilient-remote-image';
 import type { CustomerPaymentMethod } from '@/contracts/customer-payment';
 import { useAuth } from '@/context/AuthContext';
 import { useAuthIntent } from '@/context/AuthIntentContext';
@@ -24,6 +25,7 @@ import {
   openCashfreeOrder,
   waitForPaymentOutcome,
 } from '@/services/customer-payments';
+import { DEMO_MEDIA } from '@/services/demo-customer-data';
 import { fetchDefaultAddress, isOfflineError, type CustomerAddress } from '@/services/customer-profile';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -32,6 +34,17 @@ const PAYMENT_METHODS: Array<{ id: CustomerPaymentMethod; label: string }> = [
   { id: 'UPI', label: 'UPI' },
   { id: 'CARD', label: 'Card' },
 ];
+
+function categoryImage(category: string): string {
+  switch (category) {
+    case 'food': return DEMO_MEDIA.food;
+    case 'treats': return DEMO_MEDIA.treats;
+    case 'toys': return DEMO_MEDIA.toys;
+    case 'travel': return DEMO_MEDIA.travel;
+    case 'furniture': return DEMO_MEDIA.furniture;
+    default: return DEMO_MEDIA.store;
+  }
+}
 
 export default function CheckoutScreen() {
   const router = useRouter();
@@ -48,6 +61,18 @@ export default function CheckoutScreen() {
     });
     return Array.from(quantities, ([offeringId, quantity]) => ({ offeringId, quantity }));
   }, [items]);
+
+  const itemSubtotal = useMemo(
+    () => items.reduce((total, item) => total + item.unitPrice * item.quantity, 0),
+    [items],
+  );
+  const itemSavings = useMemo(
+    () => items.reduce((total, item) => {
+      const original = item.product.originalPrice ?? item.unitPrice;
+      return total + Math.max(0, original - item.unitPrice) * item.quantity;
+    }, 0),
+    [items],
+  );
 
   const hasPreviewItems = !providerId
     || !UUID_PATTERN.test(providerId)
@@ -260,6 +285,37 @@ export default function CheckoutScreen() {
         </View>
 
         <View style={[styles.card, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+          <View style={styles.headerRow}>
+            <ThemedText style={styles.cardTitle}>Order items</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">{items.reduce((sum, item) => sum + item.quantity, 0)} items</ThemedText>
+          </View>
+          {items.map((item) => (
+            <View key={`${item.product.id}-${item.selectedVariant?.id ?? 'default'}`} style={styles.itemRow}>
+              <View style={[styles.itemImageWrap, { backgroundColor: theme.muted }]}>
+                <ResilientRemoteImage
+                  uri={item.product.imageUrl}
+                  fallbackUri={categoryImage(item.product.category)}
+                  style={styles.itemImage}
+                />
+              </View>
+              <View style={styles.itemCopy}>
+                <ThemedText style={styles.itemName} numberOfLines={2}>{item.product.name}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                  {item.selectedVariant?.name ?? 'Standard'} · Qty {item.quantity}
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  ₹{item.unitPrice.toFixed(2)} × {item.quantity}
+                </ThemedText>
+              </View>
+              <ThemedText style={styles.lineTotal}>₹{(item.unitPrice * item.quantity).toFixed(2)}</ThemedText>
+            </View>
+          ))}
+          <View style={[styles.divider, { backgroundColor: theme.border }]} />
+          <PriceRow label="Item subtotal" value={itemSubtotal} />
+          {itemSavings > 0 ? <PriceRow label="Product savings" value={-itemSavings} /> : null}
+        </View>
+
+        <View style={[styles.card, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
           <ThemedText style={styles.cardTitle}>Payment method</ThemedText>
           <View style={styles.methodRow}>
             {PAYMENT_METHODS.map((method) => {
@@ -326,11 +382,11 @@ export default function CheckoutScreen() {
 
         {quote ? (
           <View style={[styles.card, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-            <ThemedText style={styles.cardTitle}>Price breakdown</ThemedText>
-            <PriceRow label="Items" value={quote.subtotal} />
-            {quote.couponDiscount > 0 ? <PriceRow label="Coupon" value={-quote.couponDiscount} /> : null}
-            {quote.loyaltyDiscount > 0 ? <PriceRow label="Loyalty" value={-quote.loyaltyDiscount} /> : null}
-            <PriceRow label="Delivery" value={quote.deliveryFee} />
+            <ThemedText style={styles.cardTitle}>Final payment breakdown</ThemedText>
+            <PriceRow label="Products" value={quote.subtotal} />
+            {quote.couponDiscount > 0 ? <PriceRow label="Coupon discount" value={-quote.couponDiscount} /> : null}
+            {quote.loyaltyDiscount > 0 ? <PriceRow label="Loyalty discount" value={-quote.loyaltyDiscount} /> : null}
+            <PriceRow label="Delivery fee" value={quote.deliveryFee} />
             <PriceRow label="Tax" value={quote.tax} />
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <View style={styles.headerRow}>
@@ -350,7 +406,7 @@ export default function CheckoutScreen() {
         ) : null}
 
         <PrimaryAction
-          label={paymentMethod === 'COD' ? 'Place COD order' : 'Pay securely with Cashfree'}
+          label={paymentMethod === 'COD' ? 'Place COD order' : `Pay ₹${quote?.payableTotal.toFixed(2) ?? '0.00'} securely`}
           onPress={() => void handlePlaceOrder()}
           loading={placing}
         />
@@ -373,6 +429,12 @@ const styles = StyleSheet.create({
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.card, padding: spacing.x4, gap: spacing.x3 },
   cardTitle: { ...typography.label, fontWeight: '700' },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.x2 },
+  itemRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.x3 },
+  itemImageWrap: { width: 58, height: 58, borderRadius: radii.compact, overflow: 'hidden' },
+  itemImage: { width: '100%', height: '100%' },
+  itemCopy: { flex: 1, minWidth: 0, gap: 2 },
+  itemName: { fontWeight: '700', fontSize: 13, lineHeight: 18 },
+  lineTotal: { fontWeight: '800' },
   methodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
   method: { borderWidth: 1, borderRadius: radii.compact, paddingHorizontal: spacing.x3, paddingVertical: spacing.x2 },
   warningRow: { flexDirection: 'row', gap: spacing.x2, alignItems: 'flex-start' },
