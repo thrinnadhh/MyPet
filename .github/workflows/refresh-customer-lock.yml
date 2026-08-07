@@ -28,11 +28,32 @@ jobs:
           cache: npm
           cache-dependency-path: apps/customer-app/package-lock.json
 
-      - name: Regenerate customer lockfile
+      - name: Patch vulnerable nested lock entry
         working-directory: apps/customer-app
-        run: npm install --package-lock-only --ignore-scripts
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'package-lock.json';
+          const lock = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const key = 'node_modules/@istanbuljs/load-nyc-config/node_modules/js-yaml';
+          const entry = lock.packages?.[key];
+          if (!entry) throw new Error(`Missing lock entry: ${key}`);
+          if (entry.version !== '3.15.0' && entry.version !== '3.15.1') {
+            throw new Error(`Unexpected js-yaml version: ${entry.version}`);
+          }
+          entry.version = '3.15.1';
+          entry.resolved = 'https://registry.npmjs.org/js-yaml/-/js-yaml-3.15.1.tgz';
+          entry.integrity = 'sha512-IJsItZwjK5aPlt0y8qW/DSLwQ7rHmbUSIqVIktFKGMnSkKT9QrOFcqT5SoQrjcQ4DoTxc3c9+7Yxe7wvsLIjWg==';
+          fs.writeFileSync(path, JSON.stringify(lock, null, 2) + '\n');
+          NODE
 
-      - name: Commit lockfile if changed
+      - name: Verify clean install and security audit
+        working-directory: apps/customer-app
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=high
+
+      - name: Commit lockfile
         run: |
           if git diff --quiet -- apps/customer-app/package-lock.json; then
             echo "Customer lockfile is already current."
