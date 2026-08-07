@@ -6,16 +6,22 @@ on:
       - agent/production-readiness-integration
     paths:
       - .github/workflows/refresh-pr82-mobile-lockfiles.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/refresh-pr82-mobile-lockfiles.yml
 
 permissions:
   contents: write
 
 concurrency:
   group: refresh-pr82-mobile-lockfiles
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   refresh-lockfiles:
+    if: ${{ github.event_name == 'push' || github.head_ref == 'agent/production-readiness-integration' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out the PR branch
