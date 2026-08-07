@@ -62,14 +62,14 @@ class MyPetApplicationTest {
         assertEquals("M7", schedulerInfo?.get("milestone"))
         assertEquals("API", schedulerInfo?.get("role"))
         assertEquals(false, schedulerInfo?.get("workersEnabled"))
-        assertEquals(14, schedulerInfo?.get("jobCount"))
+        assertEquals(15, schedulerInfo?.get("jobCount"))
         assertEquals(8, schedulerInfo?.get("ownerCount"))
         assertEquals(13, schedulerInfo?.get("fixedDelayJobCount"))
-        assertEquals(1, schedulerInfo?.get("cronJobCount"))
+        assertEquals(2, schedulerInfo?.get("cronJobCount"))
         assertEquals("shared-jdbc-db-time", schedulerInfo?.get("lockProvider"))
         assertEquals(true, schedulerInfo?.get("apiWorkerSplitSupported"))
         assertEquals(8, (schedulerInfo?.get("lockTables") as? List<*>)?.size)
-        assertEquals(14, (schedulerInfo?.get("jobs") as? List<*>)?.size)
+        assertEquals(15, (schedulerInfo?.get("jobs") as? List<*>)?.size)
 
         val verificationInfo = response.body?.get("featureVerification") as? Map<*, *>
         assertNotNull(verificationInfo)
