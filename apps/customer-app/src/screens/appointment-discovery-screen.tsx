@@ -12,7 +12,6 @@ import { radii, spacing, touchTarget } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
 import {
-  confirmAppointmentHold,
   fetchAvailableAppointmentSlots,
   holdAppointmentSlot,
   type AppointmentSlotOption,
@@ -142,19 +141,23 @@ export default function AppointmentDiscoveryScreen({ providerType, route, titleK
         petId: selectedPetId,
         accessToken: session.access_token,
       });
-      await confirmAppointmentHold(appointmentId, session.access_token);
-      Alert.alert(
-        'Appointment confirmed',
-        `${slot.serviceName} is booked for ${pets.find((pet) => pet.petId === selectedPetId)?.name ?? 'your pet'}.`,
-        [
-          { text: 'Done', style: 'cancel' },
-          { text: 'View appointment', onPress: () => router.push(`/appointments?appointmentId=${appointmentId}` as never) },
-        ],
-      );
+      const selectedPet = pets.find((pet) => pet.petId === selectedPetId);
+      router.push({
+        pathname: '/appointments/payment',
+        params: {
+          appointmentId,
+          serviceName: slot.serviceName,
+          providerName: provider?.name ?? 'MyPet provider',
+          petName: selectedPet?.name ?? 'Your pet',
+          slotStart: slot.startTime,
+          slotEnd: slot.endTime,
+          amount: String(slot.price),
+        },
+      } as never);
       setProvider(null);
       setSlots([]);
     } catch (error) {
-      Alert.alert('Booking failed', error instanceof Error ? error.message : 'Could not confirm this appointment.');
+      Alert.alert('Booking failed', error instanceof Error ? error.message : 'Could not reserve this appointment.');
       if (provider) await chooseProvider(provider);
     } finally {
       setBookingSlotId(null);
@@ -264,7 +267,7 @@ export default function AppointmentDiscoveryScreen({ providerType, route, titleK
                 key={slot.id}
                 title={slot.serviceName}
                 subtitle={`${slot.startTime} – ${slot.endTime}`}
-                meta={bookingSlotId === slot.id ? 'Confirming appointment…' : t('appointmentFoundation.price', { price: slot.price })}
+                meta={bookingSlotId === slot.id ? 'Reserving slot…' : `₹${slot.price} · Tap to review & pay`}
                 icon="calendar"
                 onPress={() => {
                   if (!bookingSlotId) void requestBooking(slot);
