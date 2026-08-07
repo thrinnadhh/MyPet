@@ -69,7 +69,12 @@ class CustomerCaseServiceTests {
         whenever(caseRepository.findById(customerCase.caseId)).thenReturn(Optional.of(customerCase))
         whenever(evidenceRepository.save(any<CustomerCaseEvidence>())).thenAnswer { it.getArgument(0) }
         val reservation = service.reserveEvidence(customerCase.caseId, customerId)
-        val file = MockMultipartFile("file", "damage.jpg", "image/jpeg", byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0x01))
+        val file = MockMultipartFile(
+            "file",
+            "damage.jpg",
+            "image/jpeg",
+            byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 0x00),
+        )
 
         val evidence = service.storeEvidence(reservation.uploadToken, customerId, file)
 
@@ -77,6 +82,18 @@ class CustomerCaseServiceTests {
         assertTrue(Files.list(root).use { it.findAny().isPresent })
         assertThrows<IllegalArgumentException> {
             service.storeEvidence(reservation.uploadToken, customerId, file)
+        }
+    }
+
+    @Test
+    fun `evidence upload rejects spoofed declared content type`() {
+        val customerCase = customerCase()
+        whenever(caseRepository.findById(customerCase.caseId)).thenReturn(Optional.of(customerCase))
+        val reservation = service.reserveEvidence(customerCase.caseId, customerId)
+        val fakePdf = MockMultipartFile("file", "fake.pdf", "application/pdf", "this is not a pdf".toByteArray())
+
+        assertThrows<IllegalArgumentException> {
+            service.storeEvidence(reservation.uploadToken, customerId, fakePdf)
         }
     }
 
