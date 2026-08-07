@@ -1,0 +1,43 @@
+name: Refresh Customer Lockfile
+
+on:
+  pull_request:
+    paths:
+      - "apps/customer-app/package.json"
+      - ".github/workflows/refresh-customer-lock.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-lockfile:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19"
+          cache: npm
+          cache-dependency-path: apps/customer-app/package-lock.json
+
+      - name: Regenerate customer lockfile
+        working-directory: apps/customer-app
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Commit lockfile if changed
+        run: |
+          if git diff --quiet -- apps/customer-app/package-lock.json; then
+            echo "Customer lockfile is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/customer-app/package-lock.json
+          git commit -m "fix: refresh customer dependency lock"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
