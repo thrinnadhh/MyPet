@@ -94,7 +94,7 @@ export function BannerCarousel({
               accessibilityLabel={`${item.title}. ${item.subtitle}`}
             >
               <ResilientRemoteImage
-                uri={DEMO_BANNER_IMAGES[itemIndex % DEMO_BANNER_IMAGES.length]}
+                uri={item.imageUrl || DEMO_BANNER_IMAGES[itemIndex % DEMO_BANNER_IMAGES.length]}
                 fallbackUri={DEMO_MEDIA.store}
                 style={StyleSheet.absoluteFill}
                 contentFit="cover"
