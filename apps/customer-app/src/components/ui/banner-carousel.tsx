@@ -8,13 +8,13 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { Image } from 'expo-image';
 
 import { ThemedText } from '@/components/themed-text';
+import { ResilientRemoteImage } from '@/components/ui/resilient-remote-image';
 import { PROMO_BANNERS, type PromoBanner } from '@/constants/content';
 import { Radius, Shadows, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { DEMO_BANNER_IMAGES } from '@/services/demo-customer-data';
+import { DEMO_BANNER_IMAGES, DEMO_MEDIA } from '@/services/demo-customer-data';
 
 export function BannerCarousel({
   banners = PROMO_BANNERS,
@@ -93,11 +93,11 @@ export function BannerCarousel({
               accessibilityRole="button"
               accessibilityLabel={`${item.title}. ${item.subtitle}`}
             >
-              <Image
-                source={{ uri: DEMO_BANNER_IMAGES[itemIndex % DEMO_BANNER_IMAGES.length] }}
+              <ResilientRemoteImage
+                uri={DEMO_BANNER_IMAGES[itemIndex % DEMO_BANNER_IMAGES.length]}
+                fallbackUri={DEMO_MEDIA.store}
                 style={StyleSheet.absoluteFill}
                 contentFit="cover"
-                transition={180}
               />
               <View style={styles.overlay} />
               <View style={styles.copy}>
