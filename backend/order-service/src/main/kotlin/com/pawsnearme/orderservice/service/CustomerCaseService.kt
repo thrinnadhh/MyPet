@@ -246,6 +246,20 @@ class CustomerCaseService(
         if (file.size > MAX_BYTES) throw IllegalArgumentException("Evidence exceeds the 10 MB limit.")
         val mime = file.contentType?.lowercase() ?: throw IllegalArgumentException("Evidence type is required.")
         if (mime !in allowedTypes) throw IllegalArgumentException("Only PDF, JPEG, PNG and WebP evidence is supported.")
+
+        val bytes = file.bytes
+        val validSignature = when (mime) {
+            "application/pdf" -> bytes.size >= 4 && bytes.copyOfRange(0, 4).contentEquals("%PDF".toByteArray())
+            "image/jpeg" -> bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()
+            "image/png" -> bytes.size >= 8 && bytes.copyOfRange(0, 8).contentEquals(
+                byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+            )
+            "image/webp" -> bytes.size >= 12 &&
+                String(bytes, 0, 4, StandardCharsets.US_ASCII) == "RIFF" &&
+                String(bytes, 8, 4, StandardCharsets.US_ASCII) == "WEBP"
+            else -> false
+        }
+        if (!validSignature) throw IllegalArgumentException("Evidence content does not match its declared type.")
     }
 
     private fun sanitize(value: String?): String = value?.substringAfterLast('/')?.substringAfterLast('\\')?.trim()?.take(255).orEmpty().ifBlank { "evidence" }
