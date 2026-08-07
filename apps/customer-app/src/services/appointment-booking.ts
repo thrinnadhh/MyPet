@@ -1,3 +1,4 @@
+import { getDemoAppointmentSlots } from '@/services/demo-customer-data';
 import { appConfig } from '@/utils/app-config';
 
 const DEMO_USER_ID = 'd3b07384-d113-4e4e-9c8e-3d8e3d8e3d8e';
@@ -81,6 +82,10 @@ async function apiError(response: Response, fallback: string): Promise<Error> {
 export async function fetchAvailableAppointmentSlots(
   providerId: string,
 ): Promise<AppointmentSlotOption[]> {
+  if (appConfig.allowDemoMode) {
+    return getDemoAppointmentSlots(providerId);
+  }
+
   const offeringsResponse = await fetch(
     `${appConfig.apiBaseUrl}/api/v1/catalog/offerings?providerId=${encodeURIComponent(providerId)}`,
     { headers: authHeaders(undefined) },
@@ -133,20 +138,24 @@ export async function fetchAvailableAppointmentSlots(
 }
 
 export async function holdAppointmentSlot(input: HoldAppointmentInput): Promise<string> {
-  const bookingUserId = resolveBookingUserId(input.userId);
+  resolveBookingUserId(input.userId);
   if (!input.petId) throw new Error('Select a pet before booking.');
+
+  if (appConfig.allowDemoMode && input.slot.id.startsWith('demo-slot-')) {
+    return `demo-appointment-${input.slot.id}`;
+  }
 
   const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/appointments/hold`, {
     method: 'POST',
     headers: jsonHeaders(input.accessToken),
     body: JSON.stringify({
-      customerId: bookingUserId,
+      customerId: input.userId,
       providerId: input.slot.providerId,
       offeringId: input.slot.offeringId,
       slotId: input.slot.id,
       petId: input.petId,
       priceAmount: input.slot.price,
-      payAtClinic: true,
+      payAtClinic: false,
     }),
   });
 
@@ -165,9 +174,13 @@ export async function holdAppointmentSlot(input: HoldAppointmentInput): Promise<
 export async function confirmAppointmentHold(
   appointmentId: string,
   accessToken: string | null | undefined,
+  paymentId?: string | null,
 ): Promise<void> {
+  if (appConfig.allowDemoMode && appointmentId.startsWith('demo-appointment-')) return;
+
+  const query = paymentId ? `?paymentId=${encodeURIComponent(paymentId)}` : '';
   const response = await fetch(
-    `${appConfig.apiBaseUrl}/api/v1/appointments/${encodeURIComponent(appointmentId)}/confirm`,
+    `${appConfig.apiBaseUrl}/api/v1/appointments/${encodeURIComponent(appointmentId)}/confirm${query}`,
     { method: 'POST', headers: authHeaders(accessToken) },
   );
 
