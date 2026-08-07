@@ -45,6 +45,30 @@ if compose_files_raw:
 
 SCHEDULER_SERVICE = os.environ.get("MYPET_SCHEDULER_SERVICE", "")
 
+
+def configured_env_value(name: str) -> str:
+    """Read a required smoke credential from the process or its Compose env file."""
+    direct = os.environ.get(name, "").strip()
+    if direct:
+        return direct
+
+    env_path = Path(matrix.ENV_FILE)
+    if env_path.is_file():
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.strip() == name:
+                resolved = value.strip().strip('"').strip("'")
+                if resolved:
+                    return resolved
+
+    raise RuntimeError(f"{name} must be configured for connected smoke validation")
+
+
+INTERNAL_API_SECRET = configured_env_value("INTERNAL_API_SECRET")
+
 _original_request = matrix.request
 _original_poll = matrix.poll
 _original_require = matrix.require
@@ -105,6 +129,43 @@ def post_cashfree_success_webhook(order_id: str, amount: Any) -> Any:
     return decoded
 
 
+def internal_loyalty_request(
+    method: str,
+    path: str,
+    actor: Any = None,
+    payload: Any = None,
+    expected: tuple[int, ...] = (200,),
+) -> Any:
+    """Call a protected internal loyalty endpoint with the configured service secret."""
+    url = path if path.startswith("http") else f"{matrix.GATEWAY}{path}"
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    headers = {
+        "Accept": "application/json",
+        "X-Internal-Secret": INTERNAL_API_SECRET,
+    }
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    if actor is not None:
+        headers["Authorization"] = f"Bearer {actor.token}"
+
+    request = urllib.request.Request(url, data=body, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            status = response.status
+            decoded = matrix.decode_body(response.read())
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        decoded = matrix.decode_body(exc.read())
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"{method} {url} failed: {exc.reason}") from exc
+
+    if status not in expected:
+        raise AssertionError(
+            f"{method} {path} expected {expected}, received {status}: {decoded}"
+        )
+    return decoded
+
+
 def contract_request(
     method: str,
     path: str,
@@ -112,6 +173,9 @@ def contract_request(
     payload: Any = None,
     expected: tuple[int, ...] = (200,),
 ) -> Any:
+    if method == "POST" and path.startswith("/api/v1/loyalty/events/"):
+        return internal_loyalty_request(method, path, actor, payload, expected)
+
     if method == "POST" and path == "/api/v1/appointments/hold" and expected == (400,):
         expected = (409,)
 
