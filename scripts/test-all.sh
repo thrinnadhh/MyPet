@@ -7,6 +7,10 @@ REPORT="${MYPET_SMOKE_REPORT:-$ROOT/build/reports/full-stack-smoke.md}"
 ENV_FILE="$(mktemp)"
 
 cat > "$ENV_FILE" <<'EOF'
+POSTGRES_PASSWORD=postgres
+PUBLIC_URL=http://localhost:8080
+GATEWAY_CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8081
+SUPABASE_JWT_JWK_SET_URI=https://your-project.supabase.co/rest/v1/auth/keys
 GATEWAY_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 INTERNAL_API_SECRET=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 BANK_DATA_ENCRYPTION_KEY=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
