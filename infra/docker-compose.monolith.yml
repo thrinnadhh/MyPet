@@ -1,25 +1,25 @@
 x-monolith-environment: &monolith-environment
   SERVER_PORT: 8080
   GRPC_PORT: -1
-  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:?SPRING_PROFILES_ACTIVE must be set to local/dev/test or a deployment profile}
   MYPET_MODULES_ENABLED: "true"
   MYPET_EDGE_ENABLED: "true"
   MYPET_DATABASE_ENABLED: "true"
   MYPET_EVENT_DELIVERY_MODE: KAFKA_ONLY
   MYPET_SCHEDULING_ROLE: ALL
   MYPET_SCHEDULING_LOCK_TABLE: orders.shedlock
-  MYPET_DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=orders,appointments,providers,catalog,dispatch,captains,notifications,reviews,payments,chat,content,identity,customer,public&stringtype=unspecified
-  MYPET_DB_USERNAME: postgres
-  MYPET_DB_PASSWORD: postgres
+  MYPET_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=orders,appointments,providers,catalog,dispatch,captains,notifications,reviews,payments,chat,content,identity,customer,public&stringtype=unspecified
+  MYPET_DB_USERNAME: ${POSTGRES_USER:-postgres}
+  MYPET_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
   MYPET_DB_POOL_MAX_SIZE: 12
   MYPET_DB_POOL_MIN_IDLE: 2
   MYPET_DB_CONNECTION_TIMEOUT_MS: 5000
   MYPET_FLYWAY_MIGRATE_ON_STARTUP: "true"
   MYPET_FLYWAY_CONNECT_RETRIES: 10
   MYPET_FLYWAY_LOCK_RETRY_COUNT: 50
-  DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=orders,appointments,providers,catalog,dispatch,captains,notifications,reviews,payments,chat,content,identity,customer,public&stringtype=unspecified
-  DB_USERNAME: postgres
-  DB_PASSWORD: postgres
+  DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=orders,appointments,providers,catalog,dispatch,captains,notifications,reviews,payments,chat,content,identity,customer,public&stringtype=unspecified
+  DB_USERNAME: ${POSTGRES_USER:-postgres}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
   REDIS_HOST: redis
   REDIS_PORT: 6379
   KAFKA_BOOTSTRAP_SERVERS: kafka:29092
