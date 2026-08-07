@@ -115,7 +115,7 @@ data class BillRequest(
 )
 
 data class FailedBillItem(
-    val productId: UUID,
+    val productId: UUID?,
     val barcode: String,
     val reason: String
 )
