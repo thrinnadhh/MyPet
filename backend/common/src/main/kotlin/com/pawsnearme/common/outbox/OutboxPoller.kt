@@ -37,7 +37,7 @@ open class OutboxPoller(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    @Scheduled(fixedDelay = 1000)
+    @Scheduled(fixedDelay = 1000, scheduler = "outboxTaskScheduler")
     @SchedulerLock(name = "outbox_pollAndPublish", lockAtMostFor = "PT5S", lockAtLeastFor = "PT1S")
     @Transactional
     open fun pollAndPublish() {
