@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockito.kotlin.*
+import java.time.Instant
 import java.util.Optional
 import java.util.UUID
 
@@ -34,11 +35,58 @@ class ContentServiceTests {
                 title = "Admin banner",
                 subtitle = "Published immediately",
                 active = true,
+                imageUrl = "https://cdn.example.com/banner.jpg",
+                targetType = "CATEGORY",
+                targetValue = "food",
             )
         )
 
         assertEquals("ACTIVE", saved.status)
-        verify(bannerRepo).save(check { assertEquals("ACTIVE", it.status) })
+        verify(bannerRepo).save(check {
+            assertEquals("ACTIVE", it.status)
+            assertEquals("CATEGORY", it.targetType)
+        })
+    }
+
+    @Test
+    fun `listActiveBanners excludes banners outside their delivery window`() {
+        val now = Instant.parse("2026-08-07T12:00:00Z")
+        whenever(bannerRepo.findByActiveTrueOrderBySortOrderAsc()).thenReturn(
+            listOf(
+                PromoBanner(title = "Active", subtitle = "Now", status = "ACTIVE", startsAt = now.minusSeconds(60), endsAt = now.plusSeconds(60)),
+                PromoBanner(title = "Expired", subtitle = "Old", status = "ACTIVE", endsAt = now.minusSeconds(1)),
+                PromoBanner(title = "Future", subtitle = "Later", status = "ACTIVE", startsAt = now.plusSeconds(1)),
+                PromoBanner(title = "Inactive lifecycle", subtitle = "Pending", status = "PENDING_BID"),
+            )
+        )
+
+        val banners = service.listActiveBanners(now)
+
+        assertEquals(listOf("Active"), banners.map { it.title })
+    }
+
+    @Test
+    fun `upsertBanner rejects external routes and insecure media`() {
+        assertThrows<IllegalArgumentException> {
+            service.upsertBanner(
+                PromoBanner(
+                    title = "Unsafe image",
+                    subtitle = "HTTP should fail",
+                    imageUrl = "http://cdn.example.com/banner.jpg",
+                )
+            )
+        }
+
+        assertThrows<IllegalArgumentException> {
+            service.upsertBanner(
+                PromoBanner(
+                    title = "Unsafe target",
+                    subtitle = "External route should fail",
+                    targetType = "ROUTE",
+                    targetValue = "https://example.com",
+                )
+            )
+        }
     }
 
     @Test
