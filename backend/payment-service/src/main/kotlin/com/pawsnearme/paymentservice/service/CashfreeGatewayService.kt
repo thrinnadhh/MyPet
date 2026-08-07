@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.common.idempotency.IdempotencyService
 import com.pawsnearme.paymentservice.model.Transaction
+import com.pawsnearme.paymentservice.repository.AppointmentRefRepository
 import com.pawsnearme.paymentservice.repository.OrderRefRepository
 import com.pawsnearme.paymentservice.repository.TransactionRepository
 import jakarta.validation.constraints.DecimalMax
@@ -38,7 +39,7 @@ data class CreateCashfreeOrderRequest(
     @field:DecimalMin("0.01")
     @field:DecimalMax("10000000.00")
     val amount: BigDecimal,
-    @field:Pattern(regexp = "ORDER_PAYMENT")
+    @field:Pattern(regexp = "(?:ORDER_PAYMENT|APPOINTMENT_PAYMENT)")
     val transactionType: String,
     @field:Pattern(regexp = "(?:\\+?91)?[6-9][0-9]{9}")
     val customerPhone: String,
@@ -62,6 +63,7 @@ data class CashfreeOrderResponse(
 class CashfreeGatewayService(
     private val transactionRepository: TransactionRepository,
     private val orderRefRepository: OrderRefRepository,
+    private val appointmentRefRepository: AppointmentRefRepository,
     private val idempotencyService: IdempotencyService,
     private val objectMapper: ObjectMapper,
     @Value("\${CASHFREE_CLIENT_ID:}") private val clientId: String = "",
@@ -104,21 +106,36 @@ class CashfreeGatewayService(
     }
 
     private fun validateReference(request: CreateCashfreeOrderRequest) {
-        require(request.transactionType == "ORDER_PAYMENT") {
-            "Cashfree order initiation currently supports order payments only"
-        }
         require(request.amount > BigDecimal.ZERO) { "Payment amount must be greater than zero" }
 
-        val order = orderRefRepository.findById(request.referenceId)
-            .orElseThrow { IllegalArgumentException("Order not found for payment reference") }
-        if (order.customerId != request.userId) {
-            throw IllegalArgumentException("Payment reference does not belong to this user")
-        }
-        if (order.status != "PLACED") {
-            throw IllegalStateException("Order is not awaiting online payment")
-        }
-        if (order.totalAmount.compareTo(request.amount) != 0) {
-            throw IllegalArgumentException("Payment amount does not match the server-authoritative order total")
+        when (request.transactionType) {
+            "ORDER_PAYMENT" -> {
+                val order = orderRefRepository.findById(request.referenceId)
+                    .orElseThrow { IllegalArgumentException("Order not found for payment reference") }
+                if (order.customerId != request.userId) {
+                    throw IllegalArgumentException("Payment reference does not belong to this user")
+                }
+                if (order.status != "PLACED") {
+                    throw IllegalStateException("Order is not awaiting online payment")
+                }
+                if (order.totalAmount.compareTo(request.amount) != 0) {
+                    throw IllegalArgumentException("Payment amount does not match the server-authoritative order total")
+                }
+            }
+            "APPOINTMENT_PAYMENT" -> {
+                val appointment = appointmentRefRepository.findById(request.referenceId)
+                    .orElseThrow { IllegalArgumentException("Appointment not found for payment reference") }
+                if (appointment.customerId != request.userId) {
+                    throw IllegalArgumentException("Appointment payment reference does not belong to this user")
+                }
+                if (appointment.status != "SLOT_HELD") {
+                    throw IllegalStateException("Appointment is not awaiting online payment")
+                }
+                if (appointment.priceAmount.compareTo(request.amount) != 0) {
+                    throw IllegalArgumentException("Payment amount does not match the server-authoritative appointment price")
+                }
+            }
+            else -> throw IllegalArgumentException("Unsupported Cashfree transaction type")
         }
     }
 
@@ -199,10 +216,11 @@ class CashfreeGatewayService(
             "order_amount" to transaction.amount,
             "order_currency" to transaction.currency,
             "customer_details" to customerDetails,
-            "order_note" to "MyPet order payment for ${request.referenceId}",
+            "order_note" to "MyPet ${request.transactionType.lowercase()} for ${request.referenceId}",
             "order_tags" to mapOf(
                 "mypet_reference_id" to request.referenceId.toString(),
                 "mypet_transaction_id" to transactionId.toString(),
+                "mypet_transaction_type" to request.transactionType,
             ),
         )
 
@@ -414,7 +432,7 @@ class CashfreeGatewayService(
         val body = mapOf(
             "refund_amount" to transaction.amount,
             "refund_id" to refundId,
-            "refund_note" to "MyPet order refund for $referenceId",
+            "refund_note" to "MyPet payment refund for $referenceId",
             "refund_speed" to "STANDARD",
         )
         val response = restTemplate.exchange(
