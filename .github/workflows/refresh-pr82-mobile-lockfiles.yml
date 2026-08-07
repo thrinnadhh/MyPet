@@ -6,11 +6,15 @@ on:
       - agent/production-readiness-integration
     paths:
       - .github/workflows/refresh-pr82-mobile-lockfiles.yml
+      - apps/customer-app/package.json
+      - apps/merchant-captain-app/package.json
   pull_request:
     branches:
       - main
     paths:
       - .github/workflows/refresh-pr82-mobile-lockfiles.yml
+      - apps/customer-app/package.json
+      - apps/merchant-captain-app/package.json
 
 permissions:
   contents: write
