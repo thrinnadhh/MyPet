@@ -148,7 +148,7 @@ class ContentController(
         @Valid @RequestBody request: UpsertBannerRequest,
     ): ResponseEntity<BannerDto> {
         requireAdmin(userRole)
-        return ResponseEntity.ok(contentService.upsertBanner(request.toBanner(bannerId)))
+        return ResponseEntity.ok(contentService.upsertBanner(request.toBanner(bannerId)).toDto())
     }
 
     @PostMapping("/guides")
