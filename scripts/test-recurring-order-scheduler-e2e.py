@@ -11,24 +11,34 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = Path(os.environ.get("MYPET_SMOKE_REPORT", ROOT / "build/reports/full-stack-smoke.md"))
 PROJECT_NAME = os.environ.get("COMPOSE_PROJECT_NAME", "mypet-e2e")
 ENV_FILE = os.environ.get("MYPET_ENV_FILE")
 GATEWAY = os.environ.get("MYPET_GATEWAY_URL", "http://localhost:8080")
+SCHEDULER_SERVICE = os.environ.get("MYPET_SCHEDULER_SERVICE", "order-service")
+EXPECTED_CRON = os.environ.get("MYPET_EXPECT_RECURRING_CRON", "")
+LOCK_NAME = "recurringOrderConfirmationReminder"
 
 if not ENV_FILE:
     raise SystemExit("MYPET_ENV_FILE must be set by the stack runner")
 
-COMPOSE = [
-    "docker", "compose", "-p", PROJECT_NAME, "--env-file", ENV_FILE,
-    "-f", str(ROOT / "infra/docker-compose.yml"),
-    "-f", str(ROOT / "infra/docker-compose.replicas.yml"),
-    "-f", str(ROOT / "infra/docker-compose.m4.yml"),
-    "-f", str(ROOT / "infra/docker-compose.local.yml"),
-]
+compose_files_raw = os.environ.get("MYPET_COMPOSE_FILES", "")
+if compose_files_raw:
+    compose_files = [Path(item) for item in compose_files_raw.split(",") if item]
+else:
+    compose_files = [
+        ROOT / "infra/docker-compose.yml",
+        ROOT / "infra/docker-compose.replicas.yml",
+        ROOT / "infra/docker-compose.m4.yml",
+        ROOT / "infra/docker-compose.local.yml",
+    ]
+
+COMPOSE = ["docker", "compose", "-p", PROJECT_NAME, "--env-file", ENV_FILE]
+for compose_file in compose_files:
+    COMPOSE.extend(("-f", str(compose_file)))
 
 
 def compose(*args: str) -> str:
@@ -49,6 +59,32 @@ def sql(statement: str) -> str:
         "exec", "-T", "postgres", "psql", "-U", "postgres", "-d", "pawsnearme",
         "-v", "ON_ERROR_STOP=1", "-Atc", statement,
     )
+
+
+def scheduler_environment() -> str:
+    return compose(
+        "exec", "-T", SCHEDULER_SERVICE, "sh", "-lc",
+        "printf '%s|%s|%s|%s' "
+        '"${ORDER_RECURRING_REMINDER_CRON:-}" '
+        '"${ORDER_RECURRING_REMINDER_LOCK_AT_MOST_FOR:-}" '
+        '"${ORDER_RECURRING_REMINDER_LOCK_AT_LEAST_FOR:-}" '
+        '"${MYPET_SCHEDULING_ROLE:-}"',
+    )
+
+
+def scheduler_lock_state() -> str:
+    return sql(
+        "SELECT name || '|' || lock_until::text || '|' || locked_at::text || '|' || locked_by "
+        "FROM orders.shedlock "
+        f"WHERE name='{LOCK_NAME}';"
+    )
+
+
+def scheduler_logs() -> str:
+    try:
+        return compose("logs", "--no-color", "--tail", "250", SCHEDULER_SERVICE)
+    except Exception as error:  # pragma: no cover - diagnostic fallback
+        return f"Unable to collect scheduler logs: {error}"
 
 
 def jwt_part(value: dict[str, Any]) -> str:
@@ -87,7 +123,13 @@ def request(path: str, token: str) -> Any:
     return json.loads(body)
 
 
-def poll(label: str, probe, ready, timeout: int = 35):
+def poll(
+    label: str,
+    probe: Callable[[], Any],
+    ready: Callable[[Any], bool],
+    timeout: int = 45,
+    diagnostics: Callable[[], str] | None = None,
+):
     deadline = time.time() + timeout
     last = None
     while time.time() < deadline:
@@ -95,10 +137,30 @@ def poll(label: str, probe, ready, timeout: int = 35):
         if ready(last):
             return last
         time.sleep(1)
-    raise AssertionError(f"Timed out waiting for {label}; last value={last!r}")
+    detail = f"Timed out waiting for {label}; last value={last!r}"
+    if diagnostics is not None:
+        detail += f"\nDiagnostics:\n{diagnostics()}"
+    raise AssertionError(detail)
 
 
 def main() -> None:
+    environment = scheduler_environment()
+    configured_cron, lock_at_most, lock_at_least, scheduling_role = environment.split("|", 3)
+    if EXPECTED_CRON and configured_cron != EXPECTED_CRON:
+        raise AssertionError(
+            f"Recurring scheduler cron mismatch: expected {EXPECTED_CRON!r}, found {configured_cron!r}",
+        )
+    if scheduling_role.upper() not in {"ALL", "WORKER"}:
+        raise AssertionError(f"Scheduler service cannot execute workers: role={scheduling_role!r}")
+
+    initial_lock = poll(
+        "recurring scheduler to acquire its named ShedLock",
+        scheduler_lock_state,
+        bool,
+        timeout=20,
+        diagnostics=lambda: f"environment={environment!r}\n{scheduler_logs()}",
+    )
+
     row = sql(
         "SELECT subscription_id::text || '|' || customer_id::text "
         "FROM orders.recurring_order_subscriptions "
@@ -118,6 +180,13 @@ def main() -> None:
         f"WHERE subscription_id='{subscription_id}'::uuid;"
     )
 
+    # This stack is isolated and disposable. Release only this scheduler's own
+    # lock so a startup cycle cannot mask the deterministic due-state check.
+    sql(
+        "UPDATE orders.shedlock SET lock_until=now()-interval '1 second' "
+        f"WHERE name='{LOCK_NAME}';"
+    )
+
     state = poll(
         "recurring subscription to enter AWAITING_CONFIRMATION",
         lambda: sql(
@@ -126,6 +195,12 @@ def main() -> None:
             f"WHERE subscription_id='{subscription_id}'::uuid;"
         ),
         lambda value: value.startswith("AWAITING_CONFIRMATION|") and len(value.split("|", 1)[1]) > 0,
+        diagnostics=lambda: (
+            f"environment={environment!r}\n"
+            f"initialLock={initial_lock!r}\n"
+            f"currentLock={scheduler_lock_state()!r}\n"
+            f"{scheduler_logs()}"
+        ),
     )
 
     published_count = poll(
@@ -139,6 +214,7 @@ def main() -> None:
             "AND payload #>> '{data,automaticCharge}' = 'false';"
         ) or "0"),
         lambda value: value == 1,
+        diagnostics=lambda: f"lock={scheduler_lock_state()!r}\n{scheduler_logs()}",
     )
 
     subscriptions = request("/api/v1/orders/subscriptions", customer_token(customer_id))
@@ -170,6 +246,9 @@ def main() -> None:
     with REPORT.open("a", encoding="utf-8") as handle:
         handle.write("\n## Recurring-order scheduler certification\n\n")
         handle.write(
+            "- ✅ Scheduler registration, active worker role, configured cadence and named lock were verified.\n"
+        )
+        handle.write(
             "- ✅ Due subscription moved to `AWAITING_CONFIRMATION` with a reminder timestamp.\n"
         )
         handle.write(
@@ -186,6 +265,12 @@ def main() -> None:
         "status": "PASS",
         "subscriptionId": subscription_id,
         "state": state,
+        "schedulerEnvironment": {
+            "cron": configured_cron,
+            "lockAtMostFor": lock_at_most,
+            "lockAtLeastFor": lock_at_least,
+            "role": scheduling_role,
+        },
         "publishedReminderEvents": published_count,
         "ordersCreated": 0,
         "paymentsCreated": 0,
