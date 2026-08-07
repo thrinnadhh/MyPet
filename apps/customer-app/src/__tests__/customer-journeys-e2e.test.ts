@@ -41,7 +41,7 @@ describe('MyPet customer end-to-end journeys', () => {
     const resilientImage = source('src/components/ui/resilient-remote-image.tsx');
 
     expectAll(categoryTemplate, ['ResilientRemoteImage', 'fallbackUri']);
-    expect(banners).toContain('ResilientRemoteImage');
+    expectAll(banners, ['ResilientRemoteImage', 'DEMO_BANNER_IMAGES', 'fallbackUri={DEMO_MEDIA.store}']);
     expectAll(provider, ['ResilientRemoteImage', 'shop.heroImageUrl', 'item.imageUrl']);
     expectAll(checkout, ['ResilientRemoteImage', 'categoryImage(item.product.category)']);
     expectAll(resilientImage, ['onError', 'fallbackUri']);
@@ -55,14 +55,15 @@ describe('MyPet customer end-to-end journeys', () => {
     const demoData = source('src/services/demo-customer-data.ts');
 
     expect(config).toContain('allowDemoMode');
-    expectAll(catalog, ['allowDemoMode', 'DEMO_PRODUCTS']);
-    expectAll(providers, ['allowDemoMode', 'DEMO_PROVIDERS']);
-    expectAll(pets, ['allowDemoMode', 'DEMO_PETS']);
+    expectAll(catalog, ['allowDemoMode', 'SAMPLE_PRODUCTS', 'DEMO_PROVIDER_FIXTURES']);
+    expectAll(providers, ['allowDemoMode', 'DEMO_PROVIDER_FIXTURES']);
+    expectAll(pets, ['allowDemoMode', 'demoPets']);
     expectAll(demoData, [
       'DEMO_MEDIA',
-      'DEMO_PRODUCTS',
-      'DEMO_PROVIDERS',
-      'DEMO_PETS',
+      'DEMO_BANNER_IMAGES',
+      'DEMO_PROVIDER_FIXTURES',
+      'getDemoAppointmentSlots',
+      'demoShopImage',
     ]);
   });
 
@@ -101,7 +102,9 @@ describe('MyPet customer end-to-end journeys', () => {
       "await finishAppointment('demo-payment')",
       'No real money will be charged.',
     ]);
-    expect(payment.indexOf("if (demoPayment)")).toBeLessThan(payment.indexOf('initiateAppointmentPayment'));
+    expect(payment.indexOf('if (demoPayment)')).toBeLessThan(
+      payment.indexOf('const initialization = await initiateAppointmentPayment'),
+    );
   });
 
   it('connects appointment payments to an authenticated server-owned Cashfree endpoint', () => {
@@ -200,6 +203,6 @@ describe('MyPet customer end-to-end journeys', () => {
     expect(discovery).not.toContain('setTimeout(');
     expect(discovery).not.toContain('mockAppointment');
     expect(grooming).not.toContain('setTimeout(');
-    expectAll(grooming, ['/groom', 'Book']);
+    expectAll(grooming, ['/groom', 'Choose live slot & pay']);
   });
 });
