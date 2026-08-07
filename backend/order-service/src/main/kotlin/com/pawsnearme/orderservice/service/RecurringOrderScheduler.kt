@@ -1,10 +1,12 @@
 package com.pawsnearme.orderservice.service
 
+import com.pawsnearme.common.scheduling.WorkerScheduler
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 
 @Component
+@WorkerScheduler
 class RecurringOrderScheduler(
     private val recurringOrderService: RecurringOrderService
 ) {
