@@ -232,6 +232,9 @@ def contract_request(
     if method == "POST" and path.startswith("/api/v1/loyalty/events/"):
         return internal_loyalty_request(method, path, actor, payload, expected)
 
+    if method == "POST" and path == "/api/v1/content/banners" and expected == (200,):
+        expected = (201,)
+
     if method == "POST" and path == "/api/v1/appointments/hold" and expected == (400,):
         expected = (409,)
 
