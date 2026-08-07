@@ -72,6 +72,7 @@ class MerchantFinanceControllerTests {
             listOf(
                 AppointmentRef(
                     appointmentId = UUID.randomUUID(),
+                    customerId = UUID.randomUUID(),
                     providerId = providerId,
                     status = "COMPLETED",
                     priceAmount = BigDecimal("500.00"),

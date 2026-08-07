@@ -5,16 +5,20 @@ import type {
   ProductVariant,
   ShopProfileData,
 } from '@/services/catalog-data';
+import { SAMPLE_PRODUCTS } from '@/services/catalog-data';
+import {
+  DEMO_MEDIA,
+  DEMO_PROVIDER_FIXTURES,
+  demoShopImage,
+} from '@/services/demo-customer-data';
 import {
   fetchProviders,
   type ProviderSummary,
 } from '@/services/provider-discovery';
 import { appConfig } from '@/utils/app-config';
 
-const DEFAULT_PRODUCT_IMAGE =
-  'https://images.unsplash.com/photo-1601758228041-f3b2795255f1?w=800&auto=format&fit=crop&q=80';
-const DEFAULT_STORE_IMAGE =
-  'https://images.unsplash.com/photo-1601758124510-52d02ddb7cbd?w=1200&auto=format&fit=crop&q=80';
+const DEFAULT_PRODUCT_IMAGE = DEMO_MEDIA.store;
+const DEFAULT_STORE_IMAGE = DEMO_MEDIA.store;
 
 interface BackendOffering {
   offeringId: string;
@@ -75,13 +79,27 @@ function normalizeCategory(value: string | null | undefined): string {
   if (normalized.includes('food') || normalized.includes('nutrition')) return 'food';
   if (normalized.includes('bed') || normalized.includes('furniture') || normalized.includes('sleep')) return 'furniture';
   if (normalized.includes('toy') || normalized.includes('enrichment')) return 'toys';
-  if (normalized.includes('travel') || normalized.includes('apparel') || normalized.includes('harness')) return 'travel';
+  if (normalized.includes('travel') || normalized.includes('apparel') || normalized.includes('appearance') || normalized.includes('harness')) return 'travel';
   if (normalized.includes('treat') || normalized.includes('chew')) return 'treats';
   if (normalized.includes('waste') || normalized.includes('litter') || normalized.includes('clean')) return 'waste';
   if (normalized.includes('groom')) return 'grooming';
   if (normalized.includes('vaccin') || normalized.includes('deworm') || normalized.includes('tablet')) return 'vaccinations';
 
   return normalized.replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'other';
+}
+
+function categoryFallbackImage(category: string): string {
+  switch (category) {
+    case 'food': return DEMO_MEDIA.food;
+    case 'furniture': return DEMO_MEDIA.furniture;
+    case 'toys': return DEMO_MEDIA.toys;
+    case 'travel': return DEMO_MEDIA.travel;
+    case 'treats': return DEMO_MEDIA.treats;
+    case 'grooming': return DEMO_MEDIA.grooming;
+    case 'hospitals':
+    case 'vaccinations': return DEMO_MEDIA.hospital;
+    default: return DEFAULT_PRODUCT_IMAGE;
+  }
 }
 
 function isRecent(value: string | null | undefined): boolean {
@@ -111,7 +129,7 @@ function mapOffering(
   const category = normalizeCategory(offering.category);
   const active = !offering.status || offering.status.toUpperCase() === 'ACTIVE';
   const inStock = active && stockCount > 0;
-  const imageUrl = offering.imageUrl?.trim() || DEFAULT_PRODUCT_IMAGE;
+  const imageUrl = offering.imageUrl?.trim() || categoryFallbackImage(category);
   const variant: ProductVariant = {
     id: `${offering.offeringId}:default`,
     name: offering.sku?.trim() || 'Standard',
@@ -159,11 +177,63 @@ function mapOffering(
   };
 }
 
+function demoProductsForProvider(providerId: string): CommerceProduct[] {
+  const direct = SAMPLE_PRODUCTS.filter((product) => product.providerId === providerId);
+  if (direct.length > 0) return direct.map((product) => ({ ...product }));
+
+  const provider = DEMO_PROVIDER_FIXTURES.PET_STORE.find((item) => item.id === providerId);
+  if (!provider) return [];
+  return SAMPLE_PRODUCTS.slice(0, 4).map((product, index) => ({
+    ...product,
+    id: `${providerId}-${product.id}-${index}`,
+    providerId,
+    providerName: provider.name,
+    imageUrl: product.imageUrl || categoryFallbackImage(product.category),
+    sellerInfo: {
+      ...product.sellerInfo,
+      id: providerId,
+      name: provider.name,
+      address: provider.description,
+      rating: `${provider.rating.toFixed(1)} ★`,
+    },
+  }));
+}
+
 export async function fetchPublicProvider(providerId: string): Promise<PublicProvider> {
+  if (appConfig.allowDemoMode) {
+    const fixture = DEMO_PROVIDER_FIXTURES.PET_STORE.find((provider) => provider.id === providerId);
+    if (!fixture) throw new Error('DEMO_PROVIDER_NOT_FOUND');
+    return {
+      providerId: fixture.id,
+      providerType: 'PET_STORE',
+      fulfillmentType: 'DELIVERY',
+      name: fixture.name,
+      description: fixture.description,
+      city: 'Tirupati',
+      status: 'ACTIVE',
+      ratingAvg: fixture.rating,
+      ratingCount: fixture.ratingCount,
+    };
+  }
   return fetchJson<PublicProvider>(`/api/v1/providers/${encodeURIComponent(providerId)}`);
 }
 
 export async function fetchProviderOfferings(providerId: string): Promise<BackendOffering[]> {
+  if (appConfig.allowDemoMode) {
+    return demoProductsForProvider(providerId).map((product) => ({
+      offeringId: product.id,
+      providerId: product.providerId,
+      name: product.name,
+      description: product.description,
+      category: product.category,
+      price: product.price,
+      imageUrl: product.imageUrl,
+      status: product.inStock ? 'ACTIVE' : 'INACTIVE',
+      stockQuantity: product.stockCount,
+      sku: product.variants[0]?.name ?? 'Standard',
+      createdAt: product.createdAt,
+    }));
+  }
   const values = await fetchJson<BackendOffering[]>(
     `/api/v1/catalog/offerings?providerId=${encodeURIComponent(providerId)}`,
   );
@@ -171,6 +241,12 @@ export async function fetchProviderOfferings(providerId: string): Promise<Backen
 }
 
 export async function fetchCommerceProduct(offeringId: string): Promise<CommerceProduct> {
+  if (appConfig.allowDemoMode) {
+    const product = SAMPLE_PRODUCTS.find((item) => item.id === offeringId)
+      ?? DEMO_PROVIDER_FIXTURES.PET_STORE.flatMap((provider) => demoProductsForProvider(provider.id)).find((item) => item.id === offeringId);
+    if (!product) throw new Error('DEMO_PRODUCT_NOT_FOUND');
+    return { ...product };
+  }
   const offering = await fetchJson<BackendOffering>(
     `/api/v1/catalog/offerings/${encodeURIComponent(offeringId)}`,
   );
@@ -181,6 +257,22 @@ export async function fetchCommerceProduct(offeringId: string): Promise<Commerce
 export async function fetchCommerceProducts(
   query: CommerceCatalogQuery = {},
 ): Promise<CommerceProduct[]> {
+  if (appConfig.allowDemoMode) {
+    let products = query.providerId
+      ? demoProductsForProvider(query.providerId)
+      : SAMPLE_PRODUCTS.map((product) => ({ ...product }));
+    if (query.category) {
+      const category = normalizeCategory(query.category);
+      products = products.filter((product) => normalizeCategory(product.category) === category);
+    }
+    if (query.onlyNewArrivals) products = products.filter((product) => product.isNewArrival);
+    return products.map((product) => ({
+      ...product,
+      imageUrl: product.imageUrl || categoryFallbackImage(product.category),
+      galleryImages: product.galleryImages.length > 0 ? product.galleryImages : [product.imageUrl || categoryFallbackImage(product.category)],
+    }));
+  }
+
   const market = query.market ?? INITIAL_MARKET;
   const providers = query.providerId
     ? [providerSummaryFromPublic(await fetchPublicProvider(query.providerId))]
@@ -205,6 +297,29 @@ export async function fetchCommerceProducts(
 }
 
 export async function fetchShopProfile(providerId: string): Promise<ShopProfileData> {
+  if (appConfig.allowDemoMode) {
+    const provider = DEMO_PROVIDER_FIXTURES.PET_STORE.find((item) => item.id === providerId);
+    if (!provider) throw new Error('DEMO_PROVIDER_NOT_FOUND');
+    const products = demoProductsForProvider(providerId);
+    return {
+      id: provider.id,
+      name: provider.name,
+      tagline: provider.description,
+      address: provider.description.split('·').at(-1)?.trim() || 'Tirupati',
+      city: 'Tirupati',
+      pincode: '517501',
+      rating: `${provider.rating.toFixed(1)} ★`,
+      reviewCount: provider.ratingCount,
+      deliveryEta: '20-30 mins',
+      isVerified: true,
+      heroImageUrl: demoShopImage(providerId),
+      openingHours: '9:00 AM – 9:00 PM',
+      contactPhone: '+91 98765 43210',
+      categories: Array.from(new Set(products.map((product) => product.category))).sort(),
+      products,
+    };
+  }
+
   const provider = await fetchPublicProvider(providerId);
   const summary = providerSummaryFromPublic(provider);
   const products = (await fetchProviderOfferings(providerId)).map((offering) =>

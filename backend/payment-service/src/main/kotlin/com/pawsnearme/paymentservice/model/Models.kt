@@ -97,17 +97,14 @@ class LinkedAccount(
     @Column(name = "payee_role", nullable = false)
     var payeeRole: String,
 
-    /** Request-only compatibility input. Full bank coordinates are never persisted locally. */
     @Transient
     @JsonIgnore
     var accountNumber: String = "",
 
-    /** Request-only compatibility input. Full bank coordinates are never persisted locally. */
     @Transient
     @JsonIgnore
     var ifsc: String = "",
 
-    /** Razorpay owns business/KYC details; these values are not retained in the payment database. */
     @Transient
     var businessName: String = "",
 
@@ -173,7 +170,7 @@ class Promotion(
     var code: String,
 
     @Column(name = "discount_type", nullable = false)
-    var discountType: String, // PERCENTAGE, FLAT
+    var discountType: String,
 
     @Column(name = "discount_value", nullable = false)
     var discountValue: BigDecimal,
@@ -238,6 +235,9 @@ class AppointmentRef(
     @Id
     @Column(name = "appointment_id")
     val appointmentId: UUID,
+
+    @Column(name = "customer_id")
+    val customerId: UUID,
 
     @Column(name = "provider_id")
     val providerId: UUID,

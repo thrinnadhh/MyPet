@@ -1,22 +1,37 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { FlatList, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppIcon } from '@/components/app-icon';
 import { FilterChip } from '@/components/foundation/primitives';
 import { LoyaltyCard } from '@/components/loyalty-card';
 import { ThemedText } from '@/components/themed-text';
 import { PrimaryButton } from '@/components/ui/primary-button';
+import { ResilientRemoteImage } from '@/components/ui/resilient-remote-image';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useCart } from '@/context/CartContext';
 import { useFavourites } from '@/context/FavouritesContext';
 import { radii, shadows, spacing, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
-import { type ShopProfileData } from '@/services/catalog-data';
+import { type CommerceProduct, type ShopProfileData } from '@/services/catalog-data';
+import { DEMO_MEDIA } from '@/services/demo-customer-data';
 
 interface ProviderProfileTemplateProps {
   shop: ShopProfileData;
+}
+
+function fallbackForProduct(product: CommerceProduct): string {
+  switch (product.category) {
+    case 'food': return DEMO_MEDIA.food;
+    case 'treats': return DEMO_MEDIA.treats;
+    case 'toys': return DEMO_MEDIA.toys;
+    case 'travel': return DEMO_MEDIA.travel;
+    case 'furniture': return DEMO_MEDIA.furniture;
+    case 'grooming': return DEMO_MEDIA.grooming;
+    case 'vaccinations': return DEMO_MEDIA.hospital;
+    default: return DEMO_MEDIA.store;
+  }
 }
 
 export function ProviderProfileTemplate({ shop }: ProviderProfileTemplateProps) {
@@ -40,7 +55,7 @@ export function ProviderProfileTemplate({ shop }: ProviderProfileTemplateProps) 
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={[styles.heroCard, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-          <Image source={{ uri: shop.heroImageUrl }} style={styles.heroImage} resizeMode="cover" />
+          <ResilientRemoteImage uri={shop.heroImageUrl} fallbackUri={DEMO_MEDIA.store} style={styles.heroImage} />
 
           <View style={styles.heroBody}>
             <View style={styles.titleRow}>
@@ -120,7 +135,11 @@ export function ProviderProfileTemplate({ shop }: ProviderProfileTemplateProps) 
                   pressed && styles.pressed,
                 ]}
               >
-                <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="cover" />
+                <ResilientRemoteImage
+                  uri={item.imageUrl}
+                  fallbackUri={fallbackForProduct(item)}
+                  style={styles.productImage}
+                />
                 <Pressable
                   onPress={() => void toggleFavourite('PRODUCT', item.id)}
                   style={[styles.prodFavBadge, { backgroundColor: theme.background }]}

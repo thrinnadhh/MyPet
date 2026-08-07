@@ -45,21 +45,46 @@ function normalizedPhone(value: string): string {
   throw new Error('Add a valid Indian mobile number before paying online.');
 }
 
+function paymentPayload(
+  userId: string,
+  referenceId: string,
+  amount: number,
+  transactionType: 'ORDER_PAYMENT' | 'APPOINTMENT_PAYMENT',
+  customer: CashfreeCustomerDetails,
+) {
+  return {
+    userId,
+    referenceId,
+    amount,
+    transactionType,
+    customerPhone: normalizedPhone(customer.phone),
+    customerEmail: customer.email?.trim() || null,
+    customerName: customer.name?.trim() || null,
+  };
+}
+
 export async function initiateOrderPayment(
   userId: string,
   orderId: string,
   amount: number,
   customer: CashfreeCustomerDetails,
 ): Promise<CashfreeOrderInitialization> {
-  return apiClient.post<CashfreeOrderInitialization>('/api/v1/payments/orders', {
-    userId,
-    referenceId: orderId,
-    amount,
-    transactionType: 'ORDER_PAYMENT',
-    customerPhone: normalizedPhone(customer.phone),
-    customerEmail: customer.email?.trim() || null,
-    customerName: customer.name?.trim() || null,
-  });
+  return apiClient.post<CashfreeOrderInitialization>(
+    '/api/v1/payments/orders',
+    paymentPayload(userId, orderId, amount, 'ORDER_PAYMENT', customer),
+  );
+}
+
+export async function initiateAppointmentPayment(
+  userId: string,
+  appointmentId: string,
+  amount: number,
+  customer: CashfreeCustomerDetails,
+): Promise<CashfreeOrderInitialization> {
+  return apiClient.post<CashfreeOrderInitialization>(
+    '/api/v1/payments/appointments',
+    paymentPayload(userId, appointmentId, amount, 'APPOINTMENT_PAYMENT', customer),
+  );
 }
 
 export async function createHostedCheckoutSession(transactionId: string): Promise<HostedCheckoutSession> {
@@ -96,14 +121,31 @@ export async function openCashfreeOrder(initialization: CashfreeOrderInitializat
 /** Compatibility alias. New code should use openCashfreeOrder. */
 export const openRazorpayOrder = openCashfreeOrder;
 
-export async function reconcilePaidOrder(orderId: string): Promise<CustomerPaymentStatusView> {
-  const payment = await apiClient.post<CustomerPaymentStatusView>(
-    `/api/v1/payments/transactions/reference/${encodeURIComponent(orderId)}/reconcile`,
+export async function reconcileReferencePayment(referenceId: string): Promise<CustomerPaymentStatusView> {
+  return apiClient.post<CustomerPaymentStatusView>(
+    `/api/v1/payments/transactions/reference/${encodeURIComponent(referenceId)}/reconcile`,
   );
+}
+
+export async function reconcilePaidOrder(orderId: string): Promise<CustomerPaymentStatusView> {
+  const payment = await reconcileReferencePayment(orderId);
   if (payment.status === 'SUCCESS') {
     await confirmPaidOrder(orderId, payment.transactionId);
   }
   return payment;
+}
+
+export async function waitForReferencePaymentOutcome(
+  referenceId: string,
+  attempts = 15,
+  delayMs = 2_000,
+): Promise<CustomerPaymentStatusView> {
+  let latest = await reconcileReferencePayment(referenceId);
+  for (let attempt = 1; attempt < attempts && latest.status === 'PENDING'; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    latest = await reconcileReferencePayment(referenceId);
+  }
+  return latest;
 }
 
 export async function waitForPaymentOutcome(

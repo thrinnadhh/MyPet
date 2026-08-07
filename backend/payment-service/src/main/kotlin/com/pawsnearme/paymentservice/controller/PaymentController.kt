@@ -32,6 +32,24 @@ class PaymentController(
         if (xUserRole != "ADMIN" && xUserId != request.userId.toString()) {
             throw PaymentAccessDeniedException("Access denied for order initiation")
         }
+        if (request.transactionType != "ORDER_PAYMENT") {
+            throw IllegalArgumentException("Order payment endpoint requires ORDER_PAYMENT")
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(cashfreeGatewayService.createOrder(request))
+    }
+
+    @PostMapping("/appointments")
+    fun createCashfreeAppointmentPayment(
+        @Valid @RequestBody request: CreateCashfreeOrderRequest,
+        @RequestHeader("X-User-Id", required = false) xUserId: String?,
+        @RequestHeader("X-User-Role", required = false) xUserRole: String?,
+    ): ResponseEntity<Any> {
+        if (xUserRole != "ADMIN" && xUserId != request.userId.toString()) {
+            throw PaymentAccessDeniedException("Access denied for appointment payment initiation")
+        }
+        if (request.transactionType != "APPOINTMENT_PAYMENT") {
+            throw IllegalArgumentException("Appointment payment endpoint requires APPOINTMENT_PAYMENT")
+        }
         return ResponseEntity.status(HttpStatus.CREATED).body(cashfreeGatewayService.createOrder(request))
     }
 

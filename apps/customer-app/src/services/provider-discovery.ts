@@ -1,4 +1,5 @@
 import type { LaunchMarket } from '@/config/markets';
+import { DEMO_PROVIDER_FIXTURES } from '@/services/demo-customer-data';
 import { appConfig } from '@/utils/app-config';
 
 export type DiscoverableProviderType = 'VET_HOSPITAL' | 'GROOMER' | 'PET_STORE';
@@ -20,6 +21,10 @@ interface ProviderDto {
 }
 
 export async function fetchProviders(type: DiscoverableProviderType, market: LaunchMarket): Promise<ProviderSummary[]> {
+  if (appConfig.allowDemoMode) {
+    return DEMO_PROVIDER_FIXTURES[type].map((provider) => ({ ...provider }));
+  }
+
   const query = new URLSearchParams({
     longitude: String(market.longitude), latitude: String(market.latitude), radius: String(market.discoveryRadiusKm), type,
   });

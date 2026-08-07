@@ -6,6 +6,7 @@ import { AppIcon } from '@/components/app-icon';
 import { AppBar, PrimaryAction, StateView, StatusBadge } from '@/components/foundation/primitives';
 import { ScreenShell } from '@/components/foundation/screen-shell';
 import { ThemedText } from '@/components/themed-text';
+import { ResilientRemoteImage } from '@/components/ui/resilient-remote-image';
 import type { CustomerPaymentMethod } from '@/contracts/customer-payment';
 import { useAuth } from '@/context/AuthContext';
 import { useAuthIntent } from '@/context/AuthIntentContext';
@@ -24,7 +25,9 @@ import {
   openCashfreeOrder,
   waitForPaymentOutcome,
 } from '@/services/customer-payments';
+import { DEMO_MEDIA } from '@/services/demo-customer-data';
 import { fetchDefaultAddress, isOfflineError, type CustomerAddress } from '@/services/customer-profile';
+import { appConfig } from '@/utils/app-config';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PAYMENT_METHODS: Array<{ id: CustomerPaymentMethod; label: string }> = [
@@ -32,6 +35,56 @@ const PAYMENT_METHODS: Array<{ id: CustomerPaymentMethod; label: string }> = [
   { id: 'UPI', label: 'UPI' },
   { id: 'CARD', label: 'Card' },
 ];
+
+const DEMO_ADDRESS: CustomerAddress = {
+  addressId: 'demo-address',
+  label: 'Demo',
+  line1: 'MyPet demo delivery address',
+  line2: null,
+  city: 'Tirupati',
+  state: 'Andhra Pradesh',
+  pincode: '517501',
+  geoLat: 13.6288,
+  geoLng: 79.4192,
+  isDefault: true,
+};
+
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function demoCheckoutQuote(subtotal: number, couponCode: string | null): CheckoutQuoteOutput {
+  const couponDiscount = couponCode ? Math.min(100, roundMoney(subtotal * 0.05)) : 0;
+  const deliveryFee = subtotal >= 999 ? 0 : 49;
+  const taxable = Math.max(0, subtotal - couponDiscount);
+  const tax = roundMoney(taxable * 0.05);
+  const payableTotal = roundMoney(taxable + deliveryFee + tax);
+
+  return {
+    quoteToken: `DEMO-${Date.now()}`,
+    subtotal: roundMoney(subtotal),
+    itemDiscount: 0,
+    couponDiscount,
+    loyaltyDiscount: 0,
+    deliveryFee,
+    tax,
+    roundOff: 0,
+    payableTotal,
+    isCodAvailable: true,
+    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+  };
+}
+
+function categoryImage(category: string): string {
+  switch (category) {
+    case 'food': return DEMO_MEDIA.food;
+    case 'treats': return DEMO_MEDIA.treats;
+    case 'toys': return DEMO_MEDIA.toys;
+    case 'travel': return DEMO_MEDIA.travel;
+    case 'furniture': return DEMO_MEDIA.furniture;
+    default: return DEMO_MEDIA.store;
+  }
+}
 
 export default function CheckoutScreen() {
   const router = useRouter();
@@ -49,9 +102,25 @@ export default function CheckoutScreen() {
     return Array.from(quantities, ([offeringId, quantity]) => ({ offeringId, quantity }));
   }, [items]);
 
+  const itemSubtotal = useMemo(
+    () => items.reduce((total, item) => total + item.unitPrice * item.quantity, 0),
+    [items],
+  );
+  const itemSavings = useMemo(
+    () => items.reduce((total, item) => {
+      const original = item.product.originalPrice ?? item.unitPrice;
+      return total + Math.max(0, original - item.unitPrice) * item.quantity;
+    }, 0),
+    [items],
+  );
+
   const hasPreviewItems = !providerId
     || !UUID_PATTERN.test(providerId)
     || checkoutItems.some((item) => !UUID_PATTERN.test(item.offeringId));
+  const demoCheckout = appConfig.allowDemoMode
+    && Boolean(providerId)
+    && checkoutItems.length > 0
+    && hasPreviewItems;
 
   const [address, setAddress] = useState<CustomerAddress | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<CustomerPaymentMethod>('COD');
@@ -64,7 +133,21 @@ export default function CheckoutScreen() {
 
   const loadData = useCallback(async () => {
     if (!user || !session || cartLoading) return;
-    if (!providerId || checkoutItems.length === 0 || hasPreviewItems) {
+    if (!providerId || checkoutItems.length === 0) {
+      setQuote(null);
+      setState('ready');
+      return;
+    }
+
+    if (demoCheckout) {
+      setAddress(DEMO_ADDRESS);
+      setQuote(demoCheckoutQuote(itemSubtotal, appliedCoupon));
+      setPendingOrder(null);
+      setState('ready');
+      return;
+    }
+
+    if (hasPreviewItems) {
       setQuote(null);
       setState('ready');
       return;
@@ -91,7 +174,7 @@ export default function CheckoutScreen() {
     } catch (error) {
       setState(isOfflineError(error) ? 'offline' : 'error');
     }
-  }, [appliedCoupon, cartLoading, checkoutItems, hasPreviewItems, paymentMethod, providerId, session, user]);
+  }, [appliedCoupon, cartLoading, checkoutItems, demoCheckout, hasPreviewItems, itemSubtotal, paymentMethod, providerId, session, user]);
 
   useEffect(() => {
     if (user && session) void loadData();
@@ -130,6 +213,14 @@ export default function CheckoutScreen() {
     if (!user || !session || !address || !quote || !providerId || checkoutItems.length === 0) return;
     if (paymentMethod === 'COD' && !quote.isCodAvailable) {
       Alert.alert('COD unavailable', quote.codRejectionReason || 'Choose UPI or card for this order.');
+      return;
+    }
+
+    if (demoCheckout) {
+      Alert.alert(
+        paymentMethod === 'COD' ? 'Demo order simulated' : 'Demo payment simulated',
+        `₹${quote.payableTotal.toFixed(2)} was simulated for UI testing only. No backend order was created and no money was charged.`,
+      );
       return;
     }
 
@@ -189,7 +280,11 @@ export default function CheckoutScreen() {
   if (state === 'loading' || cartLoading) {
     return (
       <ScreenShell scroll={false} header={<AppBar title={t('routes.checkout')} />}>
-        <StateView kind="loading" title={t('states.loading')} message="Fetching the server-authoritative total…" />
+        <StateView
+          kind="loading"
+          title={t('states.loading')}
+          message={demoCheckout ? 'Preparing the safe demo checkout…' : 'Fetching the server-authoritative total…'}
+        />
       </ScreenShell>
     );
   }
@@ -216,7 +311,7 @@ export default function CheckoutScreen() {
     );
   }
 
-  if (hasPreviewItems) {
+  if (hasPreviewItems && !demoCheckout) {
     return (
       <ScreenShell scroll={false} header={<AppBar title={t('routes.checkout')} />}>
         <StateView
@@ -245,8 +340,24 @@ export default function CheckoutScreen() {
   }
 
   return (
-    <ScreenShell header={<AppBar title={t('routes.checkout')} subtitle="Secure server-authoritative checkout" />}>
+    <ScreenShell
+      header={(
+        <AppBar
+          title={t('routes.checkout')}
+          subtitle={demoCheckout ? 'Safe demo payment review' : 'Secure server-authoritative checkout'}
+        />
+      )}
+    >
       <View style={styles.container}>
+        {demoCheckout ? (
+          <View style={[styles.notice, { backgroundColor: theme.primarySoft }]}>
+            <StatusBadge label="DEMO CHECKOUT" tone="warning" />
+            <ThemedText type="small" themeColor="textSecondary">
+              Development simulation only. No order is sent to the backend and no payment is charged.
+            </ThemedText>
+          </View>
+        ) : null}
+
         <View style={[styles.card, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
           <View style={styles.headerRow}>
             <AppIcon name="location" size={18} color={theme.primary} />
@@ -257,6 +368,39 @@ export default function CheckoutScreen() {
           <ThemedText type="small" themeColor="textSecondary">
             {address.city}, {address.state} – {address.pincode}
           </ThemedText>
+        </View>
+
+        <View style={[styles.card, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+          <View style={styles.headerRow}>
+            <ThemedText style={styles.cardTitle}>Order items</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {items.reduce((sum, item) => sum + item.quantity, 0)} items
+            </ThemedText>
+          </View>
+          {items.map((item) => (
+            <View key={`${item.product.id}-${item.selectedVariant?.id ?? 'default'}`} style={styles.itemRow}>
+              <View style={[styles.itemImageWrap, { backgroundColor: theme.muted }]}>
+                <ResilientRemoteImage
+                  uri={item.product.imageUrl}
+                  fallbackUri={categoryImage(item.product.category)}
+                  style={styles.itemImage}
+                />
+              </View>
+              <View style={styles.itemCopy}>
+                <ThemedText style={styles.itemName} numberOfLines={2}>{item.product.name}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                  {item.selectedVariant?.name ?? 'Standard'} · Qty {item.quantity}
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  ₹{item.unitPrice.toFixed(2)} × {item.quantity}
+                </ThemedText>
+              </View>
+              <ThemedText style={styles.lineTotal}>₹{(item.unitPrice * item.quantity).toFixed(2)}</ThemedText>
+            </View>
+          ))}
+          <View style={[styles.divider, { backgroundColor: theme.border }]} />
+          <PriceRow label="Item subtotal" value={itemSubtotal} />
+          {itemSavings > 0 ? <PriceRow label="Product savings" value={-itemSavings} /> : null}
         </View>
 
         <View style={[styles.card, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
@@ -275,7 +419,10 @@ export default function CheckoutScreen() {
                   }}
                   style={[
                     styles.method,
-                    { borderColor: selected ? theme.primary : theme.border, backgroundColor: selected ? theme.primarySoft : theme.background },
+                    {
+                      borderColor: selected ? theme.primary : theme.border,
+                      backgroundColor: selected ? theme.primarySoft : theme.background,
+                    },
                   ]}
                 >
                   <ThemedText style={{ fontWeight: '700', color: selected ? theme.primary : theme.text }}>
@@ -286,7 +433,9 @@ export default function CheckoutScreen() {
             })}
           </View>
           <ThemedText type="small" themeColor="textSecondary">
-            Online payment success is accepted only after Cashfree webhook verification.
+            {demoCheckout
+              ? 'Payment method selection is simulated in demo mode; no gateway will be opened.'
+              : 'Online payment success is accepted only after Cashfree webhook verification.'}
           </ThemedText>
           {paymentMethod === 'COD' && quote && !quote.isCodAvailable ? (
             <View style={styles.warningRow}>
@@ -312,7 +461,7 @@ export default function CheckoutScreen() {
               <TextInput
                 value={couponCodeInput}
                 onChangeText={setCouponCodeInput}
-                placeholder="Enter coupon code"
+                placeholder={demoCheckout ? 'Enter any demo coupon' : 'Enter coupon code'}
                 placeholderTextColor={theme.textSecondary}
                 autoCapitalize="characters"
                 style={[styles.input, { color: theme.text, borderColor: theme.border }]}
@@ -326,11 +475,11 @@ export default function CheckoutScreen() {
 
         {quote ? (
           <View style={[styles.card, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-            <ThemedText style={styles.cardTitle}>Price breakdown</ThemedText>
-            <PriceRow label="Items" value={quote.subtotal} />
-            {quote.couponDiscount > 0 ? <PriceRow label="Coupon" value={-quote.couponDiscount} /> : null}
-            {quote.loyaltyDiscount > 0 ? <PriceRow label="Loyalty" value={-quote.loyaltyDiscount} /> : null}
-            <PriceRow label="Delivery" value={quote.deliveryFee} />
+            <ThemedText style={styles.cardTitle}>Final payment breakdown</ThemedText>
+            <PriceRow label="Products" value={quote.subtotal} />
+            {quote.couponDiscount > 0 ? <PriceRow label="Coupon discount" value={-quote.couponDiscount} /> : null}
+            {quote.loyaltyDiscount > 0 ? <PriceRow label="Loyalty discount" value={-quote.loyaltyDiscount} /> : null}
+            <PriceRow label="Delivery fee" value={quote.deliveryFee} />
             <PriceRow label="Tax" value={quote.tax} />
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <View style={styles.headerRow}>
@@ -350,7 +499,11 @@ export default function CheckoutScreen() {
         ) : null}
 
         <PrimaryAction
-          label={paymentMethod === 'COD' ? 'Place COD order' : 'Pay securely with Cashfree'}
+          label={demoCheckout
+            ? `Simulate ${paymentMethod} · ₹${quote?.payableTotal.toFixed(2) ?? '0.00'}`
+            : paymentMethod === 'COD'
+              ? 'Place COD order'
+              : `Pay ₹${quote?.payableTotal.toFixed(2) ?? '0.00'} securely`}
           onPress={() => void handlePlaceOrder()}
           loading={placing}
         />
@@ -363,7 +516,9 @@ function PriceRow({ label, value }: { label: string; value: number }) {
   return (
     <View style={styles.headerRow}>
       <ThemedText themeColor="textSecondary">{label}</ThemedText>
-      <ThemedText style={styles.priceValue}>{value < 0 ? '-' : ''}₹{Math.abs(value).toFixed(2)}</ThemedText>
+      <ThemedText style={styles.priceValue}>
+        {value < 0 ? '-' : ''}₹{Math.abs(value).toFixed(2)}
+      </ThemedText>
     </View>
   );
 }
@@ -373,6 +528,12 @@ const styles = StyleSheet.create({
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.card, padding: spacing.x4, gap: spacing.x3 },
   cardTitle: { ...typography.label, fontWeight: '700' },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.x2 },
+  itemRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.x3 },
+  itemImageWrap: { width: 58, height: 58, borderRadius: radii.compact, overflow: 'hidden' },
+  itemImage: { width: '100%', height: '100%' },
+  itemCopy: { flex: 1, minWidth: 0, gap: 2 },
+  itemName: { fontWeight: '700', fontSize: 13, lineHeight: 18 },
+  lineTotal: { fontWeight: '800' },
   methodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
   method: { borderWidth: 1, borderRadius: radii.compact, paddingHorizontal: spacing.x3, paddingVertical: spacing.x2 },
   warningRow: { flexDirection: 'row', gap: spacing.x2, alignItems: 'flex-start' },

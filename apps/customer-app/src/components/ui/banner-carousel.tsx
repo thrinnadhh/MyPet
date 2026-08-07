@@ -14,12 +14,7 @@ import { ThemedText } from '@/components/themed-text';
 import { PROMO_BANNERS, type PromoBanner } from '@/constants/content';
 import { Radius, Shadows, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-
-const BANNER_IMAGES = [
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuD6AeLhg79H-Qs95EgMOGxSG2HjJa3jlosvBXsvXE5r1rnCSeml3ETIaLhK2r2kkY8l014vbMq3CO9DvXCeF_udak6kApRBpmmenOLebPTGJDX0lNUEn2c_IpOj50T6QSmzoOy6xOPOOdMY2evfXi4nMgs9TZbCWytwpJvN8ZpQmxIi2hs9iM4G6ZZ-KAAlvmuhSUGUnp0BytQTvH3Yv5djAj6xrWVYt-TSyCg82T7EA5fDQuWEqnrBtDvcw7nJsN8Qi7g7AzJId8',
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuASfM4FE2gFaBN0OhgeTBOjES2tuJHOL72sgaRGgO-tENBpVYDnBud9une2vRaHplLerDL25aSx0vh9cJz69DTuFIW1egWGJvltzY6_RQn4GF_mmvas_iU801N87_y6-JFB3H3zQFxvQwyYXfEgQuV0F3BI5heqbe6Fn_zOitcCR1esBTCKNBI4NVMHkzRxgVe8mC0fGuNb2htuR3f91sz8odhN4x_vfPmxh9MBA5fDQuWEqnrBtDvcw7nJsN8Qi7g7AzJId8',
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuDP0Bso5NdUTuYfQmdxjGfrU18IgCERDgWEobR1RzRKk0phJmTjprXxrZ2e6MSiBzYHNllyH_O29w9XG-5RgKbo7sx9KygQhzOHoPj74CO-x1GqUujm5wEjiMN462Jd5zLvEnUDGElVK2fb7LGOI7ziuz25lE42roHK7gbnIVfpE7H3TXg8vXkDQ8iQBLfj3YiIarAthoLCqep7tQ7gY0S0wJwunX30RA3VqJ-IO10PEIcc7YJiBsxCcI9DaozwNmO6Uu30bknpLIc',
-] as const;
+import { DEMO_BANNER_IMAGES } from '@/services/demo-customer-data';
 
 export function BannerCarousel({
   banners = PROMO_BANNERS,
@@ -99,7 +94,7 @@ export function BannerCarousel({
               accessibilityLabel={`${item.title}. ${item.subtitle}`}
             >
               <Image
-                source={{ uri: BANNER_IMAGES[itemIndex % BANNER_IMAGES.length] }}
+                source={{ uri: DEMO_BANNER_IMAGES[itemIndex % DEMO_BANNER_IMAGES.length] }}
                 style={StyleSheet.absoluteFill}
                 contentFit="cover"
                 transition={180}

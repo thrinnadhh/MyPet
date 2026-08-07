@@ -36,15 +36,24 @@ describe('customer end-to-end regression contracts', () => {
     expect(payments).toMatch(/apiClient\.post/);
   });
 
-  it('books appointments with an owned pet through hold and confirmation', () => {
-    const screen = source('src/screens/appointment-discovery-screen.tsx');
+  it('books appointments with an owned pet through hold, payment and confirmation', () => {
+    const discovery = source('src/screens/appointment-discovery-screen.tsx');
+    const payment = source('src/app/appointments/payment.tsx');
     const service = source('src/services/appointment-booking.ts');
+    const payments = source('src/services/customer-payments.ts');
 
-    expect(screen).toMatch(/fetchCustomerPets/);
-    expect(screen).toMatch(/createCustomerPet/);
-    expect(screen).toMatch(/holdAppointmentSlot/);
-    expect(screen).toMatch(/confirmAppointmentHold/);
+    expect(discovery).toMatch(/fetchCustomerPets/);
+    expect(discovery).toMatch(/createCustomerPet/);
+    expect(discovery).toMatch(/holdAppointmentSlot/);
+    expect(discovery).toMatch(/\/appointments\/payment/);
+    expect(discovery).not.toMatch(/confirmAppointmentHold\(appointmentId/);
+    expect(payment).toMatch(/initiateAppointmentPayment/);
+    expect(payment).toMatch(/waitForReferencePaymentOutcome/);
+    expect(payment).toMatch(/payment\.status === 'SUCCESS'/);
+    expect(payment).toMatch(/confirmAppointmentHold/);
+    expect(payments).toMatch(/APPOINTMENT_PAYMENT/);
     expect(service).toMatch(/petId: input\.petId/);
+    expect(service).toMatch(/payAtClinic: false/);
     expect(service).not.toMatch(/petId: bookingUserId/);
   });
 
