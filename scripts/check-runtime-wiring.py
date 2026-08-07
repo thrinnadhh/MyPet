@@ -141,7 +141,7 @@ else:
     compose = compose_path.read_text(encoding="utf-8")
     for service, search_path in COMPOSE_SEARCH_PATHS.items():
         expected = (
-            "DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?"
+            "DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?"
             f"currentSchema={search_path}&stringtype=unspecified"
         )
         if expected not in compose:
