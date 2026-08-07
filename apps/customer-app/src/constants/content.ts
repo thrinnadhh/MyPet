@@ -11,6 +11,8 @@ export interface GuideArticle {
   likeCount: number;
 }
 
+export type BannerTargetType = 'NONE' | 'PRODUCT' | 'STORE' | 'CATEGORY' | 'ROUTE';
+
 export interface PromoBanner {
   id: string;
   title: string;
@@ -18,14 +20,21 @@ export interface PromoBanner {
   accent: string;
   /** Display duration in seconds (auction-style: 5→1) */
   durationSec: number;
+  sortOrder?: number;
+  active?: boolean;
+  imageUrl?: string | null;
+  targetType: BannerTargetType;
+  targetValue?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
 }
 
 export const PROMO_BANNERS: PromoBanner[] = [
-  { id: 'b1', title: 'Free delivery today', subtitle: 'On orders above ₹499 from nearby stores', accent: '#F97316', durationSec: 5 },
-  { id: 'b2', title: 'Grooming week', subtitle: 'Book a spa slot and get 10% off', accent: '#2563EB', durationSec: 4 },
-  { id: 'b3', title: 'Vet checkup drive', subtitle: 'Annual wellness packages from ₹799', accent: '#14B8A6', durationSec: 3 },
-  { id: 'b4', title: 'New puppy guide', subtitle: 'Read age-wise care tips in Guides', accent: '#B45309', durationSec: 2 },
-  { id: 'b5', title: 'Tick season alert', subtitle: 'Prevention tips for monsoon months', accent: '#B91C1C', durationSec: 1 },
+  { id: 'b1', title: 'Free delivery today', subtitle: 'On orders above ₹499 from nearby stores', accent: '#F97316', durationSec: 5, targetType: 'CATEGORY', targetValue: 'food' },
+  { id: 'b2', title: 'Grooming week', subtitle: 'Book a spa slot and get 10% off', accent: '#2563EB', durationSec: 4, targetType: 'ROUTE', targetValue: '/groom' },
+  { id: 'b3', title: 'Vet checkup drive', subtitle: 'Annual wellness packages from ₹799', accent: '#14B8A6', durationSec: 3, targetType: 'ROUTE', targetValue: '/vet' },
+  { id: 'b4', title: 'New puppy guide', subtitle: 'Read age-wise care tips in Guides', accent: '#B45309', durationSec: 2, targetType: 'ROUTE', targetValue: '/guides' },
+  { id: 'b5', title: 'Tick season alert', subtitle: 'Prevention tips for monsoon months', accent: '#B91C1C', durationSec: 1, targetType: 'CATEGORY', targetValue: 'treats' },
 ];
 
 export const GUIDE_CATEGORIES: { id: GuideCategory; label: string; description: string }[] = [
