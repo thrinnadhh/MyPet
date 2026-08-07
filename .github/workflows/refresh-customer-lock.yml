@@ -43,7 +43,7 @@ jobs:
           }
           entry.version = '3.15.1';
           entry.resolved = 'https://registry.npmjs.org/js-yaml/-/js-yaml-3.15.1.tgz';
-          entry.integrity = 'sha512-IJsItZwjK5aPlt0y8qW/DSLwQ7rHmbUSIqVIktFKGMnSkKT9QrOFcqT5SoQrjcQ4DoTxc3c9+7Yxe7wvsLIjWg==';
+          entry.integrity = 'sha512-S99WuO3HlhO3XN41EtYUNl9zzXjoJx7QvmipxsJVxtCBT0YHEFy+iOJhjSvrmV12nYhWpZaM8lPHkJm0yUMbag==';
           fs.writeFileSync(path, JSON.stringify(lock, null, 2) + '\n');
           NODE
 
