@@ -2,8 +2,10 @@ package com.pawsnearme.paymentservice.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.common.idempotency.IdempotencyService
+import com.pawsnearme.paymentservice.model.AppointmentRef
 import com.pawsnearme.paymentservice.model.OrderRef
 import com.pawsnearme.paymentservice.model.Transaction
+import com.pawsnearme.paymentservice.repository.AppointmentRefRepository
 import com.pawsnearme.paymentservice.repository.OrderRefRepository
 import com.pawsnearme.paymentservice.repository.TransactionRepository
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -25,11 +27,13 @@ import javax.crypto.spec.SecretKeySpec
 class CashfreeGatewayServiceTests {
     private val transactions: TransactionRepository = mock()
     private val orders: OrderRefRepository = mock()
+    private val appointments: AppointmentRefRepository = mock()
     private val idempotency: IdempotencyService = mock()
     private val secret = "cashfree-test-secret"
     private val service = CashfreeGatewayService(
         transactionRepository = transactions,
         orderRefRepository = orders,
+        appointmentRefRepository = appointments,
         idempotencyService = idempotency,
         objectMapper = ObjectMapper(),
         clientId = "",
@@ -79,6 +83,44 @@ class CashfreeGatewayServiceTests {
         assertTrue(result.paymentSessionId.startsWith("session_mock_"))
         assertEquals("SANDBOX", result.environment)
         assertEquals(BigDecimal("499.00"), result.amount)
+    }
+
+    @Test
+    fun `sandbox appointment payment validates held appointment ownership and price`() {
+        val appointmentId = UUID.randomUUID()
+        whenever(appointments.findById(appointmentId)).thenReturn(
+            Optional.of(
+                AppointmentRef(
+                    appointmentId = appointmentId,
+                    customerId = customerId,
+                    providerId = UUID.randomUUID(),
+                    status = "SLOT_HELD",
+                    priceAmount = BigDecimal("799.00"),
+                    completedAt = null,
+                ),
+            ),
+        )
+        whenever(transactions.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(any(), any()))
+            .thenReturn(null)
+        whenever(transactions.save(any())).thenAnswer { invocation ->
+            invocation.getArgument<Transaction>(0).also {
+                it.transactionId = it.transactionId ?: UUID.randomUUID()
+            }
+        }
+
+        val result = service.createOrder(
+            CreateCashfreeOrderRequest(
+                userId = customerId,
+                referenceId = appointmentId,
+                amount = BigDecimal("799.00"),
+                transactionType = "APPOINTMENT_PAYMENT",
+                customerPhone = "9876543210",
+            ),
+        )
+
+        assertEquals(BigDecimal("799.00"), result.amount)
+        assertEquals("SANDBOX", result.environment)
+        assertTrue(result.paymentSessionId.startsWith("session_mock_"))
     }
 
     @Test
