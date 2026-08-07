@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 function source(relativePath: string): string {
@@ -55,6 +55,26 @@ describe('customer end-to-end regression contracts', () => {
     expect(service).toMatch(/petId: input\.petId/);
     expect(service).toMatch(/payAtClinic: false/);
     expect(service).not.toMatch(/petId: bookingUserId/);
+  });
+
+  it('does not retain the obsolete mock appointment modal or timer hook', () => {
+    expect(existsSync(join(process.cwd(), 'src/hooks/useAppointmentBooking.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/components/care/AppointmentBookingModal.tsx'))).toBe(false);
+  });
+
+  it('uses live banner media and target-aware internal navigation', () => {
+    const content = source('src/services/content.ts');
+    const banner = source('src/components/ui/banner-carousel.tsx');
+    const contract = source('src/constants/content.ts');
+
+    expect(contract).toMatch(/BannerTargetType/);
+    expect(contract).toMatch(/PRODUCT.*STORE.*CATEGORY.*ROUTE/s);
+    expect(content).toMatch(/\/api\/v1\/content\/banners/);
+    expect(banner).toMatch(/item\.imageUrl/);
+    expect(banner).toMatch(/commerce\/product-detail/);
+    expect(banner).toMatch(/\/shop\//);
+    expect(banner).toMatch(/\/category\//);
+    expect(banner).toMatch(/!target\.includes\(':\/\/'\)/);
   });
 
   it('isolates carts by customer and rebuilds validated carts', () => {
