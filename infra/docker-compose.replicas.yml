@@ -4,8 +4,10 @@ x-backend-common: &backend-common
     dockerfile: backend/Dockerfile
   environment: &backend-env
     SPRING_PROFILES_ACTIVE: docker
-    DB_USERNAME: postgres
-    DB_PASSWORD: postgres
+    DB_USERNAME: ${POSTGRES_USER:-postgres}
+    DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for rollback}
+    FLYWAY_DB_USERNAME: ${POSTGRES_USER:-postgres}
+    FLYWAY_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for rollback migrations}
     DB_POOL_MAX_SIZE: 5
     REDIS_HOST: redis
     REDIS_PORT: 6379
@@ -46,9 +48,13 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8081
-      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=providers,identity,public&stringtype=unspecified
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=providers,identity,public&stringtype=unspecified
       SPRING_FLYWAY_TABLE: flyway_schema_history_provider
-      PROVIDER_PUBLIC_BASE_URL: ${PROVIDER_PUBLIC_BASE_URL:-http://localhost:8080}
+      PROVIDER_PUBLIC_BASE_URL: ${PUBLIC_URL:?PUBLIC_URL must be the external HTTPS API URL for rollback}
+      MEDICAL_REPORTS_BUCKET: ${MEDICAL_REPORTS_BUCKET:?MEDICAL_REPORTS_BUCKET must be set}
+      MEDICAL_REPORTS_REGION: ${MEDICAL_REPORTS_REGION:-ap-south-1}
+      MEDICAL_REPORTS_ACCESS_KEY: ${MEDICAL_REPORTS_ACCESS_KEY:?MEDICAL_REPORTS_ACCESS_KEY must be set}
+      MEDICAL_REPORTS_SECRET_KEY: ${MEDICAL_REPORTS_SECRET_KEY:?MEDICAL_REPORTS_SECRET_KEY must be set}
 
   catalog-service:
     <<: *backend-common
@@ -60,7 +66,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8082
-      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=catalog,providers,identity,public&stringtype=unspecified
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=catalog,providers,identity,public&stringtype=unspecified
       SPRING_FLYWAY_TABLE: flyway_schema_history_catalog
 
   discovery-service:
@@ -73,7 +79,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8083
-      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=providers,catalog,customer,public&stringtype=unspecified
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=providers,catalog,customer,public&stringtype=unspecified
       SPRING_FLYWAY_TABLE: flyway_schema_history_discovery
 
   order-service:
@@ -86,13 +92,15 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8084
-      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=orders,providers,catalog,public&stringtype=unspecified
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=orders,providers,catalog,public&stringtype=unspecified
       SPRING_FLYWAY_TABLE: flyway_schema_history_order
       CATALOG_SERVICE_URL: http://catalog-service:8082
       PAYMENT_SERVICE_URL: http://payment-service:8090
       PROVIDER_SERVICE_URL: http://provider-service:8081
       DISCOVERY_SERVICE_URL: http://discovery-service:8083
       ORDER_AUTO_COMPLETE_HOURS: "1"
+      ORDER_CASE_EVIDENCE_PUBLIC_BASE_URL: ${PUBLIC_URL:?PUBLIC_URL must be the external HTTPS API URL for rollback}
+      CASE_EVIDENCE_SIGNING_KEY: ${CASE_EVIDENCE_SIGNING_KEY:?CASE_EVIDENCE_SIGNING_KEY must be set}
 
   appointment-service:
     <<: *backend-common
@@ -104,10 +112,12 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8085
-      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=appointments,catalog,providers,public&stringtype=unspecified
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=appointments,catalog,providers,public&stringtype=unspecified
       SPRING_FLYWAY_TABLE: flyway_schema_history_appointment
       CATALOG_SERVICE_URL: http://catalog-service:8082
       PROVIDER_SERVICE_URL: http://provider-service:8081
+      APPOINTMENT_MEDICAL_DOCUMENTS_PUBLIC_BASE_URL: ${PUBLIC_URL:?PUBLIC_URL must be the external HTTPS API URL for rollback}
+      MEDICAL_DOCUMENT_SIGNING_KEY: ${MEDICAL_DOCUMENT_SIGNING_KEY:?MEDICAL_DOCUMENT_SIGNING_KEY must be set}
 
   dispatch-service:
     <<: *backend-common
@@ -119,7 +129,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8086
-      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=dispatch,orders,providers,public&stringtype=unspecified
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=dispatch,orders,providers,public&stringtype=unspecified
       SPRING_FLYWAY_TABLE: flyway_schema_history_dispatch
       ORDER_SERVICE_URL: http://order-service:8084
 
@@ -133,8 +143,9 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8087
-      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=captains,identity,public&stringtype=unspecified
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=captains,identity,public&stringtype=unspecified
       SPRING_FLYWAY_TABLE: flyway_schema_history_captain
+      BANK_DATA_ENCRYPTION_KEY: ${BANK_DATA_ENCRYPTION_KEY:?BANK_DATA_ENCRYPTION_KEY must be set}
 
   notification-service:
     <<: *backend-common
@@ -146,7 +157,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8088
-      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=notifications,appointments,catalog,public&stringtype=unspecified
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=notifications,appointments,catalog,public&stringtype=unspecified
       SPRING_FLYWAY_TABLE: flyway_schema_history_notification
       PROVIDER_SERVICE_URL: http://provider-service:8081
       NOTIFICATION_DELIVERY_MODE: EXPO_FCM
@@ -161,7 +172,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8089
-      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=reviews,public&stringtype=unspecified
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=reviews,public&stringtype=unspecified
       SPRING_FLYWAY_TABLE: flyway_schema_history_review
 
   payment-service:
@@ -172,17 +183,17 @@ services:
       args:
         SERVICE_NAME: payment-service
     ports:
-      - "8090:8090"
+      - "127.0.0.1:8090:8090"
     environment:
       <<: *backend-env
       SERVER_PORT: 8090
-      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=payments,orders,appointments,captains,providers,public&stringtype=unspecified
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=payments,orders,appointments,captains,providers,public&stringtype=unspecified
       SPRING_FLYWAY_TABLE: flyway_schema_history_payment
       CASHFREE_SANDBOX_MODE: "false"
       CASHFREE_API_VERSION: "2025-01-01"
       CASHFREE_CLIENT_ID: ${CASHFREE_CLIENT_ID:?CASHFREE_CLIENT_ID must be set}
       CASHFREE_CLIENT_SECRET: ${CASHFREE_CLIENT_SECRET:?CASHFREE_CLIENT_SECRET must be set}
-      CASHFREE_WEBHOOK_SECRET: ${CASHFREE_WEBHOOK_SECRET:-}
+      CASHFREE_WEBHOOK_SECRET: ${CASHFREE_WEBHOOK_SECRET:?CASHFREE_WEBHOOK_SECRET must be set}
       PAYMENT_CHECKOUT_TOKEN_SECRET: ${PAYMENT_CHECKOUT_TOKEN_SECRET:?PAYMENT_CHECKOUT_TOKEN_SECRET must be set}
 
   chat-service:
@@ -195,9 +206,9 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8091
-      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=chat,identity,providers,public&stringtype=unspecified
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=chat,identity,providers,public&stringtype=unspecified
       SPRING_FLYWAY_TABLE: flyway_schema_history_chat
-      CHAT_PUBLIC_BASE_URL: ${CHAT_PUBLIC_BASE_URL:-http://localhost:8091}
+      CHAT_PUBLIC_BASE_URL: ${PUBLIC_URL:?PUBLIC_URL must be the external HTTPS API URL for rollback}
 
   content-service:
     <<: *backend-common
@@ -209,7 +220,7 @@ services:
     environment:
       <<: *backend-env
       SERVER_PORT: 8092
-      DB_URL: jdbc:postgresql://postgres:5432/pawsnearme?currentSchema=content,public&stringtype=unspecified
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pawsnearme}?currentSchema=content,public&stringtype=unspecified
       SPRING_FLYWAY_TABLE: flyway_schema_history_content
 
   api-gateway:
@@ -222,11 +233,16 @@ services:
       - "8080:8080"
     environment:
       SERVER_PORT: 8080
+      SPRING_PROFILES_ACTIVE: docker
       REDIS_HOST: redis
       REDIS_PORT: 6379
       GATEWAY_SECRET: ${GATEWAY_SECRET:?GATEWAY_SECRET must be set}
       GATEWAY_RATE_LIMIT_REPLENISH_RATE: 100
       GATEWAY_RATE_LIMIT_BURST_CAPACITY: 200
+      GATEWAY_CORS_ALLOWED_ORIGINS: ${GATEWAY_CORS_ALLOWED_ORIGINS:?GATEWAY_CORS_ALLOWED_ORIGINS must be set}
+      ALLOW_UNSIGNED_JWT: "false"
+      SUPABASE_JWT_JWK_SET_URI: ${SUPABASE_JWT_JWK_SET_URI:?SUPABASE_JWT_JWK_SET_URI must be set}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
       PROVIDER_SERVICE_URL: http://provider-service:8081
       CATALOG_SERVICE_URL: http://catalog-service:8082
       DISCOVERY_SERVICE_URL: http://discovery-service:8083
@@ -276,13 +292,13 @@ services:
   prometheus:
     image: prom/prometheus:v2.54.1
     ports:
-      - "9095:9090"
+      - "127.0.0.1:9095:9090"
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
 
   grafana:
     image: grafana/grafana:11.1.4
     ports:
-      - "3005:3000"
+      - "127.0.0.1:3005:3000"
     depends_on:
       - prometheus
