@@ -23,10 +23,10 @@ class SchedulerRuntimeTests {
         assertEquals(4, catalog.jobsOwnedBy("order").size)
         assertTrue(
             catalog.jobs.any {
-                it.id == "order.recurring-confirmation-reminders" &&
+                it.id == "order.recurring-order-generation" &&
                     it.component == "RecurringOrderScheduler" &&
-                    it.method == "requestDueConfirmations" &&
-                    it.lockIdentity == "orders.shedlock/recurringOrderConfirmationReminder"
+                    it.method == "generateDueOrders" &&
+                    it.lockIdentity == "orders.shedlock/recurringOrderGeneration"
             }
         )
     }
