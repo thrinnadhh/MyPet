@@ -1,17 +1,24 @@
 package com.pawsnearme.orderservice.controller
 
-import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
 import com.pawsnearme.orderservice.service.CreateOrderRequest
-import com.pawsnearme.orderservice.service.CustomerOrderSummary
 import com.pawsnearme.orderservice.service.DeliveryContactLookup
+import com.pawsnearme.orderservice.service.MerchantOrderQueryService
 import com.pawsnearme.orderservice.service.OrderService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.transaction.annotation.Transactional
-import org.springframework.web.bind.annotation.*
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
+import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
+import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
+import org.springframework.web.bind.annotation.RestController
 import java.util.UUID
 
 @RestController
@@ -20,6 +27,7 @@ class OrderController(
     private val orderService: OrderService,
     private val orderRepository: OrderRepository,
     private val deliveryContactLookup: DeliveryContactLookup,
+    private val merchantOrderQueryService: MerchantOrderQueryService,
 ) {
 
     @PostMapping
@@ -110,12 +118,13 @@ class OrderController(
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(mapOf("error" to "Missing authenticated user context."))
         }
-        val orders = orderService.getOrdersByProviderWithAuth(
-            providerId,
-            UUID.fromString(authenticatedUserId),
-            authenticatedUserRole
+        val callerId = runCatching { UUID.fromString(authenticatedUserId) }.getOrNull()
+            ?: return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Invalid authenticated user context."))
+        return ResponseEntity.ok(
+            merchantOrderQueryService.listProviderOrders(providerId, callerId, authenticatedUserRole)
         )
-        return ResponseEntity.ok(orders)
     }
 
     @PostMapping("/{id}/cancel")
