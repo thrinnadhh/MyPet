@@ -33,11 +33,11 @@ class TransactionalEmailServiceTests {
             .withProperty("notification.email.msg91.monthly-limit", monthlyLimit.toString())
             .withProperty("notification.email.max-attempts", "5")
 
+        whenever(msg91Provider.providerName).thenReturn("MSG91")
+        whenever(brevoProvider.providerName).thenReturn("BREVO")
         whenever(deliveryRepository.saveAndFlush(any())).thenAnswer { it.arguments[0] as EmailDelivery }
         whenever(deliveryRepository.save(any())).thenAnswer { it.arguments[0] as EmailDelivery }
-        whenever(deliveryRepository.findById(any())).thenAnswer { invocation ->
-            Optional.of(invocation.arguments[0]).filter { false }
-        }
+        whenever(deliveryRepository.findById(any())).thenReturn(Optional.empty())
         whenever(deliveryRepository.countByProviderAndStatusAndSentAtGreaterThanEqual(eq("MSG91"), eq("SENT"), any()))
             .thenReturn(0)
 
@@ -113,6 +113,8 @@ class TransactionalEmailServiceTests {
         assertEquals("SENT", delivery.status)
         assertEquals("BREVO", delivery.provider)
         assertEquals("brevo-1", delivery.providerMessageId)
+        verify(msg91Provider).send(any())
+        verify(brevoProvider).send(any())
     }
 
     @Test
