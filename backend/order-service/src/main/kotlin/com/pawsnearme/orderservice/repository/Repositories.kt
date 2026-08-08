@@ -21,6 +21,7 @@ import java.util.UUID
 interface OrderRepository : JpaRepository<Order, UUID> {
     fun findByCustomerId(customerId: UUID): List<Order>
     fun findByProviderId(providerId: UUID): List<Order>
+    fun findByRecurringOccurrenceId(recurringOccurrenceId: UUID): Optional<Order>
     fun findByStatusAndDeliveredAtBefore(status: OrderStatus, deliveredBefore: java.time.Instant): List<Order>
 
     /**
