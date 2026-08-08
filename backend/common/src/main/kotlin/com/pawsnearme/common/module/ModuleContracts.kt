@@ -23,6 +23,12 @@ interface CatalogModuleApi {
 interface ProviderModuleApi {
     fun ownerUserId(providerId: UUID): UUID?
     fun enabledVaccinationReminders(): List<VaccinationReminderSnapshot>
+
+    /**
+     * Narrow internal lookup used only after the caller has already authorized
+     * access to a customer-owned business record such as an appointment.
+     */
+    fun customerPetIdentity(customerId: UUID, petId: UUID): CustomerPetIdentitySnapshot? = null
 }
 
 interface PaymentModuleApi {
@@ -85,6 +91,13 @@ data class VaccinationReminderSnapshot(
     val vaccineName: String,
     val dueDate: LocalDate,
     val enabled: Boolean
+)
+
+data class CustomerPetIdentitySnapshot(
+    val customerId: UUID,
+    val customerName: String,
+    val petId: UUID,
+    val petName: String
 )
 
 data class PaymentTransactionSnapshot(
