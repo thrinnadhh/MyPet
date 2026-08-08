@@ -7,6 +7,8 @@ CONFIG_JSON="$(mktemp)"
 trap 'rm -f "$ENV_FILE" "$CONFIG_JSON"' EXIT
 
 cat > "$ENV_FILE" <<'EOF'
+SPRING_PROFILES_ACTIVE=local
+POSTGRES_PASSWORD=postgres
 INTERNAL_API_SECRET=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 BANK_DATA_ENCRYPTION_KEY=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
 MEDICAL_REPORTS_BUCKET=mypet-local-medical-reports
@@ -77,6 +79,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 application = config["services"]["mypet-application"]
 environment = application.get("environment", {})
 required = {
+    "SPRING_PROFILES_ACTIVE": "local",
     "GRPC_PORT": "-1",
     "MYPET_MODULES_ENABLED": "true",
     "MYPET_EDGE_ENABLED": "true",

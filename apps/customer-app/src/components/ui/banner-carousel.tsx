@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
@@ -23,6 +24,7 @@ export function BannerCarousel({
   banners?: PromoBanner[];
   onPress?: (banner: PromoBanner) => void;
 }) {
+  const router = useRouter();
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const pageWidth = Math.max(280, width - Spacing.three * 2);
@@ -68,6 +70,35 @@ export function BannerCarousel({
     [pageWidth, safeBanners.length],
   );
 
+  const handleBannerPress = useCallback((banner: PromoBanner) => {
+    const target = banner.targetValue?.trim();
+    if (!target || banner.targetType === 'NONE') {
+      onPress?.(banner);
+      return;
+    }
+
+    switch (banner.targetType) {
+      case 'PRODUCT':
+        router.push({ pathname: '/commerce/product-detail', params: { id: target } } as never);
+        return;
+      case 'STORE':
+        router.push(`/shop/${encodeURIComponent(target)}` as never);
+        return;
+      case 'CATEGORY':
+        router.push(`/category/${encodeURIComponent(target)}` as never);
+        return;
+      case 'ROUTE':
+        if (target.startsWith('/') && !target.startsWith('//') && !target.includes('://')) {
+          router.push(target as never);
+          return;
+        }
+        onPress?.(banner);
+        return;
+      default:
+        onPress?.(banner);
+    }
+  }, [onPress, router]);
+
   return (
     <View style={styles.wrap}>
       <FlatList
@@ -88,13 +119,13 @@ export function BannerCarousel({
         renderItem={({ item, index: itemIndex }) => (
           <View style={{ width: pageWidth }}>
             <Pressable
-              onPress={() => onPress?.(item)}
+              onPress={() => handleBannerPress(item)}
               style={({ pressed }) => [styles.banner, pressed && styles.pressed]}
               accessibilityRole="button"
               accessibilityLabel={`${item.title}. ${item.subtitle}`}
             >
               <ResilientRemoteImage
-                uri={DEMO_BANNER_IMAGES[itemIndex % DEMO_BANNER_IMAGES.length]}
+                uri={item.imageUrl || DEMO_BANNER_IMAGES[itemIndex % DEMO_BANNER_IMAGES.length]}
                 fallbackUri={DEMO_MEDIA.store}
                 style={StyleSheet.absoluteFill}
                 contentFit="cover"

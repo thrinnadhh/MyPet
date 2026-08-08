@@ -1,12 +1,7 @@
+import type { PromoBanner } from '@/constants/content';
 import { appConfig } from '@/utils/app-config';
 
-export interface PromoBanner {
-  id: string;
-  title: string;
-  subtitle: string;
-  accent: string;
-  durationSec: number;
-}
+export type { PromoBanner } from '@/constants/content';
 
 export interface GuideArticle {
   id: string;
@@ -34,13 +29,7 @@ function headers(accessToken?: string | null): Record<string, string> {
 export async function fetchBanners(accessToken?: string | null): Promise<PromoBanner[]> {
   if (appConfig.allowDemoMode) {
     const { PROMO_BANNERS } = await import('@/constants/content');
-    return PROMO_BANNERS.map((b) => ({
-      id: b.id,
-      title: b.title,
-      subtitle: b.subtitle,
-      accent: b.accent,
-      durationSec: b.durationSec,
-    }));
+    return PROMO_BANNERS.map((banner) => ({ ...banner }));
   }
   const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/content/banners`, { headers: headers(accessToken) });
   if (!response.ok) throw new Error('Could not load banners');

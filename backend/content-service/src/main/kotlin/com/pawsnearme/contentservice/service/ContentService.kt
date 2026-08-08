@@ -27,8 +27,12 @@ class ContentService(
     private val likeRepo: GuideLikeRepository,
 ) {
     @Transactional(readOnly = true)
-    fun listActiveBanners(): List<PromoBanner> =
-        bannerRepo.findByActiveTrueOrderBySortOrderAsc().filter { it.status == "ACTIVE" }
+    fun listActiveBanners(now: Instant = Instant.now()): List<PromoBanner> =
+        bannerRepo.findByActiveTrueOrderBySortOrderAsc().filter { banner ->
+            banner.status == "ACTIVE" &&
+                (banner.startsAt == null || !banner.startsAt!!.isAfter(now)) &&
+                (banner.endsAt == null || banner.endsAt!!.isAfter(now))
+        }
 
     @Transactional(readOnly = true)
     fun listGuides(category: String?): List<GuideArticle> =
@@ -40,6 +44,24 @@ class ContentService(
         guideRepo.findByAuthorUserIdOrderByCreatedAtDesc(authorUserId)
 
     fun upsertBanner(banner: PromoBanner): PromoBanner {
+        if (banner.bannerId != null && !bannerRepo.existsById(banner.bannerId!!)) {
+            throw ContentNotFoundException("Banner was not found.")
+        }
+        banner.title = banner.title.trim()
+        banner.subtitle = banner.subtitle.trim()
+        require(banner.title.isNotBlank()) { "Banner title is required." }
+        require(banner.subtitle.isNotBlank()) { "Banner subtitle is required." }
+        banner.durationSec = banner.durationSec.coerceIn(1, 30)
+        banner.imageUrl = banner.imageUrl?.trim()?.takeIf(String::isNotBlank)?.also {
+            require(it.startsWith("https://")) { "Banner image URL must use HTTPS." }
+        }
+        banner.targetType = banner.targetType.trim().uppercase()
+        require(banner.targetType in BANNER_TARGET_TYPES) { "Unsupported banner target type." }
+        banner.targetValue = banner.targetValue?.trim()?.takeIf(String::isNotBlank)
+        validateBannerTarget(banner.targetType, banner.targetValue)
+        if (banner.startsAt != null && banner.endsAt != null) {
+            require(banner.endsAt!!.isAfter(banner.startsAt)) { "Banner end time must be after start time." }
+        }
         if (banner.providerId == null && banner.bidAmount == null && banner.status == "PENDING_BID") {
             banner.status = "ACTIVE"
         }
@@ -128,5 +150,27 @@ class ContentService(
         }
         guideRepo.save(article)
         return GuideLikeResult(liked = liked, likeCount = article.likeCount)
+    }
+
+    private fun validateBannerTarget(targetType: String, targetValue: String?) {
+        if (targetType == "NONE") {
+            require(targetValue == null) { "Banner target value must be empty when target type is NONE." }
+            return
+        }
+        val value = targetValue ?: throw IllegalArgumentException("Banner target value is required.")
+        when (targetType) {
+            "PRODUCT", "STORE" -> runCatching { UUID.fromString(value) }
+                .getOrElse { throw IllegalArgumentException("$targetType banner target must be a UUID.") }
+            "CATEGORY" -> require(value.matches(Regex("[a-z0-9][a-z0-9-]{0,63}"))) {
+                "Category banner target must be a safe category slug."
+            }
+            "ROUTE" -> require(value.startsWith('/') && !value.startsWith("//") && !value.contains("://")) {
+                "Route banner target must be an internal app route."
+            }
+        }
+    }
+
+    companion object {
+        private val BANNER_TARGET_TYPES = setOf("NONE", "PRODUCT", "STORE", "CATEGORY", "ROUTE")
     }
 }

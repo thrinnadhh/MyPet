@@ -41,7 +41,10 @@ CHECKS = {
         "Duplicate provider barcode values remain after canonicalization",
     ],
     "mobile barcode tests": ["inventory and POS share one permission-aware camera scanner", "server owns barcode identity"],
-    "backend barcode tests": ["createOffering canonicalizes leading zero EAN13 to UPC-A", "createBill uses server price canonical barcode"],
+    "backend barcode tests": [
+        "createOffering canonicalizes leading zero EAN13 to UPC-A",
+        "createBill rejects the entire bill when any item fails live stock validation",
+    ],
 }
 
 FORBIDDEN = {

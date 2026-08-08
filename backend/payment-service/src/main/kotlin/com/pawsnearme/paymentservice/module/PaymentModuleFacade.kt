@@ -7,7 +7,7 @@ import com.pawsnearme.common.module.PaymentTransactionSnapshot
 import com.pawsnearme.common.module.PromotionTerms
 import com.pawsnearme.paymentservice.service.CodCheckRequest
 import com.pawsnearme.paymentservice.service.CouponReservationRequest
-import com.pawsnearme.paymentservice.service.LoyaltyService
+import com.pawsnearme.paymentservice.service.LoyaltyLifecycleService
 import com.pawsnearme.paymentservice.service.PaymentService
 import org.springframework.stereotype.Service
 import java.math.BigDecimal
@@ -16,7 +16,7 @@ import java.util.UUID
 @Service
 class PaymentModuleFacade(
     private val paymentService: PaymentService,
-    private val loyaltyService: LoyaltyService
+    private val loyaltyLifecycleService: LoyaltyLifecycleService
 ) : PaymentModuleApi {
 
     override fun transaction(transactionId: UUID): PaymentTransactionSnapshot? =
@@ -92,10 +92,10 @@ class PaymentModuleFacade(
         providerId: UUID,
         netAmount: BigDecimal
     ) {
-        loyaltyService.processOrderDeliveredEvent(orderId, customerId, providerId, netAmount)
+        loyaltyLifecycleService.recordDelivered(orderId, customerId, providerId, netAmount)
     }
 
     override fun recordOrderRefunded(orderId: UUID, customerId: UUID, providerId: UUID) {
-        loyaltyService.processOrderRefundEvent(orderId, customerId, providerId)
+        loyaltyLifecycleService.recordRefunded(orderId, customerId, providerId)
     }
 }

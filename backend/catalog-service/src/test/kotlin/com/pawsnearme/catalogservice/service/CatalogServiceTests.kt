@@ -282,7 +282,7 @@ class CatalogServiceTests {
     }
 
     @Test
-    fun `createBill uses server price canonical barcode and records partial stock failure`() {
+    fun `createBill rejects the entire bill when any item fails live stock validation`() {
         val storeId = UUID.randomUUID()
         val staffId = UUID.randomUUID()
         val firstProductId = UUID.randomUUID()
@@ -311,38 +311,35 @@ class CatalogServiceTests {
         }
         whenever(billItemRepository.save(any<BillItem>())).thenAnswer { it.arguments[0] as BillItem }
 
-        val response = catalogService.createBill(
-            billRequest(
-                storeId = storeId,
-                staffId = staffId,
-                items = listOf(
-                    BillItemRequest(
-                        productId = firstProductId,
-                        barcodeScanned = "0123456789012",
-                        quantity = 2,
-                        unitPrice = BigDecimal("999.00"),
-                        discountAmount = BigDecimal.ZERO,
-                        discountType = "NONE"
-                    ),
-                    BillItemRequest(
-                        productId = secondProductId,
-                        barcodeScanned = second.barcode,
-                        quantity = 2,
-                        unitPrice = BigDecimal("20.00"),
-                        discountAmount = BigDecimal.ZERO,
-                        discountType = "NONE"
+        val exception = assertThrows<IllegalArgumentException> {
+            catalogService.createBill(
+                billRequest(
+                    storeId = storeId,
+                    staffId = staffId,
+                    items = listOf(
+                        BillItemRequest(
+                            productId = firstProductId,
+                            barcodeScanned = "0123456789012",
+                            quantity = 2,
+                            unitPrice = BigDecimal("999.00"),
+                            discountAmount = BigDecimal.ZERO,
+                            discountType = "NONE"
+                        ),
+                        BillItemRequest(
+                            productId = secondProductId,
+                            barcodeScanned = second.barcode,
+                            quantity = 2,
+                            unitPrice = BigDecimal("20.00"),
+                            discountAmount = BigDecimal.ZERO,
+                            discountType = "NONE"
+                        )
                     )
                 )
             )
-        )
+        }
 
-        assertEquals(1, response.successfulItems.size)
-        assertEquals(1, response.failedItems.size)
-        assertEquals(BigDecimal("10.00"), response.successfulItems.single().unitPrice)
-        assertEquals("123456789012", response.successfulItems.single().barcodeScanned)
-        assertEquals(BigDecimal("20.00"), response.bill.subtotal)
-        assertEquals(3, first.stockQuantity)
-        assertEquals(1, second.stockQuantity)
+        assertTrue(exception.message!!.contains("rejected atomically"))
+        assertTrue(exception.message!!.contains("Out of stock"))
     }
 
     @Test

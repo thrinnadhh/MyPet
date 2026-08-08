@@ -2,6 +2,8 @@ package com.pawsnearme.paymentservice.controller
 
 import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.paymentservice.model.LoyaltyProgram
+import com.pawsnearme.paymentservice.service.LoyaltyLifecycleService
+import com.pawsnearme.paymentservice.service.LoyaltyReconciliationService
 import com.pawsnearme.paymentservice.service.LoyaltyService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
@@ -16,7 +18,15 @@ import java.util.UUID
 class LoyaltyControllerAuthorizationTests {
     private val loyaltyService: LoyaltyService = mock()
     private val providerModule: ProviderModuleApi = mock()
-    private val controller = LoyaltyController(loyaltyService, providerModule)
+    private val loyaltyLifecycleService: LoyaltyLifecycleService = mock()
+    private val loyaltyReconciliationService: LoyaltyReconciliationService = mock()
+    private val controller = LoyaltyController(
+        loyaltyService,
+        providerModule,
+        loyaltyLifecycleService,
+        loyaltyReconciliationService,
+        "test-internal-api-secret",
+    )
 
     @Test
     fun `provider may update only an owned store program`() {

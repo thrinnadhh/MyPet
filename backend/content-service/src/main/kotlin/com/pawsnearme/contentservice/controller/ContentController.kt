@@ -8,6 +8,7 @@ import com.pawsnearme.contentservice.service.BannerBidAccessDeniedException
 import com.pawsnearme.contentservice.service.ContentAccessDeniedException
 import com.pawsnearme.contentservice.service.ContentNotFoundException
 import com.pawsnearme.contentservice.service.ContentService
+import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotNull
 import org.springframework.http.HttpStatus
@@ -23,7 +24,13 @@ data class BannerDto(
     val subtitle: String,
     val accent: String,
     val durationSec: Int,
+    val sortOrder: Int,
     val active: Boolean,
+    val imageUrl: String?,
+    val targetType: String,
+    val targetValue: String?,
+    val startsAt: String?,
+    val endsAt: String?,
 )
 
 data class GuideDto(
@@ -45,6 +52,11 @@ data class UpsertBannerRequest(
     val durationSec: Int = 5,
     val sortOrder: Int = 0,
     val active: Boolean = true,
+    val imageUrl: String? = null,
+    val targetType: String = "NONE",
+    val targetValue: String? = null,
+    val startsAt: Instant? = null,
+    val endsAt: Instant? = null,
 )
 
 data class UpsertGuideRequest(
@@ -120,18 +132,23 @@ class ContentController(
         )
 
     @PostMapping("/banners")
-    fun createBanner(@RequestBody request: UpsertBannerRequest): ResponseEntity<BannerDto> {
-        val saved = contentService.upsertBanner(
-            PromoBanner(
-                title = request.title,
-                subtitle = request.subtitle,
-                accentColor = request.accentColor,
-                durationSec = request.durationSec,
-                sortOrder = request.sortOrder,
-                active = request.active,
-            )
-        )
-        return ResponseEntity.ok(saved.toDto())
+    fun createBanner(
+        @RequestHeader(value = "X-User-Role", required = false) userRole: String?,
+        @Valid @RequestBody request: UpsertBannerRequest,
+    ): ResponseEntity<BannerDto> {
+        requireAdmin(userRole)
+        val saved = contentService.upsertBanner(request.toBanner())
+        return ResponseEntity.status(HttpStatus.CREATED).body(saved.toDto())
+    }
+
+    @PutMapping("/banners/{bannerId}")
+    fun updateBanner(
+        @PathVariable bannerId: UUID,
+        @RequestHeader(value = "X-User-Role", required = false) userRole: String?,
+        @Valid @RequestBody request: UpsertBannerRequest,
+    ): ResponseEntity<BannerDto> {
+        requireAdmin(userRole)
+        return ResponseEntity.ok(contentService.upsertBanner(request.toBanner(bannerId)).toDto())
     }
 
     @PostMapping("/guides")
@@ -258,6 +275,27 @@ class ContentController(
     fun handleNotFound(ex: ContentNotFoundException): ResponseEntity<Map<String, String>> =
         ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to ex.message.orEmpty()))
 
+    private fun requireAdmin(userRole: String?) {
+        if (!userRole.equals("ADMIN", ignoreCase = true)) {
+            throw ContentAccessDeniedException("Admin role is required to manage banners.")
+        }
+    }
+
+    private fun UpsertBannerRequest.toBanner(bannerId: UUID? = null) = PromoBanner(
+        bannerId = bannerId,
+        title = title,
+        subtitle = subtitle,
+        accentColor = accentColor,
+        durationSec = durationSec,
+        sortOrder = sortOrder,
+        active = active,
+        imageUrl = imageUrl,
+        targetType = targetType,
+        targetValue = targetValue,
+        startsAt = startsAt,
+        endsAt = endsAt,
+    )
+
     private fun com.pawsnearme.contentservice.model.BannerBid.toBidDto() = BannerBidDto(
         id = bidId!!.toString(),
         providerId = providerId.toString(),
@@ -273,7 +311,13 @@ class ContentController(
         subtitle = subtitle,
         accent = accentColor,
         durationSec = durationSec,
+        sortOrder = sortOrder,
         active = active,
+        imageUrl = imageUrl,
+        targetType = targetType,
+        targetValue = targetValue,
+        startsAt = startsAt?.toString(),
+        endsAt = endsAt?.toString(),
     )
 
     private fun GuideArticle.toDto() = GuideDto(
