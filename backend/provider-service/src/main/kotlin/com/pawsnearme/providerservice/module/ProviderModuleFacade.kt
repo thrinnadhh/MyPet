@@ -1,8 +1,11 @@
 package com.pawsnearme.providerservice.module
 
 import com.pawsnearme.common.module.CustomerPetIdentitySnapshot
+import com.pawsnearme.common.module.DeliveryAddressSnapshot
 import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.common.module.VaccinationReminderSnapshot
+import com.pawsnearme.providerservice.model.ProviderStatus
+import com.pawsnearme.providerservice.repository.AddressRepository
 import com.pawsnearme.providerservice.repository.PetRepository
 import com.pawsnearme.providerservice.repository.ProfileRepository
 import com.pawsnearme.providerservice.repository.ProviderRepository
@@ -16,10 +19,27 @@ class ProviderModuleFacade(
     private val vaccinationReminderRepository: VaccinationReminderRepository,
     private val profileRepository: ProfileRepository,
     private val petRepository: PetRepository,
+    private val addressRepository: AddressRepository,
 ) : ProviderModuleApi {
 
     override fun ownerUserId(providerId: UUID): UUID? =
         providerRepository.findById(providerId).orElse(null)?.ownerUserId
+
+    override fun providerOperational(providerId: UUID): Boolean =
+        providerRepository.findById(providerId).orElse(null)?.status == ProviderStatus.ACTIVE
+
+    override fun deliveryAddress(customerId: UUID, addressId: UUID): DeliveryAddressSnapshot? {
+        val address = addressRepository.findById(addressId).orElse(null) ?: return null
+        if (address.userId != customerId) return null
+        return DeliveryAddressSnapshot(
+            addressId = requireNotNull(address.addressId),
+            customerId = customerId,
+            city = address.city,
+            pincode = address.pincode,
+            latitude = address.geoLat.toDouble(),
+            longitude = address.geoLng.toDouble(),
+        )
+    }
 
     override fun enabledVaccinationReminders(): List<VaccinationReminderSnapshot> =
         vaccinationReminderRepository.findByEnabledTrue().map { reminder ->
