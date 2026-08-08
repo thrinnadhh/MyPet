@@ -27,7 +27,7 @@ interface ProviderRepository : JpaRepository<Provider, UUID> {
     fun findByStatus(status: ProviderStatus, pageable: Pageable): Page<Provider>
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select p from Provider p where p.providerId = :providerId")
+    @Query("select p from ProviderAggregate p where p.providerId = :providerId")
     fun findByIdForUpdate(@Param("providerId") providerId: UUID): Optional<Provider>
 }
 
