@@ -1,6 +1,7 @@
 import {
   type RecurringCadence,
   type RecurringOrderConfirmation,
+  type RecurringOrderOccurrence,
   type RecurringOrderSubscription,
 } from '@/contracts/recurring-orders';
 import { apiErrorFromResponse } from '@/contracts/api-error';
@@ -22,6 +23,13 @@ async function request<T>(path: string, accessToken: string, init: RequestInit =
 
 export function fetchRecurringOrders(accessToken: string): Promise<RecurringOrderSubscription[]> {
   return request('/api/v1/orders/subscriptions', accessToken);
+}
+
+export function fetchRecurringOccurrences(
+  subscriptionId: string,
+  accessToken: string,
+): Promise<RecurringOrderOccurrence[]> {
+  return request(`/api/v1/orders/subscriptions/${subscriptionId}/occurrences`, accessToken);
 }
 
 export function createRecurringOrder(
@@ -48,6 +56,7 @@ export function updateRecurringOrder(
   });
 }
 
+/** Legacy recovery for subscriptions created by the old reminder-only implementation. */
 export function confirmRecurringOrder(
   subscriptionId: string,
   accessToken: string,
