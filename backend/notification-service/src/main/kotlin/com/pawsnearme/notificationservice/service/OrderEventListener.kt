@@ -21,6 +21,7 @@ class OrderEventListener(
     private val objectMapper: ObjectMapper,
     private val idempotencyService: IdempotencyService,
     private val pushNotificationService: PushNotificationService,
+    private val transactionalEmailService: TransactionalEmailService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -45,12 +46,38 @@ class OrderEventListener(
         when (eventType) {
             "OrderPlaced" -> {
                 val event = objectMapper.readValue(message, OrderPlacedEvent::class.java)
+                transactionalEmailService.registerReferenceOwner("ORDER", event.orderId, event.customerId)
+                transactionalEmailService.enqueueForUser(
+                    userId = event.customerId,
+                    templateCode = "ORDER_PLACED",
+                    idempotencyKey = "order:${event.orderId}:placed",
+                    variables = mapOf(
+                        "order_id" to event.orderId.toString(),
+                        "order_short_id" to event.orderId.toString().take(8),
+                        "total_amount" to event.totalAmount.toPlainString(),
+                        "provider_id" to event.providerId.toString(),
+                    ),
+                )
                 notifyMerchant(event.merchantOwnerUserId, event.orderId, event.totalAmount.toPlainString())
             }
             "OrderStatusChanged" -> {
                 val event = objectMapper.readValue(message, OrderStatusChangedEvent::class.java)
                 if (event.toStatus == "ACCEPTED") {
                     notifyMerchant(event.merchantOwnerUserId, event.orderId, event.totalAmount.toPlainString())
+                }
+                if (event.toStatus == "DELIVERED") {
+                    transactionalEmailService.enqueueForReference(
+                        referenceType = "ORDER",
+                        referenceId = event.orderId,
+                        templateCode = "ORDER_DELIVERED",
+                        idempotencyKey = "order:${event.orderId}:delivered",
+                        variables = mapOf(
+                            "order_id" to event.orderId.toString(),
+                            "order_short_id" to event.orderId.toString().take(8),
+                            "total_amount" to event.totalAmount.toPlainString(),
+                            "delivery_fee" to event.deliveryFee.toPlainString(),
+                        ),
+                    )
                 }
             }
         }
