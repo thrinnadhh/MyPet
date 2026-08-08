@@ -46,11 +46,17 @@ class DiscoveryService(
         private val logger = LoggerFactory.getLogger(DiscoveryService::class.java)
         private const val GEO_KEY = "providers:locations"
         private const val CACHE_PREFIX = "providers:cache:"
+        private val PROVIDER_PROJECTION_EVENTS = setOf(
+            "ProviderApproved",
+            "ProviderReactivated",
+            "ProviderSuspended",
+            "ProviderRejected",
+            "ProviderUpdated"
+        )
     }
 
     private val objectMapper = ObjectMapper().registerKotlinModule()
 
-    // --- Startup Warmup ---
     override fun run(vararg args: String?) {
         try {
             val activeProviders = providerRepository.findByStatus(ProviderStatus.ACTIVE)
@@ -62,8 +68,6 @@ class DiscoveryService(
                     RedisPoint(lng, lat),
                     provider.providerId.toString()
                 )
-                
-                // Evict cache to ensure fresh data on first queries
                 stringRedisTemplate.delete("$CACHE_PREFIX${provider.providerId}")
             }
             logger.info("Redis Geo cache warmed with {} active providers.", activeProviders.size)
@@ -72,32 +76,32 @@ class DiscoveryService(
         }
     }
 
-    // --- Kafka Event Listener ---
+    /**
+     * Keeps the Customer discovery projection consistent with Admin provider state.
+     * Suspension/rejection removes the provider immediately instead of waiting for
+     * the five-minute provider metadata cache to expire.
+     */
     @KafkaListener(topics = ["providers.events"], groupId = "discovery-service-group")
     fun handleProviderApproved(record: ConsumerRecord<String, Map<String, Any>>) {
         val event = record.value()
-        val eventType = event["event_type"] as? String
-        if (eventType == "ProviderApproved") {
-            val providerIdStr = event["provider_id"] as? String ?: return
-            val providerId = UUID.fromString(providerIdStr)
+        val eventType = event["event_type"] as? String ?: return
+        if (eventType !in PROVIDER_PROJECTION_EVENTS) return
+        val providerIdStr = event["provider_id"] as? String ?: return
+        val providerId = runCatching { UUID.fromString(providerIdStr) }.getOrNull() ?: return
 
-            // Evict cache
-            stringRedisTemplate.delete("$CACHE_PREFIX$providerIdStr")
+        stringRedisTemplate.delete("$CACHE_PREFIX$providerIdStr")
+        val provider = providerRepository.findById(providerId).orElse(null)
 
-            val providerOpt = providerRepository.findById(providerId)
-            if (providerOpt.isPresent) {
-                val provider = providerOpt.get()
-                if (provider.status == ProviderStatus.ACTIVE) {
-                    val lng = provider.geoLocation.x
-                    val lat = provider.geoLocation.y
-                    stringRedisTemplate.opsForGeo().add(
-                        GEO_KEY,
-                        RedisPoint(lng, lat),
-                        provider.providerId.toString()
-                    )
-                    logger.info("Kafka Sync: Added provider {} to Redis Geo index and evicted cache.", providerId)
-                }
-            }
+        if (provider?.status == ProviderStatus.ACTIVE) {
+            stringRedisTemplate.opsForGeo().add(
+                GEO_KEY,
+                RedisPoint(provider.geoLocation.x, provider.geoLocation.y),
+                provider.providerId.toString()
+            )
+            logger.info("Provider projection {} is ACTIVE; added {} to Geo index.", eventType, providerId)
+        } else {
+            stringRedisTemplate.opsForGeo().remove(GEO_KEY, providerIdStr)
+            logger.info("Provider projection {} is non-operational; removed {} from Geo index.", eventType, providerId)
         }
     }
 
@@ -113,7 +117,6 @@ class DiscoveryService(
         }
     }
 
-    // --- Nearby Search ---
     fun searchNearbyProviders(
         longitude: Double,
         latitude: Double,
@@ -138,8 +141,6 @@ class DiscoveryService(
             }
 
             val providerIds = results.content.map { UUID.fromString(it.content.name) }
-            
-            // 1. Try fetching from Redis Cache
             val cacheResults = providerIds.map { id ->
                 val json = stringRedisTemplate.opsForValue().get("$CACHE_PREFIX$id")
                 if (json != null) {
@@ -148,24 +149,17 @@ class DiscoveryService(
                     } catch (e: Exception) {
                         null
                     }
-                } else {
-                    null
-                }
+                } else null
             }
 
-            // 2. Determine misses and query DB
             val missIds = providerIds.zip(cacheResults)
                 .filter { it.second == null }
                 .map { it.first }
 
             val dbFetched = if (missIds.isNotEmpty()) {
-                providerRepository.findAllById(missIds)
-                    .associateBy { it.providerId }
-            } else {
-                emptyMap()
-            }
+                providerRepository.findAllById(missIds).associateBy { it.providerId }
+            } else emptyMap()
 
-            // 3. Re-assemble final providers list & save misses to cache
             val finalProviders = providerIds.zip(cacheResults).mapNotNull { (id, cached) ->
                 if (cached != null) {
                     cached
@@ -187,8 +181,6 @@ class DiscoveryService(
                         ratingAvg = p.ratingAvg.toDouble(),
                         ratingCount = p.ratingCount
                     )
-                    
-                    // Cache metadata in Redis (5-minute TTL)
                     try {
                         val json = objectMapper.writeValueAsString(dto)
                         stringRedisTemplate.opsForValue().set(
@@ -202,8 +194,8 @@ class DiscoveryService(
                     dto
                 }
             }.filter { it.status == "ACTIVE" }
-             .filter { providerType == null || it.providerType == providerType.name }
-             .associateBy { UUID.fromString(it.providerId) }
+                .filter { providerType == null || it.providerType == providerType.name }
+                .associateBy { UUID.fromString(it.providerId) }
 
             results.content.mapNotNull { geoResult ->
                 val id = UUID.fromString(geoResult.content.name)
@@ -271,39 +263,31 @@ class DiscoveryService(
         page: Int = 0,
         size: Int = 20
     ): UniversalSearchResponse {
-        val q = query.trim().lowercase()
-        val allItems = mutableListOf<UniversalSearchResultItem>()
+        require(page >= 0) { "Page must be zero or greater" }
+        require(size in 1..100) { "Page size must be between 1 and 100" }
 
+        val q = query.trim().lowercase()
         val providers = providerRepository.findByStatus(ProviderStatus.ACTIVE)
-            .filter { p ->
-                city.isNullOrBlank() || p.city.equals(city.trim(), ignoreCase = true)
-            }
+            .filter { p -> city.isNullOrBlank() || p.city.equals(city.trim(), ignoreCase = true) }
             .filter { p ->
                 q.isEmpty() || p.name.lowercase().contains(q) ||
-                (p.description?.lowercase()?.contains(q) == true) ||
-                p.city.lowercase().contains(q)
+                    (p.description?.lowercase()?.contains(q) == true) ||
+                    p.city.lowercase().contains(q)
             }
-
-        for (p in providers) {
-            val dist = if (latitude != null && longitude != null) {
-                haversineKm(latitude, longitude, p.geoLocation.y, p.geoLocation.x)
-            } else null
-
-            val itemType = when (p.providerType) {
-                ProviderType.PET_STORE -> "PET_SHOP"
-                ProviderType.VET_HOSPITAL -> "HOSPITAL"
-                ProviderType.GROOMING_CENTER -> "GROOMER"
-            }
-
-            val route = when (p.providerType) {
-                ProviderType.PET_STORE -> "/shop/${p.providerId}"
-                ProviderType.VET_HOSPITAL -> "/hospital/${p.providerId}"
-                ProviderType.GROOMING_CENTER -> "/groomer/${p.providerId}"
-            }
-
-            val isEmergency = p.providerType == ProviderType.VET_HOSPITAL
-
-            allItems.add(
+            .map { p ->
+                val dist = if (latitude != null && longitude != null) {
+                    haversineKm(latitude, longitude, p.geoLocation.y, p.geoLocation.x)
+                } else null
+                val itemType = when (p.providerType) {
+                    ProviderType.PET_STORE -> "PET_SHOP"
+                    ProviderType.VET_HOSPITAL -> "HOSPITAL"
+                    ProviderType.GROOMING_CENTER -> "GROOMER"
+                }
+                val route = when (p.providerType) {
+                    ProviderType.PET_STORE -> "/shop/${p.providerId}"
+                    ProviderType.VET_HOSPITAL -> "/hospital/${p.providerId}"
+                    ProviderType.GROOMING_CENTER -> "/groomer/${p.providerId}"
+                }
                 UniversalSearchResultItem(
                     id = p.providerId.toString(),
                     type = itemType,
@@ -312,44 +296,25 @@ class DiscoveryService(
                     rating = "${p.ratingAvg} ★",
                     distanceKm = dist,
                     route = route,
-                    isEmergency = isEmergency
+                    isEmergency = p.providerType == ProviderType.VET_HOSPITAL
                 )
-            )
-        }
+            }
 
-        val mockProducts = listOf(
-            UniversalSearchResultItem(id = "prod-1", type = "PRODUCT", title = "Royal Canin Maxi Puppy Dry Food 3kg", subtitle = "Balanced nutrition for growing puppies", price = "₹1,850", route = "/category/food"),
-            UniversalSearchResultItem(id = "prod-2", type = "PRODUCT", title = "Pedigree Chicken & Vegetables Adult", subtitle = "Complete daily meal for adult dogs", price = "₹850", route = "/category/food"),
-            UniversalSearchResultItem(id = "prod-3", type = "PRODUCT", title = "Paws & Bubbles Anti-Tick Shampoo 500ml", subtitle = "Gentle herbal formula with tea tree oil", price = "₹499", route = "/category/grooming"),
-            UniversalSearchResultItem(id = "prod-4", type = "PRODUCT", title = "KONG Classic Dog Toy Medium", subtitle = "Durable natural rubber chew toy", price = "₹799", route = "/category/toys")
-        ).filter { q.isEmpty() || it.title.lowercase().contains(q) || (it.subtitle?.lowercase()?.contains(q) == true) }
-
-        allItems.addAll(mockProducts)
-
-        val mockGuides = listOf(
-            UniversalSearchResultItem(id = "g-1", type = "GUIDE", title = "Puppy Nutrition Guide (0 - 2 Months)", subtitle = "Essential weaning steps & milk substitutes", route = "/guide/puppy-nutrition-0-2-mo"),
-            UniversalSearchResultItem(id = "g-2", type = "GUIDE", title = "Puppy Growth Tracker (2 - 12 Months)", subtitle = "Teething relief & weight milestones", route = "/guide/puppy-growth-2-12-mo"),
-            UniversalSearchResultItem(id = "g-3", type = "GUIDE", title = "Coat & Skin Health Masterclass", subtitle = "Prevent hot spots & seasonal shedding", route = "/guide/coat-skin-health")
-        ).filter { q.isEmpty() || it.title.lowercase().contains(q) || (it.subtitle?.lowercase()?.contains(q) == true) }
-
-        allItems.addAll(mockGuides)
-
+        // Product and guide results must come from authoritative catalog/content
+        // projections. Until those projections are wired into this service, do not
+        // fabricate records in a production search response.
         val filtered = if (!typeFilter.isNullOrBlank() && !typeFilter.equals("ALL", ignoreCase = true)) {
-            allItems.filter { it.type.equals(typeFilter.trim(), ignoreCase = true) }
-        } else {
-            allItems
-        }
+            providers.filter { it.type.equals(typeFilter.trim(), ignoreCase = true) }
+        } else providers
 
         val fromIndex = (page * size).coerceAtMost(filtered.size)
         val toIndex = ((page + 1) * size).coerceAtMost(filtered.size)
-        val pagedResults = if (fromIndex <= toIndex) filtered.subList(fromIndex, toIndex) else emptyList()
-
         return UniversalSearchResponse(
             query = query,
             totalResults = filtered.size,
             page = page,
             size = size,
-            results = pagedResults
+            results = filtered.subList(fromIndex, toIndex)
         )
     }
 
@@ -358,10 +323,9 @@ class DiscoveryService(
         val dLat = Math.toRadians(lat2 - lat1)
         val dLon = Math.toRadians(lon2 - lon1)
         val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
-                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2)
         val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
         return r * c
     }
 }
-
