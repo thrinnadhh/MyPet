@@ -110,10 +110,10 @@ def make_actor(role: str, label: str) -> Actor:
         "iat": now,
         "exp": now + 7200,
         "email": f"m8-{label}-{user_id[:8]}@example.com",
+        "phone": f"+9199{user_id.replace('-', '')[:8]}",
         "app_metadata": {"role": role},
         "user_metadata": {
             "full_name": f"M8 {label.title()}",
-            "phone": f"+9199{user_id.replace('-', '')[:8]}",
         },
     }
     token = f"{encode_jwt_part({'alg': 'none', 'typ': 'JWT'})}.{encode_jwt_part(claims)}."
@@ -289,7 +289,19 @@ def main() -> int:
     )
     default_address = request("GET", "/api/v1/addresses/default", customer)
     require(default_address["addressId"] == address["addressId"], "default address mismatch")
-    passed("customer", "profile and default-address lifecycle verified")
+    delivery_contact = request(
+        "PUT",
+        f"/api/v1/addresses/{address['addressId']}/contact",
+        customer,
+        {"phoneNumber": "+919876543210"},
+        expected=(200,),
+    )
+    require(
+        delivery_contact["phoneNumber"] == "+919876543210",
+        "delivery contact was not saved for the customer address",
+        delivery_contact,
+    )
+    passed("customer", "profile, default-address and delivery-contact lifecycle verified")
 
     delivery_provider = activate_provider(
         create_provider(merchant, "PET_STORE", "DELIVERY", "M8 Pet Store")["providerId"],
@@ -591,7 +603,7 @@ def main() -> int:
         "GET", f"/api/v1/reviews/provider/{appointment_provider['providerId']}"
     )
     require(provider_reviews["totalCount"] >= 1, "review not listed", provider_reviews)
-    require(review["rating"] == 5, "review rating mismatch", review)
+    require(review["rating"] == 5, "review rating mismatch")
     passed("review", "completed-appointment review and provider aggregate verified")
 
     conversation = request(
