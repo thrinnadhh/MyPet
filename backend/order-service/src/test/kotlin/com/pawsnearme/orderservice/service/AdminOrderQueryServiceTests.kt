@@ -32,9 +32,10 @@ class AdminOrderQueryServiceTests {
     @Test
     fun `admin order search is bounded and filterable`() {
         val order = order()
+        val orderId = requireNotNull(order.orderId)
         whenever(
             orderRepository.searchForAdmin(
-                eq(order.orderId),
+                eq(orderId),
                 eq(order.customerId),
                 eq(order.providerId),
                 eq(order.paymentId),
@@ -46,7 +47,7 @@ class AdminOrderQueryServiceTests {
         ).thenAnswer { invocation -> PageImpl(listOf(order), invocation.getArgument(7), 1L) }
 
         val page = service.search(
-            orderId = order.orderId,
+            orderId = orderId,
             customerId = order.customerId,
             providerId = order.providerId,
             paymentId = order.paymentId,
@@ -58,38 +59,41 @@ class AdminOrderQueryServiceTests {
         )
 
         assertEquals(1L, page.totalElements)
-        assertEquals(order.orderId, page.content.single().orderId)
+        assertEquals(orderId, page.content.single().orderId)
     }
 
     @Test
     fun `order detail uses stored item snapshots and status history`() {
         val order = order()
+        val orderId = requireNotNull(order.orderId)
         val item = OrderItem(
-            orderId = order.orderId,
+            orderId = orderId,
             offeringId = UUID.randomUUID(),
-            name = "Pet Food",
+            offeringNameSnapshot = "Pet Food",
             quantity = 2,
-            unitPrice = BigDecimal("499.00"),
+            unitPriceSnapshot = BigDecimal("499.00"),
             lineTotal = BigDecimal("998.00")
         )
         val placed = OrderStatusHistory(
-            orderId = order.orderId,
-            status = OrderStatus.PLACED,
+            orderId = orderId,
+            fromStatus = null,
+            toStatus = OrderStatus.PLACED,
             changedAt = Instant.parse("2026-08-08T10:00:00Z")
         )
         val accepted = OrderStatusHistory(
-            orderId = order.orderId,
-            status = OrderStatus.ACCEPTED,
+            orderId = orderId,
+            fromStatus = OrderStatus.PLACED,
+            toStatus = OrderStatus.ACCEPTED,
             changedAt = Instant.parse("2026-08-08T10:05:00Z")
         )
-        whenever(orderRepository.findById(order.orderId)).thenReturn(Optional.of(order))
-        whenever(itemRepository.findByOrderId(order.orderId)).thenReturn(listOf(item))
-        whenever(historyRepository.findByOrderId(order.orderId)).thenReturn(listOf(accepted, placed))
+        whenever(orderRepository.findById(orderId)).thenReturn(Optional.of(order))
+        whenever(itemRepository.findByOrderId(orderId)).thenReturn(listOf(item))
+        whenever(historyRepository.findByOrderId(orderId)).thenReturn(listOf(accepted, placed))
 
-        val detail = service.detail(order.orderId)
+        val detail = service.detail(orderId)
 
-        assertEquals("Pet Food", detail.items.single().name)
-        assertEquals(listOf(OrderStatus.PLACED, OrderStatus.ACCEPTED), detail.timeline.map { it.status })
+        assertEquals("Pet Food", detail.items.single().offeringNameSnapshot)
+        assertEquals(listOf(OrderStatus.PLACED, OrderStatus.ACCEPTED), detail.timeline.map { it.toStatus })
     }
 
     @Test
