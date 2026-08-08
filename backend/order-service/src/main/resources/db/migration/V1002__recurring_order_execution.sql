@@ -12,6 +12,24 @@ ALTER TABLE orders.recurring_order_subscriptions
     ADD COLUMN IF NOT EXISTS last_failure_code VARCHAR(80),
     ADD COLUMN IF NOT EXISTS last_failure_detail TEXT;
 
+CREATE TABLE IF NOT EXISTS orders.recurring_order_subscription_items (
+    subscription_item_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    subscription_id UUID NOT NULL REFERENCES orders.recurring_order_subscriptions(subscription_id) ON DELETE CASCADE,
+    offering_id UUID NOT NULL,
+    offering_name_snapshot VARCHAR(255) NOT NULL,
+    base_quantity INTEGER NOT NULL,
+    unit_price_at_creation NUMERIC(12,2) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_recurring_subscription_offering UNIQUE (subscription_id, offering_id),
+    CONSTRAINT ck_recurring_subscription_item_quantity CHECK (base_quantity > 0),
+    CONSTRAINT ck_recurring_subscription_item_price CHECK (unit_price_at_creation >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_recurring_subscription_items_subscription
+    ON orders.recurring_order_subscription_items (subscription_id);
+CREATE INDEX IF NOT EXISTS idx_recurring_subscription_items_offering
+    ON orders.recurring_order_subscription_items (offering_id);
+
 CREATE TABLE IF NOT EXISTS orders.recurring_order_occurrences (
     occurrence_id UUID PRIMARY KEY,
     subscription_id UUID NOT NULL REFERENCES orders.recurring_order_subscriptions(subscription_id) ON DELETE CASCADE,
