@@ -4,6 +4,7 @@ import com.pawsnearme.dispatchservice.model.DispatchJob
 import com.pawsnearme.dispatchservice.model.JobStatus
 import com.pawsnearme.dispatchservice.repository.DispatchOfferRepository
 import com.pawsnearme.dispatchservice.repository.DispatchJobRepository
+import com.pawsnearme.dispatchservice.service.DeliveryContactLookup
 import com.pawsnearme.dispatchservice.service.DispatchService
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -29,7 +30,9 @@ data class DispatchJobView(
     val attemptCount: Int,
     val createdAt: Instant,
     val resolvedAt: Instant?,
-    val assignedAt: Instant?
+    val assignedAt: Instant?,
+    val customerPhone: String? = null,
+    val customerPhoneVerified: Boolean = false
 )
 
 data class DeliveryProofRequest(
@@ -41,7 +44,8 @@ data class DeliveryProofRequest(
 class DispatchController(
     private val dispatchService: DispatchService,
     private val offerRepository: DispatchOfferRepository,
-    private val jobRepository: DispatchJobRepository
+    private val jobRepository: DispatchJobRepository,
+    private val deliveryContactLookup: DeliveryContactLookup
 ) {
 
     @PostMapping("/offers/{offerId}/respond")
@@ -89,6 +93,7 @@ class DispatchController(
 
     /**
      * Authenticated captain history and restart-resume source.
+     * Delivery contact is exposed only while the accepted job is active.
      * OTP values never leave the dispatch service.
      */
     @GetMapping("/jobs/me")
@@ -168,15 +173,21 @@ class DispatchController(
     private fun acceptedOfferFor(job: DispatchJob) = job.jobId
         ?.let { offerRepository.findByJobId(it).firstOrNull { offer -> offer.response == "ACCEPTED" } }
 
-    private fun toView(job: DispatchJob, assignedAt: Instant?): DispatchJobView = DispatchJobView(
-        jobId = requireNotNull(job.jobId),
-        orderId = job.orderId,
-        status = job.status,
-        attemptCount = job.attemptCount,
-        createdAt = job.createdAt,
-        resolvedAt = job.resolvedAt,
-        assignedAt = assignedAt
-    )
+    private fun toView(job: DispatchJob, assignedAt: Instant?): DispatchJobView {
+        val active = job.status == JobStatus.ACCEPTED || job.status == JobStatus.PICKED_UP
+        val contact = if (active) deliveryContactLookup.forOrder(job.orderId) else null
+        return DispatchJobView(
+            jobId = requireNotNull(job.jobId),
+            orderId = job.orderId,
+            status = job.status,
+            attemptCount = job.attemptCount,
+            createdAt = job.createdAt,
+            resolvedAt = job.resolvedAt,
+            assignedAt = assignedAt,
+            customerPhone = contact?.phoneNumber,
+            customerPhoneVerified = contact?.verified ?: false
+        )
+    }
 
     private fun unauthorizedCaptain(): ResponseEntity<Any> = ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
