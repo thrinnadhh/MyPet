@@ -9,6 +9,8 @@ import com.pawsnearme.orderservice.model.OrderStatusHistory
 import com.pawsnearme.orderservice.model.SupportCase
 import com.pawsnearme.orderservice.model.SystemConfig
 import jakarta.persistence.LockModeType
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
@@ -55,6 +57,11 @@ interface SystemConfigRepository : JpaRepository<SystemConfig, String>
 interface DisputeRepository : JpaRepository<Dispute, UUID> {
     fun findByOrderId(orderId: UUID): List<Dispute>
     fun countByStatusIgnoreCase(status: String): Long
+    fun findAllByOrderByCreatedAtDesc(pageable: Pageable): Page<Dispute>
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select d from Dispute d where d.disputeId = :disputeId")
+    fun findByIdForUpdate(@Param("disputeId") disputeId: UUID): Optional<Dispute>
 }
 
 @Repository
