@@ -12,28 +12,40 @@ export {
   type MerchantOrderStatus,
 } from '../contracts/merchant-order-lifecycle';
 
+export interface MerchantOrderItem {
+  offeringId: string;
+  name: string;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+}
+
 export interface MerchantOrder {
   orderId: string;
   customerId: string;
   providerId: string;
   captainId?: string | null;
   deliveryAddressId: string;
+  deliveryContactPhone?: string | null;
+  deliveryContactVerified?: boolean;
   status: MerchantOrderStatus;
   subtotalAmount: number;
   deliveryFee: number;
   discountAmount: number;
   taxAmount: number;
   totalAmount: number;
+  couponCode?: string | null;
   paymentId?: string | null;
   paymentMethod: string;
   paymentStatus: string;
   placedAt: string;
   acceptedAt?: string | null;
   readyAt?: string | null;
-  picked_upAt?: string | null;
+  pickedUpAt?: string | null;
   deliveredAt?: string | null;
   cancelledAt?: string | null;
   cancellationReason?: string | null;
+  items: MerchantOrderItem[];
 }
 
 export async function fetchMerchantOrders(providerId: string): Promise<MerchantOrder[]> {
