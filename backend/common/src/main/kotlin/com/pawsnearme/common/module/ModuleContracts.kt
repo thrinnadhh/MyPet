@@ -24,6 +24,15 @@ interface ProviderModuleApi {
     fun ownerUserId(providerId: UUID): UUID?
     fun enabledVaccinationReminders(): List<VaccinationReminderSnapshot>
 
+    /** Provider availability used by order/subscription processing. */
+    fun providerOperational(providerId: UUID): Boolean = ownerUserId(providerId) != null
+
+    /**
+     * Narrow customer-owned delivery-address lookup. Implementations must return
+     * null when the address does not belong to the supplied customer.
+     */
+    fun deliveryAddress(customerId: UUID, addressId: UUID): DeliveryAddressSnapshot? = null
+
     /**
      * Narrow internal lookup used only after the caller has already authorized
      * access to a customer-owned business record such as an appointment.
@@ -98,6 +107,15 @@ data class CustomerPetIdentitySnapshot(
     val customerName: String,
     val petId: UUID,
     val petName: String
+)
+
+data class DeliveryAddressSnapshot(
+    val addressId: UUID,
+    val customerId: UUID,
+    val city: String,
+    val pincode: String,
+    val latitude: Double,
+    val longitude: Double,
 )
 
 data class PaymentTransactionSnapshot(
