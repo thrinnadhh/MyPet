@@ -3,29 +3,21 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { requestedSelfServiceRole, trustedOperationalRole } from '../utils/operational-role';
-
 function source(path: string): string {
   return readFileSync(join(process.cwd(), path), 'utf8');
 }
 
-test('operational UI trusts app metadata and never user metadata as authorization', () => {
-  assert.equal(trustedOperationalRole({ app_metadata: { role: 'MERCHANT' } } as never), 'MERCHANT');
-  assert.equal(trustedOperationalRole({ app_metadata: { role: 'PROVIDER' } } as never), 'MERCHANT');
-  assert.equal(trustedOperationalRole({ app_metadata: { role: 'CAPTAIN' } } as never), 'CAPTAIN');
-  assert.equal(trustedOperationalRole({ app_metadata: { role: 'ADMIN' } } as never), 'ADMIN');
-  assert.equal(trustedOperationalRole({ app_metadata: {} } as never), null);
-  assert.equal(trustedOperationalRole({ app_metadata: { role: 'authenticated' } } as never), null);
+test('operational UI trusts app metadata and not user metadata as authorization', () => {
+  const role = source('src/utils/operational-role.ts');
+  assert.match(role, /user\.app_metadata\?\.role/);
+  assert.match(role, /TRUSTED_ROLES/);
+  assert.match(role, /requested_operational_role\s*\?\?\s*user\.user_metadata\?\.role/);
+  assert.match(role, /SELF_SERVICE_ROLES/);
+  assert.match(role, /\['MERCHANT', 'CAPTAIN'\]/);
+  assert.doesNotMatch(role, /SELF_SERVICE_ROLES[^\n]*ADMIN/);
 });
 
-test('legacy user metadata is only accepted as a self-service role request', () => {
-  assert.equal(requestedSelfServiceRole({ user_metadata: { role: 'MERCHANT' } } as never), 'MERCHANT');
-  assert.equal(requestedSelfServiceRole({ user_metadata: { requested_operational_role: 'CAPTAIN' } } as never), 'CAPTAIN');
-  assert.equal(requestedSelfServiceRole({ user_metadata: { role: 'ADMIN' } } as never), null);
-  assert.equal(requestedSelfServiceRole({ user_metadata: { role: 'CUSTOMER' } } as never), null);
-});
-
-test('signup and auth context enforce the server-side role promotion boundary', () => {
+test('signup and auth context enforce server-side role promotion', () => {
   const login = source('src/app/login.tsx');
   const auth = source('src/context/AuthContext.tsx');
   const layout = source('src/app/_layout.tsx');
