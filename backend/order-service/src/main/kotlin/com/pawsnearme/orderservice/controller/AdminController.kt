@@ -3,6 +3,8 @@ package com.pawsnearme.orderservice.controller
 import com.pawsnearme.orderservice.model.Dispute
 import com.pawsnearme.orderservice.model.Invoice
 import com.pawsnearme.orderservice.model.SupportCase
+import com.pawsnearme.orderservice.service.AdminControlPlaneService
+import com.pawsnearme.orderservice.service.AdminDisputePage
 import com.pawsnearme.orderservice.service.OrderAccessDeniedException
 import com.pawsnearme.orderservice.service.OrderService
 import jakarta.validation.Valid
@@ -32,12 +34,20 @@ data class CreateDisputeRequest(
 
 data class ResolveDisputeRequest(
     @field:NotBlank val decision: String,
-    @field:Size(max = 4000) val resolutionNotes: String? = null
+    @field:NotBlank @field:Size(min = 3, max = 4000) val resolutionNotes: String
+)
+
+data class UpdateDisputeRefundModeRequest(
+    @field:NotBlank val disputeRefundMode: String,
+    @field:NotBlank @field:Size(min = 3, max = 500) val reason: String
 )
 
 @RestController
 @RequestMapping("/api/v1/orders")
-class AdminController(private val orderService: OrderService) {
+class AdminController(
+    private val orderService: OrderService,
+    private val adminControlPlaneService: AdminControlPlaneService
+) {
 
     // --- System Config ---
 
@@ -46,29 +56,47 @@ class AdminController(private val orderService: OrderService) {
         @RequestHeader("X-User-Role", required = false) role: String?
     ): ResponseEntity<Map<String, String>> {
         requireAdmin(role)
-        val mode = orderService.getDisputeRefundMode()
+        val mode = adminControlPlaneService.getDisputeRefundMode()
         return ResponseEntity.ok(mapOf("dispute_refund_mode" to mode))
     }
 
     @PostMapping("/admin/config")
     fun updateDisputeRefundMode(
+        @RequestHeader("X-User-Id", required = false) userId: String?,
         @RequestHeader("X-User-Role", required = false) role: String?,
-        @RequestBody request: Map<String, String>
+        @RequestHeader("X-Request-Id", required = false) requestId: String?,
+        @Valid @RequestBody request: UpdateDisputeRefundModeRequest
     ): ResponseEntity<Map<String, String>> {
         requireAdmin(role)
-        val mode = request["dispute_refund_mode"] ?: throw IllegalArgumentException("Missing dispute_refund_mode")
-        val updated = orderService.updateDisputeRefundMode(mode)
+        val actorId = requireUser(userId)
+        val updated = adminControlPlaneService.updateDisputeRefundMode(
+            requestedMode = request.disputeRefundMode,
+            actorId = actorId,
+            reason = request.reason,
+            traceId = requestId.orEmpty()
+        )
         return ResponseEntity.ok(mapOf("dispute_refund_mode" to updated))
     }
 
     // --- Disputes ---
 
+    /** Legacy endpoint retained for compatibility. New Admin UI uses bounded /admin/disputes. */
     @GetMapping("/disputes")
     fun listDisputes(
         @RequestHeader("X-User-Role", required = false) role: String?
     ): ResponseEntity<List<Dispute>> {
         requireAdmin(role)
         return ResponseEntity.ok(orderService.listDisputes())
+    }
+
+    @GetMapping("/admin/disputes")
+    fun listAdminDisputes(
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "25") size: Int
+    ): ResponseEntity<AdminDisputePage> {
+        requireAdmin(role)
+        return ResponseEntity.ok(adminControlPlaneService.listDisputes(page, size))
     }
 
     @PostMapping("/disputes")
@@ -85,11 +113,20 @@ class AdminController(private val orderService: OrderService) {
     @PostMapping("/disputes/{id}/resolve")
     fun resolveDispute(
         @PathVariable id: UUID,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
         @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestHeader("X-Request-Id", required = false) requestId: String?,
         @Valid @RequestBody request: ResolveDisputeRequest
     ): ResponseEntity<Dispute> {
         requireAdmin(role)
-        val dispute = orderService.resolveDispute(id, request.decision, request.resolutionNotes)
+        val actorId = requireUser(userId)
+        val dispute = adminControlPlaneService.resolveDispute(
+            disputeId = id,
+            requestedDecision = request.decision,
+            resolutionNotes = request.resolutionNotes,
+            actorId = actorId,
+            traceId = requestId.orEmpty()
+        )
         return ResponseEntity.ok(dispute)
     }
 
