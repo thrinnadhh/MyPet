@@ -22,7 +22,18 @@ import java.util.UUID
 @Repository
 interface TransactionRepository : JpaRepository<Transaction, UUID> {
     fun findFirstByReferenceIdOrderByCreatedAtDesc(referenceId: UUID): Transaction?
-    fun findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(referenceId: UUID, statuses: Collection<String>): Transaction?
+
+    /**
+     * Payment creation and refunds are check-then-act financial operations. Callers of
+     * this method are transactional, so locking the latest qualifying transaction
+     * serializes duplicate create/refund requests for the same reference.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    fun findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(
+        referenceId: UUID,
+        statuses: Collection<String>
+    ): Transaction?
+
     fun findByGatewayTransactionId(gatewayTransactionId: String): Transaction?
 }
 
