@@ -58,6 +58,6 @@ describe('customer order production edge cases', () => {
     const orders = await fetchCustomerOrders('customer-1', 'access-token');
 
     expect(orders).toHaveLength(1);
-    expect(orders[0].providerName).toBe('Store provider-');
+    expect(orders[0].providerName).toBe('Store provider');
   });
 });
