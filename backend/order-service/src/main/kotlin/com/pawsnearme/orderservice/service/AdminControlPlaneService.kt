@@ -44,7 +44,7 @@ class AdminControlPlaneService(
     ): String {
         val mode = requestedMode.trim().uppercase()
         require(mode in ALLOWED_REFUND_MODES) { "Invalid mode. Allowed: MANUAL, AUTOMATED" }
-        val safeReason = requireReason(reason)
+        val safeReason = requireAuditReason(reason)
         val config = systemConfigRepository.findById(REFUND_MODE_KEY)
             .orElseGet { SystemConfig(REFUND_MODE_KEY, "MANUAL") }
         val previous = config.configValue
@@ -105,7 +105,7 @@ class AdminControlPlaneService(
         require(decision in ALLOWED_DISPUTE_DECISIONS) {
             "Invalid dispute decision. Allowed: RESOLVED, REJECTED"
         }
-        val notes = requireReason(resolutionNotes.orEmpty())
+        val notes = requireResolutionNotes(resolutionNotes.orEmpty())
         val dispute = disputeRepository.findByIdForUpdate(disputeId)
             .orElseThrow { NoSuchElementException("Dispute not found for ID $disputeId") }
         if (dispute.status != "OPEN") {
@@ -134,7 +134,7 @@ class AdminControlPlaneService(
                 entityId = disputeId.toString(),
                 previousValue = previous,
                 newValue = decision,
-                reason = notes,
+                reason = notes.take(500),
                 traceId = normalizedTraceId(traceId)
             )
         )
@@ -153,9 +153,15 @@ class AdminControlPlaneService(
         return saved
     }
 
-    private fun requireReason(value: String): String {
+    private fun requireAuditReason(value: String): String {
         val normalized = value.trim()
         require(normalized.length in 3..500) { "A reason between 3 and 500 characters is required" }
+        return normalized
+    }
+
+    private fun requireResolutionNotes(value: String): String {
+        val normalized = value.trim()
+        require(normalized.length in 3..4000) { "Resolution notes must contain between 3 and 4000 characters" }
         return normalized
     }
 
