@@ -68,11 +68,11 @@ class CaptainJobViewTests {
     }
 
     @Test
-    fun `captain history hides delivery contact after job is delivered`() {
+    fun `captain history hides delivery contact after job is completed`() {
         val captainId = UUID.randomUUID()
         val jobId = UUID.randomUUID()
         val orderId = UUID.randomUUID()
-        val job = DispatchJob(jobId = jobId, orderId = orderId, status = JobStatus.DELIVERED)
+        val job = DispatchJob(jobId = jobId, orderId = orderId, status = JobStatus.COMPLETED)
         val offer = DispatchOffer(
             jobId = jobId,
             captainId = captainId,
@@ -88,7 +88,7 @@ class CaptainJobViewTests {
         val view = (response.body as List<*>).single() as DispatchJobView
 
         assertEquals(HttpStatus.OK, response.statusCode)
-        assertEquals(JobStatus.DELIVERED, view.status)
+        assertEquals(JobStatus.COMPLETED, view.status)
         assertEquals(null, view.customerPhone)
         assertFalse(view.customerPhoneVerified)
     }
