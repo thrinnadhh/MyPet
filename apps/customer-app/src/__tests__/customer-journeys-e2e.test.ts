@@ -3,7 +3,7 @@ import path from 'path';
 
 import { RECURRING_CADENCES, isRecurringCadence } from '@/contracts/recurring-orders';
 
-const ROOT = path.resolve(__dirname, '../../..');
+const ROOT = path.resolve(__dirname, '../..');
 const source = (relativePath: string) => fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
 
 function expectAll(content: string, values: string[]) {
@@ -120,8 +120,7 @@ describe('MyPet customer end-to-end journeys', () => {
       'Propagation.REQUIRES_NEW',
       'findByRecurringOccurrenceId',
       'R-$occurrenceId',
-      'automatic',
-    ].slice(0, 3));
+    ]);
     expect(backend).not.toContain('RecurringOrderConfirmationRequired');
   });
 
