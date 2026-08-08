@@ -33,14 +33,9 @@ interface TransactionRepository : JpaRepository<Transaction, UUID> {
         statuses: Collection<String>
     ): Transaction?
 
-    fun findByGatewayTransactionId(gatewayTransactionId: String): Transaction?
-
-    /** Cashfree webhooks must serialize with refund/reconciliation on the same row. */
+    /** Webhook mutations serialize on the same payment row as refunds/reconciliation. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select t from PaymentTransaction t where t.gatewayTransactionId = :gatewayTransactionId")
-    fun findByGatewayTransactionIdForUpdate(
-        @Param("gatewayTransactionId") gatewayTransactionId: String
-    ): Transaction?
+    fun findByGatewayTransactionId(gatewayTransactionId: String): Transaction?
 }
 
 @Repository
@@ -105,7 +100,7 @@ interface AppointmentRefRepository : JpaRepository<AppointmentRef, UUID> {
     @Query("""
         SELECT a.providerId, p.ownerUserId, SUM(a.priceAmount)
         FROM AppointmentRef a
-        JOIN PaymentProviderRef p ON p.providerId = a.providerId
+        JOIN PaymentProviderRef p ON p.providerId = o.providerId
         WHERE a.status = :status
           AND a.completedAt >= :start
           AND a.completedAt < :end
