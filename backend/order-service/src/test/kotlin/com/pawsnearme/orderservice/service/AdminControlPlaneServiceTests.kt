@@ -78,6 +78,7 @@ class AdminControlPlaneServiceTests {
         assertEquals("RESOLVED", audit.firstValue.newValue)
         assertEquals("trace-admin-refund", audit.firstValue.traceId)
         verify(outboxService).saveEvent(
+            eventId = any(),
             aggregateType = eq("ADMIN_OPERATION"),
             aggregateId = eq(disputeId),
             eventType = eq("DisputeDecided"),
