@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
+import { requestPhoneLink, verifyPhoneLink } from '@/auth/phone-link';
 import { AppIcon } from '@/components/app-icon';
 import { AppBar, PrimaryAction, SectionHeader, StateView, StatusBadge } from '@/components/foundation/primitives';
 import { ScreenShell } from '@/components/foundation/screen-shell';
@@ -20,7 +21,7 @@ const emptyAddress: AddressDraft = { label: 'Home', line1: '', line2: '', city: 
 export default function ProfileScreen() {
   const theme = useTheme();
   const { t } = useTranslation();
-  const { user, session, signOut } = useAuth();
+  const { user, session, signOut, markOtpVerified } = useAuth();
   const { requireAuth } = useAuthIntent();
   const { locale, changeLocale } = useLocale();
   const [address, setAddress] = useState<AddressDraft>(emptyAddress);
@@ -28,6 +29,10 @@ export default function ProfileScreen() {
   const [loadingAddress, setLoadingAddress] = useState(false);
   const [addressError, setAddressError] = useState<'offline' | 'error' | null>(null);
   const [saving, setSaving] = useState(false);
+  const [phoneDraft, setPhoneDraft] = useState('');
+  const [pendingPhone, setPendingPhone] = useState('');
+  const [phoneOtp, setPhoneOtp] = useState('');
+  const [phoneLoading, setPhoneLoading] = useState(false);
 
   const loadAddress = useCallback(async () => {
     if (!session) return;
@@ -48,11 +53,51 @@ export default function ProfileScreen() {
     void loadAddress();
   }, [loadAddress, session, user]);
 
+  useEffect(() => {
+    if (user?.phone_confirmed_at) {
+      setPendingPhone('');
+      setPhoneDraft('');
+      setPhoneOtp('');
+    }
+  }, [user?.phone_confirmed_at]);
+
   const profileRows = useMemo(() => user ? [
     { label: t('profileFoundation.displayName'), value: String(user.user_metadata?.full_name ?? ''), complete: Boolean(user.user_metadata?.full_name) },
     { label: t('profileFoundation.verifiedMobile'), value: user.phone ?? '—', complete: Boolean(user.phone_confirmed_at) },
     { label: t('profileFoundation.emailOptional'), value: user.email ?? '—', complete: true },
   ] : [], [t, user]);
+
+  const requestMobileVerification = useCallback(async () => {
+    if (!user || user.phone_confirmed_at) return;
+    setPhoneLoading(true);
+    try {
+      const normalized = await requestPhoneLink(phoneDraft);
+      setPendingPhone(normalized);
+      setPhoneOtp('');
+      Alert.alert(t('profileFoundation.mobileVerificationTitle'), t('profileFoundation.mobileCodeSent'));
+    } catch (error) {
+      Alert.alert(t('common.error'), error instanceof Error ? error.message : t('states.errorMessage'));
+    } finally {
+      setPhoneLoading(false);
+    }
+  }, [phoneDraft, t, user]);
+
+  const confirmMobileVerification = useCallback(async () => {
+    if (!pendingPhone || phoneOtp.length !== 6) return;
+    setPhoneLoading(true);
+    try {
+      await verifyPhoneLink(pendingPhone, phoneOtp);
+      markOtpVerified();
+      Alert.alert(t('common.success'), t('profileFoundation.mobileVerified'));
+      setPendingPhone('');
+      setPhoneDraft('');
+      setPhoneOtp('');
+    } catch (error) {
+      Alert.alert(t('common.error'), error instanceof Error ? error.message : t('states.errorMessage'));
+    } finally {
+      setPhoneLoading(false);
+    }
+  }, [markOtpVerified, pendingPhone, phoneOtp, t]);
 
   const save = useCallback(async () => {
     if (!user || !session) return;
@@ -86,6 +131,49 @@ export default function ProfileScreen() {
     <ScreenShell header={<AppBar title={t('profileFoundation.title')} subtitle={user.email ?? user.phone ?? undefined} />} testID="profile-screen">
       <SectionHeader title={t('profileFoundation.account')} />
       <View style={styles.stack}>{profileRows.map((row) => <View key={row.label} style={[styles.rowCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><View style={styles.flex}><ThemedText style={styles.label}>{row.label}</ThemedText><ThemedText themeColor="textSecondary">{row.value}</ThemedText></View><StatusBadge label={t(row.complete ? 'profileFoundation.complete' : 'profileFoundation.incomplete')} tone={row.complete ? 'success' : 'warning'} /></View>)}</View>
+
+      {!user.phone_confirmed_at ? (
+        <>
+          <SectionHeader title={t('profileFoundation.mobileVerificationTitle')} />
+          <View style={styles.stack}>
+            {!pendingPhone ? (
+              <>
+                <ThemedText themeColor="textSecondary">{t('profileFoundation.mobileVerificationMessage')}</ThemedText>
+                <TextInput
+                  value={phoneDraft}
+                  onChangeText={setPhoneDraft}
+                  placeholder={t('auth.phonePlaceholder')}
+                  placeholderTextColor={theme.textSecondary}
+                  keyboardType="phone-pad"
+                  style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
+                  accessibilityLabel={t('auth.phonePlaceholder')}
+                />
+                <PrimaryAction label={t('profileFoundation.sendMobileCode')} onPress={() => void requestMobileVerification()} loading={phoneLoading} disabled={!phoneDraft.trim()} />
+              </>
+            ) : (
+              <>
+                <ThemedText themeColor="textSecondary">{t('profileFoundation.mobileCodeFor', { phone: pendingPhone })}</ThemedText>
+                <TextInput
+                  value={phoneOtp}
+                  onChangeText={(value) => setPhoneOtp(value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder={t('auth.codePlaceholder')}
+                  placeholderTextColor={theme.textSecondary}
+                  keyboardType="number-pad"
+                  textContentType="oneTimeCode"
+                  maxLength={6}
+                  style={[styles.input, styles.code, { color: theme.text, backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
+                  accessibilityLabel={t('auth.codePlaceholder')}
+                />
+                <PrimaryAction label={t('profileFoundation.verifyMobile')} onPress={() => void confirmMobileVerification()} loading={phoneLoading} disabled={phoneOtp.length !== 6} />
+                <Pressable onPress={() => { setPendingPhone(''); setPhoneOtp(''); }} accessibilityRole="button" style={styles.linkButton}>
+                  <ThemedText style={{ color: theme.primary }}>{t('auth.changeIdentifier')}</ThemedText>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </>
+      ) : null}
+
       <SectionHeader title={t('profileFoundation.deliveryAddress')} />
       {loadingAddress ? <StateView kind="loading" title={t('states.loading')} /> : null}
       {addressError ? <StateView kind={addressError} title={t(addressError === 'offline' ? 'states.offline' : 'states.error')} message={t(addressError === 'offline' ? 'states.offlineMessage' : 'states.errorMessage')} actionLabel={t('states.retry')} onAction={() => void loadAddress()} /> : null}
@@ -103,7 +191,9 @@ const styles = StyleSheet.create({
   rowCard: { minHeight: 72, borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.card, padding: spacing.x4, flexDirection: 'row', alignItems: 'center', gap: spacing.x3 },
   label: { ...typography.label },
   input: { flex: 1, minHeight: touchTarget, borderWidth: 1, borderRadius: radii.compact, paddingHorizontal: spacing.x4, ...typography.body },
+  code: { fontSize: 24, letterSpacing: 6, textAlign: 'center' },
   inline: { flexDirection: 'row', gap: spacing.x2 },
   languages: { gap: spacing.x2 },
   language: { minHeight: touchTarget, borderWidth: 1, borderRadius: radii.compact, paddingHorizontal: spacing.x4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  linkButton: { minHeight: touchTarget, alignItems: 'center', justifyContent: 'center' },
 });
