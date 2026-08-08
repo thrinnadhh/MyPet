@@ -53,6 +53,7 @@ bash "$ROOT/scripts/test-full-stack.sh"
 bash "$ROOT/scripts/test-feature-flows.sh"
 bash "$ROOT/scripts/test-barcode-e2e.sh"
 python3 "$ROOT/scripts/run-m8-feature-matrix.py"
+python3 "$ROOT/scripts/test-order-cancel-accept-race-e2e.py"
 python3 "$ROOT/scripts/run-p2b-connected-e2e-entry.py"
 
 cat >> "$REPORT" <<'EOF'
@@ -61,11 +62,12 @@ cat >> "$REPORT" <<'EOF'
 
 **PASS** — automated builds, clean-volume infrastructure, all backend service
 readiness probes, barcode inventory upload → scan lookup → POS checkout,
-the connected M8 fourteen-domain matrix, and the exact ten P2B customer →
-merchant → captain → admin journeys completed successfully. Authorization,
-concurrency, idempotency, private-document access, scheduler, persistence,
-outbox, notification/UI contracts, inventory isolation, authoritative pricing,
-and asynchronous projection evidence were retained in the same report.
+the connected M8 fourteen-domain matrix, the Customer cancel ↔ Merchant accept
+serialization/race matrix, and the exact ten P2B customer → merchant → captain
+→ admin journeys completed successfully. Authorization, concurrency,
+idempotency, private-document access, scheduler, persistence, outbox,
+notification/UI contracts, inventory isolation, authoritative pricing, and
+asynchronous projection evidence were retained in the same report.
 EOF
 
 echo "Complete validation report: $REPORT"
