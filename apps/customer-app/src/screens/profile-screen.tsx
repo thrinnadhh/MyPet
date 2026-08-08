@@ -56,7 +56,7 @@ export default function ProfileScreen() {
       }
     } catch (error) { setAddressError(isOfflineError(error) ? 'offline' : 'error'); }
     finally { setLoadingAddress(false); }
-  }, [session, user?.phone]);
+  }, [session, user]);
 
   useEffect(() => {
     if (!user || !session) return;
@@ -73,7 +73,7 @@ export default function ProfileScreen() {
     if (!user?.phone || !user.phone_confirmed_at) return null;
     try { return normalizeDeliveryPhone(user.phone); }
     catch { return null; }
-  }, [user?.phone, user?.phone_confirmed_at]);
+  }, [user]);
 
   const deliveryPhoneVerified = Boolean(
     normalizedDeliveryPhone && verifiedAuthPhone === normalizedDeliveryPhone,
