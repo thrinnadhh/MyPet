@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.catalogservice.dto.OfferingRequest
 import com.pawsnearme.catalogservice.model.Offering
 import com.pawsnearme.catalogservice.model.OfferingStatus
+import com.pawsnearme.catalogservice.repository.OfferingRepository
 import com.pawsnearme.catalogservice.service.CatalogService
 import com.pawsnearme.catalogservice.service.InternalStockMutationService
 import org.junit.jupiter.api.Test
@@ -39,6 +40,9 @@ class CatalogAuthorizationWebMvcTest {
 
     @MockBean
     private lateinit var internalStockMutationService: InternalStockMutationService
+
+    @MockBean
+    private lateinit var offeringRepository: OfferingRepository
 
     private val providerId = UUID.randomUUID()
     private val ownerId = UUID.randomUUID()
