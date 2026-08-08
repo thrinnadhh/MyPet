@@ -2,6 +2,7 @@ package com.pawsnearme.orderservice.controller
 
 import com.pawsnearme.orderservice.service.CreateRecurringOrderRequest
 import com.pawsnearme.orderservice.service.RecurringOrderConfirmation
+import com.pawsnearme.orderservice.service.RecurringOrderOccurrenceView
 import com.pawsnearme.orderservice.service.RecurringOrderService
 import com.pawsnearme.orderservice.service.RecurringOrderView
 import com.pawsnearme.orderservice.service.UpdateRecurringOrderRequest
@@ -36,6 +37,21 @@ class RecurringOrderController(
     ): ResponseEntity<List<RecurringOrderView>> =
         ResponseEntity.ok(recurringOrderService.list(customerId(userId)))
 
+    @GetMapping("/{subscriptionId}/occurrences")
+    fun occurrences(
+        @PathVariable subscriptionId: UUID,
+        @RequestHeader("X-User-Id", required = false) userId: String?
+    ): ResponseEntity<List<RecurringOrderOccurrenceView>> =
+        ResponseEntity.ok(recurringOrderService.occurrences(customerId(userId), subscriptionId))
+
+    @GetMapping("/provider/{providerId}")
+    fun listForProvider(
+        @PathVariable providerId: UUID,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
+        @RequestHeader("X-User-Role", required = false) role: String?,
+    ): ResponseEntity<List<RecurringOrderView>> =
+        ResponseEntity.ok(recurringOrderService.listForProvider(providerId, actorId(userId), role))
+
     @PatchMapping("/{subscriptionId}")
     fun update(
         @PathVariable subscriptionId: UUID,
@@ -44,6 +60,7 @@ class RecurringOrderController(
     ): ResponseEntity<RecurringOrderView> =
         ResponseEntity.ok(recurringOrderService.update(customerId(userId), subscriptionId, request))
 
+    /** Legacy recovery endpoint for subscriptions created before automatic execution. */
     @PostMapping("/{subscriptionId}/confirm")
     fun confirm(
         @PathVariable subscriptionId: UUID,
@@ -51,9 +68,11 @@ class RecurringOrderController(
     ): ResponseEntity<RecurringOrderConfirmation> =
         ResponseEntity.ok(recurringOrderService.confirm(customerId(userId), subscriptionId))
 
-    private fun customerId(value: String?): UUID = try {
+    private fun customerId(value: String?): UUID = actorId(value)
+
+    private fun actorId(value: String?): UUID = try {
         UUID.fromString(value)
     } catch (_: Exception) {
-        throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Valid customer identity required.")
+        throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Valid authenticated identity required.")
     }
 }
