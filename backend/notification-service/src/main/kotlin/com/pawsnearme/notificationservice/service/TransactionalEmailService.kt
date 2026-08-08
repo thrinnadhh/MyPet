@@ -84,25 +84,30 @@ class TransactionalEmailService(
             log.debug("No transactional email address registered for user {}", userId)
             return null
         }
+        val normalizedKey = idempotencyKey.trim().take(180)
+        require(normalizedKey.isNotBlank()) { "Email idempotency key must not be blank" }
 
-        val existing = deliveryRepository.findByIdempotencyKey(idempotencyKey)
+        val existing = deliveryRepository.findByIdempotencyKey(normalizedKey)
         if (existing != null) return existing
 
+        val templateVariables = mapOf(
+            "customer_name" to (contact.displayName?.takeIf(String::isNotBlank) ?: "Customer")
+        ) + variables
         val delivery = EmailDelivery(
-            idempotencyKey = idempotencyKey.take(180),
+            idempotencyKey = normalizedKey,
             userId = userId,
             recipientEmail = email,
             recipientName = contact.displayName,
             templateCode = templateCode.trim().uppercase().take(80),
-            variablesJson = objectMapper.writeValueAsString(variables),
+            variablesJson = objectMapper.writeValueAsString(templateVariables),
             status = "PENDING",
             nextAttemptAt = Instant.now(),
         )
 
         val reserved = try {
             deliveryRepository.saveAndFlush(delivery)
-        } catch (_: DataIntegrityViolationException) {
-            deliveryRepository.findByIdempotencyKey(idempotencyKey) ?: throw
+        } catch (error: DataIntegrityViolationException) {
+            deliveryRepository.findByIdempotencyKey(normalizedKey) ?: throw error
         }
         if (reserved.status == "PENDING") attemptDelivery(reserved)
         return deliveryRepository.findById(reserved.emailDeliveryId).orElse(reserved)
