@@ -58,13 +58,16 @@ class OrderEventListener(
                         "provider_id" to event.providerId.toString(),
                     ),
                 )
-                notifyMerchant(event.merchantOwnerUserId, event.orderId, event.totalAmount.toPlainString())
+                notifyMerchantNewOrder(event.merchantOwnerUserId, event.orderId, event.totalAmount.toPlainString())
             }
-            "OrderStatusChanged" -> {
+            "OrderStatusChanged", "OrderCancelled" -> {
                 val event = objectMapper.readValue(message, OrderStatusChangedEvent::class.java)
-                if (event.toStatus == "ACCEPTED") {
-                    notifyMerchant(event.merchantOwnerUserId, event.orderId, event.totalAmount.toPlainString())
+                notifyCustomerStatus(event)
+
+                if (event.toStatus == "CANCELLED" && event.actorId == event.customerId) {
+                    notifyMerchantCancellation(event.merchantOwnerUserId, event.orderId)
                 }
+
                 if (event.toStatus == "DELIVERED") {
                     transactionalEmailService.enqueueForReference(
                         referenceType = "ORDER",
@@ -83,7 +86,37 @@ class OrderEventListener(
         }
     }
 
-    private fun notifyMerchant(merchantUserId: UUID?, orderId: UUID, amount: String) {
+    private fun notifyCustomerStatus(event: OrderStatusChangedEvent) {
+        val copy = when (event.toStatus) {
+            "ACCEPTED" -> Triple("Order accepted", "Your order #${event.orderId.toString().take(8)} was accepted by the store.", "ORDER_ACCEPTED")
+            "PREPARING" -> Triple("Order is being packed", "The store is preparing order #${event.orderId.toString().take(8)}.", "ORDER_PREPARING")
+            "READY_FOR_PICKUP" -> Triple("Order ready for pickup", "Order #${event.orderId.toString().take(8)} is packed and ready for delivery pickup.", "ORDER_READY")
+            "REJECTED" -> Triple("Order rejected", "The store could not accept order #${event.orderId.toString().take(8)}. Any eligible refund will be processed.", "ORDER_REJECTED")
+            "CANCELLED" -> Triple("Order cancelled", "Order #${event.orderId.toString().take(8)} was cancelled.", "ORDER_CANCELLED")
+            "PICKED_UP" -> Triple("Order picked up", "Your order #${event.orderId.toString().take(8)} is on the way.", "ORDER_PICKED_UP")
+            "DELIVERED" -> Triple("Order delivered", "Order #${event.orderId.toString().take(8)} was delivered.", "ORDER_DELIVERED")
+            else -> return
+        }
+        notificationRepo.save(
+            InAppNotification(
+                userId = event.customerId,
+                notificationType = copy.third,
+                title = copy.first,
+                body = copy.second,
+                referenceId = event.orderId,
+                priority = if (event.toStatus in setOf("REJECTED", "CANCELLED")) "HIGH" else "NORMAL",
+            )
+        )
+        pushNotificationService.sendToUser(
+            userId = event.customerId,
+            title = copy.first,
+            body = copy.second,
+            templateCode = copy.third,
+            referenceId = event.orderId,
+        )
+    }
+
+    private fun notifyMerchantNewOrder(merchantUserId: UUID?, orderId: UUID, amount: String) {
         if (merchantUserId == null) {
             log.warn("Skipping merchant alert for order {} — merchantOwnerUserId missing", orderId)
             return
@@ -93,12 +126,34 @@ class OrderEventListener(
                 userId = merchantUserId,
                 notificationType = "MERCHANT_ORDER_ALERT",
                 title = "New order received",
-                body = "Order #${orderId.toString().take(8)} · ₹$amount — pack before pickup",
+                body = "Order #${orderId.toString().take(8)} · ₹$amount — review and accept or reject",
                 referenceId = orderId,
                 priority = "HIGH",
             )
         )
         pushNotificationService.sendMerchantOrderAlert(merchantUserId, orderId, amount)
         log.info("Created merchant order alert for user {} order {}", merchantUserId, orderId)
+    }
+
+    private fun notifyMerchantCancellation(merchantUserId: UUID?, orderId: UUID) {
+        if (merchantUserId == null) return
+        val body = "Customer cancelled order #${orderId.toString().take(8)}. Stop fulfilment if it has not already progressed."
+        notificationRepo.save(
+            InAppNotification(
+                userId = merchantUserId,
+                notificationType = "MERCHANT_ORDER_CANCELLED",
+                title = "Order cancelled by customer",
+                body = body,
+                referenceId = orderId,
+                priority = "HIGH",
+            )
+        )
+        pushNotificationService.sendToUser(
+            userId = merchantUserId,
+            title = "Order cancelled by customer",
+            body = body,
+            templateCode = "MERCHANT_ORDER_CANCELLED",
+            referenceId = orderId,
+        )
     }
 }
