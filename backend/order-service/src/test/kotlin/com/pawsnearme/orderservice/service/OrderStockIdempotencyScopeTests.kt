@@ -139,8 +139,8 @@ class OrderStockIdempotencyScopeTests {
 
         val firstId = requireNotNull(first.orderId)
         val secondId = requireNotNull(second.orderId)
-        whenever(orderRepository.findById(firstId)).thenReturn(Optional.of(first))
-        whenever(orderRepository.findById(secondId)).thenReturn(Optional.of(second))
+        whenever(orderRepository.findByIdForUpdate(firstId)).thenReturn(Optional.of(first))
+        whenever(orderRepository.findByIdForUpdate(secondId)).thenReturn(Optional.of(second))
         whenever(orderItemRepository.findByOrderId(firstId)).thenReturn(
             listOf(
                 OrderItem(
