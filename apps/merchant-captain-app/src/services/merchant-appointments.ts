@@ -24,18 +24,22 @@ export interface MerchantBooking {
   petName: string;
   serviceName: string;
   slotStartsAt: string;
+  slotEndsAt?: string | null;
   status: MerchantAppointmentStatus;
   providerId: string;
   providerType: string;
   offeringId: string;
   slotId: string;
   priceAmount: number;
+  paymentId?: string | null;
   payAtClinic: boolean;
   bookedAt: string;
   completedAt?: string | null;
   cancelledAt?: string | null;
   cancellationReason?: string | null;
   visitNotes?: string | null;
+  prescriptionDocUrl?: string | null;
+  identityResolved: boolean;
 }
 
 export interface MerchantAppointmentHistoryEntry {
@@ -58,36 +62,28 @@ export interface MerchantAppointmentInvoice {
   generatedAt: string;
 }
 
-interface AppointmentDto {
-  appointmentId?: string;
-  id?: string;
+interface MerchantAppointmentDto {
+  appointmentId: string;
   customerId: string;
+  customerName?: string | null;
   providerId: string;
   offeringId: string;
+  offeringName?: string | null;
   slotId: string;
+  slotStartsAt?: string | null;
+  slotEndsAt?: string | null;
   petId: string;
+  petName?: string | null;
   status: MerchantAppointmentStatus;
   priceAmount: number | string;
+  paymentId?: string | null;
   payAtClinic?: boolean;
-  bookedAt?: string;
+  bookedAt: string;
   completedAt?: string | null;
   cancelledAt?: string | null;
   cancellationReason?: string | null;
   visitNotes?: string | null;
-}
-
-interface OfferingDto {
-  offeringId: string;
-  name: string;
-}
-
-interface SlotDto {
-  slotStart?: string;
-  startTime?: string;
-}
-
-function compactId(value: string): string {
-  return value.length > 8 ? value.slice(0, 8) : value;
+  prescriptionDocUrl?: string | null;
 }
 
 export async function fetchMerchantOwnedProviders(): Promise<MerchantProvider[]> {
@@ -99,53 +95,36 @@ export async function fetchMerchantProviders(_ownerUserId?: string): Promise<Mer
   return providers.filter((provider) => provider.fulfillmentType === 'APPOINTMENT');
 }
 
-async function fetchOfferings(providerId: string): Promise<Map<string, string>> {
-  try {
-    const offerings = await apiClient.get<OfferingDto[]>(
-      `/api/v1/catalog/offerings?providerId=${encodeURIComponent(providerId)}`,
-    );
-    return new Map(offerings.map((offering) => [offering.offeringId, offering.name]));
-  } catch {
-    return new Map();
-  }
-}
-
-async function fetchSlotStart(slotId: string): Promise<string | null> {
-  try {
-    const slot = await apiClient.get<SlotDto>(`/api/v1/catalog/slots/${encodeURIComponent(slotId)}`);
-    return slot.slotStart ?? slot.startTime ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function enrichAppointment(
-  appointment: AppointmentDto,
+function toBooking(
+  appointment: MerchantAppointmentDto,
   provider: MerchantProvider,
-  offerings: Map<string, string>,
-): Promise<MerchantBooking> {
-  const id = appointment.appointmentId ?? appointment.id;
-  if (!id) throw new Error('Appointment response did not include an appointment ID.');
-  const slotStart = await fetchSlotStart(appointment.slotId);
+): MerchantBooking {
+  const customerName = appointment.customerName?.trim() || 'Customer identity unavailable';
+  const petName = appointment.petName?.trim() || 'Pet identity unavailable';
+  const slotStartsAt = appointment.slotStartsAt ?? appointment.bookedAt;
   return {
-    id,
+    id: appointment.appointmentId,
     customerId: appointment.customerId,
-    customerName: `Customer ${compactId(appointment.customerId)}`,
-    petName: `Pet ${compactId(appointment.petId)}`,
-    serviceName: offerings.get(appointment.offeringId) ?? provider.name,
-    slotStartsAt: slotStart ?? appointment.bookedAt ?? new Date().toISOString(),
+    customerName,
+    petName,
+    serviceName: appointment.offeringName?.trim() || 'Service details unavailable',
+    slotStartsAt,
+    slotEndsAt: appointment.slotEndsAt,
     status: appointment.status,
     providerId: appointment.providerId,
     providerType: provider.providerType,
     offeringId: appointment.offeringId,
     slotId: appointment.slotId,
     priceAmount: Number(appointment.priceAmount) || 0,
+    paymentId: appointment.paymentId,
     payAtClinic: Boolean(appointment.payAtClinic),
-    bookedAt: appointment.bookedAt ?? new Date().toISOString(),
+    bookedAt: appointment.bookedAt,
     completedAt: appointment.completedAt,
     cancelledAt: appointment.cancelledAt,
     cancellationReason: appointment.cancellationReason,
     visitNotes: appointment.visitNotes,
+    prescriptionDocUrl: appointment.prescriptionDocUrl,
+    identityResolved: Boolean(appointment.customerName?.trim() && appointment.petName?.trim()),
   };
 }
 
@@ -156,15 +135,10 @@ export async function fetchMerchantBookings(
   const providers = await fetchMerchantProviders();
   const providerBookings = await Promise.all(
     providers.map(async (provider) => {
-      const [offerings, appointments] = await Promise.all([
-        fetchOfferings(provider.providerId),
-        apiClient.get<AppointmentDto[]>(
-          `/api/v1/appointments/provider/${encodeURIComponent(provider.providerId)}`,
-        ),
-      ]);
-      return Promise.all(
-        appointments.map((appointment) => enrichAppointment(appointment, provider, offerings)),
+      const appointments = await apiClient.get<MerchantAppointmentDto[]>(
+        `/api/v1/appointments/provider/${encodeURIComponent(provider.providerId)}`,
       );
+      return appointments.map((appointment) => toBooking(appointment, provider));
     }),
   );
   return providerBookings.flat().sort((left, right) => left.slotStartsAt.localeCompare(right.slotStartsAt));
@@ -174,11 +148,11 @@ export async function updateMerchantBookingStatus(
   bookingId: string,
   status: MerchantAppointmentAction,
   note: string,
-): Promise<AppointmentDto> {
+): Promise<void> {
   const params = new URLSearchParams({ status });
   const trimmedNote = note.trim();
   if (trimmedNote) params.set('note', trimmedNote);
-  return apiClient.put<AppointmentDto>(
+  await apiClient.put<unknown>(
     `/api/v1/appointments/${encodeURIComponent(bookingId)}/status?${params.toString()}`,
   );
 }
