@@ -69,11 +69,14 @@ export default function ProfileScreen() {
     catch { return null; }
   }, [deliveryPhone]);
 
+  const verifiedAuthPhone = useMemo(() => {
+    if (!user?.phone || !user.phone_confirmed_at) return null;
+    try { return normalizeDeliveryPhone(user.phone); }
+    catch { return null; }
+  }, [user?.phone, user?.phone_confirmed_at]);
+
   const deliveryPhoneVerified = Boolean(
-    normalizedDeliveryPhone
-    && user?.phone_confirmed_at
-    && user.phone
-    && normalizeDeliveryPhone(user.phone) === normalizedDeliveryPhone,
+    normalizedDeliveryPhone && verifiedAuthPhone === normalizedDeliveryPhone,
   );
 
   const profileRows = useMemo(() => user ? [
