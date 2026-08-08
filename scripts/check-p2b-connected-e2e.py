@@ -35,15 +35,13 @@ test_all = (ROOT / "scripts/test-all.sh").read_text(encoding="utf-8")
 monolith_certification = (ROOT / "scripts/test-monolith-release-certification.sh").read_text(encoding="utf-8")
 monolith_stack = (ROOT / "scripts/test-monolith-stack.sh").read_text(encoding="utf-8")
 recurring_scheduler = (
-    ROOT
-    / "backend/order-service/src/main/kotlin/com/pawsnearme/orderservice/service/RecurringOrderScheduler.kt"
+    ROOT / "backend/order-service/src/main/kotlin/com/pawsnearme/orderservice/service/RecurringOrderScheduler.kt"
 ).read_text(encoding="utf-8")
 scheduler_runtime = (
     ROOT / "backend/common/src/main/kotlin/com/pawsnearme/common/scheduling/SchedulerRuntime.kt"
 ).read_text(encoding="utf-8")
 scheduler_executors = (
-    ROOT
-    / "backend/common/src/main/kotlin/com/pawsnearme/common/scheduling/SchedulerExecutorsConfiguration.kt"
+    ROOT / "backend/common/src/main/kotlin/com/pawsnearme/common/scheduling/SchedulerExecutorsConfiguration.kt"
 ).read_text(encoding="utf-8")
 outbox_poller = (
     ROOT / "backend/common/src/main/kotlin/com/pawsnearme/common/outbox/OutboxPoller.kt"
@@ -69,12 +67,14 @@ for token in (
     assert token in entrypoint, token
 
 for token in (
-    "AWAITING_CONFIRMATION",
-    "RecurringOrderConfirmationRequired",
-    "automaticCharge",
+    "ORDER_CREATED",
+    "RecurringOrderGenerated",
     "payments.transactions",
-    "silently created an order",
-    "second scheduler cycle",
+    "exactly one order",
+    "silently created a payment transaction",
+    "subsequent scheduler tick",
+    "recurring_order_occurrences",
+    "recurring_order_subscription_items",
     "MYPET_COMPOSE_FILES",
     "MYPET_SCHEDULER_SERVICE",
     "scheduler_lock_state",
@@ -84,6 +84,7 @@ for token in (
     assert token in recurring, token
 
 assert 'python3 "$ROOT/scripts/run-p2b-connected-e2e-entry.py"' in test_all
+assert 'python3 "$ROOT/scripts/test-recurring-order-scheduler-e2e.py"' in test_all
 assert 'python3 "$ROOT/scripts/test-recurring-order-scheduler-e2e.py"' in monolith_certification
 assert 'ORDER_RECURRING_REMINDER_CRON="*/5 * * * * *"' in monolith_certification
 assert "ORDER_RECURRING_REMINDER_LOCK_AT_MOST_FOR=PT30S" in monolith_certification
@@ -100,8 +101,9 @@ assert 'if [[ "$OWNS_ENV_FILE" == "true" ]]' in monolith_stack
 assert "@WorkerScheduler" in recurring_scheduler
 assert "order.recurring-reminder-lock-at-most-for:PT55M" in recurring_scheduler
 assert "order.recurring-reminder-lock-at-least-for:PT1M" in recurring_scheduler
-assert "order.recurring-confirmation-reminders" in scheduler_runtime
-assert "recurringOrderConfirmationReminder" in scheduler_runtime
+assert "order.recurring-order-generation" in scheduler_runtime
+assert "generateDueOrders" in scheduler_runtime
+assert "recurringOrderGeneration" in scheduler_runtime
 assert 'Bean(name = ["taskScheduler"])' in scheduler_executors
 assert 'Bean(name = ["outboxTaskScheduler"])' in scheduler_executors
 assert "mypet.scheduling.pool-size:8" in scheduler_executors
@@ -110,4 +112,4 @@ assert 'scheduler = "outboxTaskScheduler"' in outbox_poller
 assert "ORDER_RECURRING_REMINDER_LOCK_AT_MOST_FOR" in monolith_compose
 assert "ORDER_RECURRING_REMINDER_LOCK_AT_LEAST_FOR" in monolith_compose
 
-print("P2B_CONNECTED_E2E_CONTRACT_OK journeys=10 dimensions=6 recurring_scheduler=1 outbox_scheduler=isolated cashfree=local-sandbox")
+print("P2B_CONNECTED_E2E_CONTRACT_OK journeys=10 dimensions=6 recurring_scheduler=operational-order-generation outbox_scheduler=isolated cashfree=local-sandbox")
