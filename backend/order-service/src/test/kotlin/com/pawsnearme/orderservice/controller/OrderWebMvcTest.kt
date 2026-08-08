@@ -1,6 +1,12 @@
 package com.pawsnearme.orderservice.controller
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.pawsnearme.common.idempotency.IdempotencyService
+import com.pawsnearme.common.idempotency.ProcessedEventRepository
+import com.pawsnearme.common.module.ProviderModuleApi
+import com.pawsnearme.common.outbox.OutboxPoller
+import com.pawsnearme.common.outbox.OutboxRepository
+import com.pawsnearme.common.outbox.OutboxService
 import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
@@ -8,11 +14,6 @@ import com.pawsnearme.orderservice.service.CheckoutQuoteResponse
 import com.pawsnearme.orderservice.service.CustomerDeliveryContact
 import com.pawsnearme.orderservice.service.DeliveryContactLookup
 import com.pawsnearme.orderservice.service.OrderService
-import com.pawsnearme.common.idempotency.IdempotencyService
-import com.pawsnearme.common.idempotency.ProcessedEventRepository
-import com.pawsnearme.common.outbox.OutboxPoller
-import com.pawsnearme.common.outbox.OutboxRepository
-import com.pawsnearme.common.outbox.OutboxService
 import com.pawsnearme.orderservice.service.QuoteStore
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
@@ -60,6 +61,9 @@ class OrderWebMvcTest {
 
     @MockBean
     private lateinit var deliveryContactLookup: DeliveryContactLookup
+
+    @MockBean
+    private lateinit var providerModule: ProviderModuleApi
 
     @MockBean
     private lateinit var stringRedisTemplate: StringRedisTemplate
@@ -168,6 +172,7 @@ class OrderWebMvcTest {
             paymentMethod = "COD"
         )
 
+        whenever(providerModule.providerOperational(providerId)).thenReturn(true)
         whenever(deliveryContactLookup.forCustomerAddress(customerId, deliveryAddressId))
             .thenReturn(CustomerDeliveryContact("+919876543210"))
         whenever(orderService.createOrder(any())).thenReturn(createdOrder)
@@ -206,17 +211,19 @@ class OrderWebMvcTest {
     @Test
     fun `POST create order - rejects address without customer-owned delivery contact`() {
         val customerId = UUID.randomUUID()
+        val providerId = UUID.randomUUID()
         val deliveryAddressId = UUID.randomUUID()
         val jsonRequest = """
             {
               "quoteToken": "Q-TEST12345",
-              "providerId": "${UUID.randomUUID()}",
+              "providerId": "$providerId",
               "deliveryAddressId": "$deliveryAddressId",
               "items": [{"offeringId": "${UUID.randomUUID()}", "quantity": 1}],
               "paymentMethod": "COD"
             }
         """.trimIndent()
 
+        whenever(providerModule.providerOperational(providerId)).thenReturn(true)
         whenever(deliveryContactLookup.forCustomerAddress(customerId, deliveryAddressId)).thenReturn(null)
 
         mockMvc.perform(
