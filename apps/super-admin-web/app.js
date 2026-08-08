@@ -1,7 +1,11 @@
-const API_BASE_URL = 'http://localhost:8080';
+const ADMIN_CONFIG = window.PNM_ADMIN_CONFIG || {};
+const API_BASE_URL = String(ADMIN_CONFIG.apiBaseUrl || '').replace(/\/+$/, '');
 
 let activeTab = 'approvals';
 let currentDisputeId = null;
+let currentUserPage = 0;
+const USER_PAGE_SIZE = 25;
+const pendingMutations = new Set();
 
 function escapeHtml(str) {
     if (str == null) return '';
@@ -13,278 +17,22 @@ function escapeHtml(str) {
         .replace(/'/g, '&#039;');
 }
 
-// On Load
-document.addEventListener('DOMContentLoaded', () => {
-    if (checkAdminAuth()) {
-        fetchRefundModeConfig();
-        fetchPendingProviders();
-    }
-});
-
-// Tab switching logic
-function switchTab(tabId) {
-    activeTab = tabId;
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(panel => panel.style.display = 'none');
-    
-    // Find button to activate
-    const btn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.textContent.toLowerCase().includes(tabId.substring(0, 3)));
-    if (btn) btn.classList.add('active');
-    
-    document.getElementById(`${tabId}-panel`).style.display = 'block';
-    
-    if (tabId === 'approvals') {
-        fetchPendingProviders();
-    } else if (tabId === 'disputes') {
-        fetchDisputes();
-    } else if (tabId === 'banner-auction') {
-        fetchBannerAuctionOutcomes();
-    } else if (tabId === 'users') {
-        fetchUsers();
-    }
+function apiUrl(path) {
+    if (!API_BASE_URL) throw new Error('Admin API base URL is not configured.');
+    return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
-// Show Alert Toast
-function showToast(message, isError = false) {
-    const toast = document.getElementById('alert-toast');
-    const icon = document.getElementById('toast-icon');
-    const msg = document.getElementById('toast-message');
-    
-    icon.textContent = isError ? '❌' : '✅';
-    toast.style.borderLeftColor = isError ? 'var(--accent-rose)' : 'var(--accent-emerald)';
-    msg.textContent = message;
-    
-    toast.classList.add('active');
-    setTimeout(() => {
-        toast.classList.remove('active');
-    }, 3000);
-}
-
-// ─── Config Methods ──────────────────────────────────────────────────────────
-
-async function fetchRefundModeConfig() {
+async function readApiError(response, fallback) {
     try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/orders/admin/config`, {
-            headers: { 'X-User-Role': 'ADMIN' }
-        });
-        if (res.ok) {
-            const data = await res.json();
-            const isAutomated = data.dispute_refund_mode === 'AUTOMATED';
-            document.getElementById('refund-mode-checkbox').checked = isAutomated;
-        }
-    } catch (e) {
-        console.error("Failed to fetch refund config", e);
+        const body = await response.json();
+        return body.error || body.message || fallback;
+    } catch {
+        return `${fallback} (${response.status})`;
     }
 }
 
-async function toggleRefundMode(isAutomated) {
-    const mode = isAutomated ? 'AUTOMATED' : 'MANUAL';
-    try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/orders/admin/config`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-User-Role': 'ADMIN'
-            },
-            body: JSON.stringify({ dispute_refund_mode: mode })
-        });
-        if (res.ok) {
-            showToast(`Refund mode toggled to: ${mode}`);
-        } else {
-            showToast(`Failed to update refund mode`, true);
-            // Revert checkbox
-            document.getElementById('refund-mode-checkbox').checked = !isAutomated;
-        }
-    } catch (e) {
-        showToast("Error updating refund mode", true);
-        document.getElementById('refund-mode-checkbox').checked = !isAutomated;
-    }
-}
-
-// ─── Provider Onboarding Queue ──────────────────────────────────────────────
-
-async function fetchPendingProviders() {
-    const container = document.getElementById('pending-providers-list');
-    container.innerHTML = `
-        <div class="empty-state">
-            <span class="empty-icon">⏳</span>
-            <p>Loading onboarding queue...</p>
-        </div>
-    `;
-    
-    try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/providers/pending`, {
-            headers: { 'X-User-Role': 'ADMIN' }
-        });
-        if (!res.ok) throw new Error("Failed to fetch pending providers");
-        
-        const providers = await res.json();
-        if (providers.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <span class="empty-icon">🎉</span>
-                    <p>Onboarding queue is clear! No pending providers.</p>
-                </div>
-            `;
-            return;
-        }
-        
-function escapeHtml(str) {
-    if (str == null) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-}
-
-        container.innerHTML = '';
-        providers.forEach(p => {
-            const item = document.createElement('div');
-            item.className = 'list-item';
-            
-            // Format licensing detail if present
-            const licText = p.licenseNumber ? `License: ${escapeHtml(p.licenseNumber)}` : 'No license required';
-            
-            item.innerHTML = `
-                <div class="item-header">
-                    <div>
-                        <h3 class="item-title">${escapeHtml(p.name)}</h3>
-                        <p class="item-subtitle">${escapeHtml(p.providerType)} — ${escapeHtml(p.fulfillmentType)}</p>
-                    </div>
-                    <span class="badge badge-pending">PENDING</span>
-                </div>
-                <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 0.25rem;">
-                    <div>City: ${escapeHtml(p.city)} | Zip: ${escapeHtml(p.pincode)}</div>
-                    <div>Address: ${escapeHtml(p.addressLine)}</div>
-                    <div>${licText}</div>
-                </div>
-                <div class="btn-group">
-                    <button class="btn btn-emerald" onclick="approveProvider('${escapeHtml(p.providerId)}')">Approve</button>
-                    <button class="btn btn-rose" onclick="rejectProvider('${escapeHtml(p.providerId)}')">Reject</button>
-                </div>
-            `;
-            container.appendChild(item);
-        });
-    } catch (e) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <span class="empty-icon">❌</span>
-                <p>Failed to load onboarding queue: ${e.message}</p>
-            </div>
-        `;
-    }
-}
-
-async function approveProvider(providerId) {
-    try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/providers/${providerId}/approve`, {
-            method: 'POST',
-            headers: { 'X-User-Role': 'ADMIN' }
-        });
-        if (res.ok) {
-            showToast("Provider approved successfully!");
-            fetchPendingProviders();
-        } else {
-            const err = await res.json().catch(() => ({}));
-            showToast(err.error || "Failed to approve provider", true);
-        }
-    } catch (e) {
-        showToast("Network error approving provider", true);
-    }
-}
-
-async function rejectProvider(providerId) {
-    // Scaffold reject action (simulated)
-    showToast("Provider rejection registered (Simulated)");
-}
-
-// ─── Dispute Tickets Queue ──────────────────────────────────────────────────
-
-async function fetchDisputes() {
-    const container = document.getElementById('disputes-list');
-    renderDisputeMessage(container, '⏳', 'Loading disputes queue...');
-    
-    try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/orders/disputes`, {
-            headers: { 'X-User-Role': 'ADMIN' }
-        });
-        if (!res.ok) throw new Error("Failed to fetch disputes");
-        
-        const disputes = await res.json();
-        if (disputes.length === 0) {
-            renderDisputeMessage(container, '🛡️', 'No disputes submitted.');
-            return;
-        }
-
-        container.replaceChildren();
-        disputes.forEach(d => {
-            const item = document.createElement('div');
-            item.className = 'list-item';
-
-            const isResolved = d.status !== 'OPEN';
-            const badgeClass = d.status === 'OPEN' ? 'badge-pending' : (d.status === 'RESOLVED' ? 'badge-success' : 'badge-danger');
-
-            const header = document.createElement('div');
-            header.className = 'item-header';
-            const heading = document.createElement('div');
-            const title = document.createElement('h3');
-            title.className = 'item-title';
-            title.textContent = 'Dispute on Order';
-            const subtitle = document.createElement('p');
-            subtitle.className = 'item-subtitle';
-            subtitle.textContent = `Order ID: ${String(d.orderId ?? '')}`;
-            heading.append(title, subtitle);
-            const badge = document.createElement('span');
-            badge.className = `badge ${badgeClass}`;
-            badge.textContent = String(d.status ?? 'UNKNOWN');
-            header.append(heading, badge);
-
-            const reason = document.createElement('div');
-            reason.style.cssText = 'font-size: 0.85rem; color: var(--text-secondary);';
-            const reasonLabel = document.createElement('strong');
-            reasonLabel.textContent = 'Reason: ';
-            reason.append(reasonLabel, document.createTextNode(String(d.reason ?? '')));
-            item.append(header, reason);
-
-            if (isResolved) {
-                const resolution = document.createElement('div');
-                resolution.style.cssText = 'font-size: 0.85rem; padding: 0.5rem; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px dashed var(--border-glass);';
-                const resolutionLabel = document.createElement('div');
-                resolutionLabel.style.cssText = 'font-weight: 700; color: var(--text-primary);';
-                resolutionLabel.textContent = 'Resolution:';
-                const resolutionNotes = document.createElement('div');
-                resolutionNotes.style.color = 'var(--text-secondary)';
-                resolutionNotes.textContent = String(d.resolutionNotes || 'No notes provided');
-                resolution.append(resolutionLabel, resolutionNotes);
-                item.appendChild(resolution);
-            } else {
-                const actions = document.createElement('div');
-                actions.className = 'btn-group';
-                const resolveButton = document.createElement('button');
-                resolveButton.type = 'button';
-                resolveButton.className = 'btn';
-                resolveButton.textContent = '⚖️ Resolve Ticket';
-                resolveButton.addEventListener('click', () => openDisputeModal(String(d.disputeId), String(d.reason ?? '')));
-                const invoiceButton = document.createElement('button');
-                invoiceButton.type = 'button';
-                invoiceButton.className = 'btn btn-emerald';
-                invoiceButton.style.backgroundColor = '#374151';
-                invoiceButton.textContent = '📄 View Invoice';
-                invoiceButton.addEventListener('click', () => viewInvoice(String(d.orderId)));
-                actions.append(resolveButton, invoiceButton);
-                item.appendChild(actions);
-            }
-
-            container.appendChild(item);
-        });
-    } catch (e) {
-        renderDisputeMessage(container, '❌', `Failed to load disputes: ${e.message || 'Unknown error'}`);
-    }
-}
-
-function renderDisputeMessage(container, iconText, messageText) {
+function renderState(container, iconText, messageText) {
+    if (!container) return;
     const state = document.createElement('div');
     state.className = 'empty-state';
     const icon = document.createElement('span');
@@ -296,232 +44,475 @@ function renderDisputeMessage(container, iconText, messageText) {
     container.replaceChildren(state);
 }
 
+function createTextElement(tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    element.textContent = text;
+    return element;
+}
+
+async function runMutation(key, operation) {
+    if (pendingMutations.has(key)) return null;
+    pendingMutations.add(key);
+    try {
+        return await operation();
+    } finally {
+        pendingMutations.delete(key);
+    }
+}
+
+function switchTab(tabId) {
+    activeTab = tabId;
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.tab === tabId);
+    });
+    document.querySelectorAll('.tab-panel').forEach((panel) => {
+        panel.hidden = panel.id !== `${tabId}-panel`;
+    });
+
+    if (tabId === 'approvals') void fetchPendingProviders();
+    if (tabId === 'disputes') void fetchDisputes();
+    if (tabId === 'banner-auction') void fetchBannerAuctionOutcomes();
+    if (tabId === 'users') void fetchUsers(currentUserPage);
+}
+
+function showToast(message, isError = false) {
+    const toast = document.getElementById('alert-toast');
+    const icon = document.getElementById('toast-icon');
+    const msg = document.getElementById('toast-message');
+    if (!toast || !icon || !msg) return;
+
+    icon.textContent = isError ? '❌' : '✅';
+    toast.classList.toggle('error', isError);
+    msg.textContent = message;
+    toast.classList.add('active');
+    window.setTimeout(() => toast.classList.remove('active'), 3500);
+}
+
+async function fetchRefundModeConfig() {
+    const checkbox = document.getElementById('refund-mode-checkbox');
+    if (!checkbox) return;
+    checkbox.disabled = true;
+    try {
+        const response = await fetch(apiUrl('/api/v1/orders/admin/config'));
+        if (!response.ok) throw new Error(await readApiError(response, 'Failed to load refund policy'));
+        const data = await response.json();
+        checkbox.checked = data.dispute_refund_mode === 'AUTOMATED';
+    } catch (error) {
+        showToast(error.message || 'Failed to load refund policy', true);
+    } finally {
+        checkbox.disabled = false;
+    }
+}
+
+async function toggleRefundMode(isAutomated) {
+    const checkbox = document.getElementById('refund-mode-checkbox');
+    const mode = isAutomated ? 'AUTOMATED' : 'MANUAL';
+    await runMutation('refund-mode', async () => {
+        if (checkbox) checkbox.disabled = true;
+        try {
+            const response = await fetch(apiUrl('/api/v1/orders/admin/config'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dispute_refund_mode: mode }),
+            });
+            if (!response.ok) throw new Error(await readApiError(response, 'Failed to update refund policy'));
+            const authoritative = await response.json();
+            if (checkbox) checkbox.checked = authoritative.dispute_refund_mode === 'AUTOMATED';
+            showToast(`Refund policy updated to ${authoritative.dispute_refund_mode}`);
+        } catch (error) {
+            if (checkbox) checkbox.checked = !isAutomated;
+            showToast(error.message || 'Failed to update refund policy', true);
+        } finally {
+            if (checkbox) checkbox.disabled = false;
+        }
+    });
+}
+
+async function fetchPendingProviders() {
+    const container = document.getElementById('pending-providers-list');
+    renderState(container, '⏳', 'Loading onboarding queue...');
+
+    try {
+        const response = await fetch(apiUrl('/api/v1/providers/pending'));
+        if (!response.ok) throw new Error(await readApiError(response, 'Failed to fetch pending providers'));
+        const providers = await response.json();
+        if (!Array.isArray(providers) || providers.length === 0) {
+            renderState(container, '🎉', 'Onboarding queue is clear.');
+            return;
+        }
+
+        container.replaceChildren();
+        providers.forEach((provider) => {
+            const item = document.createElement('article');
+            item.className = 'list-item';
+
+            const header = document.createElement('div');
+            header.className = 'item-header';
+            const heading = document.createElement('div');
+            heading.append(
+                createTextElement('h3', 'item-title', String(provider.name || 'Unnamed provider')),
+                createTextElement('p', 'item-subtitle', `${provider.providerType || 'UNKNOWN'} — ${provider.fulfillmentType || 'UNKNOWN'}`),
+            );
+            const badge = createTextElement('span', 'badge badge-pending', 'PENDING');
+            header.append(heading, badge);
+
+            const details = document.createElement('div');
+            details.className = 'item-details';
+            details.append(
+                createTextElement('div', '', `City: ${provider.city || '—'} | Pincode: ${provider.pincode || '—'}`),
+                createTextElement('div', '', `Address: ${provider.addressLine || '—'}`),
+                createTextElement('div', '', provider.licenseNumber ? `License: ${provider.licenseNumber}` : 'No license number supplied'),
+            );
+
+            const actions = document.createElement('div');
+            actions.className = 'btn-group';
+            const approve = createTextElement('button', 'btn btn-emerald', 'Approve');
+            approve.type = 'button';
+            approve.addEventListener('click', () => void approveProvider(String(provider.providerId)));
+            const reject = createTextElement('button', 'btn btn-rose', 'Reject');
+            reject.type = 'button';
+            reject.addEventListener('click', () => void rejectProvider(String(provider.providerId)));
+            actions.append(approve, reject);
+
+            item.append(header, details, actions);
+            container.appendChild(item);
+        });
+    } catch (error) {
+        renderState(container, '❌', error.message || 'Failed to load onboarding queue.');
+    }
+}
+
+async function approveProvider(providerId) {
+    await runMutation(`approve-provider:${providerId}`, async () => {
+        try {
+            const response = await fetch(apiUrl(`/api/v1/providers/${encodeURIComponent(providerId)}/approve`), {
+                method: 'POST',
+            });
+            if (!response.ok) throw new Error(await readApiError(response, 'Provider approval failed'));
+            showToast('Provider approved');
+            await fetchPendingProviders();
+        } catch (error) {
+            showToast(error.message || 'Provider approval failed', true);
+        }
+    });
+}
+
+async function rejectProvider(providerId) {
+    const entered = window.prompt('Enter the reason for rejecting this provider:');
+    if (entered == null) return;
+    const reason = entered.trim();
+    if (reason.length < 3) {
+        showToast('A rejection reason of at least 3 characters is required.', true);
+        return;
+    }
+
+    await runMutation(`reject-provider:${providerId}`, async () => {
+        try {
+            const response = await fetch(apiUrl(`/api/v1/providers/${encodeURIComponent(providerId)}/reject`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason }),
+            });
+            if (!response.ok) throw new Error(await readApiError(response, 'Provider rejection failed'));
+            showToast('Provider rejected');
+            await fetchPendingProviders();
+        } catch (error) {
+            showToast(error.message || 'Provider rejection failed', true);
+        }
+    });
+}
+
+async function fetchDisputes() {
+    const container = document.getElementById('disputes-list');
+    renderState(container, '⏳', 'Loading disputes queue...');
+
+    try {
+        const response = await fetch(apiUrl('/api/v1/orders/disputes'));
+        if (!response.ok) throw new Error(await readApiError(response, 'Failed to fetch disputes'));
+        const disputes = await response.json();
+        if (!Array.isArray(disputes) || disputes.length === 0) {
+            renderState(container, '🛡️', 'No disputes submitted.');
+            return;
+        }
+
+        container.replaceChildren();
+        disputes.forEach((dispute) => {
+            const item = document.createElement('article');
+            item.className = 'list-item';
+            const resolved = dispute.status !== 'OPEN';
+
+            const header = document.createElement('div');
+            header.className = 'item-header';
+            const heading = document.createElement('div');
+            heading.append(
+                createTextElement('h3', 'item-title', 'Dispute on Order'),
+                createTextElement('p', 'item-subtitle', `Order ID: ${String(dispute.orderId || '')}`),
+            );
+            const badgeClass = dispute.status === 'OPEN' ? 'badge-pending' : dispute.status === 'RESOLVED' ? 'badge-success' : 'badge-danger';
+            header.append(heading, createTextElement('span', `badge ${badgeClass}`, String(dispute.status || 'UNKNOWN')));
+            item.append(header, createTextElement('div', 'item-details', `Reason: ${String(dispute.reason || '')}`));
+
+            if (resolved) {
+                item.appendChild(createTextElement('div', 'resolution-box', `Resolution: ${String(dispute.resolutionNotes || 'No notes provided')}`));
+            } else {
+                const actions = document.createElement('div');
+                actions.className = 'btn-group';
+                const resolve = createTextElement('button', 'btn', '⚖️ Resolve Ticket');
+                resolve.type = 'button';
+                resolve.addEventListener('click', () => openDisputeModal(String(dispute.disputeId), String(dispute.reason || '')));
+                const invoice = createTextElement('button', 'btn btn-secondary', '📄 View Invoice');
+                invoice.type = 'button';
+                invoice.addEventListener('click', () => void viewInvoice(String(dispute.orderId)));
+                actions.append(resolve, invoice);
+                item.appendChild(actions);
+            }
+            container.appendChild(item);
+        });
+    } catch (error) {
+        renderState(container, '❌', error.message || 'Failed to load disputes.');
+    }
+}
+
 function openDisputeModal(disputeId, reason) {
     currentDisputeId = disputeId;
-    document.getElementById('modal-dispute-reason').textContent = `Reason for dispute: "${reason}"`;
-    document.getElementById('resolution-notes').value = '';
-    document.getElementById('dispute-modal').classList.add('active');
+    const reasonNode = document.getElementById('modal-dispute-reason');
+    const notes = document.getElementById('resolution-notes');
+    if (reasonNode) reasonNode.textContent = `Reason for dispute: “${reason}”`;
+    if (notes) notes.value = '';
+    document.getElementById('dispute-modal')?.classList.add('active');
 }
 
 function closeDisputeModal() {
-    document.getElementById('dispute-modal').classList.remove('active');
+    document.getElementById('dispute-modal')?.classList.remove('active');
     currentDisputeId = null;
 }
 
 async function submitResolution(decision) {
     if (!currentDisputeId) return;
-    const notes = document.getElementById('resolution-notes').value.trim();
+    const notes = document.getElementById('resolution-notes')?.value.trim() || '';
     if (!notes) {
-        showToast("Please enter resolution notes", true);
+        showToast('Resolution notes are required.', true);
         return;
     }
-    
-    try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/orders/disputes/${currentDisputeId}/resolve`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-User-Role': 'ADMIN'
-            },
-            body: JSON.stringify({ decision, resolutionNotes: notes })
-        });
-        if (res.ok) {
+
+    const disputeId = currentDisputeId;
+    await runMutation(`resolve-dispute:${disputeId}`, async () => {
+        try {
+            const response = await fetch(apiUrl(`/api/v1/orders/disputes/${encodeURIComponent(disputeId)}/resolve`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ decision, resolutionNotes: notes }),
+            });
+            if (!response.ok) throw new Error(await readApiError(response, 'Failed to resolve dispute'));
             showToast(`Dispute marked as ${decision}`);
             closeDisputeModal();
-            fetchDisputes();
-        } else {
-            showToast("Failed to resolve dispute", true);
+            await fetchDisputes();
+            await fetchOperationalSnapshot();
+        } catch (error) {
+            showToast(error.message || 'Failed to resolve dispute', true);
         }
-    } catch (e) {
-        showToast("Error sending resolution request", true);
-    }
+    });
 }
 
 async function viewInvoice(orderId) {
     try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/orders/${orderId}/invoice`, {
-            headers: { 'X-User-Role': 'ADMIN' }
-        });
-        if (res.ok) {
-            const inv = await res.json();
-            AlertInvoiceInfo(inv);
-        } else {
-            showToast("Invoice not generated yet for this order", true);
-        }
-    } catch (e) {
-        showToast("Error retrieving invoice details", true);
+        const response = await fetch(apiUrl(`/api/v1/orders/${encodeURIComponent(orderId)}/invoice`));
+        if (!response.ok) throw new Error(await readApiError(response, 'Invoice is not available'));
+        AlertInvoiceInfo(await response.json());
+    } catch (error) {
+        showToast(error.message || 'Failed to retrieve invoice', true);
     }
 }
 
-function AlertInvoiceInfo(inv) {
-    alert(`📄 INVOICE DETAIL\n\nNumber: ${inv.invoiceNumber}\nSubtotal: ₹${inv.subtotalAmount.toFixed(2)}\nGST (18%): ₹${inv.taxAmount.toFixed(2)}\nGrand Total: ₹${inv.totalAmount.toFixed(2)}\nGenerated At: ${new Date(inv.generatedAt).toLocaleString()}`);
+function AlertInvoiceInfo(invoice) {
+    const subtotal = Number(invoice.subtotalAmount || 0).toFixed(2);
+    const tax = Number(invoice.taxAmount || 0).toFixed(2);
+    const total = Number(invoice.totalAmount || 0).toFixed(2);
+    window.alert(`Invoice ${invoice.invoiceNumber || '—'}\nSubtotal: ₹${subtotal}\nTax: ₹${tax}\nTotal: ₹${total}\nGenerated: ${new Date(invoice.generatedAt).toLocaleString()}`);
 }
-
-// ─── Banner Auction Outcomes ────────────────────────────────────────────────
 
 async function fetchBannerAuctionOutcomes() {
     const container = document.getElementById('banner-auction-list');
-    container.innerHTML = `
-        <div class="empty-state">
-            <span class="empty-icon">⏳</span>
-            <p>Loading auction outcomes...</p>
-        </div>
-    `;
+    renderState(container, '⏳', 'Loading auction outcomes...');
 
     try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/content/banners/auction-outcomes`, {
-            headers: { 'X-User-Role': 'ADMIN' }
-        });
-        if (!res.ok) throw new Error(`Failed to fetch auction outcomes (${res.status})`);
-
-        const outcomes = await res.json();
-        if (!outcomes.length) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <span class="empty-icon">📭</span>
-                    <p>No active banner slots with auction outcomes yet.</p>
-                </div>
-            `;
+        const response = await fetch(apiUrl('/api/v1/content/banners/auction-outcomes'));
+        if (!response.ok) throw new Error(await readApiError(response, 'Failed to fetch auction outcomes'));
+        const outcomes = await response.json();
+        if (!Array.isArray(outcomes) || outcomes.length === 0) {
+            renderState(container, '📭', 'No active banner slots with auction outcomes.');
             return;
         }
 
-        container.innerHTML = '';
-        outcomes.forEach(slot => {
-            const item = document.createElement('div');
+        container.replaceChildren();
+        outcomes.forEach((slot) => {
+            const item = document.createElement('article');
             item.className = 'list-item';
-
-            const hasWinner = slot.providerId != null;
-            const badgeClass = slot.active ? 'badge-success' : 'badge-pending';
-            const bidText = slot.bidAmount != null ? `₹${Number(slot.bidAmount).toFixed(2)}` : '—';
-            const providerText = hasWinner ? slot.providerId : 'Unassigned';
-
-            item.innerHTML = `
-                <div class="item-header">
-                    <div>
-                        <h3 class="item-title">Slot ${slot.slotOrder}: ${slot.title || 'Banner'}</h3>
-                        <p class="item-subtitle">Duration: ${slot.durationSec || '—'}s</p>
-                    </div>
-                    <span class="badge ${badgeClass}">${slot.status || 'UNKNOWN'}</span>
-                </div>
-                <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 0.25rem;">
-                    <div><strong>Winning provider:</strong> ${providerText}</div>
-                    <div><strong>Winning bid:</strong> ${bidText}</div>
-                    <div><strong>Active:</strong> ${slot.active ? 'Yes' : 'No'}</div>
-                </div>
-            `;
+            const header = document.createElement('div');
+            header.className = 'item-header';
+            const heading = document.createElement('div');
+            heading.append(
+                createTextElement('h3', 'item-title', `Slot ${slot.slotOrder ?? '—'}: ${slot.title || 'Banner'}`),
+                createTextElement('p', 'item-subtitle', `Duration: ${slot.durationSec ?? '—'}s`),
+            );
+            header.append(
+                heading,
+                createTextElement('span', `badge ${slot.active ? 'badge-success' : 'badge-pending'}`, String(slot.status || 'UNKNOWN')),
+            );
+            const details = document.createElement('div');
+            details.className = 'item-details';
+            details.append(
+                createTextElement('div', '', `Winning provider: ${slot.providerId || 'Unassigned'}`),
+                createTextElement('div', '', `Winning bid: ${slot.bidAmount == null ? '—' : `₹${Number(slot.bidAmount).toFixed(2)}`}`),
+                createTextElement('div', '', `Active: ${slot.active ? 'Yes' : 'No'}`),
+            );
+            item.append(header, details);
             container.appendChild(item);
         });
-    } catch (e) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <span class="empty-icon">❌</span>
-                <p>Failed to load auction outcomes: ${e.message}</p>
-            </div>
-        `;
+    } catch (error) {
+        renderState(container, '❌', error.message || 'Failed to load auction outcomes.');
     }
 }
 
-async function fetchUsers() {
+async function fetchUsers(page = currentUserPage) {
     const container = document.getElementById('users-list');
-    container.innerHTML = `
-        <div class="empty-state">
-            <span class="empty-icon">⏳</span>
-            <p>Loading users...</p>
-        </div>
-    `;
+    renderState(container, '⏳', 'Loading users...');
 
     try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/profiles`, {
-            headers: getAuthHeaders()
-        });
-        if (!res.ok) throw new Error("Failed to fetch users");
-
-        const users = await res.json();
-        if (users.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <span class="empty-icon">👥</span>
-                    <p>No user profiles registered.</p>
-                </div>
-            `;
+        const safePage = Math.max(0, Number(page) || 0);
+        const response = await fetch(apiUrl(`/api/v1/profiles/admin?page=${safePage}&size=${USER_PAGE_SIZE}`));
+        if (!response.ok) throw new Error(await readApiError(response, 'Failed to fetch users'));
+        const payload = await response.json();
+        const users = Array.isArray(payload) ? payload : payload.content;
+        if (!Array.isArray(users) || users.length === 0) {
+            currentUserPage = safePage;
+            renderState(container, '👥', safePage === 0 ? 'No user profiles registered.' : 'No users on this page.');
             return;
         }
 
-        container.innerHTML = '';
-        users.forEach(u => {
-            const item = document.createElement('div');
+        currentUserPage = Number(payload.page ?? safePage);
+        const totalPages = Number(payload.totalPages ?? 1);
+        const totalElements = Number(payload.totalElements ?? users.length);
+        container.replaceChildren();
+
+        users.forEach((user) => {
+            const item = document.createElement('article');
             item.className = 'list-item';
+            const role = String(user.role || 'USER').toUpperCase();
+            const header = document.createElement('div');
+            header.className = 'item-header';
+            const heading = document.createElement('div');
+            heading.append(
+                createTextElement('h3', 'item-title', String(user.fullName || 'User')),
+                createTextElement('p', 'item-subtitle', `${role} — ${user.phoneNumber || 'N/A'}`),
+            );
+            header.append(
+                heading,
+                createTextElement('span', `badge ${user.suspended ? 'badge-danger' : 'badge-success'}`, user.suspended ? 'REVOKED' : 'ACTIVE'),
+            );
+            item.append(header, createTextElement('div', 'item-details', `User ID: ${String(user.userId || '')}`));
 
-            const safeUserId = escapeHtml(u.userId);
-            const safeName = escapeHtml(u.fullName || 'User');
-            const safeRole = escapeHtml(u.role || 'USER');
-            const safePhone = escapeHtml(u.phoneNumber || 'N/A');
-
-            const statusText = u.suspended ? 'REVOKED' : 'ACTIVE';
-            const badgeClass = u.suspended ? 'badge-danger' : 'badge-success';
-            const actionButton = u.suspended 
-                ? `<button class="btn btn-emerald" onclick="restoreUserAccess('${safeUserId}')">🔓 Restore Access</button>`
-                : `<button class="btn btn-rose" onclick="revokeUserAccess('${safeUserId}')">🚫 Revoke Access</button>`;
-
-            item.innerHTML = `
-                <div class="item-header">
-                    <div>
-                        <h3 class="item-title">${safeName}</h3>
-                        <p class="item-subtitle">${safeRole} — ${safePhone}</p>
-                    </div>
-                    <span class="badge ${badgeClass}">${statusText}</span>
-                </div>
-                <div style="font-size: 0.85rem; color: var(--text-secondary);">
-                    User ID: ${safeUserId}
-                </div>
-                <div class="btn-group">
-                    ${actionButton}
-                </div>
-            `;
+            const actions = document.createElement('div');
+            actions.className = 'btn-group';
+            if (role === 'ADMIN') {
+                actions.appendChild(createTextElement('span', 'protected-note', 'Protected Admin identity — generic suspension is disabled'));
+            } else {
+                const action = createTextElement('button', user.suspended ? 'btn btn-emerald' : 'btn btn-rose', user.suspended ? '🔓 Restore Access' : '🚫 Revoke Access');
+                action.type = 'button';
+                action.addEventListener('click', () => {
+                    if (user.suspended) void restoreUserAccess(String(user.userId));
+                    else void revokeUserAccess(String(user.userId));
+                });
+                actions.appendChild(action);
+            }
+            item.appendChild(actions);
             container.appendChild(item);
         });
-    } catch (e) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <span class="empty-icon">❌</span>
-                <p>Failed to load users: ${escapeHtml(e.message)}</p>
-            </div>
-        `;
+
+        const pagination = document.createElement('div');
+        pagination.className = 'pagination';
+        const summary = createTextElement('span', 'pagination-summary', `Page ${currentUserPage + 1} of ${Math.max(totalPages, 1)} · ${totalElements} users`);
+        const controls = document.createElement('div');
+        controls.className = 'btn-group';
+        const previous = createTextElement('button', 'btn btn-secondary', 'Previous');
+        previous.type = 'button';
+        previous.disabled = currentUserPage <= 0;
+        previous.addEventListener('click', () => void fetchUsers(currentUserPage - 1));
+        const next = createTextElement('button', 'btn btn-secondary', 'Next');
+        next.type = 'button';
+        next.disabled = currentUserPage + 1 >= totalPages;
+        next.addEventListener('click', () => void fetchUsers(currentUserPage + 1));
+        controls.append(previous, next);
+        pagination.append(summary, controls);
+        container.appendChild(pagination);
+    } catch (error) {
+        renderState(container, '❌', error.message || 'Failed to load users.');
     }
 }
 
 async function revokeUserAccess(userId) {
-    try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/profiles/${userId}/revoke`, {
-            method: 'POST',
-            headers: getAuthHeaders()
-        });
-        if (res.ok) {
-            showToast("Access revoked successfully!");
-            fetchUsers();
-        } else {
-            const err = await res.json().catch(() => ({}));
-            showToast(err.error || "Failed to revoke access", true);
+    if (!window.confirm('Revoke this user’s access? Active sessions will be blocked by the gateway.')) return;
+    await runMutation(`revoke-user:${userId}`, async () => {
+        try {
+            const response = await fetch(apiUrl(`/api/v1/profiles/${encodeURIComponent(userId)}/revoke`), { method: 'POST' });
+            if (!response.ok) throw new Error(await readApiError(response, 'Failed to revoke access'));
+            showToast('Access revoked');
+            await fetchUsers(currentUserPage);
+        } catch (error) {
+            showToast(error.message || 'Failed to revoke access', true);
         }
-    } catch (e) {
-        showToast("Error revoking user access", true);
-    }
+    });
 }
 
 async function restoreUserAccess(userId) {
-    try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/profiles/${userId}/restore`, {
-            method: 'POST',
-            headers: getAuthHeaders()
-        });
-        if (res.ok) {
-            showToast("Access restored successfully!");
-            fetchUsers();
-        } else {
-            const err = await res.json().catch(() => ({}));
-            showToast(err.error || "Failed to restore access", true);
+    if (!window.confirm('Restore this user’s access?')) return;
+    await runMutation(`restore-user:${userId}`, async () => {
+        try {
+            const response = await fetch(apiUrl(`/api/v1/profiles/${encodeURIComponent(userId)}/restore`), { method: 'POST' });
+            if (!response.ok) throw new Error(await readApiError(response, 'Failed to restore access'));
+            showToast('Access restored');
+            await fetchUsers(currentUserPage);
+        } catch (error) {
+            showToast(error.message || 'Failed to restore access', true);
         }
-    } catch (e) {
-        showToast("Error restoring user access", true);
+    });
+}
+
+async function fetchOperationalSnapshot() {
+    const activeOrders = document.getElementById('metric-active-orders');
+    const alerts = document.getElementById('metric-operational-alerts');
+    const details = document.getElementById('metric-operational-alert-details');
+    if (activeOrders) activeOrders.textContent = '…';
+    if (alerts) alerts.textContent = '…';
+    if (details) details.textContent = 'Loading authoritative order-service snapshot';
+
+    try {
+        const response = await fetch(apiUrl('/api/v1/orders/admin/operations/snapshot'));
+        if (!response.ok) throw new Error(await readApiError(response, 'Operational snapshot unavailable'));
+        const snapshot = await response.json();
+        const alertCount = Number(snapshot.delayedOrders || 0)
+            + Number(snapshot.failedPayments || 0)
+            + Number(snapshot.openDisputes || 0)
+            + Number(snapshot.openSupportCases || 0);
+        if (activeOrders) activeOrders.textContent = String(snapshot.activeOrders ?? 0);
+        if (alerts) alerts.textContent = String(alertCount);
+        if (details) {
+            details.textContent = `Delayed ${snapshot.delayedOrders ?? 0} · Failed payments ${snapshot.failedPayments ?? 0} · Open disputes ${snapshot.openDisputes ?? 0} · Support ${snapshot.openSupportCases ?? 0}`;
+        }
+    } catch (error) {
+        if (activeOrders) activeOrders.textContent = 'UNAVAILABLE';
+        if (alerts) alerts.textContent = 'UNAVAILABLE';
+        if (details) details.textContent = error.message || 'Operational snapshot unavailable';
     }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (window.checkAdminAuth?.()) {
+        void Promise.allSettled([
+            fetchRefundModeConfig(),
+            fetchPendingProviders(),
+            fetchOperationalSnapshot(),
+        ]);
+    }
+});
