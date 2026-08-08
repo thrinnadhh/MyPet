@@ -170,6 +170,12 @@ export default function RecurringOrdersScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
       testID="recurring-orders-screen"
     >
+      <FeedbackBanner
+        tone="neutral"
+        title="No silent charging"
+        message="Every scheduled run revalidates the merchant, delivery serviceability, current stock and current price. Prepaid orders still require the normal payment flow before fulfilment."
+      />
+
       {params.sourceOrderId ? (
         <AppCard style={styles.card}>
           <SectionHeader title="Subscribe to this completed order" />
@@ -242,7 +248,7 @@ export default function RecurringOrdersScreen() {
               ) : null}
 
               {subscription.status === 'AWAITING_CONFIRMATION' ? (
-                <PrimaryAction label="Reactivate migrated subscription" loading={busyId === subscription.subscriptionId} onPress={() => void reactivateLegacy(subscription)} />
+                <PrimaryAction label="Revalidate and confirm" loading={busyId === subscription.subscriptionId} onPress={() => void reactivateLegacy(subscription)} />
               ) : null}
 
               {subscription.status !== 'CANCELLED' ? (
