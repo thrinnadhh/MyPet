@@ -33,9 +33,22 @@ interface TransactionRepository : JpaRepository<Transaction, UUID> {
         statuses: Collection<String>
     ): Transaction?
 
-    /** Webhook mutations serialize on the same payment row as refunds/reconciliation. */
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    fun findByGatewayTransactionId(gatewayTransactionId: String): Transaction?
+    /**
+     * Webhook mutations serialize on the same row as refunds/reconciliation and may
+     * never select a refund-terminal transaction. A delayed payment-success webhook
+     * therefore cannot resurrect REFUND_PENDING or REFUNDED back to SUCCESS.
+     */
+    @Query(
+        value = """
+            SELECT *
+            FROM payments.transactions
+            WHERE gateway_transaction_id = :gatewayTransactionId
+              AND status NOT IN ('REFUND_PENDING', 'REFUNDED')
+            FOR UPDATE
+        """,
+        nativeQuery = true
+    )
+    fun findByGatewayTransactionId(@Param("gatewayTransactionId") gatewayTransactionId: String): Transaction?
 }
 
 @Repository
