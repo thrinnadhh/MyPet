@@ -3,8 +3,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { parseAuthIntent } from '@/auth/auth-intent';
+import { signInWithGoogle } from '@/auth/google-auth';
 import { type OtpChannel, OtpAuthError, resendOtp, sendOtp, verifyOtp } from '@/auth/otp-auth';
-import { AppBar, FilterChip, PrimaryAction } from '@/components/foundation/primitives';
+import { AppBar, PrimaryAction } from '@/components/foundation/primitives';
 import { ScreenShell } from '@/components/foundation/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { useAuth } from '@/context/AuthContext';
@@ -12,12 +13,11 @@ import { useAuthIntent } from '@/context/AuthIntentContext';
 import { radii, spacing, touchTarget, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
-import { appConfig } from '@/utils/app-config';
-
 import { supabase } from '@/utils/supabase';
 
 type Step = 'identifier' | 'code' | 'name';
 const RESEND_SECONDS = 30;
+const PHONE_CHANNEL: OtpChannel = 'phone';
 
 export default function LoginScreen() {
   const params = useLocalSearchParams<{ intent?: string; fresh?: string }>();
@@ -29,7 +29,6 @@ export default function LoginScreen() {
   const { markOtpVerified } = useAuth();
   const { clearPendingIntent, resumePendingIntent } = useAuthIntent();
   const [step, setStep] = useState<Step>('identifier');
-  const [channel, setChannel] = useState<OtpChannel>('phone');
   const [identifierInput, setIdentifierInput] = useState('');
   const [identifier, setIdentifier] = useState('');
   const [code, setCode] = useState('');
@@ -47,8 +46,13 @@ export default function LoginScreen() {
   const errorMessage = useMemo(() => {
     if (!errorCode) return null;
     const key: Record<string, string> = {
-      INVALID_INPUT: 'auth.invalidInput', INVALID_CODE: 'auth.invalidCode', EXPIRED_CODE: 'auth.expiredCode',
-      RATE_LIMITED: 'auth.rateLimited', NETWORK: 'auth.network', UNKNOWN: 'auth.unknown',
+      INVALID_INPUT: 'auth.invalidInput',
+      INVALID_CODE: 'auth.invalidCode',
+      EXPIRED_CODE: 'auth.expiredCode',
+      RATE_LIMITED: 'auth.rateLimited',
+      NETWORK: 'auth.network',
+      PROVIDER_UNAVAILABLE: 'auth.providerUnavailable',
+      UNKNOWN: 'auth.unknown',
     };
     return t(key[errorCode] ?? 'auth.unknown');
   }, [errorCode, t]);
@@ -56,30 +60,56 @@ export default function LoginScreen() {
   const run = useCallback(async (operation: () => Promise<void>) => {
     setLoading(true);
     setErrorCode(null);
-    try { await operation(); }
-    catch (error) { setErrorCode(error instanceof OtpAuthError ? error.code : 'UNKNOWN'); }
-    finally { setLoading(false); }
+    try {
+      await operation();
+    } catch (error) {
+      if (error instanceof OtpAuthError && error.code === 'CANCELLED') return;
+      setErrorCode(error instanceof OtpAuthError ? error.code : 'UNKNOWN');
+    } finally {
+      setLoading(false);
+    }
   }, []);
-
-  const send = useCallback(() => run(async () => {
-    const normalized = await sendOtp(channel, identifierInput);
-    setIdentifier(normalized);
-    setCode('');
-    setSeconds(RESEND_SECONDS);
-    setStep('code');
-  }), [channel, identifierInput, run]);
 
   const finish = useCallback(async () => {
     await resumePendingIntent(parsedIntent);
   }, [parsedIntent, resumePendingIntent]);
 
-  const verify = useCallback(() => run(async () => {
-    const session = await verifyOtp(channel, identifier, code);
+  const googleSignIn = useCallback(() => run(async () => {
+    const session = await signInWithGoogle();
     markOtpVerified();
-    const name = typeof session.user.user_metadata?.full_name === 'string' ? session.user.user_metadata.full_name.trim() : '';
+    const metadata = session.user.user_metadata ?? {};
+    const name = typeof metadata.full_name === 'string'
+      ? metadata.full_name.trim()
+      : typeof metadata.name === 'string'
+        ? metadata.name.trim()
+        : '';
+    if (name) {
+      if (metadata.full_name !== name) {
+        await supabase.auth.updateUser({ data: { full_name: name, role: 'CUSTOMER' } });
+      }
+      await finish();
+      return;
+    }
+    setStep('name');
+  }), [finish, markOtpVerified, run]);
+
+  const send = useCallback(() => run(async () => {
+    const normalized = await sendOtp(PHONE_CHANNEL, identifierInput);
+    setIdentifier(normalized);
+    setCode('');
+    setSeconds(RESEND_SECONDS);
+    setStep('code');
+  }), [identifierInput, run]);
+
+  const verify = useCallback(() => run(async () => {
+    const session = await verifyOtp(PHONE_CHANNEL, identifier, code);
+    markOtpVerified();
+    const name = typeof session.user.user_metadata?.full_name === 'string'
+      ? session.user.user_metadata.full_name.trim()
+      : '';
     if (!name) setStep('name');
     else await finish();
-  }), [channel, code, finish, identifier, markOtpVerified, run]);
+  }), [code, finish, identifier, markOtpVerified, run]);
 
   const saveName = useCallback(() => run(async () => {
     const name = displayName.trim();
@@ -91,42 +121,52 @@ export default function LoginScreen() {
 
   const resend = useCallback(() => run(async () => {
     if (seconds > 0) return;
-    await resendOtp(channel, identifier);
+    await resendOtp(PHONE_CHANNEL, identifier);
     setSeconds(RESEND_SECONDS);
-  }), [channel, identifier, run, seconds]);
+  }), [identifier, run, seconds]);
 
   const reset = useCallback(() => {
-    setStep('identifier'); setIdentifier(''); setIdentifierInput(''); setCode(''); setErrorCode(null); setSeconds(0);
+    setStep('identifier');
+    setIdentifier('');
+    setIdentifierInput('');
+    setCode('');
+    setErrorCode(null);
+    setSeconds(0);
   }, []);
 
   const cancel = useCallback(() => {
     clearPendingIntent();
-    if (router.canGoBack()) router.back(); else router.replace('/(tabs)/home' as never);
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)/home' as never);
   }, [clearPendingIntent, router]);
 
   return (
-    <ScreenShell header={<AppBar title={t(fresh ? 'auth.freshTitle' : 'auth.title')} subtitle={t('auth.subtitle')} />} testID="otp-auth-screen">
+    <ScreenShell
+      header={<AppBar title={t(fresh ? 'auth.freshTitle' : 'auth.title')} subtitle={t('auth.subtitle')} />}
+      testID="otp-auth-screen"
+    >
       {step === 'identifier' ? (
         <View style={styles.stack}>
-          <View style={styles.row}>
-            <FilterChip label={t('auth.phone')} selected={channel === 'phone'} onPress={() => setChannel('phone')} />
-            <FilterChip label={t('auth.email')} selected={channel === 'email'} onPress={() => setChannel('email')} />
+          <PrimaryAction label={t('auth.continueGoogle')} onPress={() => void googleSignIn()} loading={loading} />
+          <View style={styles.dividerRow}>
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <ThemedText themeColor="textSecondary">{t('auth.orMobile')}</ThemedText>
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
           </View>
           <TextInput
             value={identifierInput}
             onChangeText={setIdentifierInput}
-            placeholder={t(channel === 'phone' ? 'auth.phonePlaceholder' : 'auth.emailPlaceholder')}
+            placeholder={t('auth.phonePlaceholder')}
             placeholderTextColor={theme.textSecondary}
-            keyboardType={channel === 'phone' ? 'phone-pad' : 'email-address'}
+            keyboardType="phone-pad"
             autoCapitalize="none"
             autoCorrect={false}
             style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
-            accessibilityLabel={t(channel === 'phone' ? 'auth.phonePlaceholder' : 'auth.emailPlaceholder')}
+            accessibilityLabel={t('auth.phonePlaceholder')}
           />
           <PrimaryAction label={t('auth.sendCode')} onPress={() => void send()} loading={loading} />
         </View>
       ) : null}
-
 
       {step === 'code' ? (
         <View style={styles.stack}>
@@ -145,9 +185,13 @@ export default function LoginScreen() {
           />
           <PrimaryAction label={t('auth.verify')} onPress={() => void verify()} loading={loading} disabled={code.length !== 6} />
           <Pressable style={styles.link} disabled={seconds > 0 || loading} onPress={() => void resend()} accessibilityRole="button">
-            <ThemedText style={{ color: seconds > 0 ? theme.textSecondary : theme.primary, fontWeight: '700' }}>{seconds > 0 ? t('auth.resendIn', { seconds }) : t('auth.resend')}</ThemedText>
+            <ThemedText style={{ color: seconds > 0 ? theme.textSecondary : theme.primary, fontWeight: '700' }}>
+              {seconds > 0 ? t('auth.resendIn', { seconds }) : t('auth.resend')}
+            </ThemedText>
           </Pressable>
-          <Pressable style={styles.link} onPress={reset} accessibilityRole="button"><ThemedText style={{ color: theme.primary }}>{t('auth.changeIdentifier')}</ThemedText></Pressable>
+          <Pressable style={styles.link} onPress={reset} accessibilityRole="button">
+            <ThemedText style={{ color: theme.primary }}>{t('auth.changeIdentifier')}</ThemedText>
+          </Pressable>
         </View>
       ) : null}
 
@@ -168,16 +212,27 @@ export default function LoginScreen() {
         </View>
       ) : null}
 
-      {errorMessage ? <View style={[styles.error, { backgroundColor: theme.errorSoft }]} accessibilityLiveRegion="assertive"><ThemedText style={{ color: theme.danger }}>{errorMessage}</ThemedText></View> : null}
-      {errorCode ? <Pressable style={styles.link} onPress={reset} accessibilityRole="button"><ThemedText style={{ color: theme.primary }}>{t('auth.recovery')}</ThemedText></Pressable> : null}
-      <Pressable style={styles.cancel} onPress={cancel} accessibilityRole="button"><ThemedText themeColor="textSecondary">{t('auth.cancel')}</ThemedText></Pressable>
+      {errorMessage ? (
+        <View style={[styles.error, { backgroundColor: theme.errorSoft }]} accessibilityLiveRegion="assertive">
+          <ThemedText style={{ color: theme.danger }}>{errorMessage}</ThemedText>
+        </View>
+      ) : null}
+      {errorCode ? (
+        <Pressable style={styles.link} onPress={reset} accessibilityRole="button">
+          <ThemedText style={{ color: theme.primary }}>{t('auth.recovery')}</ThemedText>
+        </Pressable>
+      ) : null}
+      <Pressable style={styles.cancel} onPress={cancel} accessibilityRole="button">
+        <ThemedText themeColor="textSecondary">{t('auth.cancel')}</ThemedText>
+      </Pressable>
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
   stack: { gap: spacing.x4 },
-  row: { flexDirection: 'row', gap: spacing.x2, flexWrap: 'wrap' },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.x3 },
+  divider: { height: 1, flex: 1 },
   heading: { ...typography.title },
   input: { minHeight: touchTarget, borderWidth: 1, borderRadius: radii.compact, paddingHorizontal: spacing.x4, ...typography.body },
   code: { fontSize: 26, letterSpacing: 8, textAlign: 'center' },
