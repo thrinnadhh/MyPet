@@ -30,11 +30,6 @@ interface OrderRepository : JpaRepository<Order, UUID> {
     fun countByStatusInAndPlacedAtBefore(statuses: Collection<OrderStatus>, placedAt: Instant): Long
     fun countByPaymentStatusIgnoreCase(paymentStatus: String): Long
 
-    /**
-     * All order lifecycle mutations must serialize through this row lock so that
-     * competing customer, merchant, payment and dispatch actions cannot both
-     * commit from the same stale state.
-     */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from Order o where o.orderId = :orderId")
     fun findByIdForUpdate(@Param("orderId") orderId: UUID): Optional<Order>
@@ -72,5 +67,6 @@ interface InvoiceRepository : JpaRepository<Invoice, UUID> {
 @Repository
 interface SupportCaseRepository : JpaRepository<SupportCase, UUID> {
     fun findAllByOrderByCreatedAtDesc(): List<SupportCase>
+    fun findAllByOrderByCreatedAtDesc(pageable: Pageable): Page<SupportCase>
     fun countByStatusIgnoreCase(status: String): Long
 }
