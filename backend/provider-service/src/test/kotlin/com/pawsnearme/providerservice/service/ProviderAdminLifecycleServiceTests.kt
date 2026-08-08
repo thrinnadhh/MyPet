@@ -29,17 +29,18 @@ class ProviderAdminLifecycleServiceTests {
     private val geometryFactory = GeometryFactory(PrecisionModel(), 4326)
 
     @Test
-    fun `active provider suspension is persisted with actor reason and event`() {
+    fun `active provider suspension is persisted with actor reason and event under row lock`() {
         val providerId = UUID.randomUUID()
         val actorId = UUID.randomUUID()
         val provider = provider(providerId, ProviderStatus.ACTIVE)
-        whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
+        whenever(providerRepository.findByIdForUpdate(providerId)).thenReturn(Optional.of(provider))
         whenever(providerRepository.save(any<Provider>())).thenAnswer { it.getArgument(0) }
         val payload = argumentCaptor<Any>()
 
         val result = service.suspendProvider(providerId, actorId, "Repeated fulfilment safety incidents")
 
         assertEquals(ProviderStatus.SUSPENDED, result.status)
+        verify(providerRepository).findByIdForUpdate(providerId)
         verify(outboxService).saveEvent(
             eventId = any(),
             aggregateType = eq("PROVIDER"),
@@ -59,12 +60,13 @@ class ProviderAdminLifecycleServiceTests {
     fun `suspended provider can be reactivated without creating another provider`() {
         val providerId = UUID.randomUUID()
         val provider = provider(providerId, ProviderStatus.SUSPENDED)
-        whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
+        whenever(providerRepository.findByIdForUpdate(providerId)).thenReturn(Optional.of(provider))
         whenever(providerRepository.save(any<Provider>())).thenAnswer { it.getArgument(0) }
 
         val result = service.reactivateProvider(providerId, UUID.randomUUID(), "Compliance review passed")
 
         assertEquals(ProviderStatus.ACTIVE, result.status)
+        verify(providerRepository).findByIdForUpdate(providerId)
         verify(providerRepository).save(provider)
         verify(outboxService).saveEvent(
             eventId = any(),
@@ -76,14 +78,15 @@ class ProviderAdminLifecycleServiceTests {
     }
 
     @Test
-    fun `suspending non active provider is rejected without event`() {
+    fun `suspending non active provider is rejected under lock without event`() {
         val providerId = UUID.randomUUID()
-        whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider(providerId, ProviderStatus.PENDING_APPROVAL)))
+        whenever(providerRepository.findByIdForUpdate(providerId)).thenReturn(Optional.of(provider(providerId, ProviderStatus.PENDING_APPROVAL)))
 
         assertThrows<IllegalStateException> {
             service.suspendProvider(providerId, UUID.randomUUID(), "Not operational")
         }
 
+        verify(providerRepository).findByIdForUpdate(providerId)
         verify(providerRepository, never()).save(any<Provider>())
         verify(outboxService, never()).saveEvent(any(), any(), any(), any(), any())
     }
