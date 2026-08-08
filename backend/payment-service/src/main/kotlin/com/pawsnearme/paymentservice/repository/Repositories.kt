@@ -24,9 +24,8 @@ interface TransactionRepository : JpaRepository<Transaction, UUID> {
     fun findFirstByReferenceIdOrderByCreatedAtDesc(referenceId: UUID): Transaction?
 
     /**
-     * Payment creation and refunds are check-then-act financial operations. Callers of
-     * this method are transactional, so locking the latest qualifying transaction
-     * serializes duplicate create/refund requests for the same reference.
+     * Payment creation, reconciliation and refunds are check-then-act financial operations.
+     * Transactional callers use this row lock to serialize state transitions for one reference.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     fun findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(
@@ -35,6 +34,13 @@ interface TransactionRepository : JpaRepository<Transaction, UUID> {
     ): Transaction?
 
     fun findByGatewayTransactionId(gatewayTransactionId: String): Transaction?
+
+    /** Cashfree webhooks must serialize with refund/reconciliation on the same row. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from PaymentTransaction t where t.gatewayTransactionId = :gatewayTransactionId")
+    fun findByGatewayTransactionIdForUpdate(
+        @Param("gatewayTransactionId") gatewayTransactionId: String
+    ): Transaction?
 }
 
 @Repository
