@@ -22,6 +22,7 @@ type WebTab = {
     | '/orders'
     | '/explore'
     | '/inventory'
+    | '/subscriptions'
     | '/finance'
     | '/delivery';
   label: string;
@@ -67,6 +68,12 @@ export default function AppTabs() {
       name: 'inventory',
       href: '/inventory',
       label: 'Inventory',
+      visible: isProvider,
+    },
+    {
+      name: 'subscriptions',
+      href: '/subscriptions',
+      label: 'Subscriptions',
       visible: isProvider,
     },
     {
