@@ -43,7 +43,7 @@ function friendlyAuthError(error: unknown, fallback: string): string {
     return 'Your email is not verified. Open the Supabase verification email, verify the account, then log in again.';
   }
   if (/invalid login credentials/i.test(message)) {
-    return 'Incorrect email or password. Confirm that this merchant account belongs to the same Supabase project.';
+    return 'Incorrect email or password. Confirm that this operational account belongs to the same Supabase project.';
   }
   if (/network request failed|failed to fetch/i.test(message)) {
     return 'The phone could not reach Supabase. Check Wi-Fi/mobile data, VPN, and EXPO_PUBLIC_SUPABASE_URL.';
@@ -77,12 +77,15 @@ export default function LoginScreen() {
     try {
       if (isSignUp) {
         const { data, error } = await withAuthTimeout(supabase.auth.signUp({
-          email: email.trim(),
+          email: email.trim().toLowerCase(),
           password,
           options: {
             data: {
               full_name: fullName.trim(),
-              role: signupRole,
+              // This is intentionally only an onboarding request. AuthContext will
+              // trust the role only after the protected server function writes it
+              // to app_metadata and the Supabase session is refreshed.
+              requested_operational_role: signupRole,
             },
           },
         }));
@@ -90,8 +93,8 @@ export default function LoginScreen() {
         Alert.alert(
           t('common.success'),
           data.session
-            ? 'Account created and signed in.'
-            : 'Account created. Verify the email sent by Supabase, then log in.',
+            ? 'Account created. MyPet is securely provisioning your operational role.'
+            : 'Account created. Verify the email sent by Supabase, then log in to finish secure role provisioning.',
         );
       } else {
         const { error } = await withAuthTimeout(
