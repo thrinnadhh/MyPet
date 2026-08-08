@@ -98,6 +98,7 @@ class RecurringOrderService(
     private val orderRepository: OrderRepository,
     private val orderItemRepository: OrderItemRepository,
     private val orderService: OrderService,
+    private val occurrenceOrderCreator: RecurringOccurrenceOrderCreator,
     private val catalogModule: CatalogModuleApi,
     private val providerModule: ProviderModuleApi,
     private val discoveryModule: DiscoveryModuleApi,
@@ -279,7 +280,7 @@ class RecurringOrderService(
                 )
             )
             try {
-                val order = generateOrder(subscription)
+                val order = generateOrder(subscription, occurrence.occurrenceId)
                 occurrence.orderId = requireNotNull(order.orderId)
                 occurrence.status = RecurringOrderOccurrenceStatus.ORDER_CREATED
                 occurrence.updatedAt = Instant.now()
@@ -327,7 +328,7 @@ class RecurringOrderService(
         return RecurringOrderProcessingResult(dueIds.size, created, failed, skipped)
     }
 
-    private fun generateOrder(subscription: RecurringOrderSubscription) = run {
+    private fun generateOrder(subscription: RecurringOrderSubscription, occurrenceId: UUID) = run {
         require(providerModule.providerOperational(subscription.providerId)) {
             "MERCHANT_UNAVAILABLE: Merchant is not currently operational."
         }
@@ -359,30 +360,16 @@ class RecurringOrderService(
             OrderItemRequest(offeringId = item.offeringId, quantity = requiredQuantity)
         }
 
-        val quote = orderService.calculateQuote(
-            CheckoutQuoteRequest(
-                customerId = subscription.customerId,
-                providerId = subscription.providerId,
-                deliveryAddressId = subscription.deliveryAddressId,
-                items = items,
-                paymentMethod = subscription.paymentMethod,
-                city = address.city,
-                latitude = address.latitude,
-                longitude = address.longitude,
-            )
-        )
-        orderService.createOrder(
-            CreateOrderRequest(
-                customerId = subscription.customerId,
-                providerId = subscription.providerId,
-                deliveryAddressId = subscription.deliveryAddressId,
-                items = items,
-                paymentMethod = subscription.paymentMethod,
-                quoteToken = quote.quoteToken,
-                city = address.city,
-                latitude = address.latitude,
-                longitude = address.longitude,
-            )
+        occurrenceOrderCreator.createOrGet(
+            occurrenceId = occurrenceId,
+            customerId = subscription.customerId,
+            providerId = subscription.providerId,
+            deliveryAddressId = subscription.deliveryAddressId,
+            items = items,
+            paymentMethod = subscription.paymentMethod,
+            city = address.city,
+            latitude = address.latitude,
+            longitude = address.longitude,
         )
     }
 
