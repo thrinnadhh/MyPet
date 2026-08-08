@@ -60,7 +60,11 @@ while (changed) {
     const onlyAllowedCauses = via.every((cause) => {
       if (typeof cause === 'string') return allowed.has(cause);
       if (!cause || typeof cause !== 'object') return false;
-      return name === 'image-size' && allowedRootAdvisories.has(cause.url);
+      // npm propagates the originating advisory object to parent packages such
+      // as metro/expo. The allow-list is advisory-specific, not package-name-
+      // specific, so the same reviewed advisory URL is safe to recognize at
+      // any point in that dependency chain.
+      return typeof cause.url === 'string' && allowedRootAdvisories.has(cause.url);
     });
 
     if (onlyAllowedCauses) {
