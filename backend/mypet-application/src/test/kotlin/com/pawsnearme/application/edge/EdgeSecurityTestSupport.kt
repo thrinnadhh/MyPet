@@ -54,8 +54,9 @@ fun unsignedJwt(
         "sub":"$subject",
         "exp":${Instant.now().plusSeconds(3_600).epochSecond},
         "email":"$email",
+        "phone":"9999999999",
         "app_metadata":{"role":"$role"},
-        "user_metadata":{"full_name":"Test User","phone":"9999999999"}
+        "user_metadata":{"full_name":"Test User","phone":"8111111111"}
     }""".trimIndent()
 
     return "${base64Url(header)}.${base64Url(payload)}."
