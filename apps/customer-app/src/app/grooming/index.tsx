@@ -147,7 +147,7 @@ export default function GroomingServicesScreen() {
 
             <PrimaryButton
               label="Choose live slot & pay"
-              onPress={() => router.push('/groom' as never)}
+              onPress={() => router.push('/grooming/book' as never)}
             />
           </View>
         )}

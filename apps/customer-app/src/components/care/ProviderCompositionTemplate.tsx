@@ -43,7 +43,7 @@ export function ProviderCompositionTemplate({ provider }: { provider: ProviderCo
   const router = useRouter();
   const theme = useTheme();
   const isVet = provider.type === 'VET_HOSPITAL';
-  const bookingRoute = isVet ? '/vet' : '/groom';
+  const bookingRoute = isVet ? '/vet' : '/grooming/book';
   const openLiveBooking = () => router.push(bookingRoute as never);
 
   return (
