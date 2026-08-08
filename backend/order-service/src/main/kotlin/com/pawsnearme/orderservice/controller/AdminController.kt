@@ -1,5 +1,6 @@
 package com.pawsnearme.orderservice.controller
 
+import com.fasterxml.jackson.annotation.JsonAlias
 import com.pawsnearme.orderservice.model.Dispute
 import com.pawsnearme.orderservice.model.Invoice
 import com.pawsnearme.orderservice.model.SupportCase
@@ -38,8 +39,11 @@ data class ResolveDisputeRequest(
 )
 
 data class UpdateDisputeRefundModeRequest(
-    @field:NotBlank val disputeRefundMode: String,
-    @field:NotBlank @field:Size(min = 3, max = 500) val reason: String
+    @field:JsonAlias("dispute_refund_mode")
+    @field:NotBlank
+    val disputeRefundMode: String,
+    @field:Size(min = 3, max = 500)
+    val reason: String = "Admin console refund policy change"
 )
 
 @RestController
@@ -49,15 +53,14 @@ class AdminController(
     private val adminControlPlaneService: AdminControlPlaneService
 ) {
 
-    // --- System Config ---
-
     @GetMapping("/admin/config")
     fun getDisputeRefundMode(
         @RequestHeader("X-User-Role", required = false) role: String?
     ): ResponseEntity<Map<String, String>> {
         requireAdmin(role)
-        val mode = adminControlPlaneService.getDisputeRefundMode()
-        return ResponseEntity.ok(mapOf("dispute_refund_mode" to mode))
+        return ResponseEntity.ok(
+            mapOf("dispute_refund_mode" to adminControlPlaneService.getDisputeRefundMode())
+        )
     }
 
     @PostMapping("/admin/config")
@@ -68,25 +71,22 @@ class AdminController(
         @Valid @RequestBody request: UpdateDisputeRefundModeRequest
     ): ResponseEntity<Map<String, String>> {
         requireAdmin(role)
-        val actorId = requireUser(userId)
         val updated = adminControlPlaneService.updateDisputeRefundMode(
             requestedMode = request.disputeRefundMode,
-            actorId = actorId,
+            actorId = requireUser(userId),
             reason = request.reason,
             traceId = requestId.orEmpty()
         )
         return ResponseEntity.ok(mapOf("dispute_refund_mode" to updated))
     }
 
-    // --- Disputes ---
-
-    /** Legacy endpoint retained for compatibility. New Admin UI uses bounded /admin/disputes. */
+    /** Compatibility response remains an array, but is now capped at the newest 100 disputes. */
     @GetMapping("/disputes")
     fun listDisputes(
         @RequestHeader("X-User-Role", required = false) role: String?
     ): ResponseEntity<List<Dispute>> {
         requireAdmin(role)
-        return ResponseEntity.ok(orderService.listDisputes())
+        return ResponseEntity.ok(adminControlPlaneService.listDisputes(page = 0, size = 100).content)
     }
 
     @GetMapping("/admin/disputes")
@@ -106,8 +106,9 @@ class AdminController(
         @Valid @RequestBody request: CreateDisputeRequest
     ): ResponseEntity<Dispute> {
         val actorId = requireUser(userId)
-        val dispute = orderService.createDisputeWithAuth(request.orderId, request.reason, actorId, role)
-        return ResponseEntity.ok(dispute)
+        return ResponseEntity.ok(
+            orderService.createDisputeWithAuth(request.orderId, request.reason, actorId, role)
+        )
     }
 
     @PostMapping("/disputes/{id}/resolve")
@@ -119,18 +120,16 @@ class AdminController(
         @Valid @RequestBody request: ResolveDisputeRequest
     ): ResponseEntity<Dispute> {
         requireAdmin(role)
-        val actorId = requireUser(userId)
-        val dispute = adminControlPlaneService.resolveDispute(
-            disputeId = id,
-            requestedDecision = request.decision,
-            resolutionNotes = request.resolutionNotes,
-            actorId = actorId,
-            traceId = requestId.orEmpty()
+        return ResponseEntity.ok(
+            adminControlPlaneService.resolveDispute(
+                disputeId = id,
+                requestedDecision = request.decision,
+                resolutionNotes = request.resolutionNotes,
+                actorId = requireUser(userId),
+                traceId = requestId.orEmpty()
+            )
         )
-        return ResponseEntity.ok(dispute)
     }
-
-    // --- Support Cases ---
 
     @GetMapping("/admin/support-cases")
     fun listSupportCases(
@@ -148,15 +147,16 @@ class AdminController(
     ): ResponseEntity<SupportCase> {
         requireAdmin(role)
         val actorId = requireUser(xUserId)
-        val supportCase = orderService.createSupportCase(
-            title = request.title,
-            detail = request.detail,
-            actionType = request.actionType,
-            entityType = request.entityType,
-            entityId = request.entityId,
-            createdByUserId = actorId
+        return ResponseEntity.ok(
+            orderService.createSupportCase(
+                title = request.title,
+                detail = request.detail,
+                actionType = request.actionType,
+                entityType = request.entityType,
+                entityId = request.entityId,
+                createdByUserId = actorId
+            )
         )
-        return ResponseEntity.ok(supportCase)
     }
 
     @PostMapping("/admin/support-cases/{id}/resolve")
@@ -168,20 +168,17 @@ class AdminController(
     ): ResponseEntity<SupportCase> {
         requireAdmin(role)
         val actorId = requireUser(xUserId)
-        val supportCase = orderService.resolveSupportCase(id, request.resolutionNotes, actorId)
-        return ResponseEntity.ok(supportCase)
+        return ResponseEntity.ok(orderService.resolveSupportCase(id, request.resolutionNotes, actorId))
     }
-
-    // --- Invoices ---
 
     @GetMapping("/{orderId}/invoice")
     fun getInvoice(
         @PathVariable orderId: UUID,
         @RequestHeader("X-User-Id", required = false) userId: String?,
         @RequestHeader("X-User-Role", required = false) role: String?
-    ): ResponseEntity<Invoice> {
-        return ResponseEntity.ok(orderService.getInvoiceByOrderIdWithAuth(orderId, requireUser(userId), role))
-    }
+    ): ResponseEntity<Invoice> = ResponseEntity.ok(
+        orderService.getInvoiceByOrderIdWithAuth(orderId, requireUser(userId), role)
+    )
 
     private fun requireAdmin(role: String?) {
         if (!role.equals("ADMIN", ignoreCase = true)) {
