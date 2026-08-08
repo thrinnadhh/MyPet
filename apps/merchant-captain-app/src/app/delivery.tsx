@@ -234,28 +234,32 @@ export default function DeliveryScreen() {
         { method: 'POST', headers: authHeaders() },
       );
       if (!response.ok) throw new Error(await responseError(response, 'The offer may have expired.'));
-      if (answer === 'ACCEPTED') {
-        const accepted: CaptainDeliveryJob = {
-          jobId: activeOffer.jobId,
-          orderId: activeOffer.orderId,
-          status: 'ACCEPTED',
-          attemptCount: activeOffer.offerRank,
-          createdAt: activeOffer.offeredAt,
-          assignedAt: new Date().toISOString(),
-        };
-        setJobs((current) => [accepted, ...current.filter((job) => job.jobId !== accepted.jobId)]);
-        setActiveDelivery(accepted);
-        setDeliveryStep(1);
-        await startActiveTracking();
-      }
       setActiveOffer(null);
+      if (answer === 'ACCEPTED') {
+        await loadJobs();
+      }
     } catch (error) {
       Alert.alert('Offer response failed', apiErrorMessage(error, 'Please try again.'));
       setActiveOffer(null);
     } finally {
       setLoading(false);
     }
-  }, [activeOffer, authHeaders, startActiveTracking]);
+  }, [activeOffer, authHeaders, loadJobs]);
+
+  const callCustomer = useCallback(async () => {
+    const phone = activeDelivery?.customerPhone;
+    if (!phone) {
+      Alert.alert('Customer contact unavailable', 'This active delivery does not have a callable customer number.');
+      return;
+    }
+    const dialUrl = `tel:${phone}`;
+    const supported = await Linking.canOpenURL(dialUrl);
+    if (!supported) {
+      Alert.alert('Calling unavailable', 'This device cannot open the phone dialer.');
+      return;
+    }
+    await Linking.openURL(dialUrl);
+  }, [activeDelivery?.customerPhone]);
 
   const submitProof = useCallback(async (kind: 'pickup' | 'deliver', proofCode: string) => {
     if (!activeDelivery) return;
@@ -334,6 +338,22 @@ export default function DeliveryScreen() {
             <View style={[styles.progressFill, { backgroundColor: theme.primary, width: `${progress * 100}%` }]} />
           </View>
 
+          {activeDelivery.customerPhone ? (
+            <View style={[styles.contactCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
+              <View style={styles.flex}>
+                <ThemedText type="smallBold">Customer delivery contact</ThemedText>
+                <ThemedText>{activeDelivery.customerPhone}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {activeDelivery.customerPhoneVerified
+                    ? 'This number matches a phone verified by the customer authentication flow.'
+                    : 'Customer-provided delivery contact. It has not been OTP-verified by MyPet.'}
+                </ThemedText>
+              </View>
+              <StatusBadge label={activeDelivery.customerPhoneVerified ? 'VERIFIED PHONE' : 'CUSTOMER PROVIDED'} tone={activeDelivery.customerPhoneVerified ? 'success' : 'info'} />
+              <ActionButton label="Call customer" onPress={() => void callCustomer()} />
+            </View>
+          ) : null}
+
           {deliveryStep === 1 ? <DeliveryStepView icon="store" title="Travel to the pickup store" message="Destination details remain protected until an authorized delivery-context API is available." action="I have arrived" onAction={() => setDeliveryStep(2)} /> : null}
           {deliveryStep === 2 ? (
             <View style={styles.stepContent}>
@@ -344,7 +364,7 @@ export default function DeliveryScreen() {
               <ActionButton label="Confirm pickup" icon="check" loading={verifyingProof} onPress={() => void submitProof('pickup', pickupProof)} />
             </View>
           ) : null}
-          {deliveryStep === 3 ? <DeliveryStepView icon="truck" title="Travel to the customer" message="The job is server-confirmed as picked up and will resume here after an app restart." action="I have arrived" onAction={() => setDeliveryStep(4)} /> : null}
+          {deliveryStep === 3 ? <DeliveryStepView icon="truck" title="Travel to the customer" message="Use the active delivery contact above if you need to call the customer. The job resumes here after an app restart." action="I have arrived" onAction={() => setDeliveryStep(4)} /> : null}
           {deliveryStep === 4 ? (
             <View style={styles.stepContent}>
               <StepIcon name="check" success />
@@ -423,6 +443,7 @@ const styles = StyleSheet.create({
   roundIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   cardTitle: { ...typography.title, fontSize: 18, lineHeight: 24 },
   deliveryCard: { padding: spacing.x4, gap: spacing.x4 },
+  contactCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.compact, padding: spacing.x3, gap: spacing.x3 },
   availabilityCard: { padding: spacing.x4, gap: spacing.x4 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.x3 },
   statusTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.x2 },
