@@ -332,6 +332,7 @@ class OrderService @Autowired constructor(
         if (request.quoteToken.isNullOrBlank()) {
             throw IllegalArgumentException("Quote token is mandatory for order creation")
         }
+        val stockReservationScope = request.quoteToken
 
         val activeCustomerId = requireNotNull(request.customerId) { "Missing required customerId context" }
         val snapshot = quoteStore?.consume(request.quoteToken)
@@ -384,7 +385,11 @@ class OrderService @Autowired constructor(
 
         try {
             val orderItemsToSave = request.items.map { item ->
-                decrementCatalogStock(item.offeringId, item.quantity).also { reservedItems.add(item) }
+                decrementCatalogStock(
+                    item.offeringId,
+                    item.quantity,
+                    stockReservationScope
+                ).also { reservedItems.add(item) }
             }
             val initialStatus = if (isCod) OrderStatus.ACCEPTED else OrderStatus.PLACED
             val paymentStatus = if (isCod) "COD_PENDING" else "PENDING"
@@ -576,13 +581,19 @@ class OrderService @Autowired constructor(
 
     @CircuitBreaker(name = "catalogService", fallbackMethod = "decrementCatalogStockFallback")
     @Retry(name = "catalogService")
-    private fun decrementCatalogStock(offeringId: UUID, quantity: Int): OrderItem {
+    private fun decrementCatalogStock(
+        offeringId: UUID,
+        quantity: Int,
+        reservationScope: String
+    ): OrderItem {
         require(quantity > 0) { "Quantity must be greater than zero" }
         val snapshot = catalogModule.reserveStock(
             StockMutationCommand(
                 offeringId = offeringId,
                 quantity = quantity,
-                idempotencyKey = UUID.nameUUIDFromBytes("reserve:$offeringId:$quantity".toByteArray())
+                idempotencyKey = UUID.nameUUIDFromBytes(
+                    "reserve:$reservationScope:$offeringId:$quantity".toByteArray()
+                )
             )
         )
         return OrderItem(
@@ -596,12 +607,24 @@ class OrderService @Autowired constructor(
     }
 
     @Suppress("unused")
-    fun decrementCatalogStockFallback(offeringId: UUID, quantity: Int, error: Throwable): OrderItem {
-        logger.error("Catalog module reservation failed (circuit breaker fallback active): {}", error.message)
+    fun decrementCatalogStockFallback(
+        offeringId: UUID,
+        quantity: Int,
+        reservationScope: String,
+        error: Throwable
+    ): OrderItem {
+        logger.error(
+            "Catalog module reservation failed for scope {} (circuit breaker fallback active): {}",
+            reservationScope,
+            error.message
+        )
         throw IllegalStateException("Catalog service is currently unavailable (circuit open). Please try again later.", error)
     }
 
-    private fun restoreReservedCatalogStock(items: List<OrderItemRequest>) {
+    private fun restoreReservedCatalogStock(
+        items: List<OrderItemRequest>,
+        restorationScope: String
+    ) {
         items.asReversed().forEach { item ->
             try {
                 catalogModule.restoreStock(
@@ -609,7 +632,7 @@ class OrderService @Autowired constructor(
                         offeringId = item.offeringId,
                         quantity = item.quantity,
                         idempotencyKey = UUID.nameUUIDFromBytes(
-                            "restore:${item.offeringId}:${item.quantity}".toByteArray()
+                            "restore:$restorationScope:${item.offeringId}:${item.quantity}".toByteArray()
                         )
                     )
                 )
@@ -621,7 +644,9 @@ class OrderService @Autowired constructor(
 
     private fun restoreOrderCatalogStock(orderId: UUID) {
         restoreReservedCatalogStock(
-            orderItemRepository.findByOrderId(orderId).map { OrderItemRequest(it.offeringId, it.quantity) }
+            items = orderItemRepository.findByOrderId(orderId)
+                .map { OrderItemRequest(it.offeringId, it.quantity) },
+            restorationScope = "order:$orderId"
         )
     }
 
