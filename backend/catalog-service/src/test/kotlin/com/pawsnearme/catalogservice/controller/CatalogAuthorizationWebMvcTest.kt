@@ -16,6 +16,8 @@ import org.mockito.kotlin.whenever
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
 import org.springframework.boot.test.mock.mockito.MockBean
+import org.springframework.context.annotation.ComponentScan
+import org.springframework.context.annotation.FilterType
 import org.springframework.http.MediaType
 import org.springframework.test.context.TestPropertySource
 import org.springframework.test.web.servlet.MockMvc
@@ -25,7 +27,15 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.math.BigDecimal
 import java.util.UUID
 
-@WebMvcTest(controllers = [CatalogController::class, InternalCatalogController::class])
+@WebMvcTest(
+    controllers = [CatalogController::class, InternalCatalogController::class],
+    excludeFilters = [
+        ComponentScan.Filter(
+            type = FilterType.REGEX,
+            pattern = ["com\\.pawsnearme\\.catalogservice\\.security\\..*"]
+        )
+    ]
+)
 @TestPropertySource(properties = ["internal.api.secret=dev-internal-secret"])
 class CatalogAuthorizationWebMvcTest {
 
