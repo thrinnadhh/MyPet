@@ -3,6 +3,7 @@ package com.pawsnearme.orderservice.repository
 import com.pawsnearme.orderservice.model.RecurringOrderOccurrence
 import com.pawsnearme.orderservice.model.RecurringOrderStatus
 import com.pawsnearme.orderservice.model.RecurringOrderSubscription
+import com.pawsnearme.orderservice.model.RecurringOrderSubscriptionItem
 import jakarta.persistence.LockModeType
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Lock
@@ -23,6 +24,11 @@ interface RecurringOrderSubscriptionRepository : JpaRepository<RecurringOrderSub
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from RecurringOrderSubscription s where s.subscriptionId = :subscriptionId")
     fun findByIdForUpdate(@Param("subscriptionId") subscriptionId: UUID): Optional<RecurringOrderSubscription>
+}
+
+@Repository
+interface RecurringOrderSubscriptionItemRepository : JpaRepository<RecurringOrderSubscriptionItem, UUID> {
+    fun findBySubscriptionIdOrderByCreatedAtAsc(subscriptionId: UUID): List<RecurringOrderSubscriptionItem>
 }
 
 @Repository
