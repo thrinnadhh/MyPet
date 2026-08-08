@@ -1,16 +1,22 @@
 package com.pawsnearme.orderservice.controller
 
+import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
+import com.pawsnearme.orderservice.service.CreateOrderRequest
 import com.pawsnearme.orderservice.service.DeliveryContactLookup
 import com.pawsnearme.orderservice.service.MerchantOrderQueryService
+import com.pawsnearme.orderservice.service.OrderItemRequest
 import com.pawsnearme.orderservice.service.OrderService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import org.springframework.http.HttpStatus
 import java.math.BigDecimal
@@ -22,12 +28,38 @@ class OrderControllerTests {
     private val orderRepository: OrderRepository = mock()
     private val deliveryContactLookup: DeliveryContactLookup = mock()
     private val merchantOrderQueryService: MerchantOrderQueryService = mock()
+    private val providerModule: ProviderModuleApi = mock()
     private val controller = OrderController(
         orderService,
         orderRepository,
         deliveryContactLookup,
         merchantOrderQueryService,
+        providerModule,
     )
+
+    @Test
+    fun `createOrder - suspended provider is blocked before customer order creation`() {
+        val customerId = UUID.randomUUID()
+        val providerId = UUID.randomUUID()
+        val request = CreateOrderRequest(
+            providerId = providerId,
+            deliveryAddressId = UUID.randomUUID(),
+            items = listOf(OrderItemRequest(UUID.randomUUID(), 1)),
+            paymentMethod = "COD",
+            quoteToken = "quote-token"
+        )
+        whenever(providerModule.providerOperational(providerId)).thenReturn(false)
+
+        val response = controller.createOrder(request, customerId.toString(), "+919900000001")
+
+        assertEquals(HttpStatus.CONFLICT, response.statusCode)
+        @Suppress("UNCHECKED_CAST")
+        val body = response.body as Map<String, String>
+        assertEquals("PROVIDER_NOT_OPERATIONAL", body["code"])
+        verify(orderService, never()).createOrder(any())
+        verify(deliveryContactLookup, never()).forCustomerAddress(any(), any())
+        verify(orderRepository, never()).save(any<Order>())
+    }
 
     @Test
     fun `confirmOrder - success returns 200 and accepted order`() {
