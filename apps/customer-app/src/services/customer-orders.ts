@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { OrderFlowStepId } from '@/constants/content';
 import type { CustomerPaymentMethod, CustomerPaymentStatus } from '@/contracts/customer-payment';
+import { fetchDeliveryContact } from '@/services/customer-profile';
 import { appConfig } from '@/utils/app-config';
 
 export type OrderTabCategory = 'active' | 'past' | 'subscription';
@@ -21,6 +22,8 @@ export interface CustomerOrderRecord {
   paymentStatus?: CustomerPaymentStatus | string | null;
   isSubscription?: boolean;
   deliveryAddressId?: string;
+  deliveryContactPhone?: string | null;
+  deliveryContactVerified?: boolean;
   captainId?: string;
   statusHistory?: Array<{
     fromStatus: string | null;
@@ -78,6 +81,8 @@ interface OrderDetailsDto {
   paymentMethod?: string | null;
   paymentStatus?: string | null;
   deliveryAddressId?: string;
+  deliveryContactPhone?: string | null;
+  deliveryContactVerified?: boolean;
   captainId?: string;
   statusHistory?: CustomerOrderRecord['statusHistory'];
 }
@@ -208,6 +213,8 @@ export async function fetchOrderDetails(
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
     deliveryAddressId: order.deliveryAddressId,
+    deliveryContactPhone: order.deliveryContactPhone,
+    deliveryContactVerified: order.deliveryContactVerified,
     captainId: order.captainId,
     statusHistory: order.statusHistory || [],
   };
@@ -297,9 +304,19 @@ export async function createCustomerOrder(
   input: CreateOrderInput,
   accessToken?: string | null,
 ): Promise<CustomerOrderRecord> {
+  if (!accessToken) throw new Error('Sign in before placing an order.');
+  const contact = await fetchDeliveryContact(accessToken, input.deliveryAddressId);
+  if (!contact?.phoneNumber) {
+    throw new Error('Add a delivery contact number to this address before placing your order.');
+  }
+
   const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders`, {
     method: 'POST',
-    headers: { ...headers(accessToken), 'Content-Type': 'application/json' },
+    headers: {
+      ...headers(accessToken),
+      'Content-Type': 'application/json',
+      'X-Delivery-Contact-Phone': contact.phoneNumber,
+    },
     body: JSON.stringify(input),
   });
   if (!response.ok) throw await responseError(response, 'Could not place order');
@@ -324,5 +341,8 @@ export async function createCustomerOrder(
     flowStep: 'placed',
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
+    deliveryAddressId: order.deliveryAddressId,
+    deliveryContactPhone: order.deliveryContactPhone,
+    deliveryContactVerified: order.deliveryContactVerified,
   };
 }

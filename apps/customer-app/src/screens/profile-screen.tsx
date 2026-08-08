@@ -12,7 +12,15 @@ import { useLocale } from '@/context/LocaleContext';
 import { radii, spacing, touchTarget, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
-import { createDefaultAddress, fetchDefaultAddress, isOfflineError, type AddressInput } from '@/services/customer-profile';
+import {
+  createDefaultAddress,
+  fetchDefaultAddress,
+  fetchDeliveryContact,
+  isOfflineError,
+  normalizeDeliveryPhone,
+  saveDeliveryContact,
+  type AddressInput,
+} from '@/services/customer-profile';
 
 type AddressDraft = Record<keyof AddressInput, string>;
 const emptyAddress: AddressDraft = { label: 'Home', line1: '', line2: '', city: 'Tirupati', state: 'Andhra Pradesh', pincode: '', geoLat: '', geoLng: '' };
@@ -25,6 +33,7 @@ export default function ProfileScreen() {
   const { locale, changeLocale } = useLocale();
   const [address, setAddress] = useState<AddressDraft>(emptyAddress);
   const [hasAddress, setHasAddress] = useState(false);
+  const [deliveryPhone, setDeliveryPhone] = useState('');
   const [loadingAddress, setLoadingAddress] = useState(false);
   const [addressError, setAddressError] = useState<'offline' | 'error' | null>(null);
   const [saving, setSaving] = useState(false);
@@ -35,24 +44,47 @@ export default function ProfileScreen() {
     try {
       const saved = await fetchDefaultAddress(session.access_token);
       setHasAddress(Boolean(saved));
-      if (saved) setAddress({
-        label: saved.label ?? '', line1: saved.line1, line2: saved.line2 ?? '', city: saved.city, state: saved.state,
-        pincode: saved.pincode, geoLat: String(saved.geoLat), geoLng: String(saved.geoLng),
-      });
+      if (saved) {
+        setAddress({
+          label: saved.label ?? '', line1: saved.line1, line2: saved.line2 ?? '', city: saved.city, state: saved.state,
+          pincode: saved.pincode, geoLat: String(saved.geoLat), geoLng: String(saved.geoLng),
+        });
+        const contact = await fetchDeliveryContact(session.access_token, saved.addressId);
+        setDeliveryPhone(contact?.phoneNumber ?? user?.phone ?? '');
+      } else {
+        setDeliveryPhone(user?.phone ?? '');
+      }
     } catch (error) { setAddressError(isOfflineError(error) ? 'offline' : 'error'); }
     finally { setLoadingAddress(false); }
-  }, [session]);
+  }, [session, user]);
 
   useEffect(() => {
     if (!user || !session) return;
     void loadAddress();
   }, [loadAddress, session, user]);
 
+  const normalizedDeliveryPhone = useMemo(() => {
+    if (!deliveryPhone.trim()) return null;
+    try { return normalizeDeliveryPhone(deliveryPhone); }
+    catch { return null; }
+  }, [deliveryPhone]);
+
+  const verifiedAuthPhone = useMemo(() => {
+    if (!user?.phone || !user.phone_confirmed_at) return null;
+    try { return normalizeDeliveryPhone(user.phone); }
+    catch { return null; }
+  }, [user]);
+
+  const deliveryPhoneVerified = Boolean(
+    normalizedDeliveryPhone && verifiedAuthPhone === normalizedDeliveryPhone,
+  );
+
   const profileRows = useMemo(() => user ? [
     { label: t('profileFoundation.displayName'), value: String(user.user_metadata?.full_name ?? ''), complete: Boolean(user.user_metadata?.full_name) },
     { label: t('profileFoundation.verifiedMobile'), value: user.phone ?? '—', complete: Boolean(user.phone_confirmed_at) },
+    { label: t('profileFoundation.deliveryContact'), value: normalizedDeliveryPhone ?? '—', complete: Boolean(normalizedDeliveryPhone) },
     { label: t('profileFoundation.emailOptional'), value: user.email ?? '—', complete: true },
-  ] : [], [t, user]);
+  ] : [], [normalizedDeliveryPhone, t, user]);
 
   const save = useCallback(async () => {
     if (!user || !session) return;
@@ -63,14 +95,28 @@ export default function ProfileScreen() {
     if (!input.line1 || !input.city || !input.state || !/^\d{6}$/.test(input.pincode) || !Number.isFinite(input.geoLat) || !Number.isFinite(input.geoLng)) {
       Alert.alert(t('common.error'), t('profileFoundation.addressRequired')); return;
     }
-    const persist = async () => {
-      setSaving(true);
-      try { await createDefaultAddress(session.access_token, input); setHasAddress(true); Alert.alert(t('common.success'), t('profileFoundation.addressSaved')); }
-      catch (error) { Alert.alert(t('common.error'), isOfflineError(error) ? t('states.offlineMessage') : t('states.errorMessage')); }
-      finally { setSaving(false); }
-    };
-    await persist();
-  }, [address, session, t, user]);
+    if (!normalizedDeliveryPhone) {
+      Alert.alert(t('common.error'), t('profileFoundation.deliveryContactRequired')); return;
+    }
+
+    setSaving(true);
+    try {
+      const savedAddress = await createDefaultAddress(session.access_token, input);
+      await saveDeliveryContact(session.access_token, savedAddress.addressId, normalizedDeliveryPhone);
+      setDeliveryPhone(normalizedDeliveryPhone);
+      setHasAddress(true);
+      Alert.alert(t('common.success'), t('profileFoundation.addressAndContactSaved'));
+    } catch (error) {
+      Alert.alert(
+        t('common.error'),
+        isOfflineError(error)
+          ? t('states.offlineMessage')
+          : error instanceof Error ? error.message : t('states.errorMessage'),
+      );
+    } finally {
+      setSaving(false);
+    }
+  }, [address, normalizedDeliveryPhone, session, t, user]);
 
   if (!user || !session) return (
     <ScreenShell scroll={false} header={<AppBar title={t('profileFoundation.title')} />}>
@@ -86,10 +132,35 @@ export default function ProfileScreen() {
     <ScreenShell header={<AppBar title={t('profileFoundation.title')} subtitle={user.email ?? user.phone ?? undefined} />} testID="profile-screen">
       <SectionHeader title={t('profileFoundation.account')} />
       <View style={styles.stack}>{profileRows.map((row) => <View key={row.label} style={[styles.rowCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><View style={styles.flex}><ThemedText style={styles.label}>{row.label}</ThemedText><ThemedText themeColor="textSecondary">{row.value}</ThemedText></View><StatusBadge label={t(row.complete ? 'profileFoundation.complete' : 'profileFoundation.incomplete')} tone={row.complete ? 'success' : 'warning'} /></View>)}</View>
+
       <SectionHeader title={t('profileFoundation.deliveryAddress')} />
       {loadingAddress ? <StateView kind="loading" title={t('states.loading')} /> : null}
       {addressError ? <StateView kind={addressError} title={t(addressError === 'offline' ? 'states.offline' : 'states.error')} message={t(addressError === 'offline' ? 'states.offlineMessage' : 'states.errorMessage')} actionLabel={t('states.retry')} onAction={() => void loadAddress()} /> : null}
-      {!loadingAddress && !addressError ? <View style={styles.stack}>{field('label', t('profileFoundation.addressLabel'))}{field('line1', t('profileFoundation.line1'))}{field('city', t('profileFoundation.city'))}{field('state', t('profileFoundation.state'))}{field('pincode', t('profileFoundation.pincode'), 'number-pad')}<View style={styles.inline}>{field('geoLat', t('profileFoundation.latitude'), 'decimal-pad')}{field('geoLng', t('profileFoundation.longitude'), 'decimal-pad')}</View><PrimaryAction label={t('profileFoundation.saveAddress')} onPress={() => void save()} loading={saving} /></View> : null}
+      {!loadingAddress && !addressError ? (
+        <View style={styles.stack}>
+          <ThemedText themeColor="textSecondary">{t('profileFoundation.deliveryContactMessage')}</ThemedText>
+          <TextInput
+            value={deliveryPhone}
+            onChangeText={setDeliveryPhone}
+            placeholder={t('profileFoundation.deliveryContactPlaceholder')}
+            placeholderTextColor={theme.textSecondary}
+            keyboardType="phone-pad"
+            style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
+            accessibilityLabel={t('profileFoundation.deliveryContact')}
+          />
+          <StatusBadge
+            label={t(deliveryPhoneVerified ? 'profileFoundation.contactVerifiedByAuth' : 'profileFoundation.contactCustomerProvided')}
+            tone={deliveryPhoneVerified ? 'success' : 'neutral'}
+          />
+          {field('label', t('profileFoundation.addressLabel'))}
+          {field('line1', t('profileFoundation.line1'))}
+          {field('city', t('profileFoundation.city'))}
+          {field('state', t('profileFoundation.state'))}
+          {field('pincode', t('profileFoundation.pincode'), 'number-pad')}
+          <View style={styles.inline}>{field('geoLat', t('profileFoundation.latitude'), 'decimal-pad')}{field('geoLng', t('profileFoundation.longitude'), 'decimal-pad')}</View>
+          <PrimaryAction label={t('profileFoundation.saveAddress')} onPress={() => void save()} loading={saving} />
+        </View>
+      ) : null}
       <SectionHeader title={t('profileFoundation.language')} />
       <View style={styles.languages}>{LANGUAGES.map((language) => <Pressable key={language.id} onPress={() => void changeLocale(language.id)} accessibilityRole="button" accessibilityState={{ selected: locale === language.id }} style={[styles.language, { backgroundColor: locale === language.id ? theme.primarySoft : theme.backgroundElement, borderColor: locale === language.id ? theme.primary : theme.border }]}><ThemedText style={styles.label}>{language.label}</ThemedText><AppIcon name="check" color={locale === language.id ? theme.primary : theme.border} /></Pressable>)}</View>
       <PrimaryAction label={t('common.signOut')} onPress={() => void signOut()} />

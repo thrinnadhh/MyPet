@@ -16,6 +16,8 @@ export interface CaptainDeliveryJob {
   createdAt: string;
   resolvedAt?: string | null;
   assignedAt?: string | null;
+  customerPhone?: string | null;
+  customerPhoneVerified?: boolean;
 }
 
 export function isActiveCaptainJob(job: CaptainDeliveryJob): boolean {

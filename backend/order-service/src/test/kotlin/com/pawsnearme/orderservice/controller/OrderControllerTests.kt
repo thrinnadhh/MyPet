@@ -3,11 +3,11 @@ package com.pawsnearme.orderservice.controller
 import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
+import com.pawsnearme.orderservice.service.DeliveryContactLookup
 import com.pawsnearme.orderservice.service.OrderService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
@@ -19,7 +19,8 @@ class OrderControllerTests {
 
     private val orderService: OrderService = mock()
     private val orderRepository: OrderRepository = mock()
-    private val controller = OrderController(orderService, orderRepository)
+    private val deliveryContactLookup: DeliveryContactLookup = mock()
+    private val controller = OrderController(orderService, orderRepository, deliveryContactLookup)
 
     @Test
     fun `confirmOrder - success returns 200 and accepted order`() {
@@ -81,4 +82,3 @@ class OrderControllerTests {
         assertEquals(HttpStatus.UNAUTHORIZED, response.statusCode)
     }
 }
-

@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 
 import { isFreshOtp } from '@/auth/fresh-otp';
 import { apiClient } from '@/services/api-client';
+import { syncCommunicationContact } from '@/services/communication-contact';
 import { syncAuthenticatedProfile } from '@/utils/profile-sync';
 import { supabase } from '@/utils/supabase';
 
@@ -24,6 +25,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const lastOtpVerifiedAtRef = useRef<number | null>(null);
+  const lastContactFingerprintRef = useRef<string | null>(null);
   const [lastOtpVerifiedAt, setLastOtpVerifiedAt] = useState<number | null>(null);
 
   const applySession = useCallback((nextSession: Session | null) => {
@@ -31,10 +33,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession(nextSession);
     setLoading(false);
 
-    if (nextSession) {
-      void syncAuthenticatedProfile(nextSession, 'CUSTOMER').catch((error) => {
-        console.warn('Profile sync failed', error);
-      });
+    if (!nextSession) {
+      lastContactFingerprintRef.current = null;
+      return;
+    }
+
+    void syncAuthenticatedProfile(nextSession, 'CUSTOMER').catch((error) => {
+      console.warn('Profile sync failed', error);
+    });
+
+    const metadata = nextSession.user.user_metadata ?? {};
+    const fingerprint = [
+      nextSession.user.id,
+      nextSession.user.email ?? '',
+      nextSession.user.phone ?? '',
+      typeof metadata.full_name === 'string' ? metadata.full_name : '',
+      typeof metadata.name === 'string' ? metadata.name : '',
+    ].join('|');
+
+    if (lastContactFingerprintRef.current !== fingerprint) {
+      void syncCommunicationContact(nextSession.access_token)
+        .then(() => {
+          lastContactFingerprintRef.current = fingerprint;
+        })
+        .catch((error) => {
+          console.warn('Communication contact sync failed', error);
+        });
     }
   }, []);
 
@@ -71,6 +95,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     lastOtpVerifiedAtRef.current = null;
+    lastContactFingerprintRef.current = null;
     setLastOtpVerifiedAt(null);
     apiClient.setSessionToken(null);
 

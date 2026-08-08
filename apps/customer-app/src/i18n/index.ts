@@ -4,6 +4,8 @@ import { initReactI18next } from 'react-i18next';
 
 import en from './en.json';
 import hi from './hi.json';
+import productionAuthEn from './production-auth-en.json';
+import productionAuthHi from './production-auth-hi.json';
 import s10En from './s10-en.json';
 import s10Hi from './s10-hi.json';
 import te from './te.json';
@@ -23,11 +25,14 @@ function deepMerge(base: Dictionary, overlay: Dictionary): Dictionary {
 const deviceLang = Localization.getLocales()[0]?.languageCode ?? 'en';
 const initialLanguage = deviceLang === 'te' ? 'te' : deviceLang === 'hi' ? 'hi' : 'en';
 
+const english = deepMerge(deepMerge(en as Dictionary, s10En as Dictionary), productionAuthEn as Dictionary);
+const hindi = deepMerge(deepMerge(hi as Dictionary, s10Hi as Dictionary), productionAuthHi as Dictionary);
+
 void i18n.use(initReactI18next).init({
   compatibilityJSON: 'v4',
   resources: {
-    en: { translation: deepMerge(en as Dictionary, s10En as Dictionary) },
-    hi: { translation: deepMerge(hi as Dictionary, s10Hi as Dictionary) },
+    en: { translation: english },
+    hi: { translation: hindi },
     te: { translation: te },
   },
   lng: initialLanguage,

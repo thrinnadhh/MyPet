@@ -26,10 +26,11 @@ class AppointmentEventListenerTests {
     private val idempotencyService: com.pawsnearme.common.idempotency.IdempotencyService = mock<com.pawsnearme.common.idempotency.IdempotencyService>().apply {
         whenever(checkAndRecord(any())).thenReturn(true)
     }
-    private val listener = AppointmentEventListener(reminderRepo, objectMapper, idempotencyService)
+    private val transactionalEmailService: TransactionalEmailService = mock()
+    private val listener = AppointmentEventListener(reminderRepo, objectMapper, idempotencyService, transactionalEmailService)
 
     @Test
-    fun `AppointmentBooked snake case event schedules appointment reminders`() {
+    fun `AppointmentBooked snake case event schedules appointment reminders and transactional email`() {
         val appointmentId = UUID.randomUUID()
         val customerId = UUID.randomUUID()
         val slotId = UUID.randomUUID()
@@ -56,6 +57,13 @@ class AppointmentEventListenerTests {
 
         val reminderCaptor = argumentCaptor<ScheduledReminder>()
         verify(reminderRepo, times(2)).save(reminderCaptor.capture())
+        verify(transactionalEmailService).registerReferenceOwner("APPOINTMENT", appointmentId, customerId)
+        verify(transactionalEmailService).enqueueForUser(
+            eq(customerId),
+            eq("APPOINTMENT_BOOKED"),
+            eq("appointment:$appointmentId:booked"),
+            any(),
+        )
 
         val templateCodes = reminderCaptor.allValues.map { it.templateCode }.toSet()
         assertEquals(setOf("APPOINTMENT_T24H", "APPOINTMENT_T1H"), templateCodes)

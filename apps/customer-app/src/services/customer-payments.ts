@@ -69,9 +69,17 @@ export async function initiateOrderPayment(
   amount: number,
   customer: CashfreeCustomerDetails,
 ): Promise<CashfreeOrderInitialization> {
+  let paymentCustomer = customer;
+  if (!customer.phone.trim()) {
+    const order = await apiClient.get<{ deliveryContactPhone?: string | null }>(
+      `/api/v1/orders/${encodeURIComponent(orderId)}`,
+    );
+    paymentCustomer = { ...customer, phone: order.deliveryContactPhone ?? '' };
+  }
+
   return apiClient.post<CashfreeOrderInitialization>(
     '/api/v1/payments/orders',
-    paymentPayload(userId, orderId, amount, 'ORDER_PAYMENT', customer),
+    paymentPayload(userId, orderId, amount, 'ORDER_PAYMENT', paymentCustomer),
   );
 }
 

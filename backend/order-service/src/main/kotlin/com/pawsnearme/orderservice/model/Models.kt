@@ -31,6 +31,12 @@ class Order(
     @Column(name = "delivery_address_id", nullable = false)
     var deliveryAddressId: UUID,
 
+    @Column(name = "delivery_contact_phone")
+    var deliveryContactPhone: String? = null,
+
+    @Column(name = "delivery_contact_verified", nullable = false)
+    var deliveryContactVerified: Boolean = false,
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     var status: OrderStatus = OrderStatus.PLACED,
@@ -173,7 +179,7 @@ class Dispute(
     var orderId: UUID,
 
     @Column(name = "status", nullable = false)
-    var status: String = "OPEN", // OPEN, RESOLVED, REJECTED
+    var status: String = "OPEN",
 
     @Column(name = "reason", nullable = false)
     var reason: String,

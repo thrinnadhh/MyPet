@@ -1,14 +1,12 @@
 package com.pawsnearme.dispatchservice.controller
 
-import com.pawsnearme.dispatchservice.model.DispatchJob
 import com.pawsnearme.dispatchservice.model.DispatchOffer
-import com.pawsnearme.dispatchservice.model.JobStatus
 import com.pawsnearme.dispatchservice.repository.DispatchOfferRepository
 import com.pawsnearme.dispatchservice.repository.DispatchJobRepository
+import com.pawsnearme.dispatchservice.service.DeliveryContactLookup
 import com.pawsnearme.dispatchservice.service.DispatchService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
-import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import org.springframework.http.HttpStatus
@@ -19,8 +17,9 @@ class DispatchControllerTests {
     private val dispatchService: DispatchService = mock()
     private val offerRepository: DispatchOfferRepository = mock()
     private val jobRepository: DispatchJobRepository = mock()
+    private val deliveryContactLookup: DeliveryContactLookup = mock()
 
-    private val controller = DispatchController(dispatchService, offerRepository, jobRepository)
+    private val controller = DispatchController(dispatchService, offerRepository, jobRepository, deliveryContactLookup)
 
     @Test
     fun `respondToOffer - missing authenticated user id - returns 401`() {

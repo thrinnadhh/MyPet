@@ -33,7 +33,7 @@ class SchedulerArchitectureTest {
         val scheduledCount = sources.sumOf { Regex("@Scheduled\\s*\\(").findAll(it).count() }
         val lockCount = sources.sumOf { Regex("@SchedulerLock\\s*\\(").findAll(it).count() }
 
-        assertEquals(10, scheduledCount)
+        assertEquals(11, scheduledCount)
         assertEquals(scheduledCount, lockCount)
     }
 
