@@ -44,17 +44,18 @@ class ProviderAdminDomainTests {
     private val geometryFactory = GeometryFactory(PrecisionModel(), 4326)
 
     @Test
-    fun `admin rejection persists state and writes auditable outbox event`() {
+    fun `admin rejection persists state and writes auditable outbox event under row lock`() {
         val providerId = UUID.randomUUID()
         val actorId = UUID.randomUUID()
         val provider = provider(providerId, ProviderStatus.PENDING_APPROVAL)
-        whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
+        whenever(providerRepository.findByIdForUpdate(providerId)).thenReturn(Optional.of(provider))
         whenever(providerRepository.save(any<Provider>())).thenAnswer { it.getArgument(0) }
         val payload = argumentCaptor<Any>()
 
         val result = service.rejectProvider(providerId, actorId, "Licence document could not be verified")
 
         assertEquals(ProviderStatus.REJECTED, result.status)
+        verify(providerRepository).findByIdForUpdate(providerId)
         verify(providerRepository).save(provider)
         verify(outboxService).saveEvent(
             eventId = any(),
@@ -76,24 +77,50 @@ class ProviderAdminDomainTests {
     fun `admin rejection refuses invalid state without writing event`() {
         val providerId = UUID.randomUUID()
         val provider = provider(providerId, ProviderStatus.ACTIVE)
-        whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
+        whenever(providerRepository.findByIdForUpdate(providerId)).thenReturn(Optional.of(provider))
 
         assertThrows<IllegalStateException> {
             service.rejectProvider(providerId, UUID.randomUUID(), "No longer eligible")
         }
 
+        verify(providerRepository).findByIdForUpdate(providerId)
         verify(providerRepository, never()).save(any<Provider>())
         verify(outboxService, never()).saveEvent(any(), any(), any(), any(), any())
     }
 
     @Test
-    fun `admin rejection requires an operational reason before lookup`() {
+    fun `admin rejection requires an operational reason before lock lookup`() {
         assertThrows<IllegalArgumentException> {
             service.rejectProvider(UUID.randomUUID(), UUID.randomUUID(), "  ")
         }
 
-        verify(providerRepository, never()).findById(any())
+        verify(providerRepository, never()).findByIdForUpdate(any())
         verify(outboxService, never()).saveEvent(any(), any(), any(), any(), any())
+    }
+
+    @Test
+    fun `approval and rejection share the same serialized pending state boundary`() {
+        val providerId = UUID.randomUUID()
+        val provider = provider(providerId, ProviderStatus.PENDING_APPROVAL)
+        whenever(providerRepository.findByIdForUpdate(providerId)).thenReturn(Optional.of(provider))
+        whenever(providerRepository.save(any<Provider>())).thenAnswer { it.getArgument(0) }
+
+        val approved = service.approveProvider(providerId)
+        assertEquals(ProviderStatus.ACTIVE, approved.status)
+
+        whenever(providerRepository.findByIdForUpdate(providerId)).thenReturn(Optional.of(approved))
+        assertThrows<IllegalStateException> {
+            service.rejectProvider(providerId, UUID.randomUUID(), "Concurrent stale rejection")
+        }
+
+        verify(providerRepository, org.mockito.kotlin.times(2)).findByIdForUpdate(providerId)
+        verify(outboxService).saveEvent(
+            eventId = any(),
+            aggregateType = eq("PROVIDER"),
+            aggregateId = eq(providerId),
+            eventType = eq("ProviderApproved"),
+            eventPayload = any()
+        )
     }
 
     private fun provider(providerId: UUID, status: ProviderStatus) = Provider(
