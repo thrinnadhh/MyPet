@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -58,12 +59,24 @@ class LoyaltyLifecycleServiceTests {
     @BeforeEach
     fun setup() {
         whenever(loyaltyService.getProgramForProvider(providerId)).thenReturn(program)
-        whenever(processedRepository.existsByEventTypeAndReferenceId(any(), any())).thenReturn(false)
+        whenever(processedRepository.insertIfAbsent(any(), any())).thenReturn(1)
         whenever(accountRepository.save(any())).thenAnswer { it.getArgument(0) }
         whenever(ledgerRepository.save(any())).thenAnswer { it.getArgument(0) }
         whenever(debtRepository.save(any())).thenAnswer { it.getArgument(0) }
         whenever(debtRepository.findByCustomerIdAndProviderId(customerId, providerId)).thenReturn(Optional.empty())
         whenever(rewardRepository.findByCustomerIdAndProviderIdAndStatusIn(any(), any(), any())).thenReturn(emptyList())
+    }
+
+    @Test
+    fun `duplicate delivered event is rejected by atomic processed-event insert`() {
+        val orderId = UUID.randomUUID()
+        whenever(processedRepository.insertIfAbsent("ORDER_DELIVERED", orderId)).thenReturn(0)
+
+        val processed = service.recordDelivered(orderId, customerId, providerId, BigDecimal("500.00"))
+
+        assertFalse(processed)
+        verify(accountRepository, never()).ensureAccount(any(), any())
+        verify(ledgerRepository, never()).save(any())
     }
 
     @Test
@@ -80,15 +93,10 @@ class LoyaltyLifecycleServiceTests {
     }
 
     @Test
-    fun `refund subtracts the matching purchase star from current balance`() {
+    fun `refund subtracts the matching purchase star from locked current balance`() {
         val orderId = UUID.randomUUID()
-        val account = CustomerLoyaltyAccount(
-            customerId = customerId,
-            providerId = providerId,
-            starBalance = 3,
-            totalStarsEarned = 3,
-        )
-        whenever(loyaltyService.getOrCreateAccount(customerId, providerId)).thenReturn(account)
+        val account = account(starBalance = 3, totalStars = 3)
+        locked(account)
         whenever(ledgerRepository.findByReferenceId(orderId)).thenReturn(listOf(purchaseStar(orderId)))
 
         val processed = service.recordRefunded(orderId, customerId, providerId)
@@ -96,6 +104,8 @@ class LoyaltyLifecycleServiceTests {
         assertTrue(processed)
         assertEquals(2, account.starBalance)
         assertEquals(2, account.totalStarsEarned)
+        verify(accountRepository).ensureAccount(customerId, providerId)
+        verify(accountRepository).findByCustomerIdAndProviderIdForUpdate(customerId, providerId)
         verify(ledgerRepository).save(org.mockito.kotlin.check {
             assertEquals(LedgerEntryType.STAR_REVERSAL, it.entryType)
             assertEquals(orderId, it.referenceId)
@@ -105,14 +115,10 @@ class LoyaltyLifecycleServiceTests {
     @Test
     fun `refund revokes unspent reward and restores nine valid stars when balance is zero`() {
         val orderId = UUID.randomUUID()
-        val account = CustomerLoyaltyAccount(
-            customerId = customerId,
-            providerId = providerId,
-            starBalance = 0,
-            cycleCount = 1,
-            totalStarsEarned = 10,
-            totalRewardsIssued = 1,
-        )
+        val account = account(starBalance = 0, totalStars = 10).apply {
+            cycleCount = 1
+            totalRewardsIssued = 1
+        }
         val reward = LoyaltyRewardInstance(
             rewardId = UUID.randomUUID(),
             customerId = customerId,
@@ -121,7 +127,7 @@ class LoyaltyLifecycleServiceTests {
             status = RewardStatus.ISSUED,
             code = "RWD-TEST",
         )
-        whenever(loyaltyService.getOrCreateAccount(customerId, providerId)).thenReturn(account)
+        locked(account)
         whenever(ledgerRepository.findByReferenceId(orderId)).thenReturn(listOf(purchaseStar(orderId)))
         whenever(rewardRepository.findByCustomerIdAndProviderIdAndStatusIn(
             customerId,
@@ -142,15 +148,11 @@ class LoyaltyLifecycleServiceTests {
     @Test
     fun `refund after reward consumption creates one star debt instead of an unrelated reversal`() {
         val orderId = UUID.randomUUID()
-        val account = CustomerLoyaltyAccount(
-            customerId = customerId,
-            providerId = providerId,
-            starBalance = 0,
-            cycleCount = 1,
-            totalStarsEarned = 10,
-            totalRewardsIssued = 1,
-        )
-        whenever(loyaltyService.getOrCreateAccount(customerId, providerId)).thenReturn(account)
+        val account = account(starBalance = 0, totalStars = 10).apply {
+            cycleCount = 1
+            totalRewardsIssued = 1
+        }
+        locked(account)
         whenever(ledgerRepository.findByReferenceId(orderId)).thenReturn(listOf(purchaseStar(orderId)))
 
         val processed = service.recordRefunded(orderId, customerId, providerId)
@@ -167,14 +169,9 @@ class LoyaltyLifecycleServiceTests {
     @Test
     fun `next qualifying purchase pays outstanding refund debt before increasing visible stars`() {
         val orderId = UUID.randomUUID()
-        val account = CustomerLoyaltyAccount(
-            customerId = customerId,
-            providerId = providerId,
-            starBalance = 0,
-            totalStarsEarned = 10,
-        )
+        val account = account(starBalance = 0, totalStars = 10)
         val debt = LoyaltyStarDebt(customerId = customerId, providerId = providerId, debtStars = 1)
-        whenever(loyaltyService.getOrCreateAccount(customerId, providerId)).thenReturn(account)
+        locked(account)
         whenever(debtRepository.findByCustomerIdAndProviderId(customerId, providerId)).thenReturn(Optional.of(debt))
 
         val processed = service.recordDelivered(orderId, customerId, providerId, BigDecimal("500.00"))
@@ -184,6 +181,19 @@ class LoyaltyLifecycleServiceTests {
         assertEquals(0, account.starBalance)
         assertEquals(11, account.totalStarsEarned)
     }
+
+    private fun locked(account: CustomerLoyaltyAccount) {
+        whenever(accountRepository.ensureAccount(customerId, providerId)).thenReturn(0)
+        whenever(accountRepository.findByCustomerIdAndProviderIdForUpdate(customerId, providerId))
+            .thenReturn(Optional.of(account))
+    }
+
+    private fun account(starBalance: Int, totalStars: Int) = CustomerLoyaltyAccount(
+        customerId = customerId,
+        providerId = providerId,
+        starBalance = starBalance,
+        totalStarsEarned = totalStars,
+    )
 
     private fun purchaseStar(orderId: UUID) = LoyaltyLedgerEntry(
         customerId = customerId,
