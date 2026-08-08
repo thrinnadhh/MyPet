@@ -17,7 +17,7 @@ class ProviderAdminLifecycleService(
     @Transactional
     fun suspendProvider(providerId: UUID, actorId: UUID, reason: String): Provider {
         val safeReason = validateReason(reason)
-        val provider = providerRepository.findById(providerId)
+        val provider = providerRepository.findByIdForUpdate(providerId)
             .orElseThrow { NoSuchElementException("Provider not found: $providerId") }
         if (provider.status != ProviderStatus.ACTIVE) {
             throw IllegalStateException("Only ACTIVE providers can be suspended. Current status: ${provider.status}")
@@ -28,7 +28,7 @@ class ProviderAdminLifecycleService(
     @Transactional
     fun reactivateProvider(providerId: UUID, actorId: UUID, reason: String): Provider {
         val safeReason = validateReason(reason)
-        val provider = providerRepository.findById(providerId)
+        val provider = providerRepository.findByIdForUpdate(providerId)
             .orElseThrow { NoSuchElementException("Provider not found: $providerId") }
         if (provider.status != ProviderStatus.SUSPENDED) {
             throw IllegalStateException("Only SUSPENDED providers can be reactivated. Current status: ${provider.status}")
