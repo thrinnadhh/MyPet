@@ -4,7 +4,6 @@ import com.pawsnearme.common.outbox.OutboxService
 import com.pawsnearme.paymentservice.model.CustomerLoyaltyAccount
 import com.pawsnearme.paymentservice.model.LedgerEntryType
 import com.pawsnearme.paymentservice.model.LoyaltyLedgerEntry
-import com.pawsnearme.paymentservice.model.LoyaltyProcessedEvent
 import com.pawsnearme.paymentservice.model.LoyaltyRewardInstance
 import com.pawsnearme.paymentservice.model.LoyaltyStarDebt
 import com.pawsnearme.paymentservice.model.RewardStatus
@@ -19,12 +18,6 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
 
-/**
- * Handles order-driven loyalty state changes. This service is deliberately
- * separate from customer wallet operations because delivered/refunded events
- * are internal lifecycle events and must preserve idempotency, rollover and
- * post-refund debt invariants.
- */
 @Service
 class LoyaltyLifecycleService(
     private val loyaltyService: LoyaltyService,
@@ -37,13 +30,12 @@ class LoyaltyLifecycleService(
 ) {
     @Transactional
     fun recordDelivered(orderId: UUID, customerId: UUID, providerId: UUID, netAmount: BigDecimal): Boolean {
-        if (processedEventRepository.existsByEventTypeAndReferenceId(ORDER_DELIVERED, orderId)) return false
-        processedEventRepository.save(LoyaltyProcessedEvent(eventType = ORDER_DELIVERED, referenceId = orderId))
+        if (processedEventRepository.insertIfAbsent(ORDER_DELIVERED, orderId) == 0) return false
 
         val program = loyaltyService.getProgramForProvider(providerId)
         if (!program.isActive || netAmount < program.minOrderValue) return false
 
-        val account = loyaltyService.getOrCreateAccount(customerId, providerId)
+        val account = lockedAccount(customerId, providerId)
         val purchaseEntry = ledgerRepository.save(
             LoyaltyLedgerEntry(
                 customerId = customerId,
@@ -89,8 +81,7 @@ class LoyaltyLifecycleService(
 
     @Transactional
     fun recordRefunded(orderId: UUID, customerId: UUID, providerId: UUID): Boolean {
-        if (processedEventRepository.existsByEventTypeAndReferenceId(ORDER_REFUNDED, orderId)) return false
-        processedEventRepository.save(LoyaltyProcessedEvent(eventType = ORDER_REFUNDED, referenceId = orderId))
+        if (processedEventRepository.insertIfAbsent(ORDER_REFUNDED, orderId) == 0) return false
 
         val purchaseStar = ledgerRepository.findByReferenceId(orderId).firstOrNull {
             it.customerId == customerId &&
@@ -106,7 +97,7 @@ class LoyaltyLifecycleService(
         }
         if (alreadyReversed) return false
 
-        val account = loyaltyService.getOrCreateAccount(customerId, providerId)
+        val account = lockedAccount(customerId, providerId)
         val program = loyaltyService.getProgramForProvider(providerId)
 
         ledgerRepository.save(
@@ -168,6 +159,12 @@ class LoyaltyLifecycleService(
         accountRepository.save(account)
         publish("StarReversed", customerId, providerId, mapOf("orderId" to orderId, "starBalance" to account.starBalance))
         return true
+    }
+
+    private fun lockedAccount(customerId: UUID, providerId: UUID): CustomerLoyaltyAccount {
+        accountRepository.ensureAccount(customerId, providerId)
+        return accountRepository.findByCustomerIdAndProviderIdForUpdate(customerId, providerId)
+            .orElseThrow { IllegalStateException("Unable to load loyalty account after ensure") }
     }
 
     private fun applyRolloverIfEligible(
