@@ -2,11 +2,13 @@ package com.pawsnearme.orderservice.controller
 
 import com.pawsnearme.orderservice.model.Dispute
 import com.pawsnearme.orderservice.model.Invoice
+import com.pawsnearme.orderservice.service.AdminControlPlaneService
 import com.pawsnearme.orderservice.service.OrderAccessDeniedException
 import com.pawsnearme.orderservice.service.OrderService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -18,15 +20,15 @@ import java.util.UUID
 
 class AdminControllerAuthorizationTests {
     private val orderService: OrderService = mock()
-    private val controller = AdminController(orderService)
+    private val adminControlPlaneService: AdminControlPlaneService = mock()
+    private val controller = AdminController(orderService, adminControlPlaneService)
 
     @Test
     fun `admin configuration rejects non-admin callers`() {
         assertThrows<OrderAccessDeniedException> {
             controller.getDisputeRefundMode("CUSTOMER")
         }
-
-        verify(orderService, never()).getDisputeRefundMode()
+        verify(adminControlPlaneService, never()).getDisputeRefundMode()
     }
 
     @Test
@@ -34,21 +36,35 @@ class AdminControllerAuthorizationTests {
         assertThrows<OrderAccessDeniedException> {
             controller.listDisputes("CUSTOMER")
         }
-
-        verify(orderService, never()).listDisputes()
+        verify(adminControlPlaneService, never()).listDisputes(any(), any())
     }
 
     @Test
     fun `resolve dispute rejects non-admin callers`() {
         assertThrows<OrderAccessDeniedException> {
             controller.resolveDispute(
-                UUID.randomUUID(),
-                "CUSTOMER",
-                ResolveDisputeRequest("RESOLVED", "Customer tried to self-approve")
+                id = UUID.randomUUID(),
+                userId = UUID.randomUUID().toString(),
+                role = "CUSTOMER",
+                requestId = "test-request",
+                request = ResolveDisputeRequest("RESOLVED", "Customer tried to self-approve")
             )
         }
+        verify(adminControlPlaneService, never()).resolveDispute(any(), any(), any(), any(), any())
+    }
 
-        verify(orderService, never()).resolveDispute(org.mockito.kotlin.any(), org.mockito.kotlin.any(), org.mockito.kotlin.any())
+    @Test
+    fun `resolve dispute rejects missing admin actor identity`() {
+        assertThrows<OrderAccessDeniedException> {
+            controller.resolveDispute(
+                id = UUID.randomUUID(),
+                userId = null,
+                role = "ADMIN",
+                requestId = "test-request",
+                request = ResolveDisputeRequest("RESOLVED", "Approved after evidence review")
+            )
+        }
+        verify(adminControlPlaneService, never()).resolveDispute(any(), any(), any(), any(), any())
     }
 
     @Test
