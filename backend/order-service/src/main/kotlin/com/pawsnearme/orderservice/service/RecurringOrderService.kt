@@ -1,5 +1,6 @@
 package com.pawsnearme.orderservice.service
 
+import com.pawsnearme.common.module.CatalogModuleApi
 import com.pawsnearme.common.module.DiscoveryModuleApi
 import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.common.outbox.OutboxService
@@ -8,12 +9,16 @@ import com.pawsnearme.orderservice.model.RecurringOrderOccurrence
 import com.pawsnearme.orderservice.model.RecurringOrderOccurrenceStatus
 import com.pawsnearme.orderservice.model.RecurringOrderStatus
 import com.pawsnearme.orderservice.model.RecurringOrderSubscription
+import com.pawsnearme.orderservice.model.RecurringOrderSubscriptionItem
 import com.pawsnearme.orderservice.repository.OrderItemRepository
 import com.pawsnearme.orderservice.repository.OrderRepository
 import com.pawsnearme.orderservice.repository.RecurringOrderOccurrenceRepository
+import com.pawsnearme.orderservice.repository.RecurringOrderSubscriptionItemRepository
 import com.pawsnearme.orderservice.repository.RecurringOrderSubscriptionRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.math.BigDecimal
+import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -30,6 +35,14 @@ data class UpdateRecurringOrderRequest(
     val cadenceDays: Int? = null,
     val deliveryAddressId: UUID? = null,
     val quantityMultiplier: Int? = null
+)
+
+data class RecurringOrderItemView(
+    val offeringId: UUID,
+    val name: String,
+    val baseQuantity: Int,
+    val effectiveQuantity: Int,
+    val unitPriceAtCreation: BigDecimal,
 )
 
 data class RecurringOrderOccurrenceView(
@@ -60,6 +73,7 @@ data class RecurringOrderView(
     val lastOrderId: UUID?,
     val lastFailureCode: String?,
     val lastFailureDetail: String?,
+    val items: List<RecurringOrderItemView>,
     val createdAt: Instant,
     val updatedAt: Instant
 )
@@ -79,10 +93,12 @@ data class RecurringOrderProcessingResult(
 @Service
 class RecurringOrderService(
     private val repository: RecurringOrderSubscriptionRepository,
+    private val itemRepository: RecurringOrderSubscriptionItemRepository,
     private val occurrenceRepository: RecurringOrderOccurrenceRepository,
     private val orderRepository: OrderRepository,
     private val orderItemRepository: OrderItemRepository,
     private val orderService: OrderService,
+    private val catalogModule: CatalogModuleApi,
     private val providerModule: ProviderModuleApi,
     private val discoveryModule: DiscoveryModuleApi,
     private val outboxService: OutboxService
@@ -107,6 +123,23 @@ class RecurringOrderService(
         require(providerModule.providerOperational(order.providerId)) {
             "Merchant is not currently operational."
         }
+        val sourceItems = orderItemRepository.findByOrderId(request.sourceOrderId)
+        require(sourceItems.isNotEmpty()) { "A recurring order must contain at least one product." }
+
+        val itemSnapshots = sourceItems.map { sourceItem ->
+            val offering = catalogModule.offering(sourceItem.offeringId)
+            require(offering.providerId == order.providerId) { "Recurring product belongs to a different merchant." }
+            require(offering.status == "ACTIVE") { "Recurring product ${sourceItem.offeringId} is unavailable." }
+            requireNotNull(offering.stockQuantity) { "Recurring subscriptions support delivery products only." }
+            RecurringOrderSubscriptionItem(
+                subscriptionId = UUID(0L, 0L),
+                offeringId = offering.offeringId,
+                offeringNameSnapshot = offering.name,
+                baseQuantity = sourceItem.quantity,
+                unitPriceAtCreation = offering.price,
+            )
+        }
+
         val paymentMethod = order.paymentMethod.trim().uppercase().takeIf { it in setOf("COD", "CARD", "UPI") } ?: "COD"
         val saved = repository.save(
             RecurringOrderSubscription(
@@ -120,20 +153,24 @@ class RecurringOrderService(
                 nextOrderAt = Instant.now().plus(request.cadenceDays.toLong(), ChronoUnit.DAYS)
             )
         )
+        itemSnapshots.forEach { snapshot ->
+            snapshot.subscriptionId = saved.subscriptionId
+            itemRepository.save(snapshot)
+        }
         publish("RecurringOrderCreated", saved, mapOf("paymentMethod" to paymentMethod))
-        return saved.toView()
+        return toView(saved)
     }
 
     @Transactional(readOnly = true)
     fun list(customerId: UUID): List<RecurringOrderView> =
-        repository.findByCustomerIdOrderByCreatedAtDesc(customerId).map { it.toView() }
+        repository.findByCustomerIdOrderByCreatedAtDesc(customerId).map(::toView)
 
     @Transactional(readOnly = true)
     fun listForProvider(providerId: UUID, actorId: UUID, actorRole: String?): List<RecurringOrderView> {
         if (actorRole != "ADMIN" && (actorRole != "MERCHANT" || providerModule.ownerUserId(providerId) != actorId)) {
             throw OrderAccessDeniedException("Merchant does not own this provider subscription view.")
         }
-        return repository.findByProviderIdOrderByNextOrderAtAsc(providerId).map { it.toView() }
+        return repository.findByProviderIdOrderByNextOrderAtAsc(providerId).map(::toView)
     }
 
     @Transactional(readOnly = true)
@@ -187,14 +224,10 @@ class RecurringOrderService(
         subscription.updatedAt = now
         val saved = repository.save(subscription)
         publish("RecurringOrderUpdated", saved, mapOf("action" to request.action.trim().uppercase()))
-        return saved.toView()
+        return toView(saved)
     }
 
-    /**
-     * Backward-compatible recovery for legacy AWAITING_CONFIRMATION rows. New due
-     * subscriptions are processed automatically by the scheduler. Confirmation
-     * never charges a payment; it simply reactivates the legacy row for execution.
-     */
+    /** Legacy recovery for rows created by the former reminder-only implementation. */
     @Transactional
     fun confirm(customerId: UUID, subscriptionId: UUID): RecurringOrderConfirmation {
         val subscription = ownedForUpdate(customerId, subscriptionId)
@@ -203,7 +236,7 @@ class RecurringOrderService(
         }
         val validation = orderService.revalidateReorder(subscription.sourceOrderId, customerId, "CUSTOMER")
         if (!validation.canReorder) {
-            return RecurringOrderConfirmation(subscription.toView(), validation)
+            return RecurringOrderConfirmation(toView(subscription), validation)
         }
         subscription.status = RecurringOrderStatus.ACTIVE
         subscription.nextOrderAt = Instant.now()
@@ -211,7 +244,7 @@ class RecurringOrderService(
         subscription.updatedAt = Instant.now()
         val saved = repository.save(subscription)
         publish("RecurringOrderReactivated", saved, mapOf("automaticCharge" to false))
-        return RecurringOrderConfirmation(saved.toView(), validation)
+        return RecurringOrderConfirmation(toView(saved), validation)
     }
 
     @Transactional
@@ -240,12 +273,13 @@ class RecurringOrderService(
 
             val occurrence = occurrenceRepository.save(
                 RecurringOrderOccurrence(
+                    occurrenceId = deterministicOccurrenceId(subscription.subscriptionId, scheduledFor),
                     subscriptionId = subscription.subscriptionId,
                     scheduledFor = scheduledFor,
                 )
             )
             try {
-                val order = generateOrder(subscription, occurrence)
+                val order = generateOrder(subscription)
                 occurrence.orderId = requireNotNull(order.orderId)
                 occurrence.status = RecurringOrderOccurrenceStatus.ORDER_CREATED
                 occurrence.updatedAt = Instant.now()
@@ -293,7 +327,7 @@ class RecurringOrderService(
         return RecurringOrderProcessingResult(dueIds.size, created, failed, skipped)
     }
 
-    private fun generateOrder(subscription: RecurringOrderSubscription, occurrence: RecurringOrderOccurrence) = run {
+    private fun generateOrder(subscription: RecurringOrderSubscription) = run {
         require(providerModule.providerOperational(subscription.providerId)) {
             "MERCHANT_UNAVAILABLE: Merchant is not currently operational."
         }
@@ -310,16 +344,19 @@ class RecurringOrderService(
             "ADDRESS_UNSERVICEABLE: ${serviceability.reason ?: "Delivery address is outside the service area."}"
         }
 
-        val sourceOrder = orderRepository.findById(subscription.sourceOrderId)
-            .orElseThrow { IllegalStateException("SOURCE_ORDER_MISSING: Source order no longer exists.") }
-        require(sourceOrder.providerId == subscription.providerId) { "PROVIDER_MISMATCH: Source order merchant changed unexpectedly." }
-        val sourceItems = orderItemRepository.findByOrderId(subscription.sourceOrderId)
-        require(sourceItems.isNotEmpty()) { "PRODUCT_UNAVAILABLE: Source order has no recurring items." }
-        val items = sourceItems.map { item ->
-            OrderItemRequest(
-                offeringId = item.offeringId,
-                quantity = Math.multiplyExact(item.quantity, subscription.quantityMultiplier),
-            )
+        val snapshots = itemRepository.findBySubscriptionIdOrderByCreatedAtAsc(subscription.subscriptionId)
+        require(snapshots.isNotEmpty()) { "PRODUCT_UNAVAILABLE: Subscription has no recurring products." }
+        val items = snapshots.map { item ->
+            val current = catalogModule.offering(item.offeringId)
+            require(current.providerId == subscription.providerId) { "PRODUCT_UNAVAILABLE: Product merchant changed." }
+            require(current.status == "ACTIVE") { "PRODUCT_UNAVAILABLE: ${item.offeringNameSnapshot} is not active." }
+            val requiredQuantity = Math.multiplyExact(item.baseQuantity, subscription.quantityMultiplier)
+            val stock = requireNotNull(current.stockQuantity) { "PRODUCT_UNAVAILABLE: ${item.offeringNameSnapshot} is not a delivery product." }
+            require(stock >= requiredQuantity) { "OUT_OF_STOCK: ${item.offeringNameSnapshot} has insufficient stock." }
+            require(current.price.compareTo(item.unitPriceAtCreation) == 0) {
+                "PRICE_CHANGED: ${item.offeringNameSnapshot} changed from ₹${item.unitPriceAtCreation} to ₹${current.price}. Customer review is required before the next recurring purchase."
+            }
+            OrderItemRequest(offeringId = item.offeringId, quantity = requiredQuantity)
         }
 
         val quote = orderService.calculateQuote(
@@ -371,13 +408,16 @@ class RecurringOrderService(
         return when {
             "MERCHANT_UNAVAILABLE" in message -> "MERCHANT_UNAVAILABLE"
             "ADDRESS_" in message || "SERVICE" in message -> "ADDRESS_UNSERVICEABLE"
-            "STOCK" in message || "INVENTORY" in message -> "OUT_OF_STOCK"
+            "OUT_OF_STOCK" in message || "STOCK" in message || "INVENTORY" in message -> "OUT_OF_STOCK"
             "PRODUCT" in message || "OFFERING" in message -> "PRODUCT_UNAVAILABLE"
-            "PRICE" in message || "QUOTE" in message -> "PRICE_CHANGED"
+            "PRICE_CHANGED" in message || "PRICE" in message || "QUOTE" in message -> "PRICE_CHANGED"
             "PAYMENT" in message || "ONLINE CHECKOUT" in message || "COD_NOT_ELIGIBLE" in message -> "PAYMENT_REQUIRED"
             else -> "ORDER_GENERATION_FAILED"
         }
     }
+
+    private fun deterministicOccurrenceId(subscriptionId: UUID, scheduledFor: Instant): UUID =
+        UUID.nameUUIDFromBytes("recurring:$subscriptionId:$scheduledFor".toByteArray(StandardCharsets.UTF_8))
 
     private fun owned(customerId: UUID, subscriptionId: UUID): RecurringOrderSubscription {
         val subscription = repository.findById(subscriptionId)
@@ -420,25 +460,37 @@ class RecurringOrderService(
         )
     }
 
-    private fun RecurringOrderSubscription.toView() = RecurringOrderView(
-        subscriptionId = subscriptionId,
-        customerId = customerId,
-        providerId = providerId,
-        sourceOrderId = sourceOrderId,
-        deliveryAddressId = deliveryAddressId,
-        cadenceDays = cadenceDays,
-        quantityMultiplier = quantityMultiplier,
-        paymentMethod = paymentMethod,
-        status = status,
-        nextOrderAt = nextOrderAt,
-        lastRemindedAt = lastRemindedAt,
-        lastExecutedAt = lastExecutedAt,
-        lastOrderId = lastOrderId,
-        lastFailureCode = lastFailureCode,
-        lastFailureDetail = lastFailureDetail,
-        createdAt = createdAt,
-        updatedAt = updatedAt
-    )
+    private fun toView(subscription: RecurringOrderSubscription): RecurringOrderView {
+        val items = itemRepository.findBySubscriptionIdOrderByCreatedAtAsc(subscription.subscriptionId).map { item ->
+            RecurringOrderItemView(
+                offeringId = item.offeringId,
+                name = item.offeringNameSnapshot,
+                baseQuantity = item.baseQuantity,
+                effectiveQuantity = Math.multiplyExact(item.baseQuantity, subscription.quantityMultiplier),
+                unitPriceAtCreation = item.unitPriceAtCreation,
+            )
+        }
+        return RecurringOrderView(
+            subscriptionId = subscription.subscriptionId,
+            customerId = subscription.customerId,
+            providerId = subscription.providerId,
+            sourceOrderId = subscription.sourceOrderId,
+            deliveryAddressId = subscription.deliveryAddressId,
+            cadenceDays = subscription.cadenceDays,
+            quantityMultiplier = subscription.quantityMultiplier,
+            paymentMethod = subscription.paymentMethod,
+            status = subscription.status,
+            nextOrderAt = subscription.nextOrderAt,
+            lastRemindedAt = subscription.lastRemindedAt,
+            lastExecutedAt = subscription.lastExecutedAt,
+            lastOrderId = subscription.lastOrderId,
+            lastFailureCode = subscription.lastFailureCode,
+            lastFailureDetail = subscription.lastFailureDetail,
+            items = items,
+            createdAt = subscription.createdAt,
+            updatedAt = subscription.updatedAt,
+        )
+    }
 
     private fun RecurringOrderOccurrence.toView() = RecurringOrderOccurrenceView(
         occurrenceId = occurrenceId,
