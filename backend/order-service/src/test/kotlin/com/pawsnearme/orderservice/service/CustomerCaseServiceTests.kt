@@ -2,10 +2,12 @@ package com.pawsnearme.orderservice.service
 
 import com.pawsnearme.common.module.PaymentModuleApi
 import com.pawsnearme.common.outbox.OutboxService
+import com.pawsnearme.orderservice.model.AdminAuditLog
 import com.pawsnearme.orderservice.model.CustomerCase
 import com.pawsnearme.orderservice.model.CustomerCaseEvidence
 import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderStatus
+import com.pawsnearme.orderservice.repository.AdminAuditLogRepository
 import com.pawsnearme.orderservice.repository.CustomerCaseEvidenceRepository
 import com.pawsnearme.orderservice.repository.CustomerCaseRepository
 import com.pawsnearme.orderservice.repository.OrderRepository
@@ -14,6 +16,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.doThrow
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
@@ -31,6 +35,7 @@ class CustomerCaseServiceTests {
     private val orderRepository: OrderRepository = mock()
     private val paymentModule: PaymentModuleApi = mock()
     private val outboxService: OutboxService = mock()
+    private val auditRepository: AdminAuditLogRepository = mock()
     private val root = Files.createTempDirectory("mypet-case-test")
     private val service = CustomerCaseService(
         caseRepository,
@@ -38,6 +43,7 @@ class CustomerCaseServiceTests {
         orderRepository,
         paymentModule,
         outboxService,
+        auditRepository,
         root.toString(),
         "http://localhost:8085",
         "0123456789abcdef0123456789abcdef"
@@ -52,14 +58,20 @@ class CustomerCaseServiceTests {
         whenever(caseRepository.save(any<CustomerCase>())).thenAnswer { it.getArgument(0) }
         whenever(evidenceRepository.findByCaseIdOrderByCreatedAtAsc(any())).thenReturn(emptyList())
 
-        val created = service.create(customerId, CreateCustomerCaseRequest(orderId, "DAMAGED_ITEM", "The sealed packet arrived torn."))
+        val created = service.create(
+            customerId,
+            CreateCustomerCaseRequest(orderId, "DAMAGED_ITEM", "The sealed packet arrived torn.")
+        )
 
         assertEquals("DAMAGED_ITEM", created.caseType)
         assertEquals("OPEN", created.status)
         verify(outboxService).saveEvent(any(), eq("CUSTOMER_CASE"), any(), eq("CustomerCaseCreated"), any())
 
         assertThrows<OrderAccessDeniedException> {
-            service.create(UUID.randomUUID(), CreateCustomerCaseRequest(orderId, "DAMAGED_ITEM", "The packet arrived damaged."))
+            service.create(
+                UUID.randomUUID(),
+                CreateCustomerCaseRequest(orderId, "DAMAGED_ITEM", "The packet arrived damaged.")
+            )
         }
     }
 
@@ -98,37 +110,109 @@ class CustomerCaseServiceTests {
     }
 
     @Test
-    fun `admin resolution can initiate refund and records processing state`() {
+    fun `admin resolution completes authoritative refund and records audit`() {
         val customerCase = customerCase()
-        whenever(caseRepository.findById(customerCase.caseId)).thenReturn(Optional.of(customerCase))
+        val adminId = UUID.randomUUID()
+        whenever(caseRepository.findByIdForUpdate(customerCase.caseId)).thenReturn(Optional.of(customerCase))
         whenever(caseRepository.save(any<CustomerCase>())).thenAnswer { it.getArgument(0) }
         whenever(evidenceRepository.findByCaseIdOrderByCreatedAtAsc(customerCase.caseId)).thenReturn(emptyList())
+        whenever(auditRepository.save(any<AdminAuditLog>())).thenAnswer { it.getArgument(0) }
+        val audit = argumentCaptor<AdminAuditLog>()
 
         val resolved = service.resolve(
             customerCase.caseId,
             ResolveCustomerCaseRequest("RESOLVED", "Refund approved after evidence review.", issueRefund = true),
-            UUID.randomUUID()
+            adminId,
+            "trace-case-refund"
         )
 
         assertEquals("RESOLVED", resolved.status)
-        assertEquals("PROCESSING", resolved.refundStatus)
+        assertEquals("COMPLETED", resolved.refundStatus)
         verify(paymentModule).refundOrder(orderId)
+        verify(auditRepository).save(audit.capture())
+        assertEquals(adminId, audit.firstValue.adminUserId)
+        assertEquals("CUSTOMER_CASE_DECIDED", audit.firstValue.action)
+        assertEquals("status=OPEN;refundStatus=NOT_APPLICABLE", audit.firstValue.previousValue)
+        assertEquals("status=RESOLVED;refundStatus=COMPLETED", audit.firstValue.newValue)
+        assertEquals("trace-case-refund", audit.firstValue.traceId)
     }
 
     @Test
-    fun `rejected case never starts refund`() {
+    fun `refund failure cannot persist resolved case or success audit`() {
         val customerCase = customerCase()
-        whenever(caseRepository.findById(customerCase.caseId)).thenReturn(Optional.of(customerCase))
-        whenever(caseRepository.save(any<CustomerCase>())).thenAnswer { it.getArgument(0) }
-        whenever(evidenceRepository.findByCaseIdOrderByCreatedAtAsc(customerCase.caseId)).thenReturn(emptyList())
+        whenever(caseRepository.findByIdForUpdate(customerCase.caseId)).thenReturn(Optional.of(customerCase))
+        doThrow(IllegalStateException("refund provider unavailable")).whenever(paymentModule).refundOrder(orderId)
 
-        service.resolve(
-            customerCase.caseId,
-            ResolveCustomerCaseRequest("REJECTED", "Evidence does not match the delivered order."),
-            UUID.randomUUID()
-        )
+        assertThrows<IllegalStateException> {
+            service.resolve(
+                customerCase.caseId,
+                ResolveCustomerCaseRequest("RESOLVED", "Refund must complete before case closure.", issueRefund = true),
+                UUID.randomUUID(),
+                "trace-failure"
+            )
+        }
+
+        verify(caseRepository, never()).save(any<CustomerCase>())
+        verify(auditRepository, never()).save(any<AdminAuditLog>())
+        verify(outboxService, never()).saveEvent(any(), eq("CUSTOMER_CASE"), any(), eq("CustomerCaseUpdated"), any())
+    }
+
+    @Test
+    fun `admin cannot forge refund status`() {
+        val customerCase = customerCase()
+
+        assertThrows<IllegalArgumentException> {
+            service.resolve(
+                customerCase.caseId,
+                ResolveCustomerCaseRequest(
+                    decision = "RESOLVED",
+                    resolutionNotes = "Attempt to forge provider result.",
+                    refundStatus = "COMPLETED"
+                ),
+                UUID.randomUUID()
+            )
+        }
+
+        verify(caseRepository, never()).findByIdForUpdate(any())
+        verify(paymentModule, never()).refundOrder(any())
+    }
+
+    @Test
+    fun `rejected case cannot start refund`() {
+        val customerCase = customerCase()
+        whenever(caseRepository.findByIdForUpdate(customerCase.caseId)).thenReturn(Optional.of(customerCase))
+
+        assertThrows<IllegalArgumentException> {
+            service.resolve(
+                customerCase.caseId,
+                ResolveCustomerCaseRequest(
+                    "REJECTED",
+                    "Evidence does not match the delivered order.",
+                    issueRefund = true
+                ),
+                UUID.randomUUID()
+            )
+        }
 
         verify(paymentModule, never()).refundOrder(any())
+        verify(caseRepository, never()).save(any<CustomerCase>())
+    }
+
+    @Test
+    fun `duplicate closed case cannot be decided twice`() {
+        val customerCase = customerCase().apply { status = "RESOLVED" }
+        whenever(caseRepository.findByIdForUpdate(customerCase.caseId)).thenReturn(Optional.of(customerCase))
+
+        assertThrows<IllegalArgumentException> {
+            service.resolve(
+                customerCase.caseId,
+                ResolveCustomerCaseRequest("RESOLVED", "Duplicate decision attempt."),
+                UUID.randomUUID()
+            )
+        }
+
+        verify(paymentModule, never()).refundOrder(any())
+        verify(caseRepository, never()).save(any<CustomerCase>())
     }
 
     private fun customerCase() = CustomerCase(
