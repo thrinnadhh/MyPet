@@ -38,7 +38,8 @@ jobs:
         working-directory: apps/customer-app
         run: |
           npm ci
-          npm audit --audit-level=high
+          npm audit --audit-level=high --json >/tmp/customer-npm-audit.json || true
+          python ../../scripts/validate-npm-audit.py /tmp/customer-npm-audit.json --app-dir .
           npx --yes expo-doctor@1.20.1
           npm run typecheck
           npm run lint
