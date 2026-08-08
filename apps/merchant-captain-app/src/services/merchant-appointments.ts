@@ -39,7 +39,7 @@ export interface MerchantBooking {
   cancellationReason?: string | null;
   visitNotes?: string | null;
   prescriptionDocUrl?: string | null;
-  identityResolved: boolean;
+  identityResolved?: boolean;
 }
 
 export interface MerchantAppointmentHistoryEntry {
