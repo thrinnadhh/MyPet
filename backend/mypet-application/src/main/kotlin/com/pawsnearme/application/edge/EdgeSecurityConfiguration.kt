@@ -10,10 +10,10 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.convert.converter.Converter
 import org.springframework.core.env.Environment
+import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
 import org.springframework.security.authentication.AbstractAuthenticationToken
-import org.springframework.security.config.Customizer.withDefaults
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.core.GrantedAuthority
@@ -160,6 +160,10 @@ class EnabledEdgeSecurityConfiguration(
         EdgeRequestInfrastructureFilter(properties)
 
     @Bean
+    fun suspendedUserFilter(redisTemplate: StringRedisTemplate): SuspendedUserFilter =
+        SuspendedUserFilter(redisTemplate)
+
+    @Bean
     fun identityHeaderFilter(): IdentityHeaderFilter = IdentityHeaderFilter()
 
     @Bean
@@ -183,6 +187,7 @@ class EnabledEdgeSecurityConfiguration(
         corsConfigurationSource: CorsConfigurationSource,
         jwtAuthenticationConverter: Converter<Jwt, out AbstractAuthenticationToken>,
         edgeRequestInfrastructureFilter: EdgeRequestInfrastructureFilter,
+        suspendedUserFilter: SuspendedUserFilter,
         identityHeaderFilter: IdentityHeaderFilter,
         idempotencyFilter: IdempotencyFilter
     ): SecurityFilterChain {
@@ -197,74 +202,34 @@ class EnabledEdgeSecurityConfiguration(
             .authorizeHttpRequests { authorization ->
                 authorization
                     .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-
-                    // Existing gateway role guards — keep these before broader path rules.
                     .requestMatchers(HttpMethod.POST, "/api/v1/providers/*/approve").hasRole("ADMIN")
                     .requestMatchers(HttpMethod.PATCH, "/api/v1/providers/*/commission").hasRole("ADMIN")
                     .requestMatchers(HttpMethod.GET, "/api/v1/providers/pending").hasRole("ADMIN")
                     .requestMatchers(HttpMethod.POST, "/api/v1/providers").hasAnyRole("MERCHANT", "ADMIN")
-                    .requestMatchers(
-                        HttpMethod.POST,
-                        "/api/v1/providers/*/documents",
-                        "/api/v1/providers/*/submit"
-                    ).hasAnyRole("MERCHANT", "ADMIN")
-                    .requestMatchers(
-                        HttpMethod.POST,
-                        "/api/v1/profiles/*/revoke",
-                        "/api/v1/profiles/*/restore"
-                    ).hasRole("ADMIN")
+                    .requestMatchers(HttpMethod.POST, "/api/v1/providers/*/documents", "/api/v1/providers/*/submit").hasAnyRole("MERCHANT", "ADMIN")
+                    .requestMatchers(HttpMethod.POST, "/api/v1/profiles/*/revoke", "/api/v1/profiles/*/restore").hasRole("ADMIN")
                     .requestMatchers(HttpMethod.GET, "/api/v1/profiles").hasRole("ADMIN")
-                    .requestMatchers(
-                        HttpMethod.POST,
-                        "/api/v1/catalog/offerings/**",
-                        "/api/v1/catalog/slots/**"
-                    ).hasAnyRole("MERCHANT", "ADMIN")
-                    .requestMatchers(
-                        HttpMethod.PUT,
-                        "/api/v1/catalog/offerings/**",
-                        "/api/v1/catalog/slots/**"
-                    ).hasAnyRole("MERCHANT", "ADMIN")
-                    .requestMatchers(
-                        HttpMethod.DELETE,
-                        "/api/v1/catalog/offerings/**",
-                        "/api/v1/catalog/slots/**"
-                    ).hasAnyRole("MERCHANT", "ADMIN")
-                    .requestMatchers(
-                        "/api/v1/catalog/bills/**",
-                        "/api/v1/catalog/offerings/by-barcode/**"
-                    ).hasAnyRole("MERCHANT", "ADMIN")
-                    .requestMatchers("/api/v1/admin/service-regions", "/api/v1/admin/service-regions/**")
-                    .hasRole("ADMIN")
+                    .requestMatchers(HttpMethod.POST, "/api/v1/catalog/offerings/**", "/api/v1/catalog/slots/**").hasAnyRole("MERCHANT", "ADMIN")
+                    .requestMatchers(HttpMethod.PUT, "/api/v1/catalog/offerings/**", "/api/v1/catalog/slots/**").hasAnyRole("MERCHANT", "ADMIN")
+                    .requestMatchers(HttpMethod.DELETE, "/api/v1/catalog/offerings/**", "/api/v1/catalog/slots/**").hasAnyRole("MERCHANT", "ADMIN")
+                    .requestMatchers("/api/v1/catalog/bills/**", "/api/v1/catalog/offerings/by-barcode/**").hasAnyRole("MERCHANT", "ADMIN")
+                    .requestMatchers("/api/v1/admin/service-regions", "/api/v1/admin/service-regions/**").hasRole("ADMIN")
                     .requestMatchers("/api/v1/orders/admin/**").hasRole("ADMIN")
                     .requestMatchers(HttpMethod.GET, "/api/v1/orders/disputes").hasRole("ADMIN")
                     .requestMatchers(HttpMethod.POST, "/api/v1/orders/disputes/*/resolve").hasRole("ADMIN")
-                    .requestMatchers(HttpMethod.GET, "/api/v1/orders/provider/*")
-                    .hasAnyRole("MERCHANT", "ADMIN")
-                    .requestMatchers(HttpMethod.PUT, "/api/v1/orders/*/status")
-                    .hasAnyRole("MERCHANT", "CAPTAIN", "ADMIN")
-                    .requestMatchers(HttpMethod.PUT, "/api/v1/appointments/*/status")
-                    .hasAnyRole("MERCHANT", "ADMIN")
+                    .requestMatchers(HttpMethod.GET, "/api/v1/orders/provider/*").hasAnyRole("MERCHANT", "ADMIN")
+                    .requestMatchers(HttpMethod.PUT, "/api/v1/orders/*/status").hasAnyRole("MERCHANT", "CAPTAIN", "ADMIN")
+                    .requestMatchers(HttpMethod.PUT, "/api/v1/appointments/*/status").hasAnyRole("MERCHANT", "ADMIN")
                     .requestMatchers(HttpMethod.POST, "/api/v1/payments/payouts/calculate").hasRole("ADMIN")
-                    .requestMatchers(HttpMethod.POST, "/api/v1/payments/promotions")
-                    .hasAnyRole("MERCHANT", "ADMIN")
+                    .requestMatchers(HttpMethod.POST, "/api/v1/payments/promotions").hasAnyRole("MERCHANT", "ADMIN")
                     .requestMatchers(HttpMethod.POST, "/api/v1/payments/refund").hasRole("ADMIN")
-                    .requestMatchers(HttpMethod.PATCH, "/api/v1/chat/conversations/*/privacy")
-                    .hasAnyRole("MERCHANT", "ADMIN")
-                    .requestMatchers(HttpMethod.POST, "/api/v1/content/guides")
-                    .hasAnyRole("ADMIN", "MERCHANT")
+                    .requestMatchers(HttpMethod.PATCH, "/api/v1/chat/conversations/*/privacy").hasAnyRole("MERCHANT", "ADMIN")
+                    .requestMatchers(HttpMethod.POST, "/api/v1/content/guides").hasAnyRole("ADMIN", "MERCHANT")
                     .requestMatchers(HttpMethod.POST, "/api/v1/content/banners").hasRole("ADMIN")
-                    .requestMatchers(HttpMethod.POST, "/api/v1/content/guides/writers", "/api/v1/content/guides/writers/**")
-                    .hasRole("ADMIN")
-                    .requestMatchers(HttpMethod.DELETE, "/api/v1/content/guides/writers", "/api/v1/content/guides/writers/**")
-                    .hasRole("ADMIN")
+                    .requestMatchers(HttpMethod.POST, "/api/v1/content/guides/writers", "/api/v1/content/guides/writers/**").hasRole("ADMIN")
+                    .requestMatchers(HttpMethod.DELETE, "/api/v1/content/guides/writers", "/api/v1/content/guides/writers/**").hasRole("ADMIN")
                     .requestMatchers(HttpMethod.GET, "/api/v1/captains/pending").hasRole("ADMIN")
-                    .requestMatchers(
-                        HttpMethod.POST,
-                        "/api/v1/captains/*/approve",
-                        "/api/v1/captains/*/reject"
-                    ).hasRole("ADMIN")
-
-                    // Existing gateway public surface.
+                    .requestMatchers(HttpMethod.POST, "/api/v1/captains/*/approve", "/api/v1/captains/*/reject").hasRole("ADMIN")
                     .requestMatchers("/api/v1/discovery/**").permitAll()
                     .requestMatchers("/api/v1/reviews/provider/**").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/v1/providers/*").permitAll()
@@ -290,7 +255,8 @@ class EnabledEdgeSecurityConfiguration(
                 }
             }
             .addFilterBefore(edgeRequestInfrastructureFilter, BearerTokenAuthenticationFilter::class.java)
-            .addFilterAfter(identityHeaderFilter, BearerTokenAuthenticationFilter::class.java)
+            .addFilterAfter(suspendedUserFilter, BearerTokenAuthenticationFilter::class.java)
+            .addFilterAfter(identityHeaderFilter, SuspendedUserFilter::class.java)
             .addFilterAfter(idempotencyFilter, IdentityHeaderFilter::class.java)
 
         return http.build()
