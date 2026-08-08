@@ -75,6 +75,14 @@ type CustomerCaseResponse = {
   resolvedAt?: string | null;
 };
 
+type CustomerCasePageResponse = {
+  content: CustomerCaseResponse[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+};
+
 function mapCustomerCase(value: CustomerCaseResponse): AdminDispute {
   return {
     disputeId: value.caseId,
@@ -91,8 +99,11 @@ function mapCustomerCase(value: CustomerCaseResponse): AdminDispute {
 }
 
 export async function fetchAdminDisputes(accessToken: string): Promise<AdminDispute[]> {
-  const cases = await request<CustomerCaseResponse[]>('/api/v1/orders/customer-cases/admin', accessToken);
-  return cases.map(mapCustomerCase);
+  const cases = await request<CustomerCasePageResponse>(
+    '/api/v1/orders/customer-cases/admin/page?page=0&size=50',
+    accessToken,
+  );
+  return cases.content.map(mapCustomerCase);
 }
 
 export async function resolveAdminDispute(
