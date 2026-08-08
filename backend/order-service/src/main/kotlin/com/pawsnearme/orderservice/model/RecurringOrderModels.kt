@@ -6,6 +6,7 @@ import jakarta.persistence.EnumType
 import jakarta.persistence.Enumerated
 import jakarta.persistence.Id
 import jakarta.persistence.Table
+import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
 
@@ -77,6 +78,32 @@ class RecurringOrderSubscription(
 
     @Column(name = "updated_at", nullable = false)
     var updatedAt: Instant = Instant.now()
+)
+
+@Entity
+@Table(name = "recurring_order_subscription_items", schema = "orders")
+class RecurringOrderSubscriptionItem(
+    @Id
+    @Column(name = "subscription_item_id", nullable = false)
+    var subscriptionItemId: UUID = UUID.randomUUID(),
+
+    @Column(name = "subscription_id", nullable = false)
+    var subscriptionId: UUID,
+
+    @Column(name = "offering_id", nullable = false)
+    var offeringId: UUID,
+
+    @Column(name = "offering_name_snapshot", nullable = false)
+    var offeringNameSnapshot: String,
+
+    @Column(name = "base_quantity", nullable = false)
+    var baseQuantity: Int,
+
+    @Column(name = "unit_price_at_creation", nullable = false)
+    var unitPriceAtCreation: BigDecimal,
+
+    @Column(name = "created_at", nullable = false)
+    var createdAt: Instant = Instant.now(),
 )
 
 @Entity
