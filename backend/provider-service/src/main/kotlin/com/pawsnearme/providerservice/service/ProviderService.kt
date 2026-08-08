@@ -87,7 +87,6 @@ class ProviderService(
         longitude: Double,
         latitude: Double
     ): Provider {
-        // Validate user role is MERCHANT
         val profile = profileRepository.findById(ownerUserId).orElseThrow {
             IllegalArgumentException("Owner user profile not found: $ownerUserId")
         }
@@ -95,15 +94,12 @@ class ProviderService(
             throw IllegalArgumentException("User must have MERCHANT role to create a provider")
         }
 
-        // Validate chk_fulfillment_matches_type
         validateFulfillmentType(providerType, fulfillmentType)
 
-        // Validate VET_HOSPITAL requirements
         if (providerType == ProviderType.VET_HOSPITAL && licenseNumber.isNullOrBlank()) {
             throw IllegalArgumentException("Veterinary council license number is required for VET_HOSPITAL")
         }
 
-        // longitude, latitude coordinate ordering for PostGIS
         val point = geometryFactory.createPoint(Coordinate(longitude, latitude))
 
         val provider = Provider(
@@ -123,7 +119,6 @@ class ProviderService(
 
         val savedProvider = providerRepository.save(provider)
 
-        // Save license document if URL is provided
         if (!licenseDocUrl.isNullOrBlank()) {
             val docType = if (providerType == ProviderType.VET_HOSPITAL) "VET_LICENSE" else "BUSINESS_PROOF"
             providerDocumentRepository.save(
@@ -186,7 +181,6 @@ class ProviderService(
         provider.status = ProviderStatus.ACTIVE
         val approvedProvider = providerRepository.save(provider)
 
-        // Publish ProviderApproved event to transactional outbox
         val eventId = UUID.randomUUID()
         val event = mapOf(
             "event_id" to eventId.toString(),
@@ -195,7 +189,7 @@ class ProviderService(
             "provider_id" to approvedProvider.providerId.toString(),
             "provider_type" to approvedProvider.providerType.name
         )
-        
+
         outboxService.saveEvent(
             eventId = eventId,
             aggregateType = "PROVIDER",
@@ -205,6 +199,46 @@ class ProviderService(
         )
 
         return approvedProvider
+    }
+
+    @Transactional
+    fun rejectProvider(providerId: UUID, actorUserId: UUID, reason: String): Provider {
+        val normalizedReason = reason.trim()
+        require(normalizedReason.length in 3..500) {
+            "A provider rejection reason between 3 and 500 characters is required"
+        }
+
+        val provider = providerRepository.findById(providerId).orElseThrow {
+            IllegalArgumentException("Provider not found: $providerId")
+        }
+        if (provider.status != ProviderStatus.PENDING_APPROVAL) {
+            throw IllegalStateException("Provider must be in PENDING_APPROVAL status to reject")
+        }
+
+        val previousStatus = provider.status
+        provider.status = ProviderStatus.REJECTED
+        val rejectedProvider = providerRepository.save(provider)
+
+        val eventId = UUID.randomUUID()
+        val event = mapOf(
+            "event_id" to eventId.toString(),
+            "event_type" to "ProviderRejected",
+            "occurred_at" to Instant.now().toString(),
+            "actor_id" to actorUserId.toString(),
+            "provider_id" to rejectedProvider.providerId.toString(),
+            "previous_status" to previousStatus.name,
+            "new_status" to rejectedProvider.status.name,
+            "reason" to normalizedReason
+        )
+        outboxService.saveEvent(
+            eventId = eventId,
+            aggregateType = "PROVIDER",
+            aggregateId = rejectedProvider.providerId!!,
+            eventType = "ProviderRejected",
+            eventPayload = event
+        )
+
+        return rejectedProvider
     }
 
     @Transactional
@@ -255,7 +289,7 @@ class ProviderService(
         val newAvg = (currentAvg * currentCount + rating) / newCount
 
         provider.ratingCount = newCount
-        provider.ratingAvg = java.math.BigDecimal.valueOf(newAvg).setScale(2, java.math.RoundingMode.HALF_UP)
+        provider.ratingAvg = BigDecimal.valueOf(newAvg).setScale(2, RoundingMode.HALF_UP)
         return providerRepository.save(provider)
     }
 }
