@@ -47,3 +47,15 @@ CREATE INDEX IF NOT EXISTS idx_email_deliveries_retry
 CREATE INDEX IF NOT EXISTS idx_email_deliveries_msg91_monthly
     ON notifications.email_deliveries (provider, status, sent_at)
     WHERE provider = 'MSG91' AND status = 'SENT';
+
+-- Flyway normally runs as the migration owner while the service connects as a
+-- least-privilege runtime role. Explicitly grant the newly-created tables when
+-- that role exists so a successful migration cannot be followed by runtime 42501s.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'notification_service_role') THEN
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON notifications.notification_contacts TO notification_service_role';
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON notifications.notification_reference_owners TO notification_service_role';
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON notifications.email_deliveries TO notification_service_role';
+    END IF;
+END $$;
