@@ -30,6 +30,30 @@ interface OrderRepository : JpaRepository<Order, UUID> {
     fun countByStatusInAndPlacedAtBefore(statuses: Collection<OrderStatus>, placedAt: Instant): Long
     fun countByPaymentStatusIgnoreCase(paymentStatus: String): Long
 
+    @Query(
+        """
+        select o from Order o
+        where (:orderId is null or o.orderId = :orderId)
+          and (:customerId is null or o.customerId = :customerId)
+          and (:providerId is null or o.providerId = :providerId)
+          and (:paymentId is null or o.paymentId = :paymentId)
+          and (:status is null or o.status = :status)
+          and (:fromTime is null or o.placedAt >= :fromTime)
+          and (:toTime is null or o.placedAt < :toTime)
+        order by o.placedAt desc
+        """
+    )
+    fun searchForAdmin(
+        @Param("orderId") orderId: UUID?,
+        @Param("customerId") customerId: UUID?,
+        @Param("providerId") providerId: UUID?,
+        @Param("paymentId") paymentId: UUID?,
+        @Param("status") status: OrderStatus?,
+        @Param("fromTime") fromTime: Instant?,
+        @Param("toTime") toTime: Instant?,
+        pageable: Pageable
+    ): Page<Order>
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from Order o where o.orderId = :orderId")
     fun findByIdForUpdate(@Param("orderId") orderId: UUID): Optional<Order>
