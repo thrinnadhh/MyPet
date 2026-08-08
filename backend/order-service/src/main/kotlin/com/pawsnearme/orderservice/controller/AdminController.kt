@@ -6,6 +6,7 @@ import com.pawsnearme.orderservice.model.Invoice
 import com.pawsnearme.orderservice.model.SupportCase
 import com.pawsnearme.orderservice.service.AdminControlPlaneService
 import com.pawsnearme.orderservice.service.AdminDisputePage
+import com.pawsnearme.orderservice.service.AdminSupportCasePage
 import com.pawsnearme.orderservice.service.OrderAccessDeniedException
 import com.pawsnearme.orderservice.service.OrderService
 import jakarta.validation.Valid
@@ -80,7 +81,7 @@ class AdminController(
         return ResponseEntity.ok(mapOf("dispute_refund_mode" to updated))
     }
 
-    /** Compatibility response remains an array, but is now capped at the newest 100 disputes. */
+    /** Compatibility response remains an array, but is capped at the newest 100 disputes. */
     @GetMapping("/disputes")
     fun listDisputes(
         @RequestHeader("X-User-Role", required = false) role: String?
@@ -131,12 +132,23 @@ class AdminController(
         )
     }
 
+    /** Legacy compatibility path, capped to protect the database. */
     @GetMapping("/admin/support-cases")
     fun listSupportCases(
         @RequestHeader("X-User-Role", required = false) role: String?
     ): ResponseEntity<List<SupportCase>> {
         requireAdmin(role)
-        return ResponseEntity.ok(orderService.listSupportCases())
+        return ResponseEntity.ok(adminControlPlaneService.listSupportCases(page = 0, size = 100).content)
+    }
+
+    @GetMapping("/admin/support-cases/page")
+    fun listSupportCasesPaged(
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "25") size: Int
+    ): ResponseEntity<AdminSupportCasePage> {
+        requireAdmin(role)
+        return ResponseEntity.ok(adminControlPlaneService.listSupportCases(page, size))
     }
 
     @PostMapping("/admin/support-cases")
