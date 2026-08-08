@@ -1,37 +1,41 @@
 package com.pawsnearme.providerservice.controller
 
-import com.pawsnearme.providerservice.model.ProviderStatus
-import com.pawsnearme.providerservice.repository.ProviderRepository
+import com.pawsnearme.providerservice.service.ProviderService
+import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Size
 import org.springframework.http.ResponseEntity
-import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import java.util.UUID
 
+data class RejectProviderRequest(
+    @field:NotBlank
+    @field:Size(min = 3, max = 500)
+    val reason: String
+)
+
 @RestController
 @RequestMapping("/api/v1/providers")
 class ProviderAdminDecisionController(
-    private val providerRepository: ProviderRepository,
+    private val providerService: ProviderService,
 ) {
     @PostMapping("/{providerId}/reject")
-    @Transactional
     fun rejectProvider(
         @PathVariable providerId: UUID,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
         @RequestHeader("X-User-Role", required = false) role: String?,
+        @Valid @RequestBody request: RejectProviderRequest,
     ): ResponseEntity<ProviderResponse> {
-        if (role != "ADMIN") {
+        if (!role.equals("ADMIN", ignoreCase = true)) {
             throw ProviderAccessDeniedException("Rejecting providers requires ADMIN role")
         }
-        val provider = providerRepository.findById(providerId)
-            .orElseThrow { NoSuchElementException("Provider not found") }
-        if (provider.status != ProviderStatus.PENDING_APPROVAL) {
-            throw IllegalStateException("Only pending providers can be rejected")
-        }
-        provider.status = ProviderStatus.REJECTED
-        val saved = providerRepository.save(provider)
+        val actorId = parseActorId(userId)
+        val saved = providerService.rejectProvider(providerId, actorId, request.reason)
         return ResponseEntity.ok(
             ProviderResponse(
                 providerId = requireNotNull(saved.providerId),
@@ -53,5 +57,13 @@ class ProviderAdminDecisionController(
                 commissionPct = saved.commissionPct,
             )
         )
+    }
+
+    private fun parseActorId(userId: String?): UUID {
+        if (userId.isNullOrBlank()) {
+            throw ProviderAccessDeniedException("Valid authenticated administrator identity is required")
+        }
+        return runCatching { UUID.fromString(userId) }
+            .getOrElse { throw ProviderAccessDeniedException("Valid authenticated administrator identity is required") }
     }
 }
