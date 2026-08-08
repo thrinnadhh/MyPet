@@ -7,6 +7,7 @@ import com.pawsnearme.orderservice.model.Dispute
 import com.pawsnearme.orderservice.model.SystemConfig
 import com.pawsnearme.orderservice.repository.AdminAuditLogRepository
 import com.pawsnearme.orderservice.repository.DisputeRepository
+import com.pawsnearme.orderservice.repository.SupportCaseRepository
 import com.pawsnearme.orderservice.repository.SystemConfigRepository
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -26,12 +27,14 @@ import java.util.UUID
 
 class AdminControlPlaneServiceTests {
     private val disputeRepository: DisputeRepository = mock()
+    private val supportCaseRepository: SupportCaseRepository = mock()
     private val systemConfigRepository: SystemConfigRepository = mock()
     private val paymentModule: PaymentModuleApi = mock()
     private val auditRepository: AdminAuditLogRepository = mock()
     private val outboxService: OutboxService = mock()
     private val service = AdminControlPlaneService(
         disputeRepository,
+        supportCaseRepository,
         systemConfigRepository,
         paymentModule,
         auditRepository,
