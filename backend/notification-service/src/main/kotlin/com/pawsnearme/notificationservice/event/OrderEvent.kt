@@ -21,6 +21,7 @@ data class OrderStatusChangedEvent(
     val eventType: String,
     val orderId: UUID,
     val actorId: UUID,
+    val customerId: UUID,
     val fromStatus: String,
     val toStatus: String,
     val totalAmount: BigDecimal,
