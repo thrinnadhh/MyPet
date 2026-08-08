@@ -1,5 +1,7 @@
 package com.pawsnearme.orderservice.service
 
+import com.pawsnearme.common.module.CatalogModuleApi
+import com.pawsnearme.common.module.CatalogOfferingSnapshot
 import com.pawsnearme.common.module.DeliveryAddressSnapshot
 import com.pawsnearme.common.module.DiscoveryModuleApi
 import com.pawsnearme.common.module.ProviderModuleApi
@@ -12,9 +14,11 @@ import com.pawsnearme.orderservice.model.RecurringOrderOccurrence
 import com.pawsnearme.orderservice.model.RecurringOrderOccurrenceStatus
 import com.pawsnearme.orderservice.model.RecurringOrderStatus
 import com.pawsnearme.orderservice.model.RecurringOrderSubscription
+import com.pawsnearme.orderservice.model.RecurringOrderSubscriptionItem
 import com.pawsnearme.orderservice.repository.OrderItemRepository
 import com.pawsnearme.orderservice.repository.OrderRepository
 import com.pawsnearme.orderservice.repository.RecurringOrderOccurrenceRepository
+import com.pawsnearme.orderservice.repository.RecurringOrderSubscriptionItemRepository
 import com.pawsnearme.orderservice.repository.RecurringOrderSubscriptionRepository
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -37,10 +41,12 @@ import java.util.UUID
 
 class RecurringOrderServiceTests {
     private lateinit var repository: RecurringOrderSubscriptionRepository
+    private lateinit var itemRepository: RecurringOrderSubscriptionItemRepository
     private lateinit var occurrenceRepository: RecurringOrderOccurrenceRepository
     private lateinit var orderRepository: OrderRepository
     private lateinit var orderItemRepository: OrderItemRepository
     private lateinit var orderService: OrderService
+    private lateinit var catalogModule: CatalogModuleApi
     private lateinit var providerModule: ProviderModuleApi
     private lateinit var discoveryModule: DiscoveryModuleApi
     private lateinit var outboxService: OutboxService
@@ -50,23 +56,28 @@ class RecurringOrderServiceTests {
     private val sourceOrderId = UUID.randomUUID()
     private val providerId = UUID.randomUUID()
     private val addressId = UUID.randomUUID()
+    private val offeringId = UUID.randomUUID()
 
     @BeforeEach
     fun setUp() {
         repository = mock()
+        itemRepository = mock()
         occurrenceRepository = mock()
         orderRepository = mock()
         orderItemRepository = mock()
         orderService = mock()
+        catalogModule = mock()
         providerModule = mock()
         discoveryModule = mock()
         outboxService = mock()
         service = RecurringOrderService(
             repository,
+            itemRepository,
             occurrenceRepository,
             orderRepository,
             orderItemRepository,
             orderService,
+            catalogModule,
             providerModule,
             discoveryModule,
             outboxService,
@@ -74,21 +85,32 @@ class RecurringOrderServiceTests {
         whenever(providerModule.providerOperational(providerId)).thenReturn(true)
         whenever(providerModule.deliveryAddress(customerId, addressId)).thenReturn(address())
         whenever(discoveryModule.checkServiceability(any(), any(), any(), any())).thenReturn(ServiceabilityDecision(true, null))
+        whenever(catalogModule.offering(offeringId)).thenReturn(offering())
+        whenever(itemRepository.findBySubscriptionIdOrderByCreatedAtAsc(any())).thenReturn(emptyList())
     }
 
     @Test
-    fun `creates allowed recurring cadence from completed customer order`() {
+    fun `creates allowed recurring cadence and persists product snapshot`() {
         val order = completedOrder()
         whenever(orderRepository.findById(sourceOrderId)).thenReturn(Optional.of(order))
+        whenever(orderItemRepository.findByOrderId(sourceOrderId)).thenReturn(sourceItems())
         whenever(repository.existsByCustomerIdAndSourceOrderIdAndStatusNot(customerId, sourceOrderId, RecurringOrderStatus.CANCELLED)).thenReturn(false)
         whenever(repository.save(any<RecurringOrderSubscription>())).thenAnswer { it.getArgument(0) }
+        whenever(itemRepository.save(any<RecurringOrderSubscriptionItem>())).thenAnswer { it.getArgument(0) }
+        whenever(itemRepository.findBySubscriptionIdOrderByCreatedAtAsc(any())).thenAnswer { invocation ->
+            listOf(subscriptionItem(invocation.getArgument(0)))
+        }
 
         val result = service.create(customerId, CreateRecurringOrderRequest(sourceOrderId, 15))
 
         assertEquals(15, result.cadenceDays)
         assertEquals("COD", result.paymentMethod)
         assertEquals(RecurringOrderStatus.ACTIVE, result.status)
+        assertEquals(1, result.items.size)
+        assertEquals(offeringId, result.items.single().offeringId)
+        assertEquals(2, result.items.single().effectiveQuantity)
         assertTrue(result.nextOrderAt.isAfter(Instant.now().plus(14, ChronoUnit.DAYS)))
+        verify(itemRepository).save(any())
         verify(outboxService).saveEvent(any(), eq("RECURRING_ORDER"), any(), eq("RecurringOrderCreated"), any())
     }
 
@@ -112,7 +134,7 @@ class RecurringOrderServiceTests {
             deliveryAddressId = addressId,
             status = OrderStatus.PLACED,
             subtotalAmount = BigDecimal("200.00"),
-            totalAmount = BigDecimal("254.00"),
+            totalAmount = BigDecimal("259.00"),
             paymentMethod = "COD",
             paymentStatus = "COD_PENDING",
         )
@@ -120,8 +142,7 @@ class RecurringOrderServiceTests {
         whenever(repository.findByIdForUpdate(due.subscriptionId)).thenReturn(Optional.of(due))
         whenever(occurrenceRepository.findBySubscriptionIdAndScheduledFor(due.subscriptionId, due.nextOrderAt)).thenReturn(null)
         whenever(occurrenceRepository.save(any<RecurringOrderOccurrence>())).thenAnswer { it.getArgument(0) }
-        whenever(orderRepository.findById(sourceOrderId)).thenReturn(Optional.of(completedOrder()))
-        whenever(orderItemRepository.findByOrderId(sourceOrderId)).thenReturn(sourceItems())
+        whenever(itemRepository.findBySubscriptionIdOrderByCreatedAtAsc(due.subscriptionId)).thenReturn(listOf(subscriptionItem(due.subscriptionId)))
         whenever(repository.save(any<RecurringOrderSubscription>())).thenAnswer { it.getArgument(0) }
         whenever(orderService.calculateQuote(any())).thenReturn(
             CheckoutQuoteResponse(
@@ -130,10 +151,10 @@ class RecurringOrderServiceTests {
                 itemDiscount = BigDecimal.ZERO,
                 couponDiscount = BigDecimal.ZERO,
                 loyaltyDiscount = BigDecimal.ZERO,
-                deliveryFee = BigDecimal("40.00"),
-                tax = BigDecimal("14.00"),
+                deliveryFee = BigDecimal("49.00"),
+                tax = BigDecimal("10.00"),
                 roundOff = BigDecimal.ZERO,
-                payableTotal = BigDecimal("254.00"),
+                payableTotal = BigDecimal("259.00"),
                 paymentMethod = "COD",
                 expiresAt = now.plusSeconds(120),
             )
@@ -184,10 +205,9 @@ class RecurringOrderServiceTests {
         whenever(repository.findByIdForUpdate(due.subscriptionId)).thenReturn(Optional.of(due))
         whenever(occurrenceRepository.findBySubscriptionIdAndScheduledFor(due.subscriptionId, due.nextOrderAt)).thenReturn(null)
         whenever(occurrenceRepository.save(any<RecurringOrderOccurrence>())).thenAnswer { it.getArgument(0) }
-        whenever(orderRepository.findById(sourceOrderId)).thenReturn(Optional.of(completedOrder()))
-        whenever(orderItemRepository.findByOrderId(sourceOrderId)).thenReturn(sourceItems())
+        whenever(itemRepository.findBySubscriptionIdOrderByCreatedAtAsc(due.subscriptionId)).thenReturn(listOf(subscriptionItem(due.subscriptionId)))
+        whenever(catalogModule.offering(offeringId)).thenReturn(offering(stock = 0))
         whenever(repository.save(any<RecurringOrderSubscription>())).thenAnswer { it.getArgument(0) }
-        whenever(orderService.calculateQuote(any())).thenThrow(IllegalStateException("Insufficient stock for offering"))
 
         val result = service.processDueOrders(now)
 
@@ -195,6 +215,25 @@ class RecurringOrderServiceTests {
         assertEquals("OUT_OF_STOCK", due.lastFailureCode)
         verify(orderService, never()).createOrder(any())
         verify(outboxService).saveEvent(any(), eq("RECURRING_ORDER"), any(), eq("RecurringOrderFailed"), any())
+    }
+
+    @Test
+    fun `price change fails safely instead of silently creating changed price order`() {
+        val now = Instant.parse("2026-08-15T00:00:00Z")
+        val due = subscription(status = RecurringOrderStatus.ACTIVE, nextOrderAt = now.minusSeconds(5))
+        whenever(repository.findByStatusAndNextOrderAtLessThanEqual(RecurringOrderStatus.ACTIVE, now)).thenReturn(listOf(due))
+        whenever(repository.findByIdForUpdate(due.subscriptionId)).thenReturn(Optional.of(due))
+        whenever(occurrenceRepository.findBySubscriptionIdAndScheduledFor(due.subscriptionId, due.nextOrderAt)).thenReturn(null)
+        whenever(occurrenceRepository.save(any<RecurringOrderOccurrence>())).thenAnswer { it.getArgument(0) }
+        whenever(itemRepository.findBySubscriptionIdOrderByCreatedAtAsc(due.subscriptionId)).thenReturn(listOf(subscriptionItem(due.subscriptionId)))
+        whenever(catalogModule.offering(offeringId)).thenReturn(offering(price = BigDecimal("110.00")))
+        whenever(repository.save(any<RecurringOrderSubscription>())).thenAnswer { it.getArgument(0) }
+
+        val result = service.processDueOrders(now)
+
+        assertEquals(1, result.failed)
+        assertEquals("PRICE_CHANGED", due.lastFailureCode)
+        verify(orderService, never()).createOrder(any())
     }
 
     @Test
@@ -259,12 +298,32 @@ class RecurringOrderServiceTests {
     private fun sourceItems() = listOf(
         OrderItem(
             orderId = sourceOrderId,
-            offeringId = UUID.randomUUID(),
+            offeringId = offeringId,
             offeringNameSnapshot = "Recurring food",
             unitPriceSnapshot = BigDecimal("100.00"),
             quantity = 2,
             lineTotal = BigDecimal("200.00"),
         )
+    )
+
+    private fun offering(
+        price: BigDecimal = BigDecimal("100.00"),
+        stock: Int = 20,
+    ) = CatalogOfferingSnapshot(
+        offeringId = offeringId,
+        providerId = providerId,
+        name = "Recurring food",
+        price = price,
+        status = "ACTIVE",
+        stockQuantity = stock,
+    )
+
+    private fun subscriptionItem(subscriptionId: UUID) = RecurringOrderSubscriptionItem(
+        subscriptionId = subscriptionId,
+        offeringId = offeringId,
+        offeringNameSnapshot = "Recurring food",
+        baseQuantity = 2,
+        unitPriceAtCreation = BigDecimal("100.00"),
     )
 
     private fun address() = DeliveryAddressSnapshot(
