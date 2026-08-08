@@ -105,7 +105,13 @@ object MyPetWorkflowCatalog {
                 consumerModules = setOf("discovery"),
                 executionKind = WorkflowExecutionKind.IN_PROCESS_EVENT,
                 topic = "providers.events",
-                eventTypes = setOf("ProviderApproved", "ProviderUpdated"),
+                eventTypes = setOf(
+                    "ProviderApproved",
+                    "ProviderUpdated",
+                    "ProviderSuspended",
+                    "ProviderReactivated",
+                    "ProviderRejected"
+                ),
                 inProcessReplacementReady = true
             ),
             WorkflowRoute(
