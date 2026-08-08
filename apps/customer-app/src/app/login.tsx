@@ -13,11 +13,20 @@ import { useAuthIntent } from '@/context/AuthIntentContext';
 import { radii, spacing, touchTarget, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
+import { syncCommunicationContact } from '@/services/communication-contact';
 import { supabase } from '@/utils/supabase';
 
 type Step = 'identifier' | 'code' | 'name';
 const RESEND_SECONDS = 30;
 const PHONE_CHANNEL: OtpChannel = 'phone';
+
+async function syncContactBestEffort(accessToken: string) {
+  try {
+    await syncCommunicationContact(accessToken);
+  } catch (error) {
+    console.warn('Communication contact sync deferred:', error);
+  }
+}
 
 export default function LoginScreen() {
   const params = useLocalSearchParams<{ intent?: string; fresh?: string }>();
@@ -75,7 +84,7 @@ export default function LoginScreen() {
   }, [parsedIntent, resumePendingIntent]);
 
   const googleSignIn = useCallback(() => run(async () => {
-    const session = await signInWithGoogle();
+    let session = await signInWithGoogle();
     markOtpVerified();
     const metadata = session.user.user_metadata ?? {};
     const name = typeof metadata.full_name === 'string'
@@ -85,11 +94,16 @@ export default function LoginScreen() {
         : '';
     if (name) {
       if (metadata.full_name !== name) {
-        await supabase.auth.updateUser({ data: { full_name: name, role: 'CUSTOMER' } });
+        const updated = await supabase.auth.updateUser({ data: { full_name: name, role: 'CUSTOMER' } });
+        if (updated.error) throw updated.error;
+        const refreshed = await supabase.auth.refreshSession();
+        if (!refreshed.error && refreshed.data.session) session = refreshed.data.session;
       }
+      await syncContactBestEffort(session.access_token);
       await finish();
       return;
     }
+    await syncContactBestEffort(session.access_token);
     setStep('name');
   }), [finish, markOtpVerified, run]);
 
@@ -104,6 +118,7 @@ export default function LoginScreen() {
   const verify = useCallback(() => run(async () => {
     const session = await verifyOtp(PHONE_CHANNEL, identifier, code);
     markOtpVerified();
+    await syncContactBestEffort(session.access_token);
     const name = typeof session.user.user_metadata?.full_name === 'string'
       ? session.user.user_metadata.full_name.trim()
       : '';
@@ -116,6 +131,10 @@ export default function LoginScreen() {
     if (name.length < 2) throw new OtpAuthError('INVALID_INPUT', 'Display name is required.');
     const { error } = await supabase.auth.updateUser({ data: { full_name: name, role: 'CUSTOMER' } });
     if (error) throw error;
+    const refreshed = await supabase.auth.refreshSession();
+    if (!refreshed.error && refreshed.data.session) {
+      await syncContactBestEffort(refreshed.data.session.access_token);
+    }
     await finish();
   }), [displayName, finish, run]);
 
