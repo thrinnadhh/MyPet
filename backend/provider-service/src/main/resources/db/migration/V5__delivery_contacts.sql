@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS identity.delivery_contacts (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_delivery_contact_india_mobile
-        CHECK (phone_number ~ '^\\+91[6-9][0-9]{9}$')
+        CHECK (phone_number ~ '^[+]91[6-9][0-9]{9}$')
 );
 
 CREATE INDEX IF NOT EXISTS idx_delivery_contacts_user
