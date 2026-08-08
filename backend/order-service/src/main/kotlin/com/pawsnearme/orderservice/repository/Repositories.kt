@@ -14,6 +14,7 @@ import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import org.springframework.stereotype.Repository
+import java.time.Instant
 import java.util.Optional
 import java.util.UUID
 
@@ -22,7 +23,10 @@ interface OrderRepository : JpaRepository<Order, UUID> {
     fun findByCustomerId(customerId: UUID): List<Order>
     fun findByProviderId(providerId: UUID): List<Order>
     fun findByRecurringOccurrenceId(recurringOccurrenceId: UUID): Optional<Order>
-    fun findByStatusAndDeliveredAtBefore(status: OrderStatus, deliveredBefore: java.time.Instant): List<Order>
+    fun findByStatusAndDeliveredAtBefore(status: OrderStatus, deliveredBefore: Instant): List<Order>
+    fun countByStatusIn(statuses: Collection<OrderStatus>): Long
+    fun countByStatusInAndPlacedAtBefore(statuses: Collection<OrderStatus>, placedAt: Instant): Long
+    fun countByPaymentStatusIgnoreCase(paymentStatus: String): Long
 
     /**
      * All order lifecycle mutations must serialize through this row lock so that
@@ -50,6 +54,7 @@ interface SystemConfigRepository : JpaRepository<SystemConfig, String>
 @Repository
 interface DisputeRepository : JpaRepository<Dispute, UUID> {
     fun findByOrderId(orderId: UUID): List<Dispute>
+    fun countByStatusIgnoreCase(status: String): Long
 }
 
 @Repository
@@ -60,4 +65,5 @@ interface InvoiceRepository : JpaRepository<Invoice, UUID> {
 @Repository
 interface SupportCaseRepository : JpaRepository<SupportCase, UUID> {
     fun findAllByOrderByCreatedAtDesc(): List<SupportCase>
+    fun countByStatusIgnoreCase(status: String): Long
 }
