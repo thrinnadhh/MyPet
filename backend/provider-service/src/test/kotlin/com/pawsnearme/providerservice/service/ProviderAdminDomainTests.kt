@@ -16,7 +16,7 @@ import org.locationtech.jts.geom.Coordinate
 import org.locationtech.jts.geom.GeometryFactory
 import org.locationtech.jts.geom.PrecisionModel
 import org.mockito.kotlin.any
-import org.mockito.kotlin.argThat
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
@@ -50,6 +50,7 @@ class ProviderAdminDomainTests {
         val provider = provider(providerId, ProviderStatus.PENDING_APPROVAL)
         whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
         whenever(providerRepository.save(any<Provider>())).thenAnswer { it.getArgument(0) }
+        val payload = argumentCaptor<Any>()
 
         val result = service.rejectProvider(providerId, actorId, "Licence document could not be verified")
 
@@ -60,14 +61,15 @@ class ProviderAdminDomainTests {
             aggregateType = eq("PROVIDER"),
             aggregateId = eq(providerId),
             eventType = eq("ProviderRejected"),
-            eventPayload = argThat {
-                this["actor_id"] == actorId.toString() &&
-                    this["provider_id"] == providerId.toString() &&
-                    this["previous_status"] == "PENDING_APPROVAL" &&
-                    this["new_status"] == "REJECTED" &&
-                    this["reason"] == "Licence document could not be verified"
-            }
+            eventPayload = payload.capture()
         )
+        @Suppress("UNCHECKED_CAST")
+        val event = payload.firstValue as Map<String, Any?>
+        assertEquals(actorId.toString(), event["actor_id"])
+        assertEquals(providerId.toString(), event["provider_id"])
+        assertEquals("PENDING_APPROVAL", event["previous_status"])
+        assertEquals("REJECTED", event["new_status"])
+        assertEquals("Licence document could not be verified", event["reason"])
     }
 
     @Test
