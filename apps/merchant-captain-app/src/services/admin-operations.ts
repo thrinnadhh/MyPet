@@ -25,6 +25,14 @@ async function request<T>(path: string, accessToken: string, init: RequestInit =
   return (await response.json()) as T;
 }
 
+type PageResponse<T> = {
+  content: T[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+};
+
 export function fetchAdminOperationsSnapshot(accessToken: string): Promise<AdminOperationsSnapshot> {
   return request('/api/v1/orders/admin/operations/snapshot', accessToken);
 }
@@ -75,14 +83,6 @@ type CustomerCaseResponse = {
   resolvedAt?: string | null;
 };
 
-type CustomerCasePageResponse = {
-  content: CustomerCaseResponse[];
-  page: number;
-  size: number;
-  totalElements: number;
-  totalPages: number;
-};
-
 function mapCustomerCase(value: CustomerCaseResponse): AdminDispute {
   return {
     disputeId: value.caseId,
@@ -99,7 +99,7 @@ function mapCustomerCase(value: CustomerCaseResponse): AdminDispute {
 }
 
 export async function fetchAdminDisputes(accessToken: string): Promise<AdminDispute[]> {
-  const cases = await request<CustomerCasePageResponse>(
+  const cases = await request<PageResponse<CustomerCaseResponse>>(
     '/api/v1/orders/customer-cases/admin/page?page=0&size=50',
     accessToken,
   );
@@ -120,6 +120,10 @@ export async function resolveAdminDispute(
   return mapCustomerCase(updated);
 }
 
-export function fetchAdminSupportCases(accessToken: string): Promise<AdminSupportCase[]> {
-  return request('/api/v1/orders/admin/support-cases', accessToken);
+export async function fetchAdminSupportCases(accessToken: string): Promise<AdminSupportCase[]> {
+  const page = await request<PageResponse<AdminSupportCase>>(
+    '/api/v1/orders/admin/support-cases/page?page=0&size=50',
+    accessToken,
+  );
+  return page.content;
 }
