@@ -4,6 +4,7 @@ import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
 import com.pawsnearme.orderservice.service.DeliveryContactLookup
+import com.pawsnearme.orderservice.service.MerchantOrderQueryService
 import com.pawsnearme.orderservice.service.OrderService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
@@ -20,7 +21,13 @@ class OrderControllerTests {
     private val orderService: OrderService = mock()
     private val orderRepository: OrderRepository = mock()
     private val deliveryContactLookup: DeliveryContactLookup = mock()
-    private val controller = OrderController(orderService, orderRepository, deliveryContactLookup)
+    private val merchantOrderQueryService: MerchantOrderQueryService = mock()
+    private val controller = OrderController(
+        orderService,
+        orderRepository,
+        deliveryContactLookup,
+        merchantOrderQueryService,
+    )
 
     @Test
     fun `confirmOrder - success returns 200 and accepted order`() {
@@ -67,6 +74,12 @@ class OrderControllerTests {
     @Test
     fun `getOrdersByCustomer - missing auth header returns 401`() {
         val response = controller.getOrdersByCustomer(UUID.randomUUID(), null, null)
+        assertEquals(HttpStatus.UNAUTHORIZED, response.statusCode)
+    }
+
+    @Test
+    fun `getOrdersByProvider - invalid auth header returns 401`() {
+        val response = controller.getOrdersByProvider(UUID.randomUUID(), "not-a-uuid", "MERCHANT")
         assertEquals(HttpStatus.UNAUTHORIZED, response.statusCode)
     }
 
