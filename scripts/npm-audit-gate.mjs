@@ -47,66 +47,62 @@ if (new Date() >= exceptionExpiresAt) {
   process.exit(1);
 }
 
-// npm's vulnerability graph can contain cycles between parent packages. Evaluate
-// the graph by its advisory leaves instead of requiring a child package to be
-// approved first. A cycle is provisionally neutral, but a package is approved
-// only if every reachable advisory object is explicitly allow-listed and at
-// least one allow-listed advisory is actually reachable.
-const memo = new Map();
-function evaluate(name, visiting = new Set()) {
-  if (memo.has(name)) return memo.get(name);
-  if (visiting.has(name)) return { ok: true, sawApprovedAdvisory: false };
+// npm can report dependency cycles such as metro -> metro-config -> metro.
+// For each blocking package, walk its own vulnerability graph, skip already-
+// visited packages in that walk, and collect only the concrete advisory URLs.
+// A package is exempted only when at least one advisory is reachable and every
+// reachable advisory URL is one of the explicitly reviewed exceptions.
+function collectAdvisories(name, visited = new Set()) {
+  if (visited.has(name)) return { ok: true, urls: new Set() };
 
   const vulnerability = vulnerabilities[name];
   if (!vulnerability || !Array.isArray(vulnerability.via) || vulnerability.via.length === 0) {
-    return { ok: false, sawApprovedAdvisory: false };
+    return { ok: false, urls: new Set() };
   }
 
-  const nextVisiting = new Set(visiting);
-  nextVisiting.add(name);
-  let sawApprovedAdvisory = false;
+  visited.add(name);
+  const urls = new Set();
 
   for (const cause of vulnerability.via) {
     if (typeof cause === 'string') {
-      const child = evaluate(cause, nextVisiting);
-      if (!child.ok) {
-        const result = { ok: false, sawApprovedAdvisory: false };
-        memo.set(name, result);
-        return result;
-      }
-      sawApprovedAdvisory ||= child.sawApprovedAdvisory;
+      const child = collectAdvisories(cause, visited);
+      if (!child.ok) return { ok: false, urls: new Set() };
+      for (const url of child.urls) urls.add(url);
       continue;
     }
 
     if (!cause || typeof cause !== 'object' || typeof cause.url !== 'string') {
-      const result = { ok: false, sawApprovedAdvisory: false };
-      memo.set(name, result);
-      return result;
+      return { ok: false, urls: new Set() };
     }
-
-    if (!allowedRootAdvisories.has(cause.url)) {
-      const result = { ok: false, sawApprovedAdvisory: false };
-      memo.set(name, result);
-      return result;
-    }
-    sawApprovedAdvisory = true;
+    urls.add(cause.url);
   }
 
-  const result = { ok: sawApprovedAdvisory, sawApprovedAdvisory };
-  memo.set(name, result);
-  return result;
+  return { ok: true, urls };
 }
 
-const allowed = new Set(blockingNames.filter((name) => evaluate(name).ok));
-const unapproved = blockingNames.filter((name) => !allowed.has(name));
+const allowed = new Set();
+const unapproved = [];
+for (const name of blockingNames) {
+  const result = collectAdvisories(name);
+  const advisoryUrls = [...result.urls];
+  const isApproved = result.ok &&
+    advisoryUrls.length > 0 &&
+    advisoryUrls.every((url) => allowedRootAdvisories.has(url));
+
+  if (isApproved) allowed.add(name);
+  else unapproved.push({ name, advisoryUrls });
+}
+
 if (unapproved.length > 0) {
   console.error('npm audit gate: unapproved high/critical vulnerabilities remain:');
-  for (const name of unapproved) {
+  for (const { name, advisoryUrls } of unapproved) {
     const vulnerability = vulnerabilities[name];
     const via = Array.isArray(vulnerability.via)
       ? vulnerability.via.map((cause) => typeof cause === 'string' ? cause : cause?.url ?? '<unknown>').join(', ')
       : '<none>';
-    console.error(`- ${name}: ${vulnerability.severity}; via: ${via}`);
+    console.error(
+      `- ${name}: ${vulnerability.severity}; via: ${via}; advisory leaves: ${advisoryUrls.join(', ') || '<none>'}`,
+    );
   }
   process.exit(1);
 }
