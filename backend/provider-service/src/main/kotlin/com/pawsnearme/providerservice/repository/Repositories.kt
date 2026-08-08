@@ -1,6 +1,8 @@
 package com.pawsnearme.providerservice.repository
 
 import com.pawsnearme.providerservice.model.*
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.stereotype.Repository
 import java.util.UUID
@@ -17,6 +19,7 @@ interface AddressRepository : JpaRepository<Address, UUID> {
 @Repository
 interface ProviderRepository : JpaRepository<Provider, UUID> {
     fun findByOwnerUserId(ownerUserId: UUID): List<Provider>
+    fun findByStatus(status: ProviderStatus, pageable: Pageable): Page<Provider>
 }
 
 @Repository
