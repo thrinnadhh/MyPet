@@ -1,0 +1,12 @@
+{
+  "auth": {
+    "subtitle": "Continue with Google or verify your mobile number.",
+    "continueGoogle": "Continue with Google",
+    "orMobile": "or continue with mobile",
+    "changeIdentifier": "Use a different mobile number",
+    "providerUnavailable": "Mobile verification is temporarily unavailable. Please use Google sign-in or try again later."
+  },
+  "states": {
+    "unauthenticatedMessage": "This action is protected. Sign in with Google or verify your mobile number to continue."
+  }
+}
