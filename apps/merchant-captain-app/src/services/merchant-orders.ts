@@ -61,10 +61,10 @@ export async function transitionMerchantOrder(
   orderId: string,
   status: MerchantOrderAction,
   note?: string,
-): Promise<MerchantOrder> {
+): Promise<void> {
   const query = new URLSearchParams({ status });
   if (note?.trim()) query.set('note', note.trim());
-  return apiClient.put<MerchantOrder>(
+  await apiClient.put<unknown>(
     `/api/v1/orders/${encodeURIComponent(orderId)}/status?${query.toString()}`,
   );
 }
