@@ -158,7 +158,7 @@ class ProviderService(
 
     @Transactional
     fun submitForApproval(providerId: UUID): Provider {
-        val provider = providerRepository.findById(providerId).orElseThrow {
+        val provider = providerRepository.findByIdForUpdate(providerId).orElseThrow {
             IllegalArgumentException("Provider not found: $providerId")
         }
         if (provider.status != ProviderStatus.DRAFT && provider.status != ProviderStatus.INFO_REQUESTED) {
@@ -171,7 +171,7 @@ class ProviderService(
 
     @Transactional
     fun approveProvider(providerId: UUID): Provider {
-        val provider = providerRepository.findById(providerId).orElseThrow {
+        val provider = providerRepository.findByIdForUpdate(providerId).orElseThrow {
             IllegalArgumentException("Provider not found: $providerId")
         }
         if (provider.status != ProviderStatus.PENDING_APPROVAL) {
@@ -208,7 +208,7 @@ class ProviderService(
             "A provider rejection reason between 3 and 500 characters is required"
         }
 
-        val provider = providerRepository.findById(providerId).orElseThrow {
+        val provider = providerRepository.findByIdForUpdate(providerId).orElseThrow {
             IllegalArgumentException("Provider not found: $providerId")
         }
         if (provider.status != ProviderStatus.PENDING_APPROVAL) {
@@ -247,7 +247,7 @@ class ProviderService(
             throw IllegalArgumentException("Commission percentage must be between 0 and 50")
         }
 
-        val provider = providerRepository.findById(providerId).orElseThrow {
+        val provider = providerRepository.findByIdForUpdate(providerId).orElseThrow {
             IllegalArgumentException("Provider not found: $providerId")
         }
         val previousCommissionPct = provider.commissionPct
@@ -279,7 +279,7 @@ class ProviderService(
 
     @Transactional
     fun updateProviderRating(providerId: UUID, rating: Int): Provider {
-        val provider = providerRepository.findById(providerId).orElseThrow {
+        val provider = providerRepository.findByIdForUpdate(providerId).orElseThrow {
             IllegalArgumentException("Provider not found: $providerId")
         }
         val currentCount = provider.ratingCount
