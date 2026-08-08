@@ -150,7 +150,7 @@ export default function ProfileScreen() {
           />
           <StatusBadge
             label={t(deliveryPhoneVerified ? 'profileFoundation.contactVerifiedByAuth' : 'profileFoundation.contactCustomerProvided')}
-            tone={deliveryPhoneVerified ? 'success' : 'info'}
+            tone={deliveryPhoneVerified ? 'success' : 'neutral'}
           />
           {field('label', t('profileFoundation.addressLabel'))}
           {field('line1', t('profileFoundation.line1'))}
