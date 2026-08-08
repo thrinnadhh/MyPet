@@ -3,6 +3,7 @@ package com.pawsnearme.orderservice.controller
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.common.idempotency.IdempotencyService
 import com.pawsnearme.common.idempotency.ProcessedEventRepository
+import com.pawsnearme.common.module.DeliveryAddressSnapshot
 import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.common.outbox.OutboxPoller
 import com.pawsnearme.common.outbox.OutboxRepository
@@ -10,6 +11,7 @@ import com.pawsnearme.common.outbox.OutboxService
 import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
+import com.pawsnearme.orderservice.service.CheckoutLocationPolicyService
 import com.pawsnearme.orderservice.service.CheckoutQuoteResponse
 import com.pawsnearme.orderservice.service.CustomerDeliveryContact
 import com.pawsnearme.orderservice.service.DeliveryContactLookup
@@ -17,6 +19,7 @@ import com.pawsnearme.orderservice.service.OrderService
 import com.pawsnearme.orderservice.service.QuoteStore
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.check
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.whenever
 import org.springframework.beans.factory.annotation.Autowired
@@ -47,54 +50,39 @@ import java.util.UUID
 @ActiveProfiles("test")
 class OrderWebMvcTest {
 
-    @Autowired
-    private lateinit var mockMvc: MockMvc
+    @Autowired private lateinit var mockMvc: MockMvc
+    @Autowired private lateinit var objectMapper: ObjectMapper
 
-    @Autowired
-    private lateinit var objectMapper: ObjectMapper
-
-    @MockBean
-    private lateinit var orderService: OrderService
-
-    @MockBean
-    private lateinit var orderRepository: OrderRepository
-
-    @MockBean
-    private lateinit var deliveryContactLookup: DeliveryContactLookup
-
-    @MockBean
-    private lateinit var providerModule: ProviderModuleApi
-
-    @MockBean
-    private lateinit var stringRedisTemplate: StringRedisTemplate
-
-    @MockBean
-    private lateinit var quoteStore: QuoteStore
-
-    @MockBean
-    private lateinit var outboxRepository: OutboxRepository
-
-    @MockBean
-    private lateinit var outboxService: OutboxService
-
-    @MockBean
-    private lateinit var outboxPoller: OutboxPoller
-
-    @MockBean
-    private lateinit var processedEventRepository: ProcessedEventRepository
-
-    @MockBean
-    private lateinit var idempotencyService: IdempotencyService
-
-    @MockBean
-    private lateinit var kafkaTemplate: KafkaTemplate<String, Any>
+    @MockBean private lateinit var orderService: OrderService
+    @MockBean private lateinit var orderRepository: OrderRepository
+    @MockBean private lateinit var deliveryContactLookup: DeliveryContactLookup
+    @MockBean private lateinit var providerModule: ProviderModuleApi
+    @MockBean private lateinit var checkoutLocationPolicyService: CheckoutLocationPolicyService
+    @MockBean private lateinit var stringRedisTemplate: StringRedisTemplate
+    @MockBean private lateinit var quoteStore: QuoteStore
+    @MockBean private lateinit var outboxRepository: OutboxRepository
+    @MockBean private lateinit var outboxService: OutboxService
+    @MockBean private lateinit var outboxPoller: OutboxPoller
+    @MockBean private lateinit var processedEventRepository: ProcessedEventRepository
+    @MockBean private lateinit var idempotencyService: IdempotencyService
+    @MockBean private lateinit var kafkaTemplate: KafkaTemplate<String, Any>
 
     @Test
-    fun `POST checkout quote - success with JSON mapping and X-User-Id header`() {
+    fun `POST checkout quote - ignores client geography and uses customer owned address`() {
         val customerId = UUID.randomUUID()
         val providerId = UUID.randomUUID()
         val deliveryAddressId = UUID.randomUUID()
         val offeringId = UUID.randomUUID()
+        val ownedAddress = DeliveryAddressSnapshot(
+            addressId = deliveryAddressId,
+            customerId = customerId,
+            city = "Tirupati",
+            pincode = "517501",
+            latitude = 13.6288,
+            longitude = 79.4192,
+        )
+        whenever(checkoutLocationPolicyService.requireAuthoritativeDeliveryLocation(customerId, deliveryAddressId))
+            .thenReturn(ownedAddress)
 
         val quoteResponse = CheckoutQuoteResponse(
             quoteToken = "Q-TEST12345",
@@ -108,19 +96,21 @@ class OrderWebMvcTest {
             payableTotal = BigDecimal("525.00"),
             expiresAt = Instant.now().plusSeconds(900)
         )
-
-        whenever(orderService.calculateQuote(any())).thenReturn(quoteResponse)
+        whenever(orderService.calculateQuote(check {
+            require(it.customerId == customerId)
+            require(it.city == "Tirupati")
+            require(it.latitude == 13.6288)
+            require(it.longitude == 79.4192)
+        })).thenReturn(quoteResponse)
 
         val jsonRequest = """
             {
               "providerId": "$providerId",
               "deliveryAddressId": "$deliveryAddressId",
-              "items": [
-                {
-                  "offeringId": "$offeringId",
-                  "quantity": 2
-                }
-              ]
+              "items": [{"offeringId": "$offeringId", "quantity": 2}],
+              "city": "Spoofed City",
+              "latitude": 0.0,
+              "longitude": 0.0
             }
         """.trimIndent()
 
@@ -149,17 +139,24 @@ class OrderWebMvcTest {
             post("/api/v1/checkout/quote")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(jsonRequest)
-        )
-            .andExpect(status().isUnauthorized)
+        ).andExpect(status().isUnauthorized)
     }
 
     @Test
-    fun `POST create order - success snapshots owned delivery contact without trusting client header`() {
+    fun `POST create order - snapshots owned delivery contact and authoritative location`() {
         val customerId = UUID.randomUUID()
         val providerId = UUID.randomUUID()
         val deliveryAddressId = UUID.randomUUID()
         val offeringId = UUID.randomUUID()
         val orderId = UUID.randomUUID()
+        val ownedAddress = DeliveryAddressSnapshot(
+            addressId = deliveryAddressId,
+            customerId = customerId,
+            city = "Tirupati",
+            pincode = "517501",
+            latitude = 13.6288,
+            longitude = 79.4192,
+        )
 
         val createdOrder = Order(
             orderId = orderId,
@@ -173,9 +170,16 @@ class OrderWebMvcTest {
         )
 
         whenever(providerModule.providerOperational(providerId)).thenReturn(true)
+        whenever(checkoutLocationPolicyService.requireAuthoritativeDeliveryLocation(customerId, deliveryAddressId))
+            .thenReturn(ownedAddress)
         whenever(deliveryContactLookup.forCustomerAddress(customerId, deliveryAddressId))
             .thenReturn(CustomerDeliveryContact("+919876543210"))
-        whenever(orderService.createOrder(any())).thenReturn(createdOrder)
+        whenever(orderService.createOrder(check {
+            require(it.customerId == customerId)
+            require(it.city == "Tirupati")
+            require(it.latitude == 13.6288)
+            require(it.longitude == 79.4192)
+        })).thenReturn(createdOrder)
         whenever(orderRepository.save(any())).thenAnswer { it.arguments[0] as Order }
 
         val jsonRequest = """
@@ -183,13 +187,11 @@ class OrderWebMvcTest {
               "quoteToken": "Q-TEST12345",
               "providerId": "$providerId",
               "deliveryAddressId": "$deliveryAddressId",
-              "items": [
-                {
-                  "offeringId": "$offeringId",
-                  "quantity": 2
-                }
-              ],
-              "paymentMethod": "COD"
+              "items": [{"offeringId": "$offeringId", "quantity": 2}],
+              "paymentMethod": "COD",
+              "city": "Spoofed City",
+              "latitude": 0.0,
+              "longitude": 0.0
             }
         """.trimIndent()
 
@@ -213,6 +215,13 @@ class OrderWebMvcTest {
         val customerId = UUID.randomUUID()
         val providerId = UUID.randomUUID()
         val deliveryAddressId = UUID.randomUUID()
+        whenever(providerModule.providerOperational(providerId)).thenReturn(true)
+        whenever(checkoutLocationPolicyService.requireAuthoritativeDeliveryLocation(customerId, deliveryAddressId))
+            .thenReturn(
+                DeliveryAddressSnapshot(deliveryAddressId, customerId, "Tirupati", "517501", 13.6288, 79.4192)
+            )
+        whenever(deliveryContactLookup.forCustomerAddress(customerId, deliveryAddressId)).thenReturn(null)
+
         val jsonRequest = """
             {
               "quoteToken": "Q-TEST12345",
@@ -222,9 +231,6 @@ class OrderWebMvcTest {
               "paymentMethod": "COD"
             }
         """.trimIndent()
-
-        whenever(providerModule.providerOperational(providerId)).thenReturn(true)
-        whenever(deliveryContactLookup.forCustomerAddress(customerId, deliveryAddressId)).thenReturn(null)
 
         mockMvc.perform(
             post("/api/v1/orders")
