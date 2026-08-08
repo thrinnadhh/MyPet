@@ -17,11 +17,11 @@ import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 data class AdminOperationsSnapshot(
-    val activeOrders: Int,
-    val delayedOrders: Int,
-    val failedPayments: Int,
-    val openDisputes: Int,
-    val openSupportCases: Int,
+    val activeOrders: Long,
+    val delayedOrders: Long,
+    val failedPayments: Long,
+    val openDisputes: Long,
+    val openSupportCases: Long,
     val generatedAt: Instant
 )
 
@@ -78,16 +78,13 @@ class AdminOperationsService(
 
     @Transactional(readOnly = true)
     fun snapshot(now: Instant = Instant.now()): AdminOperationsSnapshot {
-        val orders = orderRepository.findAll()
-        val active = orders.filter { it.status in activeOrderStatuses }
         val delayBoundary = now.minus(2, ChronoUnit.HOURS)
         return AdminOperationsSnapshot(
-            activeOrders = active.size,
-            delayedOrders = active.count { it.placedAt.isBefore(delayBoundary) },
-            failedPayments = orders.count { it.paymentStatus.equals("FAILED", ignoreCase = true) },
-            openDisputes = disputeRepository.findAll().count { it.status.equals("OPEN", ignoreCase = true) },
-            openSupportCases = supportCaseRepository.findAllByOrderByCreatedAtDesc()
-                .count { it.status.equals("OPEN", ignoreCase = true) },
+            activeOrders = orderRepository.countByStatusIn(activeOrderStatuses),
+            delayedOrders = orderRepository.countByStatusInAndPlacedAtBefore(activeOrderStatuses, delayBoundary),
+            failedPayments = orderRepository.countByPaymentStatusIgnoreCase("FAILED"),
+            openDisputes = disputeRepository.countByStatusIgnoreCase("OPEN"),
+            openSupportCases = supportCaseRepository.countByStatusIgnoreCase("OPEN"),
             generatedAt = now
         )
     }
