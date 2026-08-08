@@ -4,6 +4,7 @@ import com.pawsnearme.orderservice.service.CaseEvidenceLink
 import com.pawsnearme.orderservice.service.CaseEvidenceReservation
 import com.pawsnearme.orderservice.service.CreateCustomerCaseRequest
 import com.pawsnearme.orderservice.service.CustomerCaseEvidenceView
+import com.pawsnearme.orderservice.service.CustomerCasePageView
 import com.pawsnearme.orderservice.service.CustomerCaseService
 import com.pawsnearme.orderservice.service.CustomerCaseView
 import com.pawsnearme.orderservice.service.OrderAccessDeniedException
@@ -44,12 +45,23 @@ class CustomerCaseController(
     ): ResponseEntity<List<CustomerCaseView>> =
         ResponseEntity.ok(customerCaseService.listMine(requireUser(userId)))
 
+    /** Legacy Admin response retained but capped at 100 newest records. */
     @GetMapping("/admin")
     fun all(
         @RequestHeader("X-User-Role", required = false) role: String?
     ): ResponseEntity<List<CustomerCaseView>> {
         requireAdmin(role)
         return ResponseEntity.ok(customerCaseService.listAll())
+    }
+
+    @GetMapping("/admin/page")
+    fun allPaged(
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "25") size: Int
+    ): ResponseEntity<CustomerCasePageView> {
+        requireAdmin(role)
+        return ResponseEntity.ok(customerCaseService.listAllPaged(page, size))
     }
 
     @PostMapping("/{caseId}/evidence/reservations")
@@ -97,10 +109,18 @@ class CustomerCaseController(
         @PathVariable caseId: UUID,
         @RequestBody request: ResolveCustomerCaseRequest,
         @RequestHeader("X-User-Id", required = false) userId: String?,
-        @RequestHeader("X-User-Role", required = false) role: String?
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestHeader("X-Request-Id", required = false) requestId: String?
     ): ResponseEntity<CustomerCaseView> {
         requireAdmin(role)
-        return ResponseEntity.ok(customerCaseService.resolve(caseId, request, requireUser(userId)))
+        return ResponseEntity.ok(
+            customerCaseService.resolve(
+                caseId = caseId,
+                request = request,
+                adminId = requireUser(userId),
+                traceId = requestId.orEmpty()
+            )
+        )
     }
 
     private fun requireAdmin(role: String?) {
