@@ -18,7 +18,7 @@ object JwtIdentityExtractor {
         role = extractRole(jwt),
         email = stringClaim(jwt, "email"),
         fullName = extractFullName(jwt),
-        phone = extractPhone(jwt)
+        phone = extractVerifiedPhone(jwt)
     )
 
     fun extractRole(jwt: Jwt): String {
@@ -52,13 +52,13 @@ object JwtIdentityExtractor {
         ).filterNotNull().firstOrNull(String::isNotBlank)
     }
 
-    private fun extractPhone(jwt: Jwt): String? {
-        val metadata = jwt.claims["user_metadata"] as? Map<*, *>
-        return sequenceOf(
-            metadata?.get("phone") as? String,
-            metadata?.get("phone_number") as? String,
-            stringClaim(jwt, "phone"),
-            stringClaim(jwt, "phone_number")
-        ).filterNotNull().firstOrNull(String::isNotBlank)
-    }
+    /**
+     * Only trust phone claims issued by Supabase Auth at the JWT top level.
+     * `user_metadata` is user-editable and therefore must never establish
+     * phone ownership or drive `deliveryContactVerified=true`.
+     */
+    private fun extractVerifiedPhone(jwt: Jwt): String? = sequenceOf(
+        stringClaim(jwt, "phone"),
+        stringClaim(jwt, "phone_number")
+    ).filterNotNull().firstOrNull(String::isNotBlank)
 }
