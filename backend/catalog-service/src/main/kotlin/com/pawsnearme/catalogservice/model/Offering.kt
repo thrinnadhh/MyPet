@@ -47,6 +47,18 @@ class Offering(
     @Column(name = "barcode")
     var barcode: String? = null,
 
+    @Column(name = "admin_disabled", nullable = false)
+    var adminDisabled: Boolean = false,
+
+    @Column(name = "moderation_reason", length = 500)
+    var moderationReason: String? = null,
+
+    @Column(name = "moderated_by_user_id")
+    var moderatedByUserId: UUID? = null,
+
+    @Column(name = "moderated_at")
+    var moderatedAt: Instant? = null,
+
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now(),
 
@@ -58,3 +70,32 @@ class Offering(
         updatedAt = Instant.now()
     }
 }
+
+@Entity
+@Table(name = "moderation_audit_logs", schema = "catalog")
+class CatalogModerationAuditLog(
+    @Id
+    @Column(name = "audit_id")
+    var auditId: UUID = UUID.randomUUID(),
+
+    @Column(name = "admin_user_id", nullable = false)
+    var adminUserId: UUID,
+
+    @Column(name = "offering_id", nullable = false)
+    var offeringId: UUID,
+
+    @Column(name = "action", nullable = false, length = 80)
+    var action: String,
+
+    @Column(name = "previous_status", nullable = false, length = 32)
+    var previousStatus: String,
+
+    @Column(name = "new_status", nullable = false, length = 32)
+    var newStatus: String,
+
+    @Column(name = "reason", nullable = false, length = 500)
+    var reason: String,
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    var createdAt: Instant = Instant.now()
+)
