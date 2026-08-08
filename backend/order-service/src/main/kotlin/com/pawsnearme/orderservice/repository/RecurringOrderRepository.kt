@@ -5,6 +5,8 @@ import com.pawsnearme.orderservice.model.RecurringOrderStatus
 import com.pawsnearme.orderservice.model.RecurringOrderSubscription
 import com.pawsnearme.orderservice.model.RecurringOrderSubscriptionItem
 import jakarta.persistence.LockModeType
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
@@ -20,6 +22,7 @@ interface RecurringOrderSubscriptionRepository : JpaRepository<RecurringOrderSub
     fun findByProviderIdOrderByNextOrderAtAsc(providerId: UUID): List<RecurringOrderSubscription>
     fun findByStatusAndNextOrderAtLessThanEqual(status: RecurringOrderStatus, nextOrderAt: Instant): List<RecurringOrderSubscription>
     fun existsByCustomerIdAndSourceOrderIdAndStatusNot(customerId: UUID, sourceOrderId: UUID, status: RecurringOrderStatus): Boolean
+    fun findAllByOrderByCreatedAtDesc(pageable: Pageable): Page<RecurringOrderSubscription>
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from RecurringOrderSubscription s where s.subscriptionId = :subscriptionId")
@@ -35,4 +38,5 @@ interface RecurringOrderSubscriptionItemRepository : JpaRepository<RecurringOrde
 interface RecurringOrderOccurrenceRepository : JpaRepository<RecurringOrderOccurrence, UUID> {
     fun findBySubscriptionIdAndScheduledFor(subscriptionId: UUID, scheduledFor: Instant): RecurringOrderOccurrence?
     fun findBySubscriptionIdOrderByScheduledForDesc(subscriptionId: UUID): List<RecurringOrderOccurrence>
+    fun findBySubscriptionIdOrderByScheduledForDesc(subscriptionId: UUID, pageable: Pageable): Page<RecurringOrderOccurrence>
 }
