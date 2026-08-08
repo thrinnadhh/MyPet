@@ -1,11 +1,7 @@
 package com.pawsnearme.orderservice.service
 
 import com.pawsnearme.orderservice.model.AdminAuditLog
-import com.pawsnearme.orderservice.model.Dispute
-import com.pawsnearme.orderservice.model.Order
-import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.model.ServiceAreaConfig
-import com.pawsnearme.orderservice.model.SupportCase
 import com.pawsnearme.orderservice.repository.AdminAuditLogRepository
 import com.pawsnearme.orderservice.repository.DisputeRepository
 import com.pawsnearme.orderservice.repository.OrderRepository
@@ -18,7 +14,9 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockito.kotlin.any
 import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.math.BigDecimal
@@ -52,29 +50,26 @@ class AdminOperationsServiceTests {
     }
 
     @Test
-    fun `snapshot reports active delayed failed and open work`() {
+    fun `snapshot uses bounded database counts for operational work`() {
         val now = Instant.parse("2026-08-02T06:00:00Z")
-        whenever(orderRepository.findAll()).thenReturn(
-            listOf(
-                order(OrderStatus.PREPARING, now.minus(3, ChronoUnit.HOURS), "SUCCESS"),
-                order(OrderStatus.READY_FOR_PICKUP, now.minus(30, ChronoUnit.MINUTES), "FAILED"),
-                order(OrderStatus.COMPLETED, now.minus(8, ChronoUnit.HOURS), "SUCCESS")
-            )
-        )
-        whenever(disputeRepository.findAll()).thenReturn(
-            listOf(Dispute(orderId = UUID.randomUUID(), reason = "Damaged item"))
-        )
-        whenever(supportCaseRepository.findAllByOrderByCreatedAtDesc()).thenReturn(
-            listOf(SupportCase(title = "Call customer", detail = "Callback", actionType = "CALLBACK"))
-        )
+        val delayedBefore = now.minus(2, ChronoUnit.HOURS)
+        whenever(orderRepository.countByStatusIn(any())).thenReturn(2L)
+        whenever(orderRepository.countByStatusInAndPlacedAtBefore(any(), eq(delayedBefore))).thenReturn(1L)
+        whenever(orderRepository.countByPaymentStatusIgnoreCase("FAILED")).thenReturn(1L)
+        whenever(disputeRepository.countByStatusIgnoreCase("OPEN")).thenReturn(3L)
+        whenever(supportCaseRepository.countByStatusIgnoreCase("OPEN")).thenReturn(4L)
 
         val snapshot = service.snapshot(now)
 
-        assertEquals(2, snapshot.activeOrders)
-        assertEquals(1, snapshot.delayedOrders)
-        assertEquals(1, snapshot.failedPayments)
-        assertEquals(1, snapshot.openDisputes)
-        assertEquals(1, snapshot.openSupportCases)
+        assertEquals(2L, snapshot.activeOrders)
+        assertEquals(1L, snapshot.delayedOrders)
+        assertEquals(1L, snapshot.failedPayments)
+        assertEquals(3L, snapshot.openDisputes)
+        assertEquals(4L, snapshot.openSupportCases)
+        assertEquals(now, snapshot.generatedAt)
+        verify(orderRepository, never()).findAll()
+        verify(disputeRepository, never()).findAll()
+        verify(supportCaseRepository, never()).findAllByOrderByCreatedAtDesc()
     }
 
     @Test
@@ -125,15 +120,4 @@ class AdminOperationsServiceTests {
             )
         }
     }
-
-    private fun order(status: OrderStatus, placedAt: Instant, paymentStatus: String) = Order(
-        customerId = UUID.randomUUID(),
-        providerId = UUID.randomUUID(),
-        deliveryAddressId = UUID.randomUUID(),
-        status = status,
-        subtotalAmount = BigDecimal("100.00"),
-        totalAmount = BigDecimal("100.00"),
-        placedAt = placedAt,
-        paymentStatus = paymentStatus
-    )
 }
