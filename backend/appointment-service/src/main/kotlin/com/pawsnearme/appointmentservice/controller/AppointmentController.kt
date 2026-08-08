@@ -7,6 +7,7 @@ import com.pawsnearme.appointmentservice.service.AppointmentLifecyclePolicy
 import com.pawsnearme.appointmentservice.service.AppointmentService
 import com.pawsnearme.appointmentservice.service.BookAppointmentRequest
 import com.pawsnearme.appointmentservice.service.MerchantAppointmentQueryService
+import com.pawsnearme.common.module.ProviderModuleApi
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -28,6 +29,7 @@ class AppointmentController(
     private val appointmentStatusHistoryRepository: AppointmentStatusHistoryRepository,
     private val lifecyclePolicy: AppointmentLifecyclePolicy,
     private val merchantAppointmentQueryService: MerchantAppointmentQueryService,
+    private val providerModule: ProviderModuleApi,
 ) {
     private fun parseAuthenticatedUserId(value: String?): UUID? =
         value?.takeIf(String::isNotBlank)?.let { runCatching { UUID.fromString(it) }.getOrNull() }
@@ -36,12 +38,22 @@ class AppointmentController(
         .status(HttpStatus.UNAUTHORIZED)
         .body(mapOf("error" to "Missing or invalid authenticated user context."))
 
+    private fun providerUnavailable(): ResponseEntity<Any> = ResponseEntity
+        .status(HttpStatus.CONFLICT)
+        .body(
+            mapOf(
+                "code" to "PROVIDER_NOT_OPERATIONAL",
+                "error" to "This provider is not accepting new appointments."
+            )
+        )
+
     @PostMapping
     fun bookAppointment(
         @Valid @RequestBody request: BookAppointmentRequest,
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?
     ): ResponseEntity<Any> {
         val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        if (!providerModule.providerOperational(request.providerId)) return providerUnavailable()
         val appointment = appointmentService.bookAppointment(request.copy(customerId = callerId))
         return ResponseEntity.status(HttpStatus.CREATED).body(appointment)
     }
@@ -52,6 +64,7 @@ class AppointmentController(
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?
     ): ResponseEntity<Any> {
         val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
+        if (!providerModule.providerOperational(request.providerId)) return providerUnavailable()
         val appointment = appointmentService.holdAppointment(request.copy(customerId = callerId))
         return ResponseEntity.status(HttpStatus.CREATED).body(appointment)
     }
