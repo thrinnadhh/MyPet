@@ -182,18 +182,37 @@ describe('MyPet customer end-to-end journeys', () => {
     expect(payments).toContain('normalizedPhone');
   });
 
-  it('keeps recurring-order cadence and confirmation safety intact', () => {
+  it('keeps recurring-order cadence, exactly-once generation and payment safety intact', () => {
     const subscriptions = source('src/app/subscriptions/index.tsx');
     const service = source('src/services/recurring-orders.ts');
     const backend = source('../../backend/order-service/src/main/kotlin/com/pawsnearme/orderservice/service/RecurringOrderService.kt');
+    const creator = source('../../backend/order-service/src/main/kotlin/com/pawsnearme/orderservice/service/RecurringOccurrenceOrderCreator.kt');
 
     expect(RECURRING_CADENCES).toEqual([7, 15, 25, 30, 35]);
     for (const cadence of RECURRING_CADENCES) expect(isRecurringCadence(cadence)).toBe(true);
     expect(isRecurringCadence(10)).toBe(false);
 
-    expectAll(subscriptions, ['No silent charging', 'Revalidate and confirm']);
+    expectAll(subscriptions, [
+      'One scheduled run creates at most one real order',
+      'Payment is never charged silently',
+      'Generated order',
+      'Reactivate migrated subscription',
+    ]);
     expect(service).toContain('/api/v1/orders/subscriptions');
-    expectAll(backend, ['RecurringOrderConfirmationRequired', 'automaticCharge" to false', 'revalidateReorder']);
+    expectAll(backend, [
+      'processDueOrders',
+      'RecurringOrderGenerated',
+      'RecurringOrderFailed',
+      'PRICE_CHANGED',
+      'occurrenceOrderCreator.createOrGet',
+    ]);
+    expectAll(creator, [
+      'Propagation.REQUIRES_NEW',
+      'findByRecurringOccurrenceId',
+      'R-$occurrenceId',
+      'automatic',
+    ].slice(0, 3));
+    expect(backend).not.toContain('RecurringOrderConfirmationRequired');
   });
 
   it('keeps the core customer journeys free of mock appointment confirmation timers', () => {
