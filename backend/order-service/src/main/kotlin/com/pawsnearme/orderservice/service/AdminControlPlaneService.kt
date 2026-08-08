@@ -4,9 +4,11 @@ import com.pawsnearme.common.module.PaymentModuleApi
 import com.pawsnearme.common.outbox.OutboxService
 import com.pawsnearme.orderservice.model.AdminAuditLog
 import com.pawsnearme.orderservice.model.Dispute
+import com.pawsnearme.orderservice.model.SupportCase
 import com.pawsnearme.orderservice.model.SystemConfig
 import com.pawsnearme.orderservice.repository.AdminAuditLogRepository
 import com.pawsnearme.orderservice.repository.DisputeRepository
+import com.pawsnearme.orderservice.repository.SupportCaseRepository
 import com.pawsnearme.orderservice.repository.SystemConfigRepository
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
@@ -22,9 +24,18 @@ data class AdminDisputePage(
     val totalPages: Int
 )
 
+data class AdminSupportCasePage(
+    val content: List<SupportCase>,
+    val page: Int,
+    val size: Int,
+    val totalElements: Long,
+    val totalPages: Int
+)
+
 @Service
 class AdminControlPlaneService(
     private val disputeRepository: DisputeRepository,
+    private val supportCaseRepository: SupportCaseRepository,
     private val systemConfigRepository: SystemConfigRepository,
     private val paymentModule: PaymentModuleApi,
     private val auditRepository: AdminAuditLogRepository,
@@ -81,10 +92,22 @@ class AdminControlPlaneService(
 
     @Transactional(readOnly = true)
     fun listDisputes(page: Int, size: Int): AdminDisputePage {
-        require(page >= 0) { "Page must be zero or greater" }
-        require(size in 1..100) { "Page size must be between 1 and 100" }
+        requirePage(page, size)
         val result = disputeRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(page, size))
         return AdminDisputePage(
+            content = result.content,
+            page = result.number,
+            size = result.size,
+            totalElements = result.totalElements,
+            totalPages = result.totalPages
+        )
+    }
+
+    @Transactional(readOnly = true)
+    fun listSupportCases(page: Int, size: Int): AdminSupportCasePage {
+        requirePage(page, size)
+        val result = supportCaseRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(page, size))
+        return AdminSupportCasePage(
             content = result.content,
             page = result.number,
             size = result.size,
@@ -114,9 +137,6 @@ class AdminControlPlaneService(
 
         val refundMode = getDisputeRefundMode()
         if (decision == "RESOLVED" && refundMode == "AUTOMATED") {
-            // PaymentModule is idempotent and its qualifying transaction lookup is row-locked.
-            // Propagate failures: the Admin UI must never show RESOLVED when the configured
-            // automated refund could not be issued.
             paymentModule.refundOrder(dispute.orderId)
         }
 
@@ -151,6 +171,11 @@ class AdminControlPlaneService(
             )
         )
         return saved
+    }
+
+    private fun requirePage(page: Int, size: Int) {
+        require(page >= 0) { "Page must be zero or greater" }
+        require(size in 1..100) { "Page size must be between 1 and 100" }
     }
 
     private fun requireAuditReason(value: String): String {
