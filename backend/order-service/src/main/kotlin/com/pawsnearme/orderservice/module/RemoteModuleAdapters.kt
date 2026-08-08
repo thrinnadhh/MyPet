@@ -5,6 +5,7 @@ import com.pawsnearme.common.module.CatalogOfferingSnapshot
 import com.pawsnearme.common.module.CatalogSlotSnapshot
 import com.pawsnearme.common.module.CodEligibilityDecision
 import com.pawsnearme.common.module.CouponReservationCommand
+import com.pawsnearme.common.module.DeliveryAddressSnapshot
 import com.pawsnearme.common.module.DiscoveryModuleApi
 import com.pawsnearme.common.module.PaymentModuleApi
 import com.pawsnearme.common.module.PaymentTransactionSnapshot
@@ -304,6 +305,33 @@ class RemoteProviderModuleApi(
             Map::class.java
         ).body
         response?.get("ownerUserId")?.toString()?.let(UUID::fromString)
+    }.getOrNull()
+
+    override fun providerOperational(providerId: UUID): Boolean = runCatching {
+        val response = restOperations.exchange(
+            "$baseUrl/api/v1/internal/providers/$providerId/operational",
+            HttpMethod.GET,
+            HttpEntity<Any>(headers()),
+            Map::class.java
+        ).body
+        response?.get("operational") as? Boolean ?: false
+    }.getOrDefault(false)
+
+    override fun deliveryAddress(customerId: UUID, addressId: UUID): DeliveryAddressSnapshot? = runCatching {
+        val response = restOperations.exchange(
+            "$baseUrl/api/v1/internal/providers/customers/$customerId/addresses/$addressId",
+            HttpMethod.GET,
+            HttpEntity<Any>(headers()),
+            Map::class.java
+        ).body ?: return@runCatching null
+        DeliveryAddressSnapshot(
+            addressId = UUID.fromString(response["addressId"].toString()),
+            customerId = UUID.fromString(response["customerId"].toString()),
+            city = response["city"].toString(),
+            pincode = response["pincode"].toString(),
+            latitude = (response["latitude"] as Number).toDouble(),
+            longitude = (response["longitude"] as Number).toDouble(),
+        )
     }.getOrNull()
 
     override fun enabledVaccinationReminders(): List<VaccinationReminderSnapshot> = emptyList()
