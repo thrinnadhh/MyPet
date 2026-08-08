@@ -1,5 +1,6 @@
 package com.pawsnearme.providerservice.controller
 
+import com.pawsnearme.providerservice.repository.AddressRepository
 import com.pawsnearme.providerservice.repository.PetRepository
 import com.pawsnearme.providerservice.repository.ProfileRepository
 import com.pawsnearme.providerservice.repository.ProviderRepository
@@ -18,6 +19,21 @@ data class InternalProviderOwnerResponse(
     val ownerUserId: UUID
 )
 
+data class InternalProviderOperationalResponse(
+    val providerId: UUID,
+    val status: String,
+    val operational: Boolean,
+)
+
+data class InternalDeliveryAddressResponse(
+    val addressId: UUID,
+    val customerId: UUID,
+    val city: String,
+    val pincode: String,
+    val latitude: Double,
+    val longitude: Double,
+)
+
 data class InternalCustomerPetIdentityResponse(
     val customerId: UUID,
     val customerName: String,
@@ -31,6 +47,7 @@ class InternalProviderController(
     private val providerRepository: ProviderRepository,
     private val profileRepository: ProfileRepository,
     private val petRepository: PetRepository,
+    private val addressRepository: AddressRepository,
     @Value("\${internal.api.secret}") private val internalSecret: String
 ) {
     @GetMapping("/{id}/owner")
@@ -45,6 +62,47 @@ class InternalProviderController(
             InternalProviderOwnerResponse(
                 providerId = requireNotNull(provider.providerId),
                 ownerUserId = provider.ownerUserId
+            )
+        )
+    }
+
+    @GetMapping("/{id}/operational")
+    fun getProviderOperationalState(
+        @PathVariable id: UUID,
+        @RequestHeader("X-Internal-Secret", required = false) providedSecret: String?
+    ): ResponseEntity<InternalProviderOperationalResponse> {
+        requireInternalSecret(providedSecret)
+        val provider = providerRepository.findById(id)
+            .orElseThrow { NoSuchElementException("Provider with ID $id not found") }
+        return ResponseEntity.ok(
+            InternalProviderOperationalResponse(
+                providerId = requireNotNull(provider.providerId),
+                status = provider.status.name,
+                operational = provider.status.name == "ACTIVE",
+            )
+        )
+    }
+
+    @GetMapping("/customers/{customerId}/addresses/{addressId}")
+    fun getCustomerDeliveryAddress(
+        @PathVariable customerId: UUID,
+        @PathVariable addressId: UUID,
+        @RequestHeader("X-Internal-Secret", required = false) providedSecret: String?
+    ): ResponseEntity<InternalDeliveryAddressResponse> {
+        requireInternalSecret(providedSecret)
+        val address = addressRepository.findById(addressId)
+            .orElseThrow { NoSuchElementException("Delivery address not found") }
+        if (address.userId != customerId) {
+            throw ProviderAccessDeniedException("Delivery address does not belong to the customer")
+        }
+        return ResponseEntity.ok(
+            InternalDeliveryAddressResponse(
+                addressId = requireNotNull(address.addressId),
+                customerId = customerId,
+                city = address.city,
+                pincode = address.pincode,
+                latitude = address.geoLat.toDouble(),
+                longitude = address.geoLng.toDouble(),
             )
         )
     }
