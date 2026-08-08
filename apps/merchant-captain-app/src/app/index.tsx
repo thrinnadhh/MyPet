@@ -160,7 +160,7 @@ export default function Index() {
         id: 'orders',
         label: 'Open orders',
         value: `${metrics.openOrders} active`,
-        tone: metrics.openOrders > 0 ? 'primary' as const : 'neutral' as const,
+        tone: metrics.openOrders > 0 ? 'primary' as const : 'accent' as const,
         icon: 'cart' as AppIconName,
       },
       {
@@ -174,7 +174,7 @@ export default function Index() {
         id: 'today-orders',
         label: "Today's orders",
         value: String(metrics.todayOrders),
-        tone: 'info' as const,
+        tone: 'accent' as const,
         icon: 'cart' as AppIconName,
       },
       {
@@ -188,7 +188,7 @@ export default function Index() {
         id: 'bookings',
         label: "Today's open bookings",
         value: String(metrics.todayBookings),
-        tone: 'info' as const,
+        tone: 'accent' as const,
         icon: 'calendar' as AppIconName,
       },
     ];
