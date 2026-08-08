@@ -78,11 +78,12 @@ cat >> "$REPORT" <<'EOF_REPORT'
 **PASS** — the primary modular-monolith topology completed the barcode inventory
 flow, the connected fourteen-domain M8 matrix, Customer cancel ↔ Merchant accept
 serialization/concurrency certification, all ten P2B customer → merchant →
-captain → admin journeys, deterministic recurring-order due processing, and an
-isolated PostgreSQL dump/restore comparison. The evidence covers public HTTP
-contracts, authorization, database persistence, Kafka/outbox behavior,
-notifications/UI contracts, concurrency, idempotency, private-document access,
-recurring-order scheduling, and disaster recovery.
+captain → admin journeys, due subscription → exactly-one operational recurring
+order generation with Customer/Merchant synchronization, and an isolated
+PostgreSQL dump/restore comparison. The evidence covers public HTTP contracts,
+authorization, database persistence, Kafka/outbox behavior, notifications/UI
+contracts, concurrency, idempotency, private-document access, recurring-order
+scheduling, and disaster recovery.
 EOF_REPORT
 
 echo "Monolith release certification report: $REPORT"
