@@ -13,6 +13,11 @@ export interface CustomerAddress {
   isDefault: boolean;
 }
 
+export interface DeliveryContact {
+  addressId: string;
+  phoneNumber: string;
+}
+
 export interface AddressInput {
   label?: string;
   line1: string;
@@ -44,6 +49,13 @@ function normalizeAddress(
   return { ...value, geoLat: Number(value.geoLat), geoLng: Number(value.geoLng) };
 }
 
+export function normalizeDeliveryPhone(value: string): string {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length === 10 && /^[6-9]/.test(digits)) return `+91${digits}`;
+  if (digits.length === 12 && digits.startsWith('91') && /^[6-9]/.test(digits.slice(2))) return `+${digits}`;
+  throw new Error('Enter a valid 10-digit Indian mobile number.');
+}
+
 export async function fetchDefaultAddress(accessToken: string): Promise<CustomerAddress | null> {
   const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/addresses/default`, {
     headers: authHeaders(accessToken),
@@ -64,6 +76,37 @@ export async function createDefaultAddress(
   });
   if (!response.ok) throw await addressError(response);
   return normalizeAddress(await response.json());
+}
+
+export async function fetchDeliveryContact(
+  accessToken: string,
+  addressId: string,
+): Promise<DeliveryContact | null> {
+  const response = await fetch(
+    `${appConfig.apiBaseUrl}/api/v1/addresses/${encodeURIComponent(addressId)}/contact`,
+    { headers: authHeaders(accessToken) },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw await addressError(response);
+  return (await response.json()) as DeliveryContact;
+}
+
+export async function saveDeliveryContact(
+  accessToken: string,
+  addressId: string,
+  rawPhoneNumber: string,
+): Promise<DeliveryContact> {
+  const phoneNumber = normalizeDeliveryPhone(rawPhoneNumber);
+  const response = await fetch(
+    `${appConfig.apiBaseUrl}/api/v1/addresses/${encodeURIComponent(addressId)}/contact`,
+    {
+      method: 'PUT',
+      headers: authHeaders(accessToken),
+      body: JSON.stringify({ phoneNumber }),
+    },
+  );
+  if (!response.ok) throw await addressError(response);
+  return (await response.json()) as DeliveryContact;
 }
 
 export function isOfflineError(error: unknown): boolean {
