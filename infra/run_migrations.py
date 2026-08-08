@@ -73,6 +73,7 @@ if __name__ == "__main__":
             root / "infra" / "db_role_definitions.sql",
             root / "backend/provider-service/src/main/resources/db/migration/V1__init_identity_providers.sql",
             root / "backend/provider-service/src/main/resources/db/migration/V5__delivery_contacts.sql",
+            root / "backend/provider-service/src/main/resources/db/migration/V6__grant_order_delivery_contact_lookup.sql",
             root / "backend/catalog-service/src/main/resources/db/migration/V1__init_catalog.sql",
             root / "backend/order-service/src/main/resources/db/migration/V1__init_orders.sql",
             root / "backend/order-service/src/main/resources/db/migration/V3__checkout_pricing_columns.sql",
