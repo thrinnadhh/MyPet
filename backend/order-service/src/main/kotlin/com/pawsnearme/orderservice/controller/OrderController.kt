@@ -1,5 +1,6 @@
 package com.pawsnearme.orderservice.controller
 
+import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
 import com.pawsnearme.orderservice.service.CreateOrderRequest
@@ -28,6 +29,7 @@ class OrderController(
     private val orderRepository: OrderRepository,
     private val deliveryContactLookup: DeliveryContactLookup,
     private val merchantOrderQueryService: MerchantOrderQueryService,
+    private val providerModule: ProviderModuleApi,
 ) {
 
     @PostMapping
@@ -47,6 +49,19 @@ class OrderController(
             ?: return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(mapOf("error" to "Invalid authenticated user context."))
+
+        // Suspension is an operational control, not a presentation hint. A customer
+        // must not be able to create a new order by calling the API directly after
+        // an Admin has suspended the provider. The provider module fails closed when
+        // its authoritative state cannot be read.
+        if (!providerModule.providerOperational(request.providerId)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                mapOf(
+                    "code" to "PROVIDER_NOT_OPERATIONAL",
+                    "error" to "This provider is not accepting new orders."
+                )
+            )
+        }
 
         val ownedContact = deliveryContactLookup.forCustomerAddress(customerId, request.deliveryAddressId)
         val normalizedDeliveryPhone = normalizeIndiaMobile(ownedContact?.phoneNumber)
