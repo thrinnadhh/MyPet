@@ -45,6 +45,10 @@ function tone(status: MerchantOrder['status']): 'neutral' | 'success' | 'warning
   return 'neutral';
 }
 
+function compact(value: string): string {
+  return value.slice(0, 8).toUpperCase();
+}
+
 export default function MerchantOrdersScreen() {
   const theme = useTheme();
   const { providerId } = useAuth();
@@ -60,27 +64,31 @@ export default function MerchantOrdersScreen() {
   } | null>(null);
   const [note, setNote] = useState('');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!providerId) {
       setOrders([]);
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setError(null);
+    if (!silent) setLoading(true);
     try {
-      setOrders(await fetchMerchantOrders(providerId));
+      const next = await fetchMerchantOrders(providerId);
+      setOrders(next);
+      setError(null);
     } catch (loadError) {
       setError(loadError);
-      setOrders([]);
+      if (!silent) setOrders([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [providerId]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+    if (!providerId) return undefined;
+    const interval = setInterval(() => void load(true), 10_000);
+    return () => clearInterval(interval);
+  }, [load, providerId]);
 
   const counts = useMemo(
     () => ({
@@ -97,8 +105,14 @@ export default function MerchantOrdersScreen() {
     return orders.filter((order) => {
       if (!filterOrder(order, filter)) return false;
       if (!normalizedQuery) return true;
-      return [order.orderId, order.customerId, order.paymentMethod, order.paymentStatus]
-        .some((value) => value?.toLowerCase().includes(normalizedQuery));
+      return [
+        order.orderId,
+        order.customerId,
+        order.paymentMethod,
+        order.paymentStatus,
+        order.couponCode ?? '',
+        ...order.items.map((item) => item.name),
+      ].some((value) => value.toLowerCase().includes(normalizedQuery));
     });
   }, [filter, orders, query]);
 
@@ -106,19 +120,17 @@ export default function MerchantOrdersScreen() {
     if (!pending) return;
     setRefreshingOrderId(pending.order.orderId);
     try {
-      const updated = await transitionMerchantOrder(
+      await transitionMerchantOrder(
         pending.order.orderId,
         pending.action.status,
         note,
       );
-      setOrders((current) =>
-        current.map((order) => (order.orderId === updated.orderId ? updated : order)),
-      );
+      await load(true);
       setPending(null);
       setNote('');
     } catch (transitionError) {
       setError(transitionError);
-      if (apiErrorKind(transitionError) === 'conflict') void load();
+      if (apiErrorKind(transitionError) === 'conflict') void load(true);
     } finally {
       setRefreshingOrderId(null);
     }
@@ -132,7 +144,7 @@ export default function MerchantOrdersScreen() {
         <AppBar
           eyebrow="MERCHANT WORKSPACE"
           title="Orders"
-          subtitle="Accept, pack and hand over paid customer orders"
+          subtitle="Server-authoritative items, payment, pricing and fulfilment state"
           action={<RoleBadge role="merchant" />}
         />
       }
@@ -173,7 +185,7 @@ export default function MerchantOrdersScreen() {
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Search order or customer ID"
+              placeholder="Search order, customer, coupon or item"
               placeholderTextColor={theme.textSecondary}
               style={[styles.searchInput, { color: theme.text }]}
               accessibilityLabel="Search merchant orders"
@@ -196,7 +208,7 @@ export default function MerchantOrdersScreen() {
             <StateView
               kind="empty"
               title={query ? 'No matching orders' : 'No orders in this queue'}
-              message={query ? 'Try another order or customer ID.' : 'New orders will appear here after server confirmation.'}
+              message={query ? 'Try another order, customer, coupon or product.' : 'New orders will appear here after server confirmation.'}
               actionLabel={query ? 'Clear search' : 'Refresh'}
               onAction={query ? () => setQuery('') : () => void load()}
             />
@@ -213,9 +225,9 @@ export default function MerchantOrdersScreen() {
                         <AppIcon name="cart" color={theme.primary} size={22} />
                       </View>
                       <View style={styles.flex}>
-                        <ThemedText style={styles.orderTitle}>Order #{order.orderId.slice(0, 8).toUpperCase()}</ThemedText>
+                        <ThemedText style={styles.orderTitle}>Order #{compact(order.orderId)}</ThemedText>
                         <ThemedText type="small" themeColor="textSecondary">
-                          {formatDateTime(order.placedAt)} · Customer {order.customerId.slice(0, 8).toUpperCase()}
+                          {formatDateTime(order.placedAt)} · Customer {compact(order.customerId)}
                         </ThemedText>
                       </View>
                       <StatusBadge label={formatOrderStatus(order.status)} tone={tone(order.status)} />
@@ -230,7 +242,46 @@ export default function MerchantOrdersScreen() {
                         <ThemedText type="small" themeColor="textSecondary">Payment</ThemedText>
                         <ThemedText type="smallBold">{order.paymentMethod} · {formatOrderStatus(order.paymentStatus)}</ThemedText>
                       </View>
+                      <View style={styles.summaryCell}>
+                        <ThemedText type="small" themeColor="textSecondary">Delivery contact</ThemedText>
+                        <ThemedText type="smallBold">
+                          {order.deliveryContactPhone ?? 'Not available'}{order.deliveryContactVerified ? ' · verified' : ''}
+                        </ThemedText>
+                      </View>
                     </View>
+
+                    <View style={styles.detailSection}>
+                      <ThemedText type="smallBold">Items</ThemedText>
+                      {order.items.length === 0 ? (
+                        <FeedbackBanner tone="danger" title="Order items missing" message="The server returned this order without item snapshots. Do not fulfil it until the order data is reconciled." />
+                      ) : order.items.map((item) => (
+                        <View key={`${order.orderId}-${item.offeringId}`} style={styles.itemRow}>
+                          <View style={styles.flex}>
+                            <ThemedText type="smallBold">{item.name}</ThemedText>
+                            <ThemedText type="small" themeColor="textSecondary">
+                              {item.quantity} × {formatCurrency(item.unitPrice)}
+                            </ThemedText>
+                          </View>
+                          <ThemedText type="smallBold">{formatCurrency(item.lineTotal)}</ThemedText>
+                        </View>
+                      ))}
+                    </View>
+
+                    <View style={[styles.breakdown, { borderColor: theme.border }]}>
+                      <View style={styles.breakdownRow}><ThemedText type="small" themeColor="textSecondary">Subtotal</ThemedText><ThemedText type="small">{formatCurrency(order.subtotalAmount)}</ThemedText></View>
+                      {order.discountAmount > 0 ? <View style={styles.breakdownRow}><ThemedText type="small" themeColor="textSecondary">Discount{order.couponCode ? ` (${order.couponCode})` : ''}</ThemedText><ThemedText type="small">−{formatCurrency(order.discountAmount)}</ThemedText></View> : null}
+                      <View style={styles.breakdownRow}><ThemedText type="small" themeColor="textSecondary">Delivery fee</ThemedText><ThemedText type="small">{formatCurrency(order.deliveryFee)}</ThemedText></View>
+                      <View style={styles.breakdownRow}><ThemedText type="small" themeColor="textSecondary">Tax</ThemedText><ThemedText type="small">{formatCurrency(order.taxAmount)}</ThemedText></View>
+                      <View style={styles.breakdownRow}><ThemedText type="smallBold">Authoritative total</ThemedText><ThemedText type="smallBold">{formatCurrency(order.totalAmount)}</ThemedText></View>
+                    </View>
+
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Delivery address reference: {compact(order.deliveryAddressId)}
+                      {order.acceptedAt ? ` · Accepted ${formatDateTime(order.acceptedAt)}` : ''}
+                      {order.readyAt ? ` · Ready ${formatDateTime(order.readyAt)}` : ''}
+                      {order.pickedUpAt ? ` · Picked up ${formatDateTime(order.pickedUpAt)}` : ''}
+                      {order.deliveredAt ? ` · Delivered ${formatDateTime(order.deliveredAt)}` : ''}
+                    </ThemedText>
 
                     {order.cancellationReason ? (
                       <FeedbackBanner tone="warning" title="Cancellation note" message={order.cancellationReason} />
@@ -280,7 +331,7 @@ export default function MerchantOrdersScreen() {
           >
             <ThemedText type="title">{pending?.action.label}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              Order #{pending?.order.orderId.slice(0, 8).toUpperCase()}. The server validates whether this transition is still allowed.
+              Order #{pending ? compact(pending.order.orderId) : ''}. The server validates whether this transition is still allowed.
             </ThemedText>
             <TextInput
               value={note}
@@ -331,6 +382,10 @@ const styles = StyleSheet.create({
   summary: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x4, padding: spacing.x3, borderRadius: radii.compact },
   summaryCell: { flexGrow: 1, minWidth: 140, gap: spacing.x1 },
   amount: { ...typography.title, fontSize: 19, lineHeight: 24 },
+  detailSection: { gap: spacing.x2 },
+  itemRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.x3 },
+  breakdown: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.x2, gap: spacing.x1 },
+  breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.x3 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
   action: { flexGrow: 1, flexBasis: 160 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(11,28,48,0.58)', padding: spacing.x4, alignItems: 'center', justifyContent: 'center' },
