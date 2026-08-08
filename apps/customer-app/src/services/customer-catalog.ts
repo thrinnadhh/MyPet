@@ -32,6 +32,7 @@ interface BackendOffering {
   stockQuantity?: number | null;
   sku?: string | null;
   durationMinutes?: number | null;
+  adminDisabled?: boolean | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 }
@@ -109,6 +110,11 @@ function isRecent(value: string | null | undefined): boolean {
   return Date.now() - timestamp <= 30 * 24 * 60 * 60 * 1000;
 }
 
+function isCustomerEligible(offering: BackendOffering): boolean {
+  const active = !offering.status || offering.status.toUpperCase() === 'ACTIVE';
+  return active && offering.adminDisabled !== true;
+}
+
 function providerSummaryFromPublic(provider: PublicProvider): ProviderSummary {
   return {
     id: provider.providerId,
@@ -127,8 +133,7 @@ function mapOffering(
   const price = toNumber(offering.price);
   const stockCount = Math.max(0, offering.stockQuantity ?? 0);
   const category = normalizeCategory(offering.category);
-  const active = !offering.status || offering.status.toUpperCase() === 'ACTIVE';
-  const inStock = active && stockCount > 0;
+  const inStock = isCustomerEligible(offering) && stockCount > 0;
   const imageUrl = offering.imageUrl?.trim() || categoryFallbackImage(category);
   const variant: ProductVariant = {
     id: `${offering.offeringId}:default`,
@@ -237,7 +242,7 @@ export async function fetchProviderOfferings(providerId: string): Promise<Backen
   const values = await fetchJson<BackendOffering[]>(
     `/api/v1/catalog/offerings?providerId=${encodeURIComponent(providerId)}`,
   );
-  return values.filter((offering) => !offering.status || offering.status.toUpperCase() === 'ACTIVE');
+  return values.filter(isCustomerEligible);
 }
 
 export async function fetchCommerceProduct(offeringId: string): Promise<CommerceProduct> {
@@ -250,6 +255,7 @@ export async function fetchCommerceProduct(offeringId: string): Promise<Commerce
   const offering = await fetchJson<BackendOffering>(
     `/api/v1/catalog/offerings/${encodeURIComponent(offeringId)}`,
   );
+  if (!isCustomerEligible(offering)) throw new Error('CATALOG_PRODUCT_UNAVAILABLE');
   const provider = providerSummaryFromPublic(await fetchPublicProvider(offering.providerId));
   return mapOffering(offering, provider);
 }
