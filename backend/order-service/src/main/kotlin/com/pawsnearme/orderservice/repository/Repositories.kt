@@ -16,6 +16,7 @@ import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import org.springframework.stereotype.Repository
+import java.math.BigDecimal
 import java.time.Instant
 import java.util.Optional
 import java.util.UUID
@@ -53,6 +54,64 @@ interface OrderRepository : JpaRepository<Order, UUID> {
         @Param("toTime") toTime: Instant?,
         pageable: Pageable
     ): Page<Order>
+
+    @Query(
+        value = "SELECT COUNT(*) FROM orders.orders WHERE placed_at >= :fromTime AND placed_at < :toTime",
+        nativeQuery = true
+    )
+    fun countPlacedInRange(@Param("fromTime") fromTime: Instant, @Param("toTime") toTime: Instant): Long
+
+    @Query(
+        value = """
+            SELECT COUNT(*) FROM orders.orders
+            WHERE status IN ('DELIVERED','COMPLETED')
+              AND placed_at >= :fromTime AND placed_at < :toTime
+        """,
+        nativeQuery = true
+    )
+    fun countCompletedInRange(@Param("fromTime") fromTime: Instant, @Param("toTime") toTime: Instant): Long
+
+    @Query(
+        value = """
+            SELECT COUNT(*) FROM orders.orders
+            WHERE status IN ('CANCELLED','REJECTED')
+              AND placed_at >= :fromTime AND placed_at < :toTime
+        """,
+        nativeQuery = true
+    )
+    fun countCancelledInRange(@Param("fromTime") fromTime: Instant, @Param("toTime") toTime: Instant): Long
+
+    @Query(
+        value = """
+            SELECT COALESCE(SUM(total_amount), 0) FROM orders.orders
+            WHERE status IN ('DELIVERED','COMPLETED')
+              AND placed_at >= :fromTime AND placed_at < :toTime
+        """,
+        nativeQuery = true
+    )
+    fun sumCompletedGmvInRange(@Param("fromTime") fromTime: Instant, @Param("toTime") toTime: Instant): BigDecimal
+
+    @Query(
+        value = "SELECT COUNT(DISTINCT customer_id) FROM orders.orders WHERE placed_at >= :fromTime AND placed_at < :toTime",
+        nativeQuery = true
+    )
+    fun countDistinctCustomersInRange(@Param("fromTime") fromTime: Instant, @Param("toTime") toTime: Instant): Long
+
+    @Query(
+        value = "SELECT COUNT(DISTINCT provider_id) FROM orders.orders WHERE placed_at >= :fromTime AND placed_at < :toTime",
+        nativeQuery = true
+    )
+    fun countDistinctProvidersInRange(@Param("fromTime") fromTime: Instant, @Param("toTime") toTime: Instant): Long
+
+    @Query(
+        value = """
+            SELECT COUNT(*) FROM orders.orders
+            WHERE UPPER(payment_status) = 'FAILED'
+              AND placed_at >= :fromTime AND placed_at < :toTime
+        """,
+        nativeQuery = true
+    )
+    fun countFailedPaymentsInRange(@Param("fromTime") fromTime: Instant, @Param("toTime") toTime: Instant): Long
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from Order o where o.orderId = :orderId")
