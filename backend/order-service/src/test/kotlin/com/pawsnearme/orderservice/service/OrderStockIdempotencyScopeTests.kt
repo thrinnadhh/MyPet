@@ -9,7 +9,7 @@ import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.common.module.StockMutationCommand
 import com.pawsnearme.common.outbox.OutboxService
 import com.pawsnearme.orderservice.model.Order
-import com.pawsnearme.orderservice.model.OrderStatus
+import com.pawsnearme.orderservice.model.OrderItem
 import com.pawsnearme.orderservice.repository.DisputeRepository
 import com.pawsnearme.orderservice.repository.InvoiceRepository
 import com.pawsnearme.orderservice.repository.OrderItemRepository
@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.times
@@ -69,7 +70,7 @@ class OrderStockIdempotencyScopeTests {
         whenever(catalogModule.offering(offeringId)).thenReturn(offering)
         whenever(catalogModule.reserveStock(any())).thenReturn(offering)
         whenever(catalogModule.restoreStock(any())).thenReturn(offering)
-        whenever(paymentModule.codEligibility(any(), any(), any())).thenReturn(
+        whenever(paymentModule.codEligibility(any(), anyOrNull(), anyOrNull())).thenReturn(
             CodEligibilityDecision(true, BigDecimal("5000.00"), null)
         )
         whenever(quoteStore.store(any(), any())).thenAnswer { it.getArgument(0) }
@@ -110,10 +111,24 @@ class OrderStockIdempotencyScopeTests {
         )
 
         val first = service.createOrder(
-            CreateOrderRequest(customerId, providerId, addressId, listOf(item), paymentMethod = "COD", quoteToken = "Q-ORDER-A")
+            CreateOrderRequest(
+                customerId = customerId,
+                providerId = providerId,
+                deliveryAddressId = addressId,
+                items = listOf(item),
+                paymentMethod = "COD",
+                quoteToken = "Q-ORDER-A",
+            )
         )
         val second = service.createOrder(
-            CreateOrderRequest(customerId, providerId, addressId, listOf(item), paymentMethod = "COD", quoteToken = "Q-ORDER-B")
+            CreateOrderRequest(
+                customerId = customerId,
+                providerId = providerId,
+                deliveryAddressId = addressId,
+                items = listOf(item),
+                paymentMethod = "COD",
+                quoteToken = "Q-ORDER-B",
+            )
         )
 
         val reserveCaptor = argumentCaptor<StockMutationCommand>()
@@ -127,10 +142,28 @@ class OrderStockIdempotencyScopeTests {
         whenever(orderRepository.findById(firstId)).thenReturn(Optional.of(first))
         whenever(orderRepository.findById(secondId)).thenReturn(Optional.of(second))
         whenever(orderItemRepository.findByOrderId(firstId)).thenReturn(
-            listOf(com.pawsnearme.orderservice.model.OrderItem(firstId, offeringId, "Dog Food", BigDecimal("100.00"), 1, BigDecimal("100.00")))
+            listOf(
+                OrderItem(
+                    orderId = firstId,
+                    offeringId = offeringId,
+                    offeringNameSnapshot = "Dog Food",
+                    unitPriceSnapshot = BigDecimal("100.00"),
+                    quantity = 1,
+                    lineTotal = BigDecimal("100.00"),
+                )
+            )
         )
         whenever(orderItemRepository.findByOrderId(secondId)).thenReturn(
-            listOf(com.pawsnearme.orderservice.model.OrderItem(secondId, offeringId, "Dog Food", BigDecimal("100.00"), 1, BigDecimal("100.00")))
+            listOf(
+                OrderItem(
+                    orderId = secondId,
+                    offeringId = offeringId,
+                    offeringNameSnapshot = "Dog Food",
+                    unitPriceSnapshot = BigDecimal("100.00"),
+                    quantity = 1,
+                    lineTotal = BigDecimal("100.00"),
+                )
+            )
         )
 
         service.cancelOrder(firstId, customerId, "CUSTOMER", "Changed mind")
