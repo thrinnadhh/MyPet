@@ -87,7 +87,10 @@ class Order(
     var paymentMethod: String = "CARD",
 
     @Column(name = "payment_status", nullable = false)
-    var paymentStatus: String = "PENDING"
+    var paymentStatus: String = "PENDING",
+
+    @Column(name = "recurring_occurrence_id")
+    var recurringOccurrenceId: UUID? = null
 ) {
     @PrePersist
     fun alignLifecycleTimestamps() {
