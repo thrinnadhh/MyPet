@@ -22,16 +22,28 @@ class OrderController(
     @PostMapping
     fun createOrder(
         @Valid @RequestBody request: CreateOrderRequest,
-        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?
+        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader("X-User-Phone", required = false) verifiedAuthPhone: String?,
+        @RequestHeader("X-Delivery-Contact-Phone", required = false) deliveryContactPhone: String?
     ): ResponseEntity<Any> {
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(mapOf("error" to "Missing authenticated user context."))
         }
+        val normalizedDeliveryPhone = normalizeIndiaMobile(deliveryContactPhone)
+            ?: return ResponseEntity.badRequest().body(
+                mapOf(
+                    "code" to "DELIVERY_CONTACT_REQUIRED",
+                    "error" to "A valid Indian delivery contact number is required."
+                )
+            )
         val finalRequest = request.copy(customerId = UUID.fromString(authenticatedUserId))
         val order = orderService.createOrder(finalRequest)
-        return ResponseEntity.status(HttpStatus.CREATED).body(order)
+        order.deliveryContactPhone = normalizedDeliveryPhone
+        order.deliveryContactVerified = normalizeIndiaMobile(verifiedAuthPhone) == normalizedDeliveryPhone
+        val saved = orderRepository.save(order)
+        return ResponseEntity.status(HttpStatus.CREATED).body(saved)
     }
 
     @GetMapping("/{id}")
@@ -166,6 +178,17 @@ class OrderController(
             authenticatedUserRole
         )
         return ResponseEntity.ok(order)
+    }
+
+    private fun normalizeIndiaMobile(value: String?): String? {
+        val digits = value?.filter(Char::isDigit) ?: return null
+        val local = when {
+            digits.length == 10 -> digits
+            digits.length == 12 && digits.startsWith("91") -> digits.takeLast(10)
+            else -> return null
+        }
+        if (local.firstOrNull() !in '6'..'9') return null
+        return "+91$local"
     }
 
 }
