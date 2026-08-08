@@ -171,7 +171,7 @@ export default function RecurringOrdersScreen() {
       testID="recurring-orders-screen"
     >
       <FeedbackBanner
-        tone="neutral"
+        tone="info"
         title="No silent charging"
         message="Every scheduled run revalidates the merchant, delivery serviceability, current stock and current price. Prepaid orders still require the normal payment flow before fulfilment."
       />
