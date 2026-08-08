@@ -5,10 +5,12 @@ import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
 import com.pawsnearme.orderservice.service.CreateOrderRequest
 import com.pawsnearme.orderservice.service.CustomerOrderSummary
+import com.pawsnearme.orderservice.service.DeliveryContactLookup
 import com.pawsnearme.orderservice.service.OrderService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.*
 import java.util.UUID
 
@@ -16,29 +18,38 @@ import java.util.UUID
 @RequestMapping("/api/v1/orders")
 class OrderController(
     private val orderService: OrderService,
-    private val orderRepository: OrderRepository
+    private val orderRepository: OrderRepository,
+    private val deliveryContactLookup: DeliveryContactLookup,
 ) {
 
     @PostMapping
+    @Transactional
     fun createOrder(
         @Valid @RequestBody request: CreateOrderRequest,
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Phone", required = false) verifiedAuthPhone: String?,
-        @RequestHeader("X-Delivery-Contact-Phone", required = false) deliveryContactPhone: String?
     ): ResponseEntity<Any> {
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(mapOf("error" to "Missing authenticated user context."))
         }
-        val normalizedDeliveryPhone = normalizeIndiaMobile(deliveryContactPhone)
+
+        val customerId = runCatching { UUID.fromString(authenticatedUserId) }.getOrNull()
+            ?: return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(mapOf("error" to "Invalid authenticated user context."))
+
+        val ownedContact = deliveryContactLookup.forCustomerAddress(customerId, request.deliveryAddressId)
+        val normalizedDeliveryPhone = normalizeIndiaMobile(ownedContact?.phoneNumber)
             ?: return ResponseEntity.badRequest().body(
                 mapOf(
                     "code" to "DELIVERY_CONTACT_REQUIRED",
-                    "error" to "A valid Indian delivery contact number is required."
+                    "error" to "Add a valid delivery contact number to this address before placing your order."
                 )
             )
-        val finalRequest = request.copy(customerId = UUID.fromString(authenticatedUserId))
+
+        val finalRequest = request.copy(customerId = customerId)
         val order = orderService.createOrder(finalRequest)
         order.deliveryContactPhone = normalizedDeliveryPhone
         order.deliveryContactVerified = normalizeIndiaMobile(verifiedAuthPhone) == normalizedDeliveryPhone
@@ -49,8 +60,8 @@ class OrderController(
     @GetMapping("/{id}")
     fun getOrder(
         @PathVariable id: UUID,
-        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
-        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+        @RequestHeader(value = "X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
@@ -63,8 +74,8 @@ class OrderController(
     @GetMapping("/customer/{customerId}")
     fun getOrdersByCustomer(
         @PathVariable customerId: UUID,
-        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
-        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+        @RequestHeader(value = "X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
@@ -77,8 +88,8 @@ class OrderController(
     @GetMapping("/customer/{customerId}/tracking")
     fun getCustomerOrderTracking(
         @PathVariable customerId: UUID,
-        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
-        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+        @RequestHeader(value = "X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
@@ -91,8 +102,8 @@ class OrderController(
     @GetMapping("/provider/{providerId}")
     fun getOrdersByProvider(
         @PathVariable providerId: UUID,
-        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
-        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+        @RequestHeader(value = "X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity
@@ -111,8 +122,8 @@ class OrderController(
     fun cancelOrder(
         @PathVariable id: UUID,
         @RequestParam(required = false) reason: String?,
-        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
-        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+        @RequestHeader(value = "X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
@@ -125,8 +136,8 @@ class OrderController(
     @PostMapping("/{id}/reorder")
     fun reorder(
         @PathVariable id: UUID,
-        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
-        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+        @RequestHeader(value = "X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
@@ -141,8 +152,8 @@ class OrderController(
         @PathVariable id: UUID,
         @RequestParam status: OrderStatus,
         @RequestParam(required = false) note: String?,
-        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
-        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+        @RequestHeader(value = "X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity
@@ -163,8 +174,8 @@ class OrderController(
     fun confirmOrder(
         @PathVariable id: UUID,
         @RequestParam(required = false) paymentId: UUID?,
-        @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
-        @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
+        @RequestHeader(value = "X-User-Id", required = false) authenticatedUserId: String?,
+        @RequestHeader(value = "X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
         if (authenticatedUserId.isNullOrBlank()) {
             return ResponseEntity
@@ -190,5 +201,4 @@ class OrderController(
         if (local.firstOrNull() !in '6'..'9') return null
         return "+91$local"
     }
-
 }
