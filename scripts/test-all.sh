@@ -24,6 +24,9 @@ CASHFREE_CLIENT_ID=ci-interpolation-only-client-id
 CASHFREE_CLIENT_SECRET=ci-interpolation-only-client-secret
 CASHFREE_WEBHOOK_SECRET=local-cashfree-webhook-secret
 PAYMENT_CHECKOUT_TOKEN_SECRET=0123456789abcdef0123456789abcdef
+ORDER_RECURRING_REMINDER_CRON=*/5 * * * * *
+ORDER_RECURRING_REMINDER_LOCK_AT_MOST_FOR=PT30S
+ORDER_RECURRING_REMINDER_LOCK_AT_LEAST_FOR=PT0S
 # Retained only for legacy payment-service unit/contract coverage; active customer
 # online payments are routed through Cashfree.
 RAZORPAY_WEBHOOK_SECRET=local-legacy-webhook-secret
@@ -47,6 +50,8 @@ trap cleanup EXIT
 export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
 export MYPET_ENV_FILE="$ENV_FILE"
 export MYPET_SMOKE_REPORT="$REPORT"
+export MYPET_SCHEDULER_SERVICE="order-service"
+export MYPET_EXPECT_RECURRING_CRON="*/5 * * * * *"
 export KEEP_STACK=1
 
 bash "$ROOT/scripts/test-full-stack.sh"
@@ -55,6 +60,7 @@ bash "$ROOT/scripts/test-barcode-e2e.sh"
 python3 "$ROOT/scripts/run-m8-feature-matrix.py"
 python3 "$ROOT/scripts/test-order-cancel-accept-race-e2e.py"
 python3 "$ROOT/scripts/run-p2b-connected-e2e-entry.py"
+python3 "$ROOT/scripts/test-recurring-order-scheduler-e2e.py"
 
 cat >> "$REPORT" <<'EOF'
 
@@ -63,11 +69,12 @@ cat >> "$REPORT" <<'EOF'
 **PASS** — automated builds, clean-volume infrastructure, all backend service
 readiness probes, barcode inventory upload → scan lookup → POS checkout,
 the connected M8 fourteen-domain matrix, the Customer cancel ↔ Merchant accept
-serialization/race matrix, and the exact ten P2B customer → merchant → captain
-→ admin journeys completed successfully. Authorization, concurrency,
-idempotency, private-document access, scheduler, persistence, outbox,
-notification/UI contracts, inventory isolation, authoritative pricing, and
-asynchronous projection evidence were retained in the same report.
+serialization/race matrix, the exact ten P2B customer → merchant → captain →
+admin journeys, and due subscription → exactly-one operational recurring order
+completed successfully. Authorization, concurrency, idempotency,
+private-document access, scheduler, persistence, outbox, notification/UI
+contracts, inventory isolation, authoritative pricing, and asynchronous
+projection evidence were retained in the same report.
 EOF
 
 echo "Complete validation report: $REPORT"
