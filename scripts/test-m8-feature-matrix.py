@@ -518,13 +518,19 @@ def main() -> int:
     require(status["status"] == "ONLINE", "captain did not become online", status)
     passed("captain", "onboarding, protected bank-data write and online availability verified")
 
-    request(
+    accepted_order = request(
         "PUT", f"/api/v1/orders/{order['orderId']}/status?status=ACCEPTED", merchant
     )
+    require(accepted_order["status"] == "ACCEPTED", "merchant acceptance failed", accepted_order)
+    preparing_order = request(
+        "PUT", f"/api/v1/orders/{order['orderId']}/status?status=PREPARING", merchant
+    )
+    require(preparing_order["status"] == "PREPARING", "merchant packing transition failed", preparing_order)
     ready_order = request(
         "PUT", f"/api/v1/orders/{order['orderId']}/status?status=READY_FOR_PICKUP", merchant
     )
     require(ready_order["status"] == "READY_FOR_PICKUP", "order not ready for dispatch")
+    passed("order", "merchant accept, packing and ready-for-pickup transitions verified")
     offers = poll(
         "captain dispatch offer",
         lambda: request("GET", "/api/v1/dispatch/offers", captain),
