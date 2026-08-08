@@ -100,7 +100,7 @@ interface AppointmentRefRepository : JpaRepository<AppointmentRef, UUID> {
     @Query("""
         SELECT a.providerId, p.ownerUserId, SUM(a.priceAmount)
         FROM AppointmentRef a
-        JOIN PaymentProviderRef p ON p.providerId = o.providerId
+        JOIN PaymentProviderRef p ON p.providerId = a.providerId
         WHERE a.status = :status
           AND a.completedAt >= :start
           AND a.completedAt < :end
