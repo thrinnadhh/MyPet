@@ -2,12 +2,15 @@ package com.pawsnearme.orderservice.service
 
 import com.pawsnearme.common.module.PaymentModuleApi
 import com.pawsnearme.common.outbox.OutboxService
+import com.pawsnearme.orderservice.model.AdminAuditLog
 import com.pawsnearme.orderservice.model.CustomerCase
 import com.pawsnearme.orderservice.model.CustomerCaseEvidence
+import com.pawsnearme.orderservice.repository.AdminAuditLogRepository
 import com.pawsnearme.orderservice.repository.CustomerCaseEvidenceRepository
 import com.pawsnearme.orderservice.repository.CustomerCaseRepository
 import com.pawsnearme.orderservice.repository.OrderRepository
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.multipart.MultipartFile
@@ -34,6 +37,10 @@ data class ResolveCustomerCaseRequest(
     val decision: String,
     val resolutionNotes: String,
     val issueRefund: Boolean = false,
+    /**
+     * Retained only to reject stale/forged clients explicitly. Refund state is
+     * derived from the payment module and must never be client/admin supplied.
+     */
     val refundStatus: String? = null
 )
 
@@ -60,6 +67,14 @@ data class CustomerCaseView(
     val resolvedAt: Instant?
 )
 
+data class CustomerCasePageView(
+    val content: List<CustomerCaseView>,
+    val page: Int,
+    val size: Int,
+    val totalElements: Long,
+    val totalPages: Int
+)
+
 data class CaseEvidenceReservation(val uploadToken: String, val uploadUrl: String, val expiresAt: Instant)
 data class CaseEvidenceLink(val evidenceId: UUID, val url: String, val expiresAt: Instant)
 data class CaseEvidenceContent(val bytes: ByteArray, val mimeType: String, val filename: String)
@@ -71,6 +86,7 @@ class CustomerCaseService(
     private val orderRepository: OrderRepository,
     private val paymentModule: PaymentModuleApi,
     private val outboxService: OutboxService,
+    private val auditRepository: AdminAuditLogRepository,
     @Value("\${order.case-evidence.dir:./private-case-evidence}") storageDir: String,
     @Value("\${order.case-evidence.public-base-url:http://localhost:8085}") private val publicBaseUrl: String,
     @Value("\${CASE_EVIDENCE_SIGNING_KEY:local-development-key}") private val signingKey: String
@@ -110,8 +126,23 @@ class CustomerCaseService(
     fun listMine(customerId: UUID): List<CustomerCaseView> =
         caseRepository.findByCustomerIdOrderByCreatedAtDesc(customerId).map(::view)
 
+    /** Legacy compatibility path. Bounded to prevent accidental production table scans. */
     @Transactional(readOnly = true)
-    fun listAll(): List<CustomerCaseView> = caseRepository.findAllByOrderByCreatedAtDesc().map(::view)
+    fun listAll(): List<CustomerCaseView> = listAllPaged(0, 100).content
+
+    @Transactional(readOnly = true)
+    fun listAllPaged(page: Int, size: Int): CustomerCasePageView {
+        require(page >= 0) { "Page must be zero or greater." }
+        require(size in 1..100) { "Page size must be between 1 and 100." }
+        val result = caseRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(page, size))
+        return CustomerCasePageView(
+            content = result.content.map(::view),
+            page = result.number,
+            size = result.size,
+            totalElements = result.totalElements,
+            totalPages = result.totalPages
+        )
+    }
 
     fun reserveEvidence(caseId: UUID, customerId: UUID): CaseEvidenceReservation {
         owned(caseId, customerId)
@@ -148,33 +179,78 @@ class CustomerCaseService(
                 sizeBytes = file.size
             )
         )
-        publish("CustomerCaseEvidenceAdded", owned(reservation.caseId, customerId), mapOf("evidenceId" to saved.evidenceId.toString()))
+        publish(
+            "CustomerCaseEvidenceAdded",
+            owned(reservation.caseId, customerId),
+            mapOf("evidenceId" to saved.evidenceId.toString())
+        )
         return evidenceView(saved)
     }
 
+    /**
+     * Admin decision path. The case row is locked before the state/refund decision
+     * so two Admins cannot issue two logical decisions from the same OPEN state.
+     * Payment failures propagate and roll back the case/audit/event transaction.
+     */
     @Transactional
-    fun resolve(caseId: UUID, request: ResolveCustomerCaseRequest, adminId: UUID): CustomerCaseView {
-        val customerCase = caseRepository.findById(caseId)
+    fun resolve(
+        caseId: UUID,
+        request: ResolveCustomerCaseRequest,
+        adminId: UUID,
+        traceId: String = ""
+    ): CustomerCaseView {
+        require(request.refundStatus == null) { "Refund status is server-authoritative and cannot be supplied by the Admin client." }
+        val customerCase = caseRepository.findByIdForUpdate(caseId)
             .orElseThrow { IllegalArgumentException("Customer case not found.") }
         require(customerCase.status in setOf("OPEN", "UNDER_REVIEW")) { "Customer case is already closed." }
+
         val decision = request.decision.trim().uppercase()
         require(decision in setOf("RESOLVED", "REJECTED", "UNDER_REVIEW")) { "Unsupported case decision." }
         val notes = request.resolutionNotes.trim()
         require(notes.length in 3..2000) { "Resolution notes are required." }
+        if (request.issueRefund) {
+            require(decision == "RESOLVED") { "A refund can only be issued as part of a RESOLVED decision." }
+        }
+
+        val previousStatus = customerCase.status
+        val previousRefundStatus = customerCase.refundStatus
+
+        if (request.issueRefund) {
+            // Synchronous module contract: only mark COMPLETED after the authoritative
+            // refund operation returns successfully. A thrown dependency/provider
+            // failure leaves this case unchanged when the transaction rolls back.
+            customerCase.refundStatus = "PROCESSING"
+            paymentModule.refundOrder(customerCase.orderId)
+            customerCase.refundStatus = "COMPLETED"
+        }
+
         customerCase.status = decision
         customerCase.resolutionNotes = notes
         customerCase.updatedAt = Instant.now()
-        if (decision in setOf("RESOLVED", "REJECTED")) customerCase.resolvedAt = Instant.now()
-        request.refundStatus?.trim()?.uppercase()?.let {
-            require(it in REFUND_STATUSES) { "Unsupported refund status." }
-            customerCase.refundStatus = it
-        }
-        if (request.issueRefund) {
-            customerCase.refundStatus = "PROCESSING"
-            paymentModule.refundOrder(customerCase.orderId)
-        }
+        customerCase.resolvedAt = if (decision in setOf("RESOLVED", "REJECTED")) Instant.now() else null
         val saved = caseRepository.save(customerCase)
-        publish("CustomerCaseUpdated", saved, mapOf("adminId" to adminId.toString(), "decision" to decision))
+
+        auditRepository.save(
+            AdminAuditLog(
+                adminUserId = adminId,
+                action = "CUSTOMER_CASE_DECIDED",
+                entityType = "CUSTOMER_CASE",
+                entityId = caseId.toString(),
+                previousValue = "status=$previousStatus;refundStatus=$previousRefundStatus",
+                newValue = "status=${saved.status};refundStatus=${saved.refundStatus}",
+                reason = notes.take(500),
+                traceId = traceId.trim().take(160).ifBlank { UUID.randomUUID().toString() }
+            )
+        )
+        publish(
+            "CustomerCaseUpdated",
+            saved,
+            mapOf(
+                "adminId" to adminId.toString(),
+                "decision" to decision,
+                "refundIssued" to request.issueRefund
+            )
+        )
         return view(saved)
     }
 
@@ -262,11 +338,21 @@ class CustomerCaseService(
         if (!validSignature) throw IllegalArgumentException("Evidence content does not match its declared type.")
     }
 
-    private fun sanitize(value: String?): String = value?.substringAfterLast('/')?.substringAfterLast('\\')?.trim()?.take(255).orEmpty().ifBlank { "evidence" }
-    private fun extension(mime: String) = when (mime) { "application/pdf" -> "pdf"; "image/png" -> "png"; "image/webp" -> "webp"; else -> "jpg" }
-    private fun hmac(value: ByteArray): ByteArray = Mac.getInstance("HmacSHA256").run {
-        init(SecretKeySpec(signingKey.toByteArray(StandardCharsets.UTF_8), "HmacSHA256")); doFinal(value)
+    private fun sanitize(value: String?): String =
+        value?.substringAfterLast('/')?.substringAfterLast('\\')?.trim()?.take(255).orEmpty().ifBlank { "evidence" }
+
+    private fun extension(mime: String) = when (mime) {
+        "application/pdf" -> "pdf"
+        "image/png" -> "png"
+        "image/webp" -> "webp"
+        else -> "jpg"
     }
+
+    private fun hmac(value: ByteArray): ByteArray = Mac.getInstance("HmacSHA256").run {
+        init(SecretKeySpec(signingKey.toByteArray(StandardCharsets.UTF_8), "HmacSHA256"))
+        doFinal(value)
+    }
+
     private fun encode(value: ByteArray) = Base64.getUrlEncoder().withoutPadding().encodeToString(value)
     private fun decode(value: String) = Base64.getUrlDecoder().decode(value)
 
@@ -291,7 +377,13 @@ class CustomerCaseService(
 
     companion object {
         private const val MAX_BYTES = 10L * 1024 * 1024
-        private val CASE_TYPES = setOf("MISSING_ITEM", "DAMAGED_ITEM", "WRONG_ITEM", "LATE_DELIVERY", "PAYMENT_ISSUE", "OTHER")
-        private val REFUND_STATUSES = setOf("NOT_APPLICABLE", "PENDING", "PROCESSING", "COMPLETED", "FAILED")
+        private val CASE_TYPES = setOf(
+            "MISSING_ITEM",
+            "DAMAGED_ITEM",
+            "WRONG_ITEM",
+            "LATE_DELIVERY",
+            "PAYMENT_ISSUE",
+            "OTHER"
+        )
     }
 }
