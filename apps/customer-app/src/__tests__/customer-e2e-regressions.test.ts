@@ -77,17 +77,24 @@ describe('customer end-to-end regression contracts', () => {
     expect(banner).toMatch(/!target\.includes\(':\/\/'\)/);
   });
 
-  it('isolates carts by customer and rebuilds validated carts', () => {
+  it('isolates carts by customer while recurring orders remain server-authoritative', () => {
     const cart = source('src/context/CartContext.tsx');
     const order = source('src/app/orders/[id].tsx');
     const subscriptions = source('src/app/subscriptions/index.tsx');
+    const recurringService = source('src/services/recurring-orders.ts');
 
     expect(cart).toMatch(/customer_\$\{userId\}/);
     expect(cart).toMatch(/replaceCart/);
     expect(order).toMatch(/buildCartFromRevalidation/);
     expect(order).toMatch(/replaceCart/);
-    expect(subscriptions).toMatch(/buildCartFromRevalidation/);
-    expect(subscriptions).toMatch(/replaceCart/);
+
+    // Activating a recurring order must not mutate the interactive cart. The backend
+    // snapshots the completed source order and revalidates provider, stock, price and
+    // serviceability on every scheduled occurrence.
+    expect(subscriptions).toMatch(/createRecurringOrder/);
+    expect(subscriptions).not.toMatch(/replaceCart/);
+    expect(subscriptions).not.toMatch(/buildCartFromRevalidation/);
+    expect(recurringService).toMatch(/\/api\/v1\/orders\/subscriptions/);
   });
 
   it('does not show static coupons or simulated voice recognition', () => {
