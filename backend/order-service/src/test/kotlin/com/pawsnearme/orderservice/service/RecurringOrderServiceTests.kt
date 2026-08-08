@@ -46,6 +46,7 @@ class RecurringOrderServiceTests {
     private lateinit var orderRepository: OrderRepository
     private lateinit var orderItemRepository: OrderItemRepository
     private lateinit var orderService: OrderService
+    private lateinit var occurrenceOrderCreator: RecurringOccurrenceOrderCreator
     private lateinit var catalogModule: CatalogModuleApi
     private lateinit var providerModule: ProviderModuleApi
     private lateinit var discoveryModule: DiscoveryModuleApi
@@ -66,6 +67,7 @@ class RecurringOrderServiceTests {
         orderRepository = mock()
         orderItemRepository = mock()
         orderService = mock()
+        occurrenceOrderCreator = mock()
         catalogModule = mock()
         providerModule = mock()
         discoveryModule = mock()
@@ -77,6 +79,7 @@ class RecurringOrderServiceTests {
             orderRepository,
             orderItemRepository,
             orderService,
+            occurrenceOrderCreator,
             catalogModule,
             providerModule,
             discoveryModule,
@@ -144,22 +147,11 @@ class RecurringOrderServiceTests {
         whenever(occurrenceRepository.save(any<RecurringOrderOccurrence>())).thenAnswer { it.getArgument(0) }
         whenever(itemRepository.findBySubscriptionIdOrderByCreatedAtAsc(due.subscriptionId)).thenReturn(listOf(subscriptionItem(due.subscriptionId)))
         whenever(repository.save(any<RecurringOrderSubscription>())).thenAnswer { it.getArgument(0) }
-        whenever(orderService.calculateQuote(any())).thenReturn(
-            CheckoutQuoteResponse(
-                quoteToken = "recurring-quote",
-                subtotal = BigDecimal("200.00"),
-                itemDiscount = BigDecimal.ZERO,
-                couponDiscount = BigDecimal.ZERO,
-                loyaltyDiscount = BigDecimal.ZERO,
-                deliveryFee = BigDecimal("49.00"),
-                tax = BigDecimal("10.00"),
-                roundOff = BigDecimal.ZERO,
-                payableTotal = BigDecimal("259.00"),
-                paymentMethod = "COD",
-                expiresAt = now.plusSeconds(120),
+        whenever(
+            occurrenceOrderCreator.createOrGet(
+                any(), any(), any(), any(), any(), any(), any(), any(), any()
             )
-        )
-        whenever(orderService.createOrder(any())).thenReturn(generated)
+        ).thenReturn(generated)
 
         val previousSchedule = due.nextOrderAt
         val result = service.processDueOrders(now)
@@ -169,7 +161,7 @@ class RecurringOrderServiceTests {
         assertEquals(generatedOrderId, due.lastOrderId)
         assertEquals(previousSchedule.plus(30, ChronoUnit.DAYS), due.nextOrderAt)
         assertNotNull(due.lastExecutedAt)
-        verify(orderService).createOrder(any())
+        verify(occurrenceOrderCreator).createOrGet(any(), any(), any(), any(), any(), any(), any(), any(), any())
         verify(outboxService).saveEvent(any(), eq("RECURRING_ORDER"), any(), eq("RecurringOrderGenerated"), any())
     }
 
@@ -194,7 +186,7 @@ class RecurringOrderServiceTests {
         assertEquals(1, result.skipped)
         assertEquals(existing.orderId, due.lastOrderId)
         assertEquals(scheduledFor.plus(30, ChronoUnit.DAYS), due.nextOrderAt)
-        verify(orderService, never()).createOrder(any())
+        verify(occurrenceOrderCreator, never()).createOrGet(any(), any(), any(), any(), any(), any(), any(), any(), any())
     }
 
     @Test
@@ -213,7 +205,7 @@ class RecurringOrderServiceTests {
 
         assertEquals(1, result.failed)
         assertEquals("OUT_OF_STOCK", due.lastFailureCode)
-        verify(orderService, never()).createOrder(any())
+        verify(occurrenceOrderCreator, never()).createOrGet(any(), any(), any(), any(), any(), any(), any(), any(), any())
         verify(outboxService).saveEvent(any(), eq("RECURRING_ORDER"), any(), eq("RecurringOrderFailed"), any())
     }
 
@@ -233,7 +225,7 @@ class RecurringOrderServiceTests {
 
         assertEquals(1, result.failed)
         assertEquals("PRICE_CHANGED", due.lastFailureCode)
-        verify(orderService, never()).createOrder(any())
+        verify(occurrenceOrderCreator, never()).createOrGet(any(), any(), any(), any(), any(), any(), any(), any(), any())
     }
 
     @Test
@@ -265,7 +257,7 @@ class RecurringOrderServiceTests {
         assertTrue(result.reorder.canReorder)
         assertEquals(RecurringOrderStatus.ACTIVE, result.subscription.status)
         assertTrue(!result.subscription.nextOrderAt.isAfter(Instant.now().plusSeconds(2)))
-        verify(orderService, never()).createOrder(any())
+        verify(occurrenceOrderCreator, never()).createOrGet(any(), any(), any(), any(), any(), any(), any(), any(), any())
     }
 
     @Test
