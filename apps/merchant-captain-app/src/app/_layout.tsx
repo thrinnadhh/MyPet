@@ -57,13 +57,25 @@ function TabLayoutContent() {
   }
 
   const themeValue = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
-  const accessDenied = Boolean(user && !canAccessPath(pathname, activeRole));
+  const roleMissing = Boolean(user && !activeRole);
+  const accessDenied = Boolean(user && activeRole && !canAccessPath(pathname, activeRole));
 
   return (
     <ThemeProvider value={themeValue}>
       {Platform.OS === 'web' ? null : <AnimatedSplashOverlay />}
       {!user ? (
         <LoginScreen />
+      ) : roleMissing ? (
+        <ScreenShell
+          scroll={false}
+          header={<AppBar title="Operational role required" subtitle="MyPet could not verify this account as a merchant, captain, or administrator" />}
+        >
+          <StateView
+            kind="unauthorized"
+            title="Verified role not available"
+            message="For security, MyPet does not trust editable profile metadata for operational access. Sign out and retry after your merchant or captain role has been provisioned."
+          />
+        </ScreenShell>
       ) : accessDenied ? (
         <ScreenShell scroll={false} header={<AppBar title="Restricted workspace" subtitle="This route is not available for the active role" />}>
           <StateView
