@@ -1,9 +1,10 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import {
   AppBar,
+  FeedbackBanner,
   FilterChip,
   PrimaryAction,
   SectionHeader,
@@ -17,7 +18,6 @@ import { RECURRING_CADENCES, type RecurringCadence, type RecurringOrderSubscript
 import { apiErrorMessage } from '@/contracts/api-error';
 import { useAuth } from '@/context/AuthContext';
 import { useAuthIntent } from '@/context/AuthIntentContext';
-import { useCart } from '@/context/CartContext';
 import { spacing, typography } from '@/design/tokens';
 import {
   confirmRecurringOrder,
@@ -25,7 +25,6 @@ import {
   fetchRecurringOrders,
   updateRecurringOrder,
 } from '@/services/recurring-orders';
-import { buildCartFromRevalidation } from '@/services/revalidated-cart';
 
 function statusTone(status: RecurringOrderSubscription['status']): 'success' | 'warning' | 'error' | 'neutral' {
   if (status === 'ACTIVE') return 'success';
@@ -44,12 +43,14 @@ function formatDate(value: string): string {
   }).format(new Date(value));
 }
 
+function compact(value: string): string {
+  return value.slice(0, 8).toUpperCase();
+}
+
 export default function RecurringOrdersScreen() {
-  const router = useRouter();
   const params = useLocalSearchParams<{ sourceOrderId?: string }>();
   const { user, session } = useAuth();
   const { requireAuth } = useAuthIntent();
-  const { replaceCart } = useCart();
   const [subscriptions, setSubscriptions] = useState<RecurringOrderSubscription[]>([]);
   const [cadence, setCadence] = useState<RecurringCadence>(30);
   const [quantityMultiplier, setQuantityMultiplier] = useState(1);
@@ -94,7 +95,12 @@ export default function RecurringOrdersScreen() {
         session.access_token,
       );
       setSubscriptions((current) => [created, ...current]);
-      Alert.alert('Recurring order created', 'MyPet will remind you before the next order. Payment is never charged automatically.');
+      Alert.alert(
+        'Subscription active',
+        created.paymentMethod === 'COD'
+          ? 'MyPet will create the next COD order on schedule using current stock, price and serviceability checks.'
+          : 'MyPet will create the next order on schedule. Payment is never charged silently; prepaid orders remain pending until you complete normal payment.',
+      );
     } catch (nextError) {
       Alert.alert('Could not subscribe', apiErrorMessage(nextError));
     } finally {
@@ -118,44 +124,31 @@ export default function RecurringOrdersScreen() {
     }
   }, [session]);
 
-  const confirm = useCallback(async (subscription: RecurringOrderSubscription) => {
+  const reactivateLegacy = useCallback(async (subscription: RecurringOrderSubscription) => {
     if (!session) return;
     setBusyId(subscription.subscriptionId);
     try {
       const result = await confirmRecurringOrder(subscription.subscriptionId, session.access_token);
       setSubscriptions((current) => current.map((item) => item.subscriptionId === result.subscription.subscriptionId ? result.subscription : item));
       if (result.reorder.canReorder) {
-        const nextItems = await buildCartFromRevalidation(result.reorder);
-        await replaceCart(nextItems);
-        Alert.alert(
-          'Order revalidated',
-          'Current products and quantities are in your cart. Checkout will calculate a new server-authoritative quote.',
-          [
-            { text: 'Later', style: 'cancel' },
-            { text: 'Open cart', onPress: () => router.push('/cart' as never) },
-          ],
-        );
+        Alert.alert('Subscription reactivated', 'This migrated subscription is active again. The scheduler will perform current stock, price and serviceability checks before generating its next order.');
       } else {
-        const unavailable = result.reorder.items
-          .filter((item) => !item.isAvailable)
-          .map((item) => `${item.offeringName}: ${item.message ?? 'Unavailable'}`)
-          .join('\n');
-        Alert.alert('Confirmation needs changes', unavailable || 'The provider or one of the items is currently unavailable.');
+        Alert.alert('Subscription needs changes', 'The source products or merchant are not currently available. Update the subscription before reactivating it.');
       }
     } catch (nextError) {
-      Alert.alert('Confirmation failed', apiErrorMessage(nextError));
+      Alert.alert('Reactivation failed', apiErrorMessage(nextError));
     } finally {
       setBusyId(null);
     }
-  }, [replaceCart, router, session]);
+  }, [session]);
 
   if (!user || !session) {
     return (
-      <ScreenShell scroll={false} header={<AppBar title="Recurring orders" subtitle="Scheduled reminders with confirmation" />}>
+      <ScreenShell scroll={false} header={<AppBar title="Recurring orders" subtitle="Scheduled operational orders" />}>
         <StateView
           kind="unauthenticated"
           title="Sign in to manage subscriptions"
-          message="MyPet revalidates stock and price before every recurring order."
+          message="MyPet validates merchant availability, stock, price and delivery serviceability before each recurring order."
           actionLabel="Sign in"
           onAction={() => void requireAuth({ action: 'ORDER_HISTORY', returnTo: '/subscriptions' })}
         />
@@ -173,15 +166,15 @@ export default function RecurringOrdersScreen() {
 
   return (
     <ScreenShell
-      header={<AppBar title="Recurring orders" subtitle="No silent charging—every order requires confirmation" />}
+      header={<AppBar title="Recurring orders" subtitle="One scheduled run creates at most one real order" />}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
       testID="recurring-orders-screen"
     >
       {params.sourceOrderId ? (
         <AppCard style={styles.card}>
-          <SectionHeader title="Subscribe to this order" />
+          <SectionHeader title="Subscribe to this completed order" />
           <ThemedText type="small" themeColor="textSecondary">
-            Source order #{params.sourceOrderId.slice(0, 8).toUpperCase()}. A reminder is created; checkout still generates a fresh quote.
+            Source order #{compact(params.sourceOrderId)}. Products and base quantities are snapshotted now; every run rechecks the merchant, current stock, current price and delivery area.
           </ThemedText>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
             {RECURRING_CADENCES.map((days) => (
@@ -193,7 +186,7 @@ export default function RecurringOrdersScreen() {
               <FilterChip key={quantity} label={`${quantity}× quantity`} selected={quantityMultiplier === quantity} onPress={() => setQuantityMultiplier(quantity)} />
             ))}
           </View>
-          <PrimaryAction label="Create recurring reminder" loading={busyId === 'create'} onPress={() => void create()} />
+          <PrimaryAction label="Activate subscription" loading={busyId === 'create'} onPress={() => void create()} />
         </AppCard>
       ) : null}
 
@@ -202,7 +195,7 @@ export default function RecurringOrdersScreen() {
       ) : null}
 
       {!error && subscriptions.length === 0 ? (
-        <StateView kind="empty" title="No recurring orders" message="Open a completed order and select Subscribe to create a 7, 15, 25, 30 or 35 day reminder." />
+        <StateView kind="empty" title="No recurring orders" message="Open a completed order and select Subscribe to schedule it every 7, 15, 25, 30 or 35 days." />
       ) : null}
 
       {!error && subscriptions.length > 0 ? (
@@ -213,15 +206,43 @@ export default function RecurringOrdersScreen() {
                 <View style={styles.flex}>
                   <ThemedText style={styles.title}>Every {subscription.cadenceDays} days</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
-                    Order #{subscription.sourceOrderId.slice(0, 8).toUpperCase()} · {subscription.quantityMultiplier}× quantity
+                    {subscription.paymentMethod} · {subscription.quantityMultiplier}× base quantities
                   </ThemedText>
                 </View>
                 <StatusBadge label={subscription.status.replaceAll('_', ' ')} tone={statusTone(subscription.status)} />
               </View>
-              <ThemedText type="small" themeColor="textSecondary">Next reminder {formatDate(subscription.nextOrderAt)}</ThemedText>
+
+              <View style={styles.itemList}>
+                {subscription.items.map((item) => (
+                  <ThemedText key={item.offeringId} type="small">
+                    {item.name} · {item.effectiveQuantity} unit{item.effectiveQuantity === 1 ? '' : 's'}
+                  </ThemedText>
+                ))}
+              </View>
+
+              <ThemedText type="small" themeColor="textSecondary">Next scheduled order {formatDate(subscription.nextOrderAt)}</ThemedText>
+              {subscription.lastExecutedAt ? (
+                <ThemedText type="small" themeColor="textSecondary">Last run {formatDate(subscription.lastExecutedAt)}</ThemedText>
+              ) : null}
+              {subscription.lastOrderId ? (
+                <FeedbackBanner
+                  tone="success"
+                  title={`Generated order #${compact(subscription.lastOrderId)}`}
+                  message={subscription.paymentMethod === 'COD'
+                    ? 'The generated COD order follows the normal merchant fulfilment lifecycle.'
+                    : 'The generated prepaid order requires normal payment before the merchant can accept it.'}
+                />
+              ) : null}
+              {subscription.lastFailureCode ? (
+                <FeedbackBanner
+                  tone="warning"
+                  title={subscription.lastFailureCode.replaceAll('_', ' ')}
+                  message={subscription.lastFailureDetail ?? 'The scheduled run was not converted into an invalid order.'}
+                />
+              ) : null}
 
               {subscription.status === 'AWAITING_CONFIRMATION' ? (
-                <PrimaryAction label="Revalidate and confirm" loading={busyId === subscription.subscriptionId} onPress={() => void confirm(subscription)} />
+                <PrimaryAction label="Reactivate migrated subscription" loading={busyId === subscription.subscriptionId} onPress={() => void reactivateLegacy(subscription)} />
               ) : null}
 
               {subscription.status !== 'CANCELLED' ? (
@@ -251,4 +272,5 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.x3 },
   flex: { flex: 1 },
   title: { ...typography.title },
+  itemList: { gap: spacing.x1 },
 });
