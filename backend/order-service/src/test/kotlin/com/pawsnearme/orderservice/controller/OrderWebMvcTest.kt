@@ -5,6 +5,8 @@ import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
 import com.pawsnearme.orderservice.service.CheckoutQuoteResponse
+import com.pawsnearme.orderservice.service.CustomerDeliveryContact
+import com.pawsnearme.orderservice.service.DeliveryContactLookup
 import com.pawsnearme.orderservice.service.OrderService
 import com.pawsnearme.common.idempotency.IdempotencyService
 import com.pawsnearme.common.idempotency.ProcessedEventRepository
@@ -12,8 +14,6 @@ import com.pawsnearme.common.outbox.OutboxPoller
 import com.pawsnearme.common.outbox.OutboxRepository
 import com.pawsnearme.common.outbox.OutboxService
 import com.pawsnearme.orderservice.service.QuoteStore
-import jakarta.persistence.EntityManagerFactory
-import net.javacrumbs.shedlock.core.LockProvider
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
@@ -34,7 +34,6 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
-import javax.sql.DataSource
 
 @SpringBootTest(
     properties = [
@@ -58,6 +57,9 @@ class OrderWebMvcTest {
 
     @MockBean
     private lateinit var orderRepository: OrderRepository
+
+    @MockBean
+    private lateinit var deliveryContactLookup: DeliveryContactLookup
 
     @MockBean
     private lateinit var stringRedisTemplate: StringRedisTemplate
@@ -148,7 +150,7 @@ class OrderWebMvcTest {
     }
 
     @Test
-    fun `POST create order - success with JSON request without customerId in body`() {
+    fun `POST create order - success snapshots owned delivery contact without trusting client header`() {
         val customerId = UUID.randomUUID()
         val providerId = UUID.randomUUID()
         val deliveryAddressId = UUID.randomUUID()
@@ -166,7 +168,10 @@ class OrderWebMvcTest {
             paymentMethod = "COD"
         )
 
+        whenever(deliveryContactLookup.forCustomerAddress(customerId, deliveryAddressId))
+            .thenReturn(CustomerDeliveryContact("+919876543210"))
         whenever(orderService.createOrder(any())).thenReturn(createdOrder)
+        whenever(orderRepository.save(any())).thenAnswer { it.arguments[0] as Order }
 
         val jsonRequest = """
             {
@@ -186,12 +191,43 @@ class OrderWebMvcTest {
         mockMvc.perform(
             post("/api/v1/orders")
                 .header("X-User-Id", customerId.toString())
+                .header("X-User-Phone", "+919876543210")
+                .header("X-Delivery-Contact-Phone", "+919999999999")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(jsonRequest)
         )
             .andExpect(status().isCreated)
             .andExpect(jsonPath("$.orderId").value(orderId.toString()))
             .andExpect(jsonPath("$.status").value("PLACED"))
+            .andExpect(jsonPath("$.deliveryContactPhone").value("+919876543210"))
+            .andExpect(jsonPath("$.deliveryContactVerified").value(true))
+    }
+
+    @Test
+    fun `POST create order - rejects address without customer-owned delivery contact`() {
+        val customerId = UUID.randomUUID()
+        val deliveryAddressId = UUID.randomUUID()
+        val jsonRequest = """
+            {
+              "quoteToken": "Q-TEST12345",
+              "providerId": "${UUID.randomUUID()}",
+              "deliveryAddressId": "$deliveryAddressId",
+              "items": [{"offeringId": "${UUID.randomUUID()}", "quantity": 1}],
+              "paymentMethod": "COD"
+            }
+        """.trimIndent()
+
+        whenever(deliveryContactLookup.forCustomerAddress(customerId, deliveryAddressId)).thenReturn(null)
+
+        mockMvc.perform(
+            post("/api/v1/orders")
+                .header("X-User-Id", customerId.toString())
+                .header("X-Delivery-Contact-Phone", "+919999999999")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(jsonRequest)
+        )
+            .andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.code").value("DELIVERY_CONTACT_REQUIRED"))
     }
 
     @Test
