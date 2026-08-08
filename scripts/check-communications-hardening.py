@@ -16,7 +16,10 @@ def require(text: str, pattern: str, message: str) -> None:
 
 
 def forbid(text: str, pattern: str, message: str) -> None:
-    if re.search(pattern, text, re.MULTILINE | re.DOTALL) is not None:
+    # Secret exposure rules are line-oriented. Do not use DOTALL here: a public
+    # Expo variable followed by a server-only provider key many lines later is
+    # not itself a leak.
+    if re.search(pattern, text, re.MULTILINE) is not None:
         raise AssertionError(message)
 
 
@@ -72,9 +75,9 @@ def main() -> int:
     require(env_example, r"BREVO_EMAIL_TEMPLATE_ORDER_PLACED", "Brevo order template contract missing")
 
     # Provider secrets must never be exposed through Expo public variables.
-    forbid(env_example, r"EXPO_PUBLIC_.*MSG91", "MSG91 secrets/config must never be exposed to the mobile bundle")
-    forbid(env_example, r"EXPO_PUBLIC_.*BREVO", "Brevo secrets/config must never be exposed to the mobile bundle")
-    forbid(env_example, r"EXPO_PUBLIC_.*SERVICE_ROLE", "Supabase service-role key must never be exposed to Expo")
+    forbid(env_example, r"^EXPO_PUBLIC_[^\r\n]*MSG91", "MSG91 secrets/config must never be exposed to the mobile bundle")
+    forbid(env_example, r"^EXPO_PUBLIC_[^\r\n]*BREVO", "Brevo secrets/config must never be exposed to the mobile bundle")
+    forbid(env_example, r"^EXPO_PUBLIC_[^\r\n]*SERVICE_ROLE", "Supabase service-role key must never be exposed to Expo")
 
     print("Production communications contract passed: SMS hook trust, email failover/idempotency, retries, and secret boundaries are enforced.")
     return 0
