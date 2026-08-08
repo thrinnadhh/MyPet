@@ -17,6 +17,30 @@ notification:
     CHAT_MESSAGE: "New message: {referenceId}"
   delivery:
     mode: ${NOTIFICATION_DELIVERY_MODE:LOGGED_DEV}
+  email:
+    # Keep disabled until sender domains, provider keys and all template IDs are configured.
+    enabled: ${TRANSACTIONAL_EMAIL_ENABLED:false}
+    max-attempts: ${TRANSACTIONAL_EMAIL_MAX_ATTEMPTS:5}
+    retry-interval-ms: ${TRANSACTIONAL_EMAIL_RETRY_INTERVAL_MS:60000}
+    msg91:
+      auth-key: ${MSG91_AUTH_KEY:}
+      domain: ${MSG91_EMAIL_DOMAIN:}
+      from-email: ${MSG91_EMAIL_FROM:}
+      from-name: ${MSG91_EMAIL_FROM_NAME:MyPet}
+      # Free-plan routing ceiling. Override if the commercial plan/quota changes.
+      monthly-limit: ${MSG91_EMAIL_MONTHLY_LIMIT:5000}
+      templates:
+        ORDER_PLACED: ${MSG91_EMAIL_TEMPLATE_ORDER_PLACED:}
+        ORDER_DELIVERED: ${MSG91_EMAIL_TEMPLATE_ORDER_DELIVERED:}
+        APPOINTMENT_BOOKED: ${MSG91_EMAIL_TEMPLATE_APPOINTMENT_BOOKED:}
+    brevo:
+      api-key: ${BREVO_API_KEY:}
+      from-email: ${BREVO_EMAIL_FROM:}
+      from-name: ${BREVO_EMAIL_FROM_NAME:MyPet}
+      templates:
+        ORDER_PLACED: ${BREVO_EMAIL_TEMPLATE_ORDER_PLACED:}
+        ORDER_DELIVERED: ${BREVO_EMAIL_TEMPLATE_ORDER_DELIVERED:}
+        APPOINTMENT_BOOKED: ${BREVO_EMAIL_TEMPLATE_APPOINTMENT_BOOKED:}
 
 spring:
   application:
