@@ -4,6 +4,7 @@ import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
+import com.pawsnearme.orderservice.service.CheckoutLocationPolicyService
 import com.pawsnearme.orderservice.service.CreateOrderRequest
 import com.pawsnearme.orderservice.service.DeliveryContactLookup
 import com.pawsnearme.orderservice.service.MerchantOrderQueryService
@@ -29,12 +30,14 @@ class OrderControllerTests {
     private val deliveryContactLookup: DeliveryContactLookup = mock()
     private val merchantOrderQueryService: MerchantOrderQueryService = mock()
     private val providerModule: ProviderModuleApi = mock()
+    private val checkoutLocationPolicyService: CheckoutLocationPolicyService = mock()
     private val controller = OrderController(
         orderService,
         orderRepository,
         deliveryContactLookup,
         merchantOrderQueryService,
         providerModule,
+        checkoutLocationPolicyService,
     )
 
     @Test
@@ -57,6 +60,7 @@ class OrderControllerTests {
         val body = response.body as Map<String, String>
         assertEquals("PROVIDER_NOT_OPERATIONAL", body["code"])
         verify(orderService, never()).createOrder(any())
+        verify(checkoutLocationPolicyService, never()).requireAuthoritativeDeliveryLocation(any(), any())
         verify(deliveryContactLookup, never()).forCustomerAddress(any(), any())
         verify(orderRepository, never()).save(any<Order>())
     }
