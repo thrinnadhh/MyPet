@@ -43,7 +43,7 @@ class ProfileAdminAccessServiceTests {
         verify(values).set("suspended_user:${customer.userId}", "true")
         verify(outbox).saveEvent(
             eventId = any(),
-            aggregateType = eq("USER"),
+            aggregateType = eq("PROFILE"),
             aggregateId = eq(customer.userId),
             eventType = eq("CustomerAccessRevoked"),
             eventPayload = any(),
@@ -77,7 +77,7 @@ class ProfileAdminAccessServiceTests {
         verify(redis).delete("suspended_user:${customer.userId}")
         verify(outbox).saveEvent(
             eventId = any(),
-            aggregateType = eq("USER"),
+            aggregateType = eq("PROFILE"),
             aggregateId = eq(customer.userId),
             eventType = eq("CustomerAccessRestored"),
             eventPayload = any(),
