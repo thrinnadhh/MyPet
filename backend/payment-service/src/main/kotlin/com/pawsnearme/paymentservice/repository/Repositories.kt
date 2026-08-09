@@ -43,12 +43,28 @@ interface TransactionRepository : JpaRepository<Transaction, UUID> {
             SELECT *
             FROM payments.transactions
             WHERE gateway_transaction_id = :gatewayTransactionId
-              AND status NOT IN ('REFUND_PENDING', 'REFUNDED')
+              AND status NOT IN ('REFUND_PENDING', 'REFUNDED', 'REFUND_FAILED')
             FOR UPDATE
         """,
         nativeQuery = true
     )
     fun findByGatewayTransactionId(@Param("gatewayTransactionId") gatewayTransactionId: String): Transaction?
+
+    /**
+     * Refund status reconciliation intentionally has a separate locked lookup because
+     * payment-success webhooks must never be able to select refund lifecycle rows.
+     */
+    @Query(
+        value = """
+            SELECT *
+            FROM payments.transactions
+            WHERE gateway_transaction_id = :gatewayTransactionId
+              AND status IN ('REFUND_PENDING', 'REFUNDED', 'REFUND_FAILED')
+            FOR UPDATE
+        """,
+        nativeQuery = true
+    )
+    fun findRefundByGatewayTransactionId(@Param("gatewayTransactionId") gatewayTransactionId: String): Transaction?
 }
 
 @Repository
