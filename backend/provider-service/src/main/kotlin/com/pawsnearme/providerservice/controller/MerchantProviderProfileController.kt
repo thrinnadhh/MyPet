@@ -86,8 +86,8 @@ class MerchantProviderProfileController(
     private val providerRepository: ProviderRepository,
 ) {
     /*
-     * Two-segment path intentionally avoids the public GET /api/v1/providers/*
-     * edge matcher used for customer-visible single-provider discovery.
+     * This two-segment path intentionally avoids the public single-provider
+     * wildcard GET matcher used for customer-visible provider discovery.
      * The controller still enforces the MERCHANT role and owner identity.
      */
     @GetMapping("/me/profiles")
