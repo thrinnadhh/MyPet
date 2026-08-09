@@ -8,28 +8,29 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import org.junit.jupiter.api.io.TempDir
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import org.springframework.mock.web.MockMultipartFile
+import software.amazon.awssdk.core.sync.RequestBody
+import software.amazon.awssdk.services.s3.S3Client
+import software.amazon.awssdk.services.s3.model.PutObjectRequest
+import software.amazon.awssdk.services.s3.model.PutObjectResponse
 import java.math.BigDecimal
-import java.nio.file.Path
 import java.util.Optional
 import java.util.UUID
 
 class CatalogMediaServiceTests {
-    @TempDir
-    lateinit var tempDir: Path
-
     private val offeringRepository: OfferingRepository = mock()
     private val providerRepository: ProviderRepository = mock()
+    private val s3Client: S3Client = mock()
 
     private fun service() = CatalogMediaService(
         offeringRepository = offeringRepository,
         providerRepository = providerRepository,
-        mediaDir = tempDir.toString(),
+        s3Client = s3Client,
+        bucket = "mypet-catalog-media-test",
         publicBaseUrl = "https://api.mypet.example",
     )
 
@@ -44,12 +45,15 @@ class CatalogMediaServiceTests {
     )
 
     @Test
-    fun `merchant owner can upload public catalog image`() {
+    fun `merchant owner can upload public catalog image to shared object storage`() {
         val ownerId = UUID.randomUUID()
         val product = offering()
         whenever(offeringRepository.findById(product.offeringId!!)).thenReturn(Optional.of(product))
         whenever(providerRepository.existsByProviderIdAndOwnerUserId(product.providerId, ownerId)).thenReturn(true)
         whenever(offeringRepository.save(any<Offering>())).thenAnswer { it.arguments[0] as Offering }
+        whenever(s3Client.putObject(any<PutObjectRequest>(), any<RequestBody>())).thenReturn(
+            PutObjectResponse.builder().eTag("test-etag").build(),
+        )
         val file = MockMultipartFile("file", "food.webp", "image/webp", byteArrayOf(1, 2, 3, 4))
 
         val stored = service().storeOfferingImage(product.offeringId!!, ownerId, "MERCHANT", file)
@@ -57,8 +61,7 @@ class CatalogMediaServiceTests {
         assertTrue(stored.imageUrl.startsWith("https://api.mypet.example/api/v1/catalog/offerings/media/"))
         assertEquals(stored.imageUrl, stored.offering.imageUrl)
         verify(offeringRepository).save(product)
-        val filename = stored.imageUrl.substringAfterLast('/')
-        assertTrue(tempDir.resolve(filename).toFile().isFile)
+        verify(s3Client).putObject(any<PutObjectRequest>(), any<RequestBody>())
     }
 
     @Test
@@ -89,7 +92,7 @@ class CatalogMediaServiceTests {
     }
 
     @Test
-    fun `public media lookup rejects path traversal`() {
+    fun `public media lookup rejects path traversal before object storage access`() {
         assertThrows<IllegalArgumentException> {
             service().loadPublicImage("../../secret.jpg")
         }
