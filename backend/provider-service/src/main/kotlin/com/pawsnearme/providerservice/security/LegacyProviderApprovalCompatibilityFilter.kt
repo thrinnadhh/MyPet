@@ -18,9 +18,14 @@ import java.util.UUID
  * call the pre-hardening approval URL. The legacy controller never executes: this
  * filter enforces the same ADMIN actor contract and delegates to the locked/audited
  * ProviderAdminApprovalService used by the canonical /providers/admin endpoint.
+ *
+ * It intentionally runs late in the servlet chain. In the modular monolith the
+ * embedded edge validates the bearer token first and propagates trusted X-User-*
+ * identity headers; in distributed mode the API gateway supplies those headers
+ * before the request reaches provider-service.
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 15)
+@Order(Ordered.LOWEST_PRECEDENCE - 100)
 class LegacyProviderApprovalCompatibilityFilter(
     private val approvalService: ProviderAdminApprovalService,
     private val objectMapper: ObjectMapper,
