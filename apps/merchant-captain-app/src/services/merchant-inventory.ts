@@ -28,6 +28,16 @@ export interface MerchantOffering {
   barcode?: string | null;
 }
 
+export interface MerchantOfferingPage {
+  providerId: string;
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  hasNext: boolean;
+  content: MerchantOffering[];
+}
+
 export interface OfferingDraft {
   name: string;
   description?: string;
@@ -50,11 +60,26 @@ export async function fetchMerchantProviders(): Promise<MerchantProvider[]> {
   return apiClient.get<MerchantProvider[]>('/api/v1/providers/me');
 }
 
-export async function fetchMerchantOfferings(providerId: string): Promise<MerchantOffering[]> {
-  const offerings = await apiClient.get<MerchantOffering[]>(
-    `/api/v1/catalog/offerings?providerId=${encodeURIComponent(providerId)}`,
+export async function fetchMerchantOfferingsPage(
+  providerId: string,
+  options: { query?: string; page?: number; size?: number } = {},
+): Promise<MerchantOfferingPage> {
+  const page = Math.max(0, Math.trunc(options.page ?? 0));
+  const size = Math.min(100, Math.max(1, Math.trunc(options.size ?? 50)));
+  const query = options.query?.trim().slice(0, 120) ?? '';
+  return apiClient.get<MerchantOfferingPage>(
+    `/api/v1/catalog/merchant/offerings?providerId=${encodeURIComponent(providerId)}` +
+      `&query=${encodeURIComponent(query)}&page=${page}&size=${size}`,
   );
-  return [...offerings].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+/**
+ * Bounded compatibility helper for screens that do not yet expose page controls.
+ * New merchant catalog surfaces should use fetchMerchantOfferingsPage directly.
+ */
+export async function fetchMerchantOfferings(providerId: string): Promise<MerchantOffering[]> {
+  const result = await fetchMerchantOfferingsPage(providerId, { page: 0, size: 100 });
+  return result.content;
 }
 
 function payload(providerId: string, draft: OfferingDraft): MerchantOffering {
