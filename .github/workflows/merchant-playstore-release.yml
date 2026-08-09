@@ -52,7 +52,7 @@ jobs:
           npm ci
           python3 ../../scripts/verify-mobile-npm-audit.py .
           npm run typecheck
-          npm run lint -- --quiet
+          npm run lint
           npm test
           npx --yes expo-doctor@1.20.1
       - name: Validate production AAB profile and Merchant rendered config
