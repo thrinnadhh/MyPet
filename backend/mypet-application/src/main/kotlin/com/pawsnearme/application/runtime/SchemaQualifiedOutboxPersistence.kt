@@ -35,6 +35,7 @@ internal object MonolithOutboxOwnerRegistry {
         "ADMIN_OPERATION" to "orders",
         "APPOINTMENT" to "appointments",
         "PROVIDER" to "providers",
+        "PROFILE" to "providers",
         "VACCINATION" to "providers",
         "CATALOG" to "catalog",
         "OFFERING" to "catalog",
@@ -118,7 +119,8 @@ class SchemaQualifiedOutboxPersistence(
                 payload,
                 created_at,
                 published_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            )
+            VALUES (?, ?, ?, ?, CAST(? AS jsonb), ?, ?)
             ON CONFLICT (event_id) DO UPDATE SET
                 aggregate_type = EXCLUDED.aggregate_type,
                 aggregate_id = EXCLUDED.aggregate_id,
@@ -132,23 +134,28 @@ class SchemaQualifiedOutboxPersistence(
     internal fun selectSql(schema: String): String {
         require(schema in MonolithOutboxOwnerRegistry.schemas) { "Unknown outbox schema '$schema'" }
         return """
-            SELECT
-                event_id,
-                aggregate_type,
-                aggregate_id,
-                event_type,
-                payload,
-                created_at,
-                published_at
+            SELECT event_id, aggregate_type, aggregate_id, event_type, payload, created_at, published_at
             FROM $schema.outbox_events
             WHERE published_at IS NULL
-            ORDER BY created_at ASC
-            LIMIT $BATCH_SIZE
+            ORDER BY created_at ASC, event_id ASC
+            LIMIT $PER_SCHEMA_BATCH_SIZE
             FOR UPDATE SKIP LOCKED
         """.trimIndent()
     }
 
-    private companion object {
-        const val BATCH_SIZE = 100
+    override fun markPublished(eventId: UUID, publishedAt: Instant) {
+        val updated = MonolithOutboxOwnerRegistry.schemas.sumOf { schema ->
+            jdbcTemplate.update(
+                "UPDATE $schema.outbox_events SET published_at = ? WHERE event_id = ? AND published_at IS NULL",
+                Timestamp.from(publishedAt),
+                eventId,
+            )
+        }
+        require(updated <= 1) { "Outbox event $eventId exists in more than one bounded-context schema" }
+    }
+
+    companion object {
+        private const val BATCH_SIZE = 100
+        private const val PER_SCHEMA_BATCH_SIZE = 100
     }
 }
