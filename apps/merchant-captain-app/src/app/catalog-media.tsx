@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 
 import {
   ActionButton,
@@ -242,15 +242,11 @@ export default function CatalogMediaScreen() {
               onPress={() => void pickAndUpload(offering)}
             />
             {offering.imageUrl ? (
-              <Pressable
-                accessibilityRole="imagebutton"
-                accessibilityLabel={`Current customer image for ${offering.name}`}
-                style={styles.urlHint}
-              >
+              <View accessible accessibilityLabel={`Public customer image is active for ${offering.name}`} style={styles.urlHint}>
                 <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
                   Public URL active
                 </ThemedText>
-              </Pressable>
+              </View>
             ) : null}
           </AppCard>
         ))}
@@ -270,10 +266,10 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: touchTarget.min,
+    minHeight: touchTarget,
     opacity: 0.7,
   },
   copy: { gap: spacing.x1 },
   title: { fontWeight: '800' },
-  urlHint: { minHeight: touchTarget.min, justifyContent: 'center' },
+  urlHint: { minHeight: touchTarget, justifyContent: 'center' },
 });
