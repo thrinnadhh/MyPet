@@ -4,15 +4,16 @@ import com.pawsnearme.catalogservice.model.Offering
 import com.pawsnearme.catalogservice.repository.OfferingRepository
 import com.pawsnearme.catalogservice.repository.ProviderRepository
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.core.io.FileSystemResource
-import org.springframework.core.io.Resource
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.multipart.MultipartFile
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.Paths
+import software.amazon.awssdk.core.sync.RequestBody
+import software.amazon.awssdk.services.s3.S3Client
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest
+import software.amazon.awssdk.services.s3.model.GetObjectRequest
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException
+import software.amazon.awssdk.services.s3.model.PutObjectRequest
 import java.util.UUID
 
 class CatalogMediaAccessDeniedException(message: String) : RuntimeException(message)
@@ -21,17 +22,14 @@ class CatalogMediaAccessDeniedException(message: String) : RuntimeException(mess
 class CatalogMediaService(
     private val offeringRepository: OfferingRepository,
     private val providerRepository: ProviderRepository,
-    @Value("\${catalog.media.dir:./catalog-media}")
-    private val mediaDir: String,
+    private val s3Client: S3Client,
+    @Value("\${storage.catalog-media.bucket:mypet-catalog-media-local}")
+    private val bucket: String,
     @Value("\${catalog.public-base-url:http://localhost:8080}")
     private val publicBaseUrl: String,
 ) {
     private val maxBytes = 5L * 1024L * 1024L
     private val allowedMimeTypes = setOf("image/jpeg", "image/png", "image/webp")
-
-    init {
-        Files.createDirectories(root())
-    }
 
     data class StoredMedia(
         val offering: Offering,
@@ -39,7 +37,7 @@ class CatalogMediaService(
     )
 
     data class LoadedMedia(
-        val resource: Resource,
+        val bytes: ByteArray,
         val mediaType: MediaType,
     )
 
@@ -62,21 +60,41 @@ class CatalogMediaService(
             else -> "jpg"
         }
         val filename = "${UUID.randomUUID()}.$extension"
-        val destination = safePath(filename)
-        Files.write(destination, file.bytes)
-
+        val objectKey = objectKey(filename)
         val previousUrl = offering.imageUrl
-        val imageUrl = "${publicBaseUrl.trimEnd('/')}/api/v1/catalog/offerings/media/$filename"
-        offering.imageUrl = imageUrl
-        val saved = offeringRepository.save(offering)
-        deleteManagedPrevious(previousUrl, filename)
-        return StoredMedia(saved, imageUrl)
+
+        s3Client.putObject(
+            PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(objectKey)
+                .contentType(mimeType)
+                .cacheControl("public, max-age=2592000, immutable")
+                .build(),
+            RequestBody.fromBytes(file.bytes),
+        )
+
+        try {
+            val imageUrl = "${publicBaseUrl.trimEnd('/')}/api/v1/catalog/offerings/media/$filename"
+            offering.imageUrl = imageUrl
+            val saved = offeringRepository.save(offering)
+            deleteManagedPrevious(previousUrl, filename)
+            return StoredMedia(saved, imageUrl)
+        } catch (exception: Exception) {
+            runCatching { deleteObject(filename) }
+            throw exception
+        }
     }
 
     fun loadPublicImage(filename: String): LoadedMedia {
         requireSafeFilename(filename)
-        val path = safePath(filename)
-        if (!Files.isRegularFile(path)) {
+        val response = try {
+            s3Client.getObjectAsBytes(
+                GetObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(objectKey(filename))
+                    .build(),
+            )
+        } catch (exception: NoSuchKeyException) {
             throw NoSuchElementException("Catalog media not found")
         }
         val mediaType = when (filename.substringAfterLast('.', "").lowercase()) {
@@ -84,7 +102,7 @@ class CatalogMediaService(
             "webp" -> MediaType.parseMediaType("image/webp")
             else -> MediaType.IMAGE_JPEG
         }
-        return LoadedMedia(FileSystemResource(path), mediaType)
+        return LoadedMedia(response.asByteArray(), mediaType)
     }
 
     private fun verifyOwnership(offering: Offering, requesterId: UUID?, requesterRole: String?) {
@@ -105,13 +123,9 @@ class CatalogMediaService(
         require(mimeType in allowedMimeTypes) { "Only JPEG, PNG and WebP images are supported" }
     }
 
-    private fun root(): Path = Paths.get(mediaDir).toAbsolutePath().normalize()
-
-    private fun safePath(filename: String): Path {
+    private fun objectKey(filename: String): String {
         requireSafeFilename(filename)
-        val path = root().resolve(filename).normalize()
-        require(path.startsWith(root())) { "Invalid media path" }
-        return path
+        return "catalog-media/$filename"
     }
 
     private fun requireSafeFilename(filename: String) {
@@ -124,6 +138,15 @@ class CatalogMediaService(
             ?.takeIf { it != replacementFilename }
             ?: return
         if (!runCatching { requireSafeFilename(previousFilename) }.isSuccess) return
-        runCatching { Files.deleteIfExists(safePath(previousFilename)) }
+        runCatching { deleteObject(previousFilename) }
+    }
+
+    private fun deleteObject(filename: String) {
+        s3Client.deleteObject(
+            DeleteObjectRequest.builder()
+                .bucket(bucket)
+                .key(objectKey(filename))
+                .build(),
+        )
     }
 }
