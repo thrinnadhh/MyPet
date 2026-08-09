@@ -119,17 +119,31 @@ class AppointmentController(
     @GetMapping("/provider/{providerId}")
     fun getAppointmentsByProvider(
         @PathVariable providerId: UUID,
+        @RequestParam(required = false) page: Int?,
+        @RequestParam(defaultValue = "50") size: Int,
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
         val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
-        return ResponseEntity.ok(
-            merchantAppointmentQueryService.listProviderAppointments(
-                providerId,
-                callerId,
-                authenticatedUserRole,
+        return if (page == null) {
+            ResponseEntity.ok(
+                merchantAppointmentQueryService.listProviderAppointments(
+                    providerId,
+                    callerId,
+                    authenticatedUserRole,
+                )
             )
-        )
+        } else {
+            ResponseEntity.ok(
+                merchantAppointmentQueryService.listProviderAppointmentsPage(
+                    providerId = providerId,
+                    callerId = callerId,
+                    callerRole = authenticatedUserRole,
+                    page = page,
+                    size = size,
+                )
+            )
+        }
     }
 
     @PutMapping("/{id}/status")

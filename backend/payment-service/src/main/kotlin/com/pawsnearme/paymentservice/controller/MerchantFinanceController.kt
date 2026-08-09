@@ -6,6 +6,7 @@ import com.pawsnearme.paymentservice.repository.OrderRefRepository
 import com.pawsnearme.paymentservice.repository.PayoutRepository
 import com.pawsnearme.paymentservice.repository.PlatformCommissionLedgerRepository
 import com.pawsnearme.paymentservice.repository.ProviderRefRepository
+import org.springframework.data.domain.PageRequest
 import org.springframework.http.ResponseEntity
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -32,6 +34,9 @@ data class MerchantFinanceSummary(
     val accountPaidOut: BigDecimal,
     val accountPayoutInFlight: BigDecimal,
     val payoutScope: String = "MERCHANT_ACCOUNT",
+    val payoutPage: Int,
+    val payoutPageSize: Int,
+    val payoutTotalRecords: Long,
     val payouts: List<Payout>
 )
 
@@ -44,7 +49,13 @@ class MerchantFinanceService(
     private val payoutRepository: PayoutRepository
 ) {
     @Transactional(readOnly = true)
-    fun summary(providerId: UUID, requesterId: String?, requesterRole: String?): MerchantFinanceSummary {
+    fun summary(
+        providerId: UUID,
+        requesterId: String?,
+        requesterRole: String?,
+        payoutPage: Int = 0,
+        payoutSize: Int = 50,
+    ): MerchantFinanceSummary {
         val provider = providerRefRepository.findById(providerId)
             .orElseThrow { NoSuchElementException("Provider not found: $providerId") }
         if (requesterRole != "ADMIN" && requesterId != provider.ownerUserId.toString()) {
@@ -79,14 +90,14 @@ class MerchantFinanceService(
         val appointmentRevenue = completedAppointments.fold(BigDecimal.ZERO) { total, appointment ->
             total.add(appointment.priceAmount)
         }
-        val payouts = payoutRepository.findByPayeeUserId(provider.ownerUserId)
-            .sortedByDescending { it.createdAt }
-        val accountPaidOut = payouts
-            .filter { it.status == "PAID" }
-            .fold(BigDecimal.ZERO) { total, payout -> total.add(payout.amount) }
-        val accountPayoutInFlight = payouts
-            .filter { it.status in setOf("PENDING", "PROCESSING") }
-            .fold(BigDecimal.ZERO) { total, payout -> total.add(payout.amount) }
+        val boundedPage = payoutPage.coerceAtLeast(0)
+        val boundedSize = payoutSize.coerceIn(1, 100)
+        val payoutHistory = payoutRepository.findByPayeeUserIdOrderByCreatedAtDesc(
+            provider.ownerUserId,
+            PageRequest.of(boundedPage, boundedSize),
+        )
+        val accountPaidOut = payoutRepository.sumPaidAmountByPayeeUserId(provider.ownerUserId)
+        val accountPayoutInFlight = payoutRepository.sumInFlightAmountByPayeeUserId(provider.ownerUserId)
 
         return MerchantFinanceSummary(
             providerId = providerId,
@@ -101,7 +112,10 @@ class MerchantFinanceService(
             totalNetRevenue = orderNet.add(appointmentRevenue).money(),
             accountPaidOut = accountPaidOut.money(),
             accountPayoutInFlight = accountPayoutInFlight.money(),
-            payouts = payouts
+            payoutPage = boundedPage,
+            payoutPageSize = boundedSize,
+            payoutTotalRecords = payoutHistory.totalElements,
+            payouts = payoutHistory.content,
         )
     }
 
@@ -115,8 +129,10 @@ class MerchantFinanceController(private val merchantFinanceService: MerchantFina
     fun providerSummary(
         @PathVariable providerId: UUID,
         @RequestHeader("X-User-Id", required = false) xUserId: String?,
-        @RequestHeader("X-User-Role", required = false) xUserRole: String?
+        @RequestHeader("X-User-Role", required = false) xUserRole: String?,
+        @RequestParam(defaultValue = "0") payoutPage: Int,
+        @RequestParam(defaultValue = "50") payoutSize: Int,
     ): ResponseEntity<MerchantFinanceSummary> = ResponseEntity.ok(
-        merchantFinanceService.summary(providerId, xUserId, xUserRole)
+        merchantFinanceService.summary(providerId, xUserId, xUserRole, payoutPage, payoutSize)
     )
 }

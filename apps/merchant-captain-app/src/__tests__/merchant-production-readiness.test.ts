@@ -33,18 +33,22 @@ test('merchant onboarding does not pretend unsaved KYC fields were persisted', (
   assert.match(screen, /Additional KYC, GST and settlement details are collected only in flows that persist them server-side/);
 });
 
-test('merchant orders render server item snapshots and refresh authoritative state', () => {
+test('merchant orders render server snapshots and poll only a bounded newest page', () => {
   const screen = source('src/app/orders.tsx');
   const service = source('src/services/merchant-orders.ts');
 
   assert.match(service, /items:\s*MerchantOrderItem\[\]/);
   assert.match(service, /discountAmount/);
   assert.match(service, /couponCode/);
+  assert.match(service, /fetchMerchantOrdersPage/);
+  assert.match(service, /Math\.min\(100/);
   assert.match(screen, /order\.items\.map/);
   assert.match(screen, /Authoritative total/);
-  assert.match(screen, /setInterval\(\(\) => void load\(true\), 10_000\)/);
+  assert.match(screen, /ORDER_PAGE_SIZE\s*=\s*40/);
+  assert.match(screen, /setInterval\(\(\) => void loadLatest\(true\), 10_000\)/);
+  assert.match(screen, /Load older orders/);
   assert.match(screen, /await transitionMerchantOrder/);
-  assert.match(screen, /await load\(true\)/);
+  assert.match(screen, /await loadLatest\(true\)/);
 });
 
 test('merchant appointments never fabricate customer or pet names from UUIDs', () => {

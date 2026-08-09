@@ -34,7 +34,15 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6380}
 
+storage:
+  catalog-media:
+    bucket: ${CATALOG_MEDIA_BUCKET:mypet-catalog-media-local}
+    region: ${CATALOG_MEDIA_REGION:ap-south-1}
+    access-key: ${CATALOG_MEDIA_ACCESS_KEY:}
+    secret-key: ${CATALOG_MEDIA_SECRET_KEY:}
 
+catalog:
+  public-base-url: ${CATALOG_PUBLIC_BASE_URL:${PUBLIC_API_BASE_URL:${PROVIDER_PUBLIC_BASE_URL:http://localhost:8080}}}
 
 gateway:
   trust:
@@ -66,6 +74,3 @@ spring:
 
 # Gateway trust boundary — set GATEWAY_SECRET env var to match api-gateway
 # Enable in staging/production; leave disabled in local dev
-
-
-

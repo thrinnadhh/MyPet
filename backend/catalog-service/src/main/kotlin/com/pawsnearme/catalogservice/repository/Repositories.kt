@@ -1,9 +1,12 @@
 package com.pawsnearme.catalogservice.repository
 
 import com.pawsnearme.catalogservice.model.*
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 import org.springframework.stereotype.Repository
 import java.util.UUID
 
@@ -17,6 +20,26 @@ interface ProviderRepository : JpaRepository<Provider, UUID> {
 interface OfferingRepository : JpaRepository<Offering, UUID> {
     fun findByProviderId(providerId: UUID): List<Offering>
     fun findFirstByProviderIdAndBarcodeIn(providerId: UUID, barcodes: Collection<String>): Offering?
+
+    @Query(
+        """
+        SELECT o
+          FROM Offering o
+         WHERE o.providerId = :providerId
+           AND (
+                :query = ''
+                OR LOWER(o.name) LIKE LOWER(CONCAT('%', :query, '%'))
+                OR LOWER(COALESCE(o.category, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+                OR LOWER(COALESCE(o.sku, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+                OR LOWER(COALESCE(o.barcode, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+           )
+        """
+    )
+    fun searchMerchantOfferings(
+        @Param("providerId") providerId: UUID,
+        @Param("query") query: String,
+        pageable: Pageable,
+    ): Page<Offering>
 
     @Modifying
     @Query(

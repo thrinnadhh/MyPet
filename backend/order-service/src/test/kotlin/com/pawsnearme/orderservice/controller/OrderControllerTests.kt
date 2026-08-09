@@ -79,7 +79,13 @@ class OrderControllerTests {
 
     @Test
     fun `getOrdersByProvider - invalid auth header returns 401`() {
-        val response = controller.getOrdersByProvider(UUID.randomUUID(), "not-a-uuid", "MERCHANT")
+        val response = controller.getOrdersByProvider(
+            providerId = UUID.randomUUID(),
+            page = null,
+            size = 50,
+            authenticatedUserId = "not-a-uuid",
+            authenticatedUserRole = "MERCHANT",
+        )
         assertEquals(HttpStatus.UNAUTHORIZED, response.statusCode)
     }
 

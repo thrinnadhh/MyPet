@@ -19,7 +19,7 @@ import { useAuth } from '@/context/AuthContext';
 import { radii, shadows, spacing, touchTarget, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import {
-  fetchMerchantOrders,
+  fetchMerchantOrdersPage,
   isMerchantOrderActive,
   merchantOrderActions,
   transitionMerchantOrder,
@@ -29,6 +29,8 @@ import {
 import { formatCurrency, formatDateTime, formatOrderStatus } from '@/utils/formatters';
 
 type OrderFilter = 'NEW' | 'ACTIVE' | 'READY' | 'PAST';
+
+const ORDER_PAGE_SIZE = 40;
 
 function filterOrder(order: MerchantOrder, filter: OrderFilter): boolean {
   if (filter === 'NEW') return order.status === 'PLACED';
@@ -49,6 +51,14 @@ function compact(value: string): string {
   return value.slice(0, 8).toUpperCase();
 }
 
+function mergeNewestPage(current: MerchantOrder[], newest: MerchantOrder[]): MerchantOrder[] {
+  const newestIds = new Set(newest.map((order) => order.orderId));
+  return [
+    ...newest,
+    ...current.filter((order) => !newestIds.has(order.orderId)),
+  ];
+}
+
 export default function MerchantOrdersScreen() {
   const theme = useTheme();
   const { providerId } = useAuth();
@@ -56,6 +66,10 @@ export default function MerchantOrdersScreen() {
   const [filter, setFilter] = useState<OrderFilter>('NEW');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextPage, setNextPage] = useState(1);
+  const [totalElements, setTotalElements] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [refreshingOrderId, setRefreshingOrderId] = useState<string | null>(null);
   const [pending, setPending] = useState<{
@@ -64,31 +78,73 @@ export default function MerchantOrdersScreen() {
   } | null>(null);
   const [note, setNote] = useState('');
 
-  const load = useCallback(async (silent = false) => {
+  const loadLatest = useCallback(async (silent = false) => {
     if (!providerId) {
       setOrders([]);
+      setTotalElements(0);
+      setHasMore(false);
+      setNextPage(1);
       setLoading(false);
       return;
     }
     if (!silent) setLoading(true);
     try {
-      const next = await fetchMerchantOrders(providerId);
-      setOrders(next);
+      const result = await fetchMerchantOrdersPage(providerId, 0, ORDER_PAGE_SIZE);
+      if (silent) {
+        setOrders((current) => {
+          const merged = mergeNewestPage(current, result.content);
+          setHasMore(merged.length < result.totalElements);
+          return merged;
+        });
+      } else {
+        setOrders(result.content);
+        setNextPage(1);
+        setHasMore(result.hasNext);
+      }
+      setTotalElements(result.totalElements);
       setError(null);
     } catch (loadError) {
       setError(loadError);
-      if (!silent) setOrders([]);
+      if (!silent) {
+        setOrders([]);
+        setTotalElements(0);
+        setHasMore(false);
+      }
     } finally {
       if (!silent) setLoading(false);
     }
   }, [providerId]);
 
+  const loadMore = useCallback(async () => {
+    if (!providerId || !hasMore || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const result = await fetchMerchantOrdersPage(providerId, nextPage, ORDER_PAGE_SIZE);
+      setOrders((current) => {
+        const existingIds = new Set(current.map((order) => order.orderId));
+        return [
+          ...current,
+          ...result.content.filter((order) => !existingIds.has(order.orderId)),
+        ];
+      });
+      setNextPage((value) => value + 1);
+      setTotalElements(result.totalElements);
+      setHasMore(result.hasNext);
+      setError(null);
+    } catch (loadError) {
+      setError(loadError);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, loadingMore, nextPage, providerId]);
+
   useEffect(() => {
-    void load();
+    void loadLatest();
     if (!providerId) return undefined;
-    const interval = setInterval(() => void load(true), 10_000);
+    // Poll only the bounded newest page; older history is fetched on demand.
+    const interval = setInterval(() => void loadLatest(true), 10_000);
     return () => clearInterval(interval);
-  }, [load, providerId]);
+  }, [loadLatest, providerId]);
 
   const counts = useMemo(
     () => ({
@@ -125,16 +181,16 @@ export default function MerchantOrdersScreen() {
         pending.action.status,
         note,
       );
-      await load(true);
+      await loadLatest(true);
       setPending(null);
       setNote('');
     } catch (transitionError) {
       setError(transitionError);
-      if (apiErrorKind(transitionError) === 'conflict') void load(true);
+      if (apiErrorKind(transitionError) === 'conflict') void loadLatest(true);
     } finally {
       setRefreshingOrderId(null);
     }
-  }, [load, note, pending]);
+  }, [loadLatest, note, pending]);
 
   const errorTrace = error instanceof ApiError && error.traceId ? ` Reference: ${error.traceId}.` : '';
 
@@ -180,15 +236,24 @@ export default function MerchantOrdersScreen() {
             ))}
           </ScrollView>
 
+          {totalElements > 0 ? (
+            <FeedbackBanner
+              tone="info"
+              title="Bounded live order queue"
+              message={`Loaded ${orders.length} of ${totalElements} orders. The newest ${ORDER_PAGE_SIZE} are refreshed every 10 seconds; older history loads only when requested. Queue counts and search apply to loaded orders.`}
+              icon="history"
+            />
+          ) : null}
+
           <View style={[styles.search, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
             <AppIcon name="search" color={theme.textSecondary} size={18} />
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Search order, customer, coupon or item"
+              placeholder="Search loaded order, customer, coupon or item"
               placeholderTextColor={theme.textSecondary}
               style={[styles.searchInput, { color: theme.text }]}
-              accessibilityLabel="Search merchant orders"
+              accessibilityLabel="Search loaded merchant orders"
               returnKeyType="search"
             />
             {query ? (
@@ -207,10 +272,14 @@ export default function MerchantOrdersScreen() {
           {!loading && !error && visibleOrders.length === 0 ? (
             <StateView
               kind="empty"
-              title={query ? 'No matching orders' : 'No orders in this queue'}
-              message={query ? 'Try another order, customer, coupon or product.' : 'New orders will appear here after server confirmation.'}
-              actionLabel={query ? 'Clear search' : 'Refresh'}
-              onAction={query ? () => setQuery('') : () => void load()}
+              title={query ? 'No matching loaded orders' : 'No orders in this loaded queue'}
+              message={query
+                ? 'Try another order, customer, coupon or product, or load older history.'
+                : hasMore
+                  ? 'Load older history to continue checking this queue.'
+                  : 'New orders will appear here after server confirmation.'}
+              actionLabel={query ? 'Clear search' : hasMore ? 'Load older orders' : 'Refresh'}
+              onAction={query ? () => setQuery('') : hasMore ? () => void loadMore() : () => void loadLatest()}
             />
           ) : null}
 
@@ -314,6 +383,17 @@ export default function MerchantOrdersScreen() {
                 );
               })}
             </View>
+          ) : null}
+
+          {hasMore ? (
+            <ActionButton
+              label={loadingMore ? 'Loading older orders…' : `Load older orders (${orders.length}/${totalElements})`}
+              variant="secondary"
+              icon="history"
+              loading={loadingMore}
+              disabled={loadingMore}
+              onPress={() => void loadMore()}
+            />
           ) : null}
         </>
       ) : null}

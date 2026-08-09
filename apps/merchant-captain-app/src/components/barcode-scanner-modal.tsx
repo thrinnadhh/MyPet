@@ -1,6 +1,6 @@
 import { CameraView, useCameraPermissions, type BarcodeScanningResult, type BarcodeType } from 'expo-camera';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Vibration, View } from 'react-native';
+import { ActivityIndicator, Linking, Modal, Pressable, StyleSheet, Vibration, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { useTheme } from '@/hooks/use-theme';
@@ -78,9 +78,23 @@ export function BarcodeScannerModal({
   const requestCamera = useCallback(async () => {
     const response = await requestPermission();
     if (!response.granted) {
-      setCameraError('Camera permission is required to scan product barcodes.');
+      setCameraError(
+        response.canAskAgain === false
+          ? 'Camera access is blocked in Android settings. Open app settings to enable it.'
+          : 'Camera permission is required to scan product barcodes.',
+      );
     }
   }, [requestPermission]);
+
+  const openCameraSettings = useCallback(async () => {
+    try {
+      await Linking.openSettings();
+    } catch {
+      setCameraError('Could not open Android settings. Open Settings > Apps > MyPet Merchant > Permissions > Camera.');
+    }
+  }, []);
+
+  const permissionPermanentlyDenied = Boolean(permission && !permission.granted && permission.canAskAgain === false);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
@@ -100,17 +114,26 @@ export function BarcodeScannerModal({
             {!permission ? <ActivityIndicator size="large" color={theme.primary} /> : null}
             <ThemedText type="title">Camera permission</ThemedText>
             <ThemedText style={[styles.centeredText, { color: theme.textSecondary }]}>
-              Allow camera access to scan EAN, UPC, Code 39 and Code 128 labels.
+              {permissionPermanentlyDenied
+                ? 'Camera access is disabled for MyPet Merchant. Enable Camera in Android app settings, then return here and scan again.'
+                : 'Allow camera access to scan EAN, UPC, Code 39 and Code 128 labels.'}
             </ThemedText>
             {permission ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Allow camera access"
-                onPress={() => void requestCamera()}
+                accessibilityLabel={permissionPermanentlyDenied ? 'Open camera permission settings' : 'Allow camera access'}
+                onPress={() => void (permissionPermanentlyDenied ? openCameraSettings() : requestCamera())}
                 style={[styles.primaryButton, { backgroundColor: theme.primary }]}
               >
-                <ThemedText style={styles.primaryButtonText}>Allow camera</ThemedText>
+                <ThemedText style={styles.primaryButtonText}>
+                  {permissionPermanentlyDenied ? 'Open settings' : 'Allow camera'}
+                </ThemedText>
               </Pressable>
+            ) : null}
+            {cameraError ? (
+              <ThemedText accessibilityLiveRegion="polite" style={[styles.centeredText, { color: theme.danger }]}>
+                {cameraError}
+              </ThemedText>
             ) : null}
             <Pressable accessibilityRole="button" onPress={onClose} style={styles.secondaryButton}>
               <ThemedText type="smallBold">Cancel</ThemedText>

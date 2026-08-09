@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
@@ -18,6 +18,7 @@ import { RECURRING_CADENCES, type RecurringCadence, type RecurringOrderSubscript
 import { apiErrorMessage } from '@/contracts/api-error';
 import { useAuth } from '@/context/AuthContext';
 import { useAuthIntent } from '@/context/AuthIntentContext';
+import { useCart } from '@/context/CartContext';
 import { spacing, typography } from '@/design/tokens';
 import {
   confirmRecurringOrder,
@@ -25,6 +26,7 @@ import {
   fetchRecurringOrders,
   updateRecurringOrder,
 } from '@/services/recurring-orders';
+import { buildCartFromRevalidation } from '@/services/revalidated-cart';
 
 function statusTone(status: RecurringOrderSubscription['status']): 'success' | 'warning' | 'error' | 'neutral' {
   if (status === 'ACTIVE') return 'success';
@@ -48,9 +50,11 @@ function compact(value: string): string {
 }
 
 export default function RecurringOrdersScreen() {
+  const router = useRouter();
   const params = useLocalSearchParams<{ sourceOrderId?: string }>();
   const { user, session } = useAuth();
   const { requireAuth } = useAuthIntent();
+  const { replaceCart } = useCart();
   const [subscriptions, setSubscriptions] = useState<RecurringOrderSubscription[]>([]);
   const [cadence, setCadence] = useState<RecurringCadence>(30);
   const [quantityMultiplier, setQuantityMultiplier] = useState(1);
@@ -124,23 +128,36 @@ export default function RecurringOrdersScreen() {
     }
   }, [session]);
 
-  const reactivateLegacy = useCallback(async (subscription: RecurringOrderSubscription) => {
+  const confirm = useCallback(async (subscription: RecurringOrderSubscription) => {
     if (!session) return;
     setBusyId(subscription.subscriptionId);
     try {
       const result = await confirmRecurringOrder(subscription.subscriptionId, session.access_token);
       setSubscriptions((current) => current.map((item) => item.subscriptionId === result.subscription.subscriptionId ? result.subscription : item));
       if (result.reorder.canReorder) {
-        Alert.alert('Subscription reactivated', 'This migrated subscription is active again. The scheduler will perform current stock, price and serviceability checks before generating its next order.');
+        const nextItems = await buildCartFromRevalidation(result.reorder);
+        await replaceCart(nextItems);
+        Alert.alert(
+          'Order revalidated',
+          'Current products and quantities are in your cart. Checkout will calculate a new server-authoritative quote; prepaid payment is never charged silently.',
+          [
+            { text: 'Later', style: 'cancel' },
+            { text: 'Open cart', onPress: () => router.push('/cart' as never) },
+          ],
+        );
       } else {
-        Alert.alert('Subscription needs changes', 'The source products or merchant are not currently available. Update the subscription before reactivating it.');
+        const unavailable = result.reorder.items
+          .filter((item) => !item.isAvailable)
+          .map((item) => `${item.offeringName}: ${item.message ?? 'Unavailable'}`)
+          .join('\n');
+        Alert.alert('Confirmation needs changes', unavailable || 'The provider or one of the items is currently unavailable.');
       }
     } catch (nextError) {
-      Alert.alert('Reactivation failed', apiErrorMessage(nextError));
+      Alert.alert('Confirmation failed', apiErrorMessage(nextError));
     } finally {
       setBusyId(null);
     }
-  }, [session]);
+  }, [replaceCart, router, session]);
 
   if (!user || !session) {
     return (
@@ -170,6 +187,17 @@ export default function RecurringOrdersScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
       testID="recurring-orders-screen"
     >
+      <FeedbackBanner
+        tone="info"
+        title="No silent charging"
+        message="A recurring schedule never gives MyPet permission to silently charge a prepaid payment method. Prepaid occurrences must complete the normal payment flow before merchant acceptance."
+      />
+      <FeedbackBanner
+        tone="info"
+        title="Revalidate and confirm"
+        message="Before each occurrence becomes a real order, MyPet revalidates the merchant, delivery serviceability, current stock and current price. Invalid occurrences stop without creating an order or payment."
+      />
+
       {params.sourceOrderId ? (
         <AppCard style={styles.card}>
           <SectionHeader title="Subscribe to this completed order" />
@@ -242,7 +270,7 @@ export default function RecurringOrdersScreen() {
               ) : null}
 
               {subscription.status === 'AWAITING_CONFIRMATION' ? (
-                <PrimaryAction label="Reactivate migrated subscription" loading={busyId === subscription.subscriptionId} onPress={() => void reactivateLegacy(subscription)} />
+                <PrimaryAction label="Reactivate migrated subscription" loading={busyId === subscription.subscriptionId} onPress={() => void confirm(subscription)} />
               ) : null}
 
               {subscription.status !== 'CANCELLED' ? (

@@ -48,13 +48,32 @@ export interface MerchantOrder {
   items: MerchantOrderItem[];
 }
 
+export interface MerchantOrderPage {
+  providerId: string;
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  hasNext: boolean;
+  content: MerchantOrder[];
+}
+
+export async function fetchMerchantOrdersPage(
+  providerId: string,
+  page = 0,
+  size = 50,
+): Promise<MerchantOrderPage> {
+  const safePage = Math.max(0, Math.trunc(page));
+  const safeSize = Math.min(100, Math.max(1, Math.trunc(size)));
+  return apiClient.get<MerchantOrderPage>(
+    `/api/v1/orders/provider/${encodeURIComponent(providerId)}?page=${safePage}&size=${safeSize}`,
+  );
+}
+
+/** Compatibility helper; Merchant screens should prefer fetchMerchantOrdersPage. */
 export async function fetchMerchantOrders(providerId: string): Promise<MerchantOrder[]> {
-  const orders = await apiClient.get<MerchantOrder[]>(
-    `/api/v1/orders/provider/${encodeURIComponent(providerId)}`,
-  );
-  return [...orders].sort(
-    (left, right) => new Date(right.placedAt).getTime() - new Date(left.placedAt).getTime(),
-  );
+  const result = await fetchMerchantOrdersPage(providerId, 0, 100);
+  return result.content;
 }
 
 export async function transitionMerchantOrder(

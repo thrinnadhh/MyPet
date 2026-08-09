@@ -3,6 +3,7 @@ package com.pawsnearme.providerservice.model
 import jakarta.persistence.*
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalTime
 import java.util.UUID
 import org.locationtech.jts.geom.Point
 
@@ -56,6 +57,22 @@ class Provider(
     // JTS Point maps (longitude, latitude) -> x is longitude, y is latitude
     @Column(name = "geo_location", nullable = false, columnDefinition = "geography(Point, 4326)")
     var geoLocation: Point,
+
+    @Column(name = "contact_phone", length = 20)
+    var contactPhone: String? = null,
+
+    @Column(name = "contact_email", length = 254)
+    var contactEmail: String? = null,
+
+    @Column(name = "opens_at")
+    var opensAt: LocalTime? = null,
+
+    @Column(name = "closes_at")
+    var closesAt: LocalTime? = null,
+
+    /** Comma-separated java.time.DayOfWeek names, e.g. SUNDAY or MONDAY,SUNDAY. */
+    @Column(name = "weekly_off_days", length = 80)
+    var weeklyOffDays: String? = null,
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)

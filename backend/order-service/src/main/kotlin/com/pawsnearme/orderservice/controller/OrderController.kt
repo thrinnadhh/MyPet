@@ -110,6 +110,8 @@ class OrderController(
     @GetMapping("/provider/{providerId}")
     fun getOrdersByProvider(
         @PathVariable providerId: UUID,
+        @RequestParam(required = false) page: Int?,
+        @RequestParam(defaultValue = "50") size: Int,
         @RequestHeader(value = "X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader(value = "X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
@@ -122,9 +124,21 @@ class OrderController(
             ?: return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(mapOf("error" to "Invalid authenticated user context."))
-        return ResponseEntity.ok(
-            merchantOrderQueryService.listProviderOrders(providerId, callerId, authenticatedUserRole)
-        )
+        return if (page == null) {
+            ResponseEntity.ok(
+                merchantOrderQueryService.listProviderOrders(providerId, callerId, authenticatedUserRole)
+            )
+        } else {
+            ResponseEntity.ok(
+                merchantOrderQueryService.listProviderOrdersPage(
+                    providerId = providerId,
+                    callerId = callerId,
+                    callerRole = authenticatedUserRole,
+                    page = page,
+                    size = size,
+                )
+            )
+        }
     }
 
     @PostMapping("/{id}/cancel")
