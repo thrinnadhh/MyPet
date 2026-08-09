@@ -3,7 +3,9 @@ const API_BASE_URL = String(ADMIN_CONFIG.apiBaseUrl || '').replace(/\/+$/, '');
 
 let activeTab = 'approvals';
 let currentDisputeId = null;
+let currentProviderPage = 0;
 let currentUserPage = 0;
+const PROVIDER_PAGE_SIZE = 25;
 const USER_PAGE_SIZE = 25;
 const pendingMutations = new Set();
 
@@ -70,7 +72,7 @@ function switchTab(tabId) {
         panel.hidden = panel.id !== `${tabId}-panel`;
     });
 
-    if (tabId === 'approvals') void fetchPendingProviders();
+    if (tabId === 'approvals') void fetchPendingProviders(currentProviderPage);
     if (tabId === 'disputes') void fetchDisputes();
     if (tabId === 'banner-auction') void fetchBannerAuctionOutcomes();
     if (tabId === 'users') void fetchUsers(currentUserPage);
@@ -129,19 +131,25 @@ async function toggleRefundMode(isAutomated) {
     });
 }
 
-async function fetchPendingProviders() {
+async function fetchPendingProviders(page = currentProviderPage) {
     const container = document.getElementById('pending-providers-list');
     renderState(container, '⏳', 'Loading onboarding queue...');
 
     try {
-        const response = await fetch(apiUrl('/api/v1/providers/pending'));
+        const safePage = Math.max(0, Number(page) || 0);
+        const response = await fetch(apiUrl(`/api/v1/providers/admin?status=PENDING_APPROVAL&page=${safePage}&size=${PROVIDER_PAGE_SIZE}`));
         if (!response.ok) throw new Error(await readApiError(response, 'Failed to fetch pending providers'));
-        const providers = await response.json();
+        const payload = await response.json();
+        const providers = Array.isArray(payload) ? payload : payload.content;
         if (!Array.isArray(providers) || providers.length === 0) {
-            renderState(container, '🎉', 'Onboarding queue is clear.');
+            currentProviderPage = safePage;
+            renderState(container, '🎉', safePage === 0 ? 'Onboarding queue is clear.' : 'No pending providers on this page.');
             return;
         }
 
+        currentProviderPage = Number(payload.page ?? safePage);
+        const totalPages = Number(payload.totalPages ?? 1);
+        const totalElements = Number(payload.totalElements ?? providers.length);
         container.replaceChildren();
         providers.forEach((provider) => {
             const item = document.createElement('article');
@@ -178,6 +186,23 @@ async function fetchPendingProviders() {
             item.append(header, details, actions);
             container.appendChild(item);
         });
+
+        const pagination = document.createElement('div');
+        pagination.className = 'pagination';
+        const summary = createTextElement('span', 'pagination-summary', `Page ${currentProviderPage + 1} of ${Math.max(totalPages, 1)} · ${totalElements} pending providers`);
+        const controls = document.createElement('div');
+        controls.className = 'btn-group';
+        const previous = createTextElement('button', 'btn btn-secondary', 'Previous');
+        previous.type = 'button';
+        previous.disabled = currentProviderPage <= 0;
+        previous.addEventListener('click', () => void fetchPendingProviders(currentProviderPage - 1));
+        const next = createTextElement('button', 'btn btn-secondary', 'Next');
+        next.type = 'button';
+        next.disabled = currentProviderPage + 1 >= totalPages;
+        next.addEventListener('click', () => void fetchPendingProviders(currentProviderPage + 1));
+        controls.append(previous, next);
+        pagination.append(summary, controls);
+        container.appendChild(pagination);
     } catch (error) {
         renderState(container, '❌', error.message || 'Failed to load onboarding queue.');
     }
@@ -191,7 +216,7 @@ async function approveProvider(providerId) {
             });
             if (!response.ok) throw new Error(await readApiError(response, 'Provider approval failed'));
             showToast('Provider approved');
-            await fetchPendingProviders();
+            await fetchPendingProviders(currentProviderPage);
         } catch (error) {
             showToast(error.message || 'Provider approval failed', true);
         }
@@ -216,7 +241,7 @@ async function rejectProvider(providerId) {
             });
             if (!response.ok) throw new Error(await readApiError(response, 'Provider rejection failed'));
             showToast('Provider rejected');
-            await fetchPendingProviders();
+            await fetchPendingProviders(currentProviderPage);
         } catch (error) {
             showToast(error.message || 'Provider rejection failed', true);
         }
@@ -511,7 +536,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.checkAdminAuth?.()) {
         void Promise.allSettled([
             fetchRefundModeConfig(),
-            fetchPendingProviders(),
+            fetchPendingProviders(currentProviderPage),
             fetchOperationalSnapshot(),
         ]);
     }
