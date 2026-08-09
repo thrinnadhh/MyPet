@@ -3,6 +3,7 @@ package com.pawsnearme.paymentservice.controller
 import com.pawsnearme.paymentservice.model.Transaction
 import com.pawsnearme.paymentservice.service.CashfreeGatewayService
 import com.pawsnearme.paymentservice.service.CashfreeOrderResponse
+import com.pawsnearme.paymentservice.service.CashfreeRefundLifecycleService
 import com.pawsnearme.paymentservice.service.CouponReservationLifecycleService
 import com.pawsnearme.paymentservice.service.CreateCashfreeOrderRequest
 import com.pawsnearme.paymentservice.service.PaymentService
@@ -20,10 +21,12 @@ class PaymentControllerTests {
 
     private val paymentService: PaymentService = mock()
     private val cashfreeGatewayService: CashfreeGatewayService = mock()
+    private val cashfreeRefundLifecycleService: CashfreeRefundLifecycleService = mock()
     private val couponReservationLifecycleService: CouponReservationLifecycleService = mock()
     private val controller = PaymentController(
         paymentService,
         cashfreeGatewayService,
+        cashfreeRefundLifecycleService,
         couponReservationLifecycleService,
     )
 
@@ -79,6 +82,18 @@ class PaymentControllerTests {
     }
 
     @Test
+    fun `handleWebhook routes signed events through refund-aware lifecycle`() {
+        whenever(
+            cashfreeRefundLifecycleService.processWebhook("payload", "signature", "1720000000000", "event-1")
+        ).thenReturn(true)
+
+        val response = controller.handleWebhook("payload", "signature", "1720000000000", "event-1")
+
+        assertEquals(HttpStatus.OK, response.statusCode)
+        assertEquals("processed", (response.body as Map<*, *>)["status"])
+    }
+
+    @Test
     fun `getTransaction - user mismatch - throws PaymentAccessDeniedException`() {
         val txId = UUID.randomUUID()
         val tx = Transaction(
@@ -124,12 +139,19 @@ class PaymentControllerTests {
     @Test
     fun `refundPayment - non-admin role - throws PaymentAccessDeniedException`() {
         assertThrows<PaymentAccessDeniedException> {
-            controller.refundPayment(referenceId, "CUSTOMER")
+            controller.refundPayment(referenceId, "CUSTOMER", userId.toString())
         }
     }
 
     @Test
-    fun `refundPayment - admin role - succeeds`() {
+    fun `refundPayment - admin without identity - throws PaymentAccessDeniedException`() {
+        assertThrows<PaymentAccessDeniedException> {
+            controller.refundPayment(referenceId, "ADMIN", null)
+        }
+    }
+
+    @Test
+    fun `refundPayment - admin role and identity - succeeds`() {
         val tx = Transaction(
             transactionId = UUID.randomUUID(),
             userId = userId,
@@ -141,7 +163,7 @@ class PaymentControllerTests {
         )
         whenever(cashfreeGatewayService.refundOrder(referenceId)).thenReturn(tx)
 
-        val response = controller.refundPayment(referenceId, "ADMIN")
+        val response = controller.refundPayment(referenceId, "ADMIN", UUID.randomUUID().toString())
 
         assertEquals(HttpStatus.OK, response.statusCode)
         assertEquals(tx, response.body)
