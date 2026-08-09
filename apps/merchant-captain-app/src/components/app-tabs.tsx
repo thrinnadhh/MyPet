@@ -38,7 +38,7 @@ export default function AppTabs() {
 
   const isAdmin = activeRole === 'ADMIN';
   const isProvider = activeRole === 'PROVIDER';
-  const isCaptain = activeRole === 'CAPAIN';
+  const isCaptain = activeRole === 'CAPTAIN';
 
   const tabs: WebTab[] = [
     { name: 'home', href: '/', label: 'Home', visible: !isCaptain },
