@@ -8,6 +8,15 @@ export type MerchantProviderStatus =
   | 'SUSPENDED'
   | 'REJECTED';
 
+export type BusinessDay =
+  | 'MONDAY'
+  | 'TUESDAY'
+  | 'WEDNESDAY'
+  | 'THURSDAY'
+  | 'FRIDAY'
+  | 'SATURDAY'
+  | 'SUNDAY';
+
 export interface MerchantStoreProfile {
   providerId: string;
   ownerUserId: string;
@@ -15,13 +24,16 @@ export interface MerchantStoreProfile {
   fulfillmentType: 'DELIVERY' | 'APPOINTMENT';
   name: string;
   description?: string | null;
-  licenseNumber?: string | null;
-  licenseDocUrl?: string | null;
   addressLine: string;
   city: string;
   pincode: string;
   longitude: number;
   latitude: number;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
+  opensAt?: string | null;
+  closesAt?: string | null;
+  weeklyOffDays: BusinessDay[];
   status: MerchantProviderStatus;
   ratingAvg: number;
   ratingCount: number;
@@ -36,10 +48,15 @@ export interface MerchantStoreProfileUpdate {
   pincode: string;
   longitude: number;
   latitude: number;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
+  opensAt?: string | null;
+  closesAt?: string | null;
+  weeklyOffDays: BusinessDay[];
 }
 
 export async function fetchMerchantStores(): Promise<MerchantStoreProfile[]> {
-  return apiClient.get<MerchantStoreProfile[]>('/api/v1/providers/me');
+  return apiClient.get<MerchantStoreProfile[]>('/api/v1/providers/merchant-profiles');
 }
 
 export async function updateMerchantStore(
