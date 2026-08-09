@@ -42,7 +42,7 @@ storage:
     secret-key: ${CATALOG_MEDIA_SECRET_KEY:}
 
 catalog:
-  public-base-url: ${CATALOG_PUBLIC_BASE_URL:${PUBLIC_API_BASE_URL:http://localhost:8080}}
+  public-base-url: ${CATALOG_PUBLIC_BASE_URL:${PUBLIC_API_BASE_URL:${PROVIDER_PUBLIC_BASE_URL:http://localhost:8080}}}
 
 gateway:
   trust:
