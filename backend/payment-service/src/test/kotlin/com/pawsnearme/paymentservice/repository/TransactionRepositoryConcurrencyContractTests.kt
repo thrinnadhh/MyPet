@@ -21,7 +21,7 @@ class TransactionRepositoryConcurrencyContractTests {
     }
 
     @Test
-    fun `gateway webhook lookup locks row and excludes refund terminal states`() {
+    fun `gateway payment webhook lookup locks row and excludes refund lifecycle states`() {
         val method = TransactionRepository::class.java.methods.single {
             it.name == "findByGatewayTransactionId"
         }
@@ -31,7 +31,21 @@ class TransactionRepositoryConcurrencyContractTests {
         assertTrue(query.nativeQuery, "Webhook transaction lookup must use the schema-qualified payments table")
         val normalized = query.value.replace(Regex("\\s+"), " ").uppercase()
         assertTrue(normalized.contains("FROM PAYMENTS.TRANSACTIONS"))
-        assertTrue(normalized.contains("STATUS NOT IN ('REFUND_PENDING', 'REFUNDED')"))
+        assertTrue(normalized.contains("STATUS NOT IN ('REFUND_PENDING', 'REFUNDED', 'REFUND_FAILED')"))
         assertTrue(normalized.contains("FOR UPDATE"), "Webhook lookup must serialize with refund/reconciliation")
+    }
+
+    @Test
+    fun `refund webhook lookup is isolated to refund lifecycle states and locks row`() {
+        val method = TransactionRepository::class.java.methods.single {
+            it.name == "findRefundByGatewayTransactionId"
+        }
+        val query = method.getAnnotation(Query::class.java)
+
+        assertNotNull(query)
+        assertTrue(query.nativeQuery)
+        val normalized = query.value.replace(Regex("\\s+"), " ").uppercase()
+        assertTrue(normalized.contains("STATUS IN ('REFUND_PENDING', 'REFUNDED', 'REFUND_FAILED')"))
+        assertTrue(normalized.contains("FOR UPDATE"))
     }
 }
