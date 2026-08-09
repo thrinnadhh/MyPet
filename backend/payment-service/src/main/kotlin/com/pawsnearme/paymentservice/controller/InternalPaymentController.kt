@@ -15,14 +15,14 @@ import java.util.UUID
 
 /**
  * Internal payment mutations are not Admin endpoints. They are invoked by domain
- * services (currently order-service) after those services validate cancellation or
- * dispute business rules and persist the human actor/reason in their own audit log.
+ * services after those services validate cancellation/dispute business rules and
+ * record the human actor and reason before payment execution.
  */
 @RestController
 @RequestMapping("/api/v1/internal/payments")
 class InternalPaymentController(
     private val cashfreeGatewayService: CashfreeGatewayService,
-    @Value("\${internal.api.secret}") private val internalSecret: String,
+    @Value("\${internal.api.secret:}") private val internalSecret: String = "",
 ) {
     @PostMapping("/refund")
     fun refundOrder(
