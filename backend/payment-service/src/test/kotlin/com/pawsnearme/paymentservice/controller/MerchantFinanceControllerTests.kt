@@ -13,8 +13,12 @@ import com.pawsnearme.paymentservice.repository.ProviderRefRepository
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
+import org.springframework.data.domain.PageImpl
+import org.springframework.data.domain.Pageable
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
@@ -36,7 +40,7 @@ class MerchantFinanceControllerTests {
     )
 
     @Test
-    fun `owner receives provider revenue and account payout totals`() {
+    fun `owner receives exact provider revenue and account payout totals`() {
         val providerId = UUID.randomUUID()
         val ownerId = UUID.randomUUID()
         val orderId = UUID.randomUUID()
@@ -80,26 +84,27 @@ class MerchantFinanceControllerTests {
                 )
             )
         )
-        whenever(payoutRepository.findByPayeeUserId(ownerId)).thenReturn(
-            listOf(
-                Payout(
-                    payeeUserId = ownerId,
-                    payeeRole = "MERCHANT",
-                    amount = BigDecimal("700.00"),
-                    status = "PAID",
-                    periodStart = LocalDate.now().minusDays(30),
-                    periodEnd = LocalDate.now().minusDays(1)
-                ),
-                Payout(
-                    payeeUserId = ownerId,
-                    payeeRole = "MERCHANT",
-                    amount = BigDecimal("300.00"),
-                    status = "PROCESSING",
-                    periodStart = LocalDate.now(),
-                    periodEnd = LocalDate.now()
-                )
-            )
+        val paid = Payout(
+            payeeUserId = ownerId,
+            payeeRole = "MERCHANT",
+            amount = BigDecimal("700.00"),
+            status = "PAID",
+            periodStart = LocalDate.now().minusDays(30),
+            periodEnd = LocalDate.now().minusDays(1)
         )
+        val processing = Payout(
+            payeeUserId = ownerId,
+            payeeRole = "MERCHANT",
+            amount = BigDecimal("300.00"),
+            status = "PROCESSING",
+            periodStart = LocalDate.now(),
+            periodEnd = LocalDate.now()
+        )
+        whenever(payoutRepository.findByPayeeUserIdOrderByCreatedAtDesc(ownerId, any<Pageable>())).thenReturn(
+            PageImpl(listOf(processing, paid))
+        )
+        whenever(payoutRepository.sumPaidAmountByPayeeUserId(ownerId)).thenReturn(BigDecimal("700.00"))
+        whenever(payoutRepository.sumInFlightAmountByPayeeUserId(ownerId)).thenReturn(BigDecimal("300.00"))
 
         val summary = service.summary(providerId, ownerId.toString(), "MERCHANT")
 
@@ -110,6 +115,34 @@ class MerchantFinanceControllerTests {
         assertEquals(BigDecimal("300.00"), summary.accountPayoutInFlight)
         assertEquals(1, summary.deliveredOrderCount)
         assertEquals(1, summary.completedAppointmentCount)
+        assertEquals(2, summary.payoutTotalRecords)
+        assertEquals(50, summary.payoutPageSize)
+    }
+
+    @Test
+    fun `payout history size is capped to one hundred records per request`() {
+        val providerId = UUID.randomUUID()
+        val ownerId = UUID.randomUUID()
+        whenever(providerRepository.findById(providerId)).thenReturn(
+            Optional.of(ProviderRef(providerId, ownerId, BigDecimal("15.00")))
+        )
+        whenever(orderRepository.findByProviderIdAndStatus(providerId, "DELIVERED")).thenReturn(emptyList())
+        whenever(appointmentRepository.findByProviderIdAndStatus(providerId, "COMPLETED")).thenReturn(emptyList())
+        whenever(ledgerRepository.findByProviderId(providerId)).thenReturn(emptyList())
+        whenever(payoutRepository.findByPayeeUserIdOrderByCreatedAtDesc(ownerId, any<Pageable>())).thenAnswer { invocation ->
+            val pageable = invocation.arguments[1] as Pageable
+            assertEquals(100, pageable.pageSize)
+            assertEquals(0, pageable.pageNumber)
+            PageImpl(emptyList())
+        }
+        whenever(payoutRepository.sumPaidAmountByPayeeUserId(ownerId)).thenReturn(BigDecimal.ZERO)
+        whenever(payoutRepository.sumInFlightAmountByPayeeUserId(ownerId)).thenReturn(BigDecimal.ZERO)
+
+        val summary = service.summary(providerId, ownerId.toString(), "MERCHANT", payoutPage = -2, payoutSize = 5000)
+
+        assertEquals(0, summary.payoutPage)
+        assertEquals(100, summary.payoutPageSize)
+        verify(payoutRepository).findByPayeeUserIdOrderByCreatedAtDesc(ownerId, any<Pageable>())
     }
 
     @Test
@@ -134,7 +167,9 @@ class MerchantFinanceControllerTests {
         whenever(orderRepository.findByProviderIdAndStatus(providerId, "DELIVERED")).thenReturn(emptyList())
         whenever(appointmentRepository.findByProviderIdAndStatus(providerId, "COMPLETED")).thenReturn(emptyList())
         whenever(ledgerRepository.findByProviderId(providerId)).thenReturn(emptyList())
-        whenever(payoutRepository.findByPayeeUserId(ownerId)).thenReturn(emptyList())
+        whenever(payoutRepository.findByPayeeUserIdOrderByCreatedAtDesc(ownerId, any<Pageable>())).thenReturn(PageImpl(emptyList()))
+        whenever(payoutRepository.sumPaidAmountByPayeeUserId(ownerId)).thenReturn(BigDecimal.ZERO)
+        whenever(payoutRepository.sumInFlightAmountByPayeeUserId(ownerId)).thenReturn(BigDecimal.ZERO)
 
         val summary = service.summary(providerId, UUID.randomUUID().toString(), "ADMIN")
         assertEquals(BigDecimal("0.00"), summary.totalNetRevenue)
