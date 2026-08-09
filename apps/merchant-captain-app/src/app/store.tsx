@@ -20,6 +20,7 @@ import { spacing, typography } from '@/design/tokens';
 import {
   fetchMerchantStores,
   updateMerchantStore,
+  type BusinessDay,
   type MerchantStoreProfile,
 } from '@/services/merchant-store';
 import { formatPercentage, formatStatusLabel } from '@/utils/formatters';
@@ -32,7 +33,22 @@ type StoreForm = {
   pincode: string;
   longitude: string;
   latitude: string;
+  contactPhone: string;
+  contactEmail: string;
+  opensAt: string;
+  closesAt: string;
+  weeklyOffDays: BusinessDay[];
 };
+
+const BUSINESS_DAYS: { value: BusinessDay; label: string }[] = [
+  { value: 'MONDAY', label: 'Mon' },
+  { value: 'TUESDAY', label: 'Tue' },
+  { value: 'WEDNESDAY', label: 'Wed' },
+  { value: 'THURSDAY', label: 'Thu' },
+  { value: 'FRIDAY', label: 'Fri' },
+  { value: 'SATURDAY', label: 'Sat' },
+  { value: 'SUNDAY', label: 'Sun' },
+];
 
 const EMPTY_FORM: StoreForm = {
   name: '',
@@ -42,7 +58,16 @@ const EMPTY_FORM: StoreForm = {
   pincode: '',
   longitude: '',
   latitude: '',
+  contactPhone: '',
+  contactEmail: '',
+  opensAt: '',
+  closesAt: '',
+  weeklyOffDays: [],
 };
+
+function compactTime(value: string | null | undefined): string {
+  return value?.slice(0, 5) ?? '';
+}
 
 function formFromStore(store: MerchantStoreProfile): StoreForm {
   return {
@@ -53,6 +78,11 @@ function formFromStore(store: MerchantStoreProfile): StoreForm {
     pincode: store.pincode,
     longitude: String(store.longitude),
     latitude: String(store.latitude),
+    contactPhone: store.contactPhone ?? '',
+    contactEmail: store.contactEmail ?? '',
+    opensAt: compactTime(store.opensAt),
+    closesAt: compactTime(store.closesAt),
+    weeklyOffDays: store.weeklyOffDays ?? [],
   };
 }
 
@@ -61,6 +91,18 @@ function statusTone(status: MerchantStoreProfile['status']): 'success' | 'warnin
   if (status === 'SUSPENDED' || status === 'REJECTED') return 'danger';
   if (status === 'PENDING_APPROVAL' || status === 'INFO_REQUESTED') return 'warning';
   return 'neutral';
+}
+
+function validBusinessTime(value: string): boolean {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function validOptionalEmail(value: string): boolean {
+  return !value || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
+}
+
+function validOptionalPhone(value: string): boolean {
+  return !value || /^\+?[1-9]\d{7,14}$/.test(value);
 }
 
 export default function MerchantStoreScreen() {
@@ -137,6 +179,15 @@ export default function MerchantStoreScreen() {
     }
   }, []);
 
+  const toggleWeeklyOff = useCallback((day: BusinessDay) => {
+    setForm((current) => ({
+      ...current,
+      weeklyOffDays: current.weeklyOffDays.includes(day)
+        ? current.weeklyOffDays.filter((item) => item !== day)
+        : [...current.weeklyOffDays, day],
+    }));
+  }, []);
+
   const save = useCallback(async () => {
     if (!selected) return;
     const name = form.name.trim();
@@ -145,6 +196,10 @@ export default function MerchantStoreScreen() {
     const pincode = form.pincode.trim();
     const longitude = Number(form.longitude);
     const latitude = Number(form.latitude);
+    const contactPhone = form.contactPhone.trim();
+    const contactEmail = form.contactEmail.trim().toLowerCase();
+    const opensAt = form.opensAt.trim();
+    const closesAt = form.closesAt.trim();
 
     if (!name || !addressLine || !city) {
       Alert.alert('Missing business details', 'Business name, address and city are required.');
@@ -158,6 +213,22 @@ export default function MerchantStoreScreen() {
       Alert.alert('Invalid location', 'Capture or enter valid business longitude and latitude.');
       return;
     }
+    if (!validOptionalPhone(contactPhone)) {
+      Alert.alert('Invalid contact phone', 'Enter an international phone number such as +919876543210, or leave it blank.');
+      return;
+    }
+    if (!validOptionalEmail(contactEmail)) {
+      Alert.alert('Invalid contact email', 'Enter a valid business email address, or leave it blank.');
+      return;
+    }
+    if (Boolean(opensAt) !== Boolean(closesAt)) {
+      Alert.alert('Incomplete operating hours', 'Enter both opening and closing time, or leave both blank.');
+      return;
+    }
+    if ((opensAt && !validBusinessTime(opensAt)) || (closesAt && !validBusinessTime(closesAt))) {
+      Alert.alert('Invalid operating hours', 'Use 24-hour HH:mm format, for example 09:00 and 21:00.');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -169,11 +240,16 @@ export default function MerchantStoreScreen() {
         pincode,
         longitude,
         latitude,
+        contactPhone: contactPhone || null,
+        contactEmail: contactEmail || null,
+        opensAt: opensAt || null,
+        closesAt: closesAt || null,
+        weeklyOffDays: form.weeklyOffDays,
       });
       setStores((current) => current.map((store) => store.providerId === updated.providerId ? updated : store));
       setForm(formFromStore(updated));
       setError(null);
-      Alert.alert('Business profile saved', 'Customer-visible store details were updated on the server.');
+      Alert.alert('Business profile saved', 'Customer-visible contact, location and operating hours were updated on the server.');
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : 'Could not save the business profile.');
     } finally {
@@ -266,11 +342,70 @@ export default function MerchantStoreScreen() {
                     <TextField label="Latitude" keyboardType="numeric" value={form.latitude} onChangeText={(latitude) => setForm((value) => ({ ...value, latitude }))} />
                   </View>
                 </View>
-                <View style={styles.actions}>
-                  <ActionButton label={locating ? 'Locating…' : 'Use current location'} variant="secondary" icon="location" disabled={locating || saving} onPress={() => void captureCurrentLocation()} />
-                  <ActionButton label="Save profile" icon="check" loading={saving} disabled={locating} onPress={() => void save()} />
+                <ActionButton label={locating ? 'Locating…' : 'Use current location'} variant="secondary" icon="location" disabled={locating || saving} onPress={() => void captureCurrentLocation()} />
+              </AppCard>
+
+              <AppCard style={styles.formCard}>
+                <ThemedText style={styles.title}>Business contact</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  These details are persisted with the provider profile and can be used for customer-facing business contact where the product surface exposes them.
+                </ThemedText>
+                <TextField
+                  label="Contact phone"
+                  hint="International format, for example +919876543210"
+                  keyboardType="phone-pad"
+                  value={form.contactPhone}
+                  onChangeText={(contactPhone) => setForm((value) => ({ ...value, contactPhone }))}
+                />
+                <TextField
+                  label="Contact email"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={form.contactEmail}
+                  onChangeText={(contactEmail) => setForm((value) => ({ ...value, contactEmail }))}
+                />
+              </AppCard>
+
+              <AppCard style={styles.formCard}>
+                <ThemedText style={styles.title}>Standard operating hours</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Enter standard hours in 24-hour HH:mm format. Select any regular weekly closed days; approval status remains Admin-controlled.
+                </ThemedText>
+                <View style={styles.fieldRow}>
+                  <View style={styles.flex}>
+                    <TextField
+                      label="Opens at"
+                      placeholder="09:00"
+                      value={form.opensAt}
+                      onChangeText={(opensAt) => setForm((value) => ({ ...value, opensAt }))}
+                    />
+                  </View>
+                  <View style={styles.flex}>
+                    <TextField
+                      label="Closes at"
+                      placeholder="21:00"
+                      value={form.closesAt}
+                      onChangeText={(closesAt) => setForm((value) => ({ ...value, closesAt }))}
+                    />
+                  </View>
+                </View>
+                <ThemedText type="smallBold" themeColor="textSecondary">Weekly closed days</ThemedText>
+                <View style={styles.dayRow}>
+                  {BUSINESS_DAYS.map((day) => (
+                    <FilterChip
+                      key={day.value}
+                      label={day.label}
+                      selected={form.weeklyOffDays.includes(day.value)}
+                      onPress={() => toggleWeeklyOff(day.value)}
+                    />
+                  ))}
                 </View>
               </AppCard>
+
+              <View style={styles.actions}>
+                <ActionButton label="Save business profile" icon="check" loading={saving} disabled={locating} onPress={() => void save()} />
+              </View>
             </>
           ) : null}
         </>
@@ -286,6 +421,7 @@ const styles = StyleSheet.create({
   formCard: { gap: spacing.x3 },
   fieldRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.x3 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
+  dayRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
   flex: { flex: 1 },
   pincodeField: { width: 150 },
   title: { ...typography.title },
