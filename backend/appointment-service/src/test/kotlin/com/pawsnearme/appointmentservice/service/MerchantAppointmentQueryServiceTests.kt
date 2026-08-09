@@ -12,8 +12,12 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.mockito.kotlin.any
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
+import org.springframework.data.domain.PageImpl
+import org.springframework.data.domain.Pageable
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
@@ -29,7 +33,7 @@ class MerchantAppointmentQueryServiceTests {
     )
 
     @Test
-    fun `provider owner receives real customer pet service and slot details`() {
+    fun `provider owner receives real customer pet service and slot details from bounded page`() {
         val ownerId = UUID.randomUUID()
         val providerId = UUID.randomUUID()
         val customerId = UUID.randomUUID()
@@ -58,7 +62,11 @@ class MerchantAppointmentQueryServiceTests {
             CatalogOfferingSnapshot(offeringId, providerId, "Vet consultation", BigDecimal("500.00"), "ACTIVE", null)
         )
         whenever(catalogModule.slot(slotId)).thenReturn(CatalogSlotSnapshot(slotId, start, end, "BOOKED"))
-        whenever(appointmentRepository.findByProviderId(providerId)).thenReturn(listOf(appointment))
+        whenever(appointmentRepository.findByProviderIdOrderByBookedAtDesc(eq(providerId), any<Pageable>())).thenAnswer { invocation ->
+            val pageable = invocation.arguments[1] as Pageable
+            assertEquals(100, pageable.pageSize)
+            PageImpl(listOf(appointment), pageable, 1)
+        }
 
         val view = service.listProviderAppointments(providerId, ownerId, "MERCHANT").single()
 
@@ -84,12 +92,34 @@ class MerchantAppointmentQueryServiceTests {
             priceAmount = BigDecimal("300.00"),
         )
         whenever(providerModule.ownerUserId(providerId)).thenReturn(ownerId)
-        whenever(appointmentRepository.findByProviderId(providerId)).thenReturn(listOf(appointment))
+        whenever(appointmentRepository.findByProviderIdOrderByBookedAtDesc(eq(providerId), any<Pageable>())).thenAnswer { invocation ->
+            val pageable = invocation.arguments[1] as Pageable
+            PageImpl(listOf(appointment), pageable, 1)
+        }
 
         val view = service.listProviderAppointments(providerId, ownerId, "MERCHANT").single()
 
         assertNull(view.customerName)
         assertNull(view.petName)
+    }
+
+    @Test
+    fun `provider appointment page size is capped at one hundred`() {
+        val ownerId = UUID.randomUUID()
+        val providerId = UUID.randomUUID()
+        whenever(providerModule.ownerUserId(providerId)).thenReturn(ownerId)
+        whenever(appointmentRepository.findByProviderIdOrderByBookedAtDesc(eq(providerId), any<Pageable>())).thenAnswer { invocation ->
+            val pageable = invocation.arguments[1] as Pageable
+            assertEquals(100, pageable.pageSize)
+            assertEquals(0, pageable.pageNumber)
+            PageImpl<Appointment>(emptyList(), pageable, 0)
+        }
+
+        val page = service.listProviderAppointmentsPage(providerId, ownerId, "MERCHANT", page = -3, size = 5000)
+
+        assertEquals(0, page.page)
+        assertEquals(100, page.size)
+        assertEquals(0, page.totalElements)
     }
 
     @Test
