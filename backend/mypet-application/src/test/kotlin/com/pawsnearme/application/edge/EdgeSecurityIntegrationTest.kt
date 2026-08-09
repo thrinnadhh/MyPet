@@ -7,7 +7,9 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.mock.mockito.MockBean
 import org.springframework.boot.test.web.client.TestRestTemplate
+import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.http.HttpEntity
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpMethod
@@ -30,6 +32,9 @@ class EdgeSecurityIntegrationTest {
 
     @Autowired
     private lateinit var restTemplate: TestRestTemplate
+
+    @MockBean
+    private lateinit var redisTemplate: StringRedisTemplate
 
     @Test
     fun `public routes remove spoofed identity and create request id`() {
