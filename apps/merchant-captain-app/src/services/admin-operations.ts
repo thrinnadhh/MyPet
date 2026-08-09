@@ -62,12 +62,16 @@ export function fetchAdminAuditLogs(accessToken: string, limit = 50): Promise<Ad
   return request(`/api/v1/orders/admin/operations/audit-logs?limit=${Math.min(100, Math.max(1, limit))}`, accessToken);
 }
 
-export function fetchPendingProviderApprovals(accessToken: string): Promise<AdminProviderApproval[]> {
-  return request('/api/v1/providers/pending', accessToken);
+export async function fetchPendingProviderApprovals(accessToken: string): Promise<AdminProviderApproval[]> {
+  const page = await request<PageResponse<AdminProviderApproval>>(
+    '/api/v1/providers/admin?status=PENDING_APPROVAL&page=0&size=100',
+    accessToken,
+  );
+  return page.content;
 }
 
 export function approveProviderFromAdmin(providerId: string, accessToken: string): Promise<AdminProviderApproval> {
-  return request(`/api/v1/providers/${providerId}/approve`, accessToken, { method: 'POST' });
+  return request(`/api/v1/providers/admin/${providerId}/approve`, accessToken, { method: 'POST' });
 }
 
 type CustomerCaseResponse = {
