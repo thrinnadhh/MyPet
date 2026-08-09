@@ -7,11 +7,17 @@ on:
       - "scripts/validate-internal-beta.py"
       - "scripts/validate-p2b-device-qa.py"
       - "scripts/check-p2b-connected-e2e.py"
+      - "scripts/verify-mobile-npm-audit.py"
       - "qa/**"
       - "apps/customer-app/app.json"
       - "apps/customer-app/eas.json"
+      - "apps/customer-app/package.json"
+      - "apps/customer-app/package-lock.json"
       - "apps/merchant-captain-app/app.json"
+      - "apps/merchant-captain-app/app.config.js"
       - "apps/merchant-captain-app/eas.json"
+      - "apps/merchant-captain-app/package.json"
+      - "apps/merchant-captain-app/package-lock.json"
       - ".github/workflows/internal-beta-release.yml"
   workflow_dispatch:
     inputs:
@@ -53,16 +59,28 @@ jobs:
         working-directory: apps/customer-app
         run: |
           npm ci
-          npm audit --audit-level=high
+          python3 ../../scripts/verify-mobile-npm-audit.py .
           npx --yes expo-doctor@1.20.1
           npx expo config --type public >/tmp/customer-expo-config.json
-      - name: Validate operational Expo configuration
+      - name: Validate operational and merchant Expo configurations
         working-directory: apps/merchant-captain-app
         run: |
           npm ci
-          npm audit --audit-level=high
+          python3 ../../scripts/verify-mobile-npm-audit.py .
           npx --yes expo-doctor@1.20.1
-          npx expo config --type public >/tmp/operations-expo-config.json
+          MYPET_APP_VARIANT=operations EXPO_PUBLIC_APP_VARIANT=operations npx expo config --type public >/tmp/operations-expo-config.json
+          MYPET_APP_VARIANT=merchant EXPO_PUBLIC_APP_VARIANT=merchant npx expo config --type public >/tmp/merchant-expo-config.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const merchant = JSON.parse(fs.readFileSync('/tmp/merchant-expo-config.json', 'utf8'));
+          if (merchant.name !== 'MyPet Merchant') throw new Error(`Unexpected merchant app name: ${merchant.name}`);
+          if (merchant.android?.package !== 'com.mypet.merchant') throw new Error(`Unexpected merchant package: ${merchant.android?.package}`);
+          if (merchant.extra?.appVariant !== 'merchant') throw new Error(`Unexpected merchant app variant: ${merchant.extra?.appVariant}`);
+          const blocked = new Set(merchant.android?.blockedPermissions ?? []);
+          for (const permission of ['android.permission.ACCESS_BACKGROUND_LOCATION', 'android.permission.FOREGROUND_SERVICE_LOCATION']) {
+            if (!blocked.has(permission)) throw new Error(`Merchant build must block ${permission}`);
+          }
+          NODE
 
   release-intentionally-blocked:
     if: ${{ github.event_name == 'pull_request' }}
