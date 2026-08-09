@@ -259,11 +259,11 @@ const styles = StyleSheet.create({
   providerRow: { gap: spacing.x2, paddingVertical: spacing.x1 },
   grid: { gap: spacing.x4 },
   card: { gap: spacing.x3 },
-  image: { width: '100%', aspectRatio: 16 / 9, borderRadius: radii.lg },
+  image: { width: '100%', aspectRatio: 16 / 9, borderRadius: radii.card },
   placeholder: {
     width: '100%',
     aspectRatio: 16 / 9,
-    borderRadius: radii.lg,
+    borderRadius: radii.card,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: touchTarget,
