@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockito.kotlin.any
+import org.mockito.kotlin.eq
+import org.mockito.kotlin.isNull
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -20,8 +22,18 @@ class PaymentAdminQueryServiceTests {
 
     @Test
     fun `payment search uses bounded server pagination`() {
-        whenever(repository.search(any(), any(), any(), any(), any<Pageable>()))
-            .thenAnswer { invocation -> PageImpl<Transaction>(emptyList(), invocation.getArgument(4), 0L) }
+        whenever(
+            repository.search(
+                isNull(),
+                eq("SUCCESS"),
+                isNull(),
+                isNull(),
+                any<Pageable>()
+            )
+        ).thenAnswer { invocation ->
+            val pageable = invocation.getArgument<Pageable>(4)
+            PageImpl<Transaction>(emptyList(), pageable, 0L)
+        }
 
         val result = service.search(null, null, "SUCCESS", null, null, 0, 25)
 
