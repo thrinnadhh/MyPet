@@ -15,17 +15,20 @@ import {
 import { ScreenShell } from '@/components/foundation/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { AppCard } from '@/components/ui/app-card';
+import { TextField } from '@/components/ui/text-field';
 import { useAuth } from '@/context/AuthContext';
 import { radii, spacing, touchTarget } from '@/design/tokens';
 import {
-  fetchMerchantOfferings,
+  fetchMerchantOfferingsPage,
   fetchMerchantProviders,
   uploadMerchantOfferingImage,
   type MerchantOffering,
+  type MerchantOfferingPage,
   type MerchantProvider,
 } from '@/services/merchant-inventory';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const PAGE_SIZE = 40;
 const SUPPORTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 type SupportedMimeType = 'image/jpeg' | 'image/png' | 'image/webp';
@@ -45,7 +48,11 @@ export default function CatalogMediaScreen() {
   const [providers, setProviders] = useState<MerchantProvider[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(providerId);
   const [offerings, setOfferings] = useState<MerchantOffering[]>([]);
+  const [pageInfo, setPageInfo] = useState<MerchantOfferingPage | null>(null);
+  const [query, setQuery] = useState('');
+  const [appliedQuery, setAppliedQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -75,30 +82,71 @@ export default function CatalogMediaScreen() {
     }
   }, [providerId]);
 
-  const loadOfferings = useCallback(async () => {
+  const loadFirstPage = useCallback(async () => {
     if (!selectedProviderId) {
       setOfferings([]);
+      setPageInfo(null);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      setOfferings(await fetchMerchantOfferings(selectedProviderId));
+      const result = await fetchMerchantOfferingsPage(selectedProviderId, {
+        query: appliedQuery,
+        page: 0,
+        size: PAGE_SIZE,
+      });
+      setOfferings(result.content);
+      setPageInfo(result);
     } catch (loadError) {
       setOfferings([]);
+      setPageInfo(null);
       setError(loadError instanceof Error ? loadError.message : 'Could not load catalog offerings.');
     } finally {
       setLoading(false);
     }
-  }, [selectedProviderId]);
+  }, [appliedQuery, selectedProviderId]);
+
+  const loadMore = useCallback(async () => {
+    if (!selectedProviderId || !pageInfo?.hasNext || loadingMore) return;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const result = await fetchMerchantOfferingsPage(selectedProviderId, {
+        query: appliedQuery,
+        page: pageInfo.page + 1,
+        size: PAGE_SIZE,
+      });
+      setOfferings((current) => {
+        const existing = new Set(current.map((item) => item.offeringId));
+        return [...current, ...result.content.filter((item) => !existing.has(item.offeringId))];
+      });
+      setPageInfo(result);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Could not load more catalog offerings.');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [appliedQuery, loadingMore, pageInfo, selectedProviderId]);
 
   useEffect(() => {
     void loadProviders();
   }, [loadProviders]);
 
   useEffect(() => {
-    void loadOfferings();
-  }, [loadOfferings]);
+    setOfferings([]);
+    setPageInfo(null);
+    void loadFirstPage();
+  }, [loadFirstPage]);
+
+  const applySearch = useCallback(() => {
+    setAppliedQuery(query.trim().slice(0, 120));
+  }, [query]);
+
+  const clearSearch = useCallback(() => {
+    setQuery('');
+    setAppliedQuery('');
+  }, []);
 
   const pickAndUpload = useCallback(async (offering: MerchantOffering) => {
     if (!offering.offeringId) return;
@@ -190,8 +238,30 @@ export default function CatalogMediaScreen() {
 
       <SectionHeader
         title={selectedProvider?.name ?? 'Catalog media'}
-        subtitle="JPEG, PNG or WebP · maximum 5 MB · replacing an image removes the previous managed file"
+        subtitle="JPEG, PNG or WebP · maximum 5 MB · server-paginated catalog search"
       />
+
+      {selectedProviderId ? (
+        <AppCard style={styles.searchCard}>
+          <TextField
+            label="Search catalog"
+            hint="Name, category, SKU or barcode"
+            value={query}
+            onChangeText={setQuery}
+            returnKeyType="search"
+            onSubmitEditing={applySearch}
+          />
+          <View style={styles.searchActions}>
+            <ActionButton label="Search" icon="search" onPress={applySearch} />
+            {appliedQuery ? <ActionButton label="Clear" variant="secondary" onPress={clearSearch} /> : null}
+          </View>
+          {pageInfo ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              Showing {offerings.length} of {pageInfo.totalElements} matching offering{pageInfo.totalElements === 1 ? '' : 's'}.
+            </ThemedText>
+          ) : null}
+        </AppCard>
+      ) : null}
 
       {loading ? <StateView kind="loading" title="Loading catalog media" /> : null}
       {!loading && providers.length === 0 ? (
@@ -206,10 +276,12 @@ export default function CatalogMediaScreen() {
       {!loading && selectedProviderId && offerings.length === 0 ? (
         <StateView
           kind="empty"
-          title="No offerings yet"
-          message="Create products or services in Inventory before adding customer-visible images."
-          actionLabel="Refresh"
-          onAction={() => void loadOfferings()}
+          title={appliedQuery ? 'No matching offerings' : 'No offerings yet'}
+          message={appliedQuery
+            ? 'Try a different name, category, SKU or barcode.'
+            : 'Create products or services in Inventory before adding customer-visible images.'}
+          actionLabel={appliedQuery ? 'Clear search' : 'Refresh'}
+          onAction={() => void (appliedQuery ? clearSearch() : loadFirstPage())}
         />
       ) : null}
 
@@ -251,12 +323,24 @@ export default function CatalogMediaScreen() {
           </AppCard>
         ))}
       </View>
+
+      {pageInfo?.hasNext ? (
+        <ActionButton
+          label={loadingMore ? 'Loading more…' : `Load more (${offerings.length}/${pageInfo.totalElements})`}
+          variant="secondary"
+          loading={loadingMore}
+          disabled={loadingMore}
+          onPress={() => void loadMore()}
+        />
+      ) : null}
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
   providerRow: { gap: spacing.x2, paddingVertical: spacing.x1 },
+  searchCard: { gap: spacing.x3 },
+  searchActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
   grid: { gap: spacing.x4 },
   card: { gap: spacing.x3 },
   image: { width: '100%', aspectRatio: 16 / 9, borderRadius: radii.card },
