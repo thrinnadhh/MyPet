@@ -7,8 +7,10 @@ As of 2026-08-09 GitHub lists no patched release for the two allowlisted
 `image-size` advisories. The package is consumed through Metro/Expo build tooling
 and must not be imported by application source.
 
-This is a temporary release-engineering exception, not a vulnerability ignore.
-It expires automatically and any new advisory/root cause fails the build.
+npm may propagate the root advisory object through every affected parent package,
+so the verifier accepts propagated metadata only when every advisory object still
+names `image-size` and carries one of the two exact GHSA identifiers. Any other
+advisory or dependency root fails closed.
 """
 
 from __future__ import annotations
@@ -26,6 +28,13 @@ ALLOWED_ROOT_PACKAGE = "image-size"
 ALLOWED_GHSA_IDS = {
     "GHSA-w3rx-r6r6-pgpr",
     "GHSA-5p2g-fcmc-qvqq",
+}
+KNOWN_BUILD_CHAIN = {
+    "metro",
+    "metro-config",
+    "metro-transform-worker",
+    "@expo/metro",
+    "@expo/metro-config",
 }
 WAIVER_EXPIRES = dt.date(2026, 9, 1)
 SEVERITY_RANK = {"info": 0, "low": 1, "moderate": 2, "high": 3, "critical": 4}
@@ -58,7 +67,7 @@ def run_audit(app_dir: pathlib.Path) -> dict[str, Any]:
         raise RuntimeError(f"npm audit returned invalid JSON: {exc}") from exc
 
 
-def ghsa_from_url(url: str) -> str | None:
+def ghsa_from_url(url: string) -> str | None:  # type: ignore[name-defined]
     match = re.search(r"GHSA-[A-Za-z0-9-]+", url)
     return match.group(0) if match else None
 
@@ -80,20 +89,31 @@ def application_imports_image_size(app_dir: pathlib.Path) -> list[str]:
     return hits
 
 
+def advisory_identity(entry: dict[str, Any]) -> tuple[str | None, str | None]:
+    return (
+        str(entry.get("name")) if entry.get("name") is not None else None,
+        ghsa_from_url(str(entry.get("url", ""))),
+    )
+
+
+def direct_advisories_are_allowlisted(entries: list[dict[str, Any]]) -> bool:
+    for entry in entries:
+        package_name, ghsa = advisory_identity(entry)
+        if package_name != ALLOWED_ROOT_PACKAGE or ghsa not in ALLOWED_GHSA_IDS:
+            return False
+    return True
+
+
 def root_is_exact_allowlist(vulnerability: dict[str, Any]) -> bool:
     via = vulnerability.get("via", [])
-    advisory_ids: set[str] = set()
-    for entry in via:
-        if isinstance(entry, str):
-            # The root package should carry advisory objects, not another package edge.
-            return False
-        if not isinstance(entry, dict):
-            return False
-        ghsa = ghsa_from_url(str(entry.get("url", "")))
-        if not ghsa:
-            return False
-        advisory_ids.add(ghsa)
-    return advisory_ids == ALLOWED_GHSA_IDS
+    if not isinstance(via, list) or not via:
+        return False
+    if any(isinstance(entry, str) for entry in via):
+        return False
+    advisories = [entry for entry in via if isinstance(entry, dict)]
+    if len(advisories) != len(via) or not direct_advisories_are_allowlisted(advisories):
+        return False
+    return {advisory_identity(entry)[1] for entry in advisories} == ALLOWED_GHSA_IDS
 
 
 def vulnerability_allowed(
@@ -114,17 +134,24 @@ def vulnerability_allowed(
 
     visiting.add(name)
     via = vulnerability.get("via", [])
+    if not isinstance(via, list) or not via:
+        visiting.remove(name)
+        memo[name] = False
+        return False
+
     direct_advisories = [entry for entry in via if isinstance(entry, dict)]
     dependency_edges = [entry for entry in via if isinstance(entry, str)]
+    unexpected = [entry for entry in via if not isinstance(entry, (dict, str))]
 
     if name == ALLOWED_ROOT_PACKAGE:
         allowed = root_is_exact_allowlist(vulnerability)
     else:
-        allowed = (
-            not direct_advisories
-            and bool(dependency_edges)
-            and all(vulnerability_allowed(edge, vulnerabilities, memo, visiting) for edge in dependency_edges)
+        direct_ok = direct_advisories_are_allowlisted(direct_advisories)
+        dependencies_ok = all(
+            vulnerability_allowed(edge, vulnerabilities, memo, visiting)
+            for edge in dependency_edges
         )
+        allowed = not unexpected and direct_ok and dependencies_ok and bool(direct_advisories or dependency_edges)
 
     visiting.remove(name)
     memo[name] = allowed
@@ -183,9 +210,9 @@ def main() -> int:
 
     root = vulnerabilities.get(ALLOWED_ROOT_PACKAGE, {})
     effects = set(root.get("effects", []))
-    if "metro" not in effects:
+    if not effects.intersection(KNOWN_BUILD_CHAIN):
         print(
-            "FAIL: image-size advisory is no longer rooted through the expected Metro build-tool chain.",
+            "FAIL: image-size advisory is no longer connected to the expected Metro build-tool chain.",
             file=sys.stderr,
         )
         return 1
