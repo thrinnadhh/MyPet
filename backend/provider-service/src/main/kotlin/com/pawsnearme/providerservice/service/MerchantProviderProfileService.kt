@@ -9,7 +9,9 @@ import org.locationtech.jts.geom.GeometryFactory
 import org.locationtech.jts.geom.PrecisionModel
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalTime
 import java.util.UUID
 
 /**
@@ -35,13 +37,21 @@ class MerchantProviderProfileService(
         city: String,
         pincode: String,
         longitude: Double,
-        latitude: Double
+        latitude: Double,
+        contactPhone: String? = null,
+        contactEmail: String? = null,
+        opensAt: LocalTime? = null,
+        closesAt: LocalTime? = null,
+        weeklyOffDays: Set<DayOfWeek> = emptySet(),
     ): Provider {
         val provider = providerRepository.findById(providerId).orElseThrow {
             NoSuchElementException("Provider with ID $providerId not found")
         }
         if (provider.ownerUserId != actorUserId) {
             throw ProviderAccessDeniedException("Access denied to another merchant's provider")
+        }
+        if ((opensAt == null) != (closesAt == null)) {
+            throw IllegalArgumentException("Opening and closing time must be provided together")
         }
 
         provider.name = name.trim()
@@ -50,6 +60,14 @@ class MerchantProviderProfileService(
         provider.city = city.trim()
         provider.pincode = pincode.trim()
         provider.geoLocation = geometryFactory.createPoint(Coordinate(longitude, latitude))
+        provider.contactPhone = contactPhone?.trim()?.takeIf { it.isNotEmpty() }
+        provider.contactEmail = contactEmail?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        provider.opensAt = opensAt
+        provider.closesAt = closesAt
+        provider.weeklyOffDays = weeklyOffDays
+            .sortedBy { it.value }
+            .joinToString(",") { it.name }
+            .takeIf { it.isNotBlank() }
 
         val saved = providerRepository.save(provider)
         val eventId = UUID.randomUUID()
@@ -68,7 +86,12 @@ class MerchantProviderProfileService(
                 "city" to saved.city,
                 "pincode" to saved.pincode,
                 "longitude" to saved.geoLocation.x,
-                "latitude" to saved.geoLocation.y
+                "latitude" to saved.geoLocation.y,
+                "contact_phone" to saved.contactPhone,
+                "contact_email" to saved.contactEmail,
+                "opens_at" to saved.opensAt?.toString(),
+                "closes_at" to saved.closesAt?.toString(),
+                "weekly_off_days" to saved.weeklyOffDays,
             )
         )
         return saved
