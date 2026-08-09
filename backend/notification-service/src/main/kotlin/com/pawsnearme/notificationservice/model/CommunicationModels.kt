@@ -105,3 +105,42 @@ class EmailDelivery(
     @Column(name = "sent_at")
     var sentAt: Instant? = null,
 )
+
+/**
+ * Append-only evidence for security-sensitive manual notification retries.
+ * There are deliberately no update/delete service methods for this entity.
+ */
+@Entity
+@Table(name = "notification_admin_audit", schema = "notifications")
+class NotificationAdminAudit(
+    @Id
+    @Column(name = "audit_id", nullable = false)
+    var auditId: UUID = UUID.randomUUID(),
+
+    @Column(name = "actor_user_id", nullable = false)
+    var actorUserId: UUID,
+
+    @Column(name = "action", nullable = false, length = 80)
+    var action: String,
+
+    @Column(name = "target_type", nullable = false, length = 80)
+    var targetType: String,
+
+    @Column(name = "target_id", nullable = false)
+    var targetId: UUID,
+
+    @Column(name = "previous_state", length = 80)
+    var previousState: String? = null,
+
+    @Column(name = "new_state", length = 80)
+    var newState: String? = null,
+
+    @Column(name = "reason", nullable = false, length = 500)
+    var reason: String,
+
+    @Column(name = "request_id", length = 160)
+    var requestId: String? = null,
+
+    @Column(name = "created_at", nullable = false)
+    var createdAt: Instant = Instant.now(),
+)
