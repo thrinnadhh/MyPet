@@ -1,11 +1,17 @@
 package com.pawsnearme.catalogservice
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.autoconfigure.domain.EntityScan
 import org.springframework.boot.runApplication
+import org.springframework.context.annotation.ComponentScan
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories
+import org.springframework.scheduling.annotation.EnableScheduling
 
-@SpringBootApplication(
-    scanBasePackages = ["com.pawsnearme.catalogservice", "com.pawsnearme.common.security"]
-)
+@SpringBootApplication
+@EnableScheduling
+@EntityScan(basePackages = ["com.pawsnearme.catalogservice", "com.pawsnearme.common"])
+@EnableJpaRepositories(basePackages = ["com.pawsnearme.catalogservice", "com.pawsnearme.common"])
+@ComponentScan(basePackages = ["com.pawsnearme.catalogservice", "com.pawsnearme.common"])
 class CatalogServiceApplication
 
 fun main(args: Array<String>) {
