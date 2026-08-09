@@ -1,9 +1,9 @@
 package com.pawsnearme.providerservice.controller
 
+import com.pawsnearme.providerservice.model.FulfillmentType
 import com.pawsnearme.providerservice.model.Provider
 import com.pawsnearme.providerservice.model.ProviderStatus
 import com.pawsnearme.providerservice.model.ProviderType
-import com.pawsnearme.providerservice.model.FulfillmentType
 import com.pawsnearme.providerservice.repository.ProviderRepository
 import com.pawsnearme.providerservice.service.MerchantProviderProfileService
 import jakarta.validation.Valid
@@ -85,7 +85,12 @@ class MerchantProviderProfileController(
     private val merchantProviderProfileService: MerchantProviderProfileService,
     private val providerRepository: ProviderRepository,
 ) {
-    @GetMapping("/merchant-profiles")
+    /*
+     * Two-segment path intentionally avoids the public GET /api/v1/providers/*
+     * edge matcher used for customer-visible single-provider discovery.
+     * The controller still enforces the MERCHANT role and owner identity.
+     */
+    @GetMapping("/me/profiles")
     fun getMerchantProfiles(
         @RequestHeader("X-User-Id", required = false) userId: String?,
         @RequestHeader("X-User-Role", required = false) userRole: String?,
