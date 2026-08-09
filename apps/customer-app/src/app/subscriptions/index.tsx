@@ -270,7 +270,7 @@ export default function RecurringOrdersScreen() {
               ) : null}
 
               {subscription.status === 'AWAITING_CONFIRMATION' ? (
-                <PrimaryAction label="Revalidate and confirm" loading={busyId === subscription.subscriptionId} onPress={() => void confirm(subscription)} />
+                <PrimaryAction label="Reactivate migrated subscription" loading={busyId === subscription.subscriptionId} onPress={() => void confirm(subscription)} />
               ) : null}
 
               {subscription.status !== 'CANCELLED' ? (
