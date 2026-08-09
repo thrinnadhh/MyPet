@@ -67,7 +67,7 @@ def run_audit(app_dir: pathlib.Path) -> dict[str, Any]:
         raise RuntimeError(f"npm audit returned invalid JSON: {exc}") from exc
 
 
-def ghsa_from_url(url: string) -> str | None:  # type: ignore[name-defined]
+def ghsa_from_url(url: str) -> str | None:
     match = re.search(r"GHSA-[A-Za-z0-9-]+", url)
     return match.group(0) if match else None
 
