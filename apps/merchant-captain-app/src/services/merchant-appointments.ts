@@ -42,6 +42,16 @@ export interface MerchantBooking {
   identityResolved?: boolean;
 }
 
+export interface MerchantAppointmentPage {
+  providerId: string;
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  hasNext: boolean;
+  content: MerchantBooking[];
+}
+
 export interface MerchantAppointmentHistoryEntry {
   historyId: string;
   appointmentId: string;
@@ -86,6 +96,16 @@ interface MerchantAppointmentDto {
   prescriptionDocUrl?: string | null;
 }
 
+interface MerchantAppointmentPageDto {
+  providerId: string;
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  hasNext: boolean;
+  content: MerchantAppointmentDto[];
+}
+
 export async function fetchMerchantOwnedProviders(): Promise<MerchantProvider[]> {
   return apiClient.get<MerchantProvider[]>('/api/v1/providers/me');
 }
@@ -128,6 +148,32 @@ function toBooking(
   };
 }
 
+export async function fetchMerchantProviderBookingsPage(
+  provider: MerchantProvider,
+  page = 0,
+  size = 50,
+): Promise<MerchantAppointmentPage> {
+  const safePage = Math.max(0, Math.trunc(page));
+  const safeSize = Math.min(100, Math.max(1, Math.trunc(size)));
+  const response = await apiClient.get<MerchantAppointmentPageDto>(
+    `/api/v1/appointments/provider/${encodeURIComponent(provider.providerId)}` +
+      `?page=${safePage}&size=${safeSize}`,
+  );
+  return {
+    providerId: response.providerId,
+    page: response.page,
+    size: response.size,
+    totalElements: response.totalElements,
+    totalPages: response.totalPages,
+    hasNext: response.hasNext,
+    content: response.content.map((appointment) => toBooking(appointment, provider)),
+  };
+}
+
+/**
+ * Bounded compatibility helper for dashboard/legacy surfaces. Each appointment
+ * provider contributes at most its newest 100 records.
+ */
 export async function fetchMerchantBookings(
   _ownerUserId?: string,
   _accessToken?: string | null,
@@ -135,10 +181,8 @@ export async function fetchMerchantBookings(
   const providers = await fetchMerchantProviders();
   const providerBookings = await Promise.all(
     providers.map(async (provider) => {
-      const appointments = await apiClient.get<MerchantAppointmentDto[]>(
-        `/api/v1/appointments/provider/${encodeURIComponent(provider.providerId)}`,
-      );
-      return appointments.map((appointment) => toBooking(appointment, provider));
+      const page = await fetchMerchantProviderBookingsPage(provider, 0, 100);
+      return page.content;
     }),
   );
   return providerBookings.flat().sort((left, right) => left.slotStartsAt.localeCompare(right.slotStartsAt));
