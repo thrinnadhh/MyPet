@@ -5,6 +5,7 @@ import com.pawsnearme.appointmentservice.model.AppointmentStatus
 import com.pawsnearme.appointmentservice.repository.AppointmentRepository
 import com.pawsnearme.common.module.CatalogModuleApi
 import com.pawsnearme.common.module.ProviderModuleApi
+import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -35,26 +36,67 @@ data class MerchantAppointmentView(
     val cancellationReason: String?,
 )
 
+data class MerchantAppointmentPage(
+    val providerId: UUID,
+    val page: Int,
+    val size: Int,
+    val totalElements: Long,
+    val totalPages: Int,
+    val hasNext: Boolean,
+    val content: List<MerchantAppointmentView>,
+)
+
 @Service
 class MerchantAppointmentQueryService(
     private val appointmentRepository: AppointmentRepository,
     private val providerModule: ProviderModuleApi,
     private val catalogModule: CatalogModuleApi,
 ) {
+    /** Compatibility list capped to the newest 100 appointments. */
     @Transactional(readOnly = true)
     fun listProviderAppointments(
         providerId: UUID,
         callerId: UUID,
         callerRole: String?,
-    ): List<MerchantAppointmentView> {
+    ): List<MerchantAppointmentView> = listProviderAppointmentsPage(
+        providerId = providerId,
+        callerId = callerId,
+        callerRole = callerRole,
+        page = 0,
+        size = 100,
+    ).content
+
+    @Transactional(readOnly = true)
+    fun listProviderAppointmentsPage(
+        providerId: UUID,
+        callerId: UUID,
+        callerRole: String?,
+        page: Int,
+        size: Int,
+    ): MerchantAppointmentPage {
+        assertProviderAccess(providerId, callerId, callerRole)
+        val boundedPage = page.coerceAtLeast(0)
+        val boundedSize = size.coerceIn(1, 100)
+        val appointments = appointmentRepository.findByProviderIdOrderByBookedAtDesc(
+            providerId,
+            PageRequest.of(boundedPage, boundedSize),
+        )
+        return MerchantAppointmentPage(
+            providerId = providerId,
+            page = boundedPage,
+            size = boundedSize,
+            totalElements = appointments.totalElements,
+            totalPages = appointments.totalPages,
+            hasNext = appointments.hasNext(),
+            content = appointments.content.map(::toView),
+        )
+    }
+
+    private fun assertProviderAccess(providerId: UUID, callerId: UUID, callerRole: String?) {
         val role = callerRole?.trim()?.uppercase()
         val allowed = role == "ADMIN" ||
             (role == "MERCHANT" && providerModule.ownerUserId(providerId) == callerId)
         if (!allowed) throw AppointmentAccessDeniedException("Access denied to provider appointments.")
-
-        return appointmentRepository.findByProviderId(providerId)
-            .sortedByDescending(Appointment::bookedAt)
-            .map(::toView)
     }
 
     private fun toView(appointment: Appointment): MerchantAppointmentView {
