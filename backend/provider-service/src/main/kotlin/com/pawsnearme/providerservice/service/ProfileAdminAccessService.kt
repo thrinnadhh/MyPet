@@ -60,7 +60,7 @@ class ProfileAdminAccessService(
         val eventType = if (suspended) "CustomerAccessRevoked" else "CustomerAccessRestored"
         outboxService.saveEvent(
             eventId = eventId,
-            aggregateType = "PROFILE",
+            aggregateType = "USER",
             aggregateId = targetUserId,
             eventType = eventType,
             eventPayload = mapOf(
