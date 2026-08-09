@@ -1,13 +1,18 @@
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef } from 'react';
-import { Platform, Vibration } from 'react-native';
+import { Alert, Linking, Platform, Vibration } from 'react-native';
 
 import type { NotificationResponse } from 'expo-notifications';
 
 import { appConfig } from '@/utils/app-config';
 
 type NotificationsModule = typeof import('expo-notifications');
+
+type PushRegistrationResult = {
+  token: string | null;
+  permissionPermanentlyDenied: boolean;
+};
 
 const isExpoGo = Constants.appOwnership === 'expo';
 
@@ -64,15 +69,20 @@ async function ensureAndroidChannel(
 async function registerPushToken(
   accessToken: string,
   appRole?: string | null,
-): Promise<string | null> {
+): Promise<PushRegistrationResult> {
   const Notifications = await getNotificationsModule();
-  if (!Notifications) return null;
+  if (!Notifications) return { token: null, permissionPermanentlyDenied: false };
 
   const Device = await import('expo-device');
-  if (!Device.isDevice) return null;
+  if (!Device.isDevice) return { token: null, permissionPermanentlyDenied: false };
 
   const permission = await Notifications.requestPermissionsAsync();
-  if (!permission.granted) return null;
+  if (!permission.granted) {
+    return {
+      token: null,
+      permissionPermanentlyDenied: permission.canAskAgain === false,
+    };
+  }
 
   const soundProfile = appRole === 'PROVIDER' ? 'order_alert' : 'default';
   await ensureAndroidChannel(Notifications, soundProfile);
@@ -100,7 +110,7 @@ async function registerPushToken(
     }),
   });
   if (!response.ok) throw await responseError(response);
-  return token;
+  return { token, permissionPermanentlyDenied: false };
 }
 
 async function unregisterPushToken(token: string, accessToken: string): Promise<void> {
@@ -164,6 +174,7 @@ export function usePushNotifications(
   const registeredForUser = useRef<string | null>(null);
   const registeredToken = useRef<string | null>(null);
   const previousAuthentication = useRef<{ userId: string; accessToken: string } | null>(null);
+  const permanentDenialAlertShown = useRef(false);
 
   const handleNotificationResponse = useCallback(async (response: NotificationResponse) => {
     const responseId = response.notification.request.identifier;
@@ -230,10 +241,30 @@ export function usePushNotifications(
     if (registeredForUser.current === userId && registeredToken.current) return;
 
     void registerPushToken(accessToken, appRole)
-      .then((token) => {
+      .then(({ token, permissionPermanentlyDenied }) => {
         if (token) {
           registeredForUser.current = userId;
           registeredToken.current = token;
+          permanentDenialAlertShown.current = false;
+          return;
+        }
+        if (permissionPermanentlyDenied && !permanentDenialAlertShown.current) {
+          permanentDenialAlertShown.current = true;
+          Alert.alert(
+            'Merchant alerts are disabled',
+            'Order and booking notifications are blocked in system settings. You can continue using the app, but enable notifications to receive time-sensitive merchant alerts.',
+            [
+              { text: 'Not now', style: 'cancel' },
+              {
+                text: 'Open settings',
+                onPress: () => {
+                  void Linking.openSettings().catch(() => {
+                    console.warn('Unable to open notification settings');
+                  });
+                },
+              },
+            ],
+          );
         }
       })
       .catch((error) => {
