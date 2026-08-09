@@ -49,12 +49,13 @@ class CatalogMediaController(
     }
 
     @GetMapping("/media/{filename:.+}")
-    fun getOfferingImage(@PathVariable filename: String): ResponseEntity<Any> {
+    fun getOfferingImage(@PathVariable filename: String): ResponseEntity<ByteArray> {
         val loaded = catalogMediaService.loadPublicImage(filename)
         return ResponseEntity.ok()
             .contentType(loaded.mediaType)
+            .contentLength(loaded.bytes.size.toLong())
             .cacheControl(CacheControl.maxAge(Duration.ofDays(30)).cachePublic().immutable())
-            .body(loaded.resource)
+            .body(loaded.bytes)
     }
 
     @ExceptionHandler(CatalogMediaAccessDeniedException::class)
