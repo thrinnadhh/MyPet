@@ -5,6 +5,7 @@ import com.pawsnearme.common.module.CouponReservationCommand
 import com.pawsnearme.common.module.PaymentModuleApi
 import com.pawsnearme.common.module.PaymentTransactionSnapshot
 import com.pawsnearme.common.module.PromotionTerms
+import com.pawsnearme.paymentservice.service.CashfreeGatewayService
 import com.pawsnearme.paymentservice.service.CodCheckRequest
 import com.pawsnearme.paymentservice.service.CouponReservationLifecycleService
 import com.pawsnearme.paymentservice.service.CouponReservationRequest
@@ -17,6 +18,7 @@ import java.util.UUID
 @Service
 class PaymentModuleFacade(
     private val paymentService: PaymentService,
+    private val cashfreeGatewayService: CashfreeGatewayService,
     private val loyaltyLifecycleService: LoyaltyLifecycleService,
     private val couponReservationLifecycleService: CouponReservationLifecycleService,
 ) : PaymentModuleApi {
@@ -85,7 +87,10 @@ class PaymentModuleFacade(
     }
 
     override fun refundOrder(orderId: UUID) {
-        paymentService.refundPayment(orderId)
+        // Customer and appointment checkout are Cashfree-backed. Admin dispute
+        // resolution must use the same authoritative gateway path instead of the
+        // retained Razorpay compatibility implementation in PaymentService.
+        cashfreeGatewayService.refundOrder(orderId)
     }
 
     override fun recordOrderDelivered(
