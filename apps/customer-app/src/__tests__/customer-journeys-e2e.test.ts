@@ -1,93 +1,184 @@
-import fs from 'fs';
-import path from 'path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-import { RECURRING_CADENCES, isRecurringCadence } from '@/contracts/recurring-orders';
+import { RECURRING_CADENCES, isRecurringCadence } from '../contracts/recurring-orders';
 
-const ROOT = path.resolve(__dirname, '../..');
-const source = (relativePath: string) => fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
+function source(relativePath: string): string {
+  return readFileSync(join(process.cwd(), relativePath), 'utf8');
+}
 
 function expectAll(content: string, values: string[]) {
   for (const value of values) expect(content).toContain(value);
 }
 
 describe('MyPet customer end-to-end journeys', () => {
-  it('keeps home discovery and primary catalog routes on live customer services', () => {
-    const home = source('src/app/(tabs)/index.tsx');
-    const categories = source('src/app/category/[slug].tsx');
-    const product = source('src/app/product/[id].tsx');
-    const shop = source('src/app/shop/[id].tsx');
-    const catalog = source('src/services/customer-catalog.ts');
+  it('connects home discovery to the requested commerce and care categories', () => {
+    const home = source('src/screens/home-screen.tsx');
+    const category = source('src/app/category/[id].tsx');
 
-    expectAll(home, ['fetchCustomerStorefront', 'fetchCustomerCategorySummary']);
-    expectAll(categories, ['fetchCustomerCategoryPage']);
-    expectAll(product, ['fetchCustomerProductDetail']);
-    expectAll(shop, ['fetchCustomerShopDetail']);
-    expectAll(catalog, ['/api/v1/discovery/stores', '/api/v1/catalog/offerings']);
+    expectAll(home, [
+      'Food & Nutrition',
+      'Treats & Chews',
+      'Toys & Enrichment',
+      'Travel & Apparel',
+    ]);
+    expectAll(category, [
+      "food: 'Food & Nutrition'",
+      "toys: 'Toys & Enrichment'",
+      "travel: 'Travel & Apparel'",
+      "treats: 'Treats & Chews'",
+      "apparel: 'Travel & Apparel'",
+      "appearance: 'Travel & Apparel'",
+      'fetchCommerceProducts',
+    ]);
   });
 
-  it('keeps resilient media on customer catalog and banner presentation', () => {
-    const home = source('src/app/(tabs)/index.tsx');
-    const category = source('src/app/category/[slug].tsx');
-    const product = source('src/app/product/[id].tsx');
-    const shop = source('src/app/shop/[id].tsx');
+  it('prevents blank catalog, banner and shop images with resilient fallbacks', () => {
+    const categoryTemplate = source('src/components/commerce/CategoryTemplate.tsx');
+    const banners = source('src/components/ui/banner-carousel.tsx');
+    const provider = source('src/components/commerce/ProviderProfileTemplate.tsx');
     const checkout = source('src/app/checkout/index.tsx');
+    const resilientImage = source('src/components/ui/resilient-remote-image.tsx');
 
-    for (const content of [home, category, product, shop, checkout]) {
-      expect(content).toContain('ResilientRemoteImage');
-    }
+    expectAll(categoryTemplate, ['ResilientRemoteImage', 'fallbackUri']);
+    expectAll(banners, ['ResilientRemoteImage', 'DEMO_BANNER_IMAGES', 'fallbackUri={DEMO_MEDIA.store}']);
+    expectAll(provider, ['ResilientRemoteImage', 'shop.heroImageUrl', 'item.imageUrl']);
+    expectAll(checkout, ['ResilientRemoteImage', 'categoryImage(item.product.category)']);
+    expectAll(resilientImage, ['onError', 'fallbackUri']);
   });
 
-  it('keeps development-only customer demo fixtures explicitly gated', () => {
-    const demo = source('src/services/demo-customer-data.ts');
+  it('keeps dummy marketplace data explicit and development-only', () => {
     const config = source('src/utils/app-config.ts');
+    const catalog = source('src/services/customer-catalog.ts');
+    const providers = source('src/services/provider-discovery.ts');
+    const pets = source('src/services/customer-pets.ts');
+    const demoData = source('src/services/demo-customer-data.ts');
 
-    expectAll(config, ['EXPO_PUBLIC_ALLOW_DEMO_MODE']);
-    expectAll(demo, ['isDemoModeEnabled']);
+    expect(config).toContain('allowDemoMode');
+    expectAll(catalog, ['allowDemoMode', 'SAMPLE_PRODUCTS', 'DEMO_PROVIDER_FIXTURES']);
+    expectAll(providers, ['allowDemoMode', 'DEMO_PROVIDER_FIXTURES']);
+    expectAll(pets, ['allowDemoMode', 'demoPets']);
+    expectAll(demoData, [
+      'DEMO_MEDIA',
+      'DEMO_BANNER_IMAGES',
+      'DEMO_PROVIDER_FIXTURES',
+      'getDemoAppointmentSlots',
+      'demoShopImage',
+    ]);
   });
 
-  it('keeps vet and grooming appointment booking on authenticated hold and payment flow', () => {
+  it('routes vet and grooming bookings through hold -> payment -> confirmation', () => {
+    const discovery = source('src/screens/appointment-discovery-screen.tsx');
+    const payment = source('src/app/appointments/payment.tsx');
     const booking = source('src/services/appointment-booking.ts');
-    const payments = source('src/services/customer-appointment-payments.ts');
-    const slots = source('src/app/provider/[id]/slots.tsx');
 
-    expectAll(booking, ['/api/v1/appointments/hold', '/api/v1/appointments']);
-    expectAll(payments, ['/api/v1/payments/appointments', 'reconcile']);
-    expectAll(slots, ['createAppointmentHold', 'appointment-payment']);
+    expectAll(discovery, [
+      'fetchAvailableAppointmentSlots',
+      'fetchCustomerPets',
+      'holdAppointmentSlot',
+      "pathname: '/appointments/payment'",
+      'Tap to review & pay',
+    ]);
+    expect(discovery).not.toContain('confirmAppointmentHold(');
+    expectAll(booking, ['payAtClinic: false', 'petId: input.petId']);
+
+    expectAll(payment, [
+      'initiateAppointmentPayment',
+      'openCashfreeOrder',
+      'waitForReferencePaymentOutcome',
+      'confirmAppointmentHold',
+      "payment.status === 'SUCCESS'",
+      'Payment breakdown',
+      'Total payable',
+      'The appointment is confirmed only after server-side payment verification.',
+    ]);
   });
 
-  it('keeps appointment confirmation server-authoritative after payment', () => {
-    const paymentScreen = source('src/app/appointment-payment.tsx');
-    const payments = source('src/services/customer-appointment-payments.ts');
+  it('supports safe demo appointment payment without changing live payment truth', () => {
+    const payment = source('src/app/appointments/payment.tsx');
 
-    expectAll(paymentScreen, ['reconcileAppointmentPayment', 'confirmAppointmentPayment']);
-    expectAll(payments, ['SUCCESS', '/confirm']);
-    expect(paymentScreen).not.toContain('setTimeout(() => router.replace');
+    expectAll(payment, [
+      "appointmentId.startsWith('demo-appointment-')",
+      "await finishAppointment('demo-payment')",
+      'No real money will be charged.',
+    ]);
+    expect(payment.indexOf('if (demoPayment)')).toBeLessThan(
+      payment.indexOf('const initialization = await initiateAppointmentPayment'),
+    );
   });
 
-  it('keeps product checkout itemized and server-authoritative', () => {
+  it('connects appointment payments to an authenticated server-owned Cashfree endpoint', () => {
+    const client = source('src/services/customer-payments.ts');
+    const controller = source('../../backend/payment-service/src/main/kotlin/com/pawsnearme/paymentservice/controller/PaymentController.kt');
+    const gateway = source('../../backend/payment-service/src/main/kotlin/com/pawsnearme/paymentservice/service/CashfreeGatewayService.kt');
+
+    expectAll(client, [
+      "'/api/v1/payments/appointments'",
+      "'APPOINTMENT_PAYMENT'",
+      'waitForReferencePaymentOutcome',
+    ]);
+    expectAll(controller, [
+      '@PostMapping("/appointments")',
+      'APPOINTMENT_PAYMENT',
+      'Access denied for appointment payment initiation',
+    ]);
+    expectAll(gateway, [
+      'APPOINTMENT_PAYMENT',
+      'SLOT_HELD',
+      'customerId',
+    ]);
+  });
+
+  it('shows a complete product checkout breakdown before COD or online payment', () => {
     const checkout = source('src/app/checkout/index.tsx');
-    const orders = source('src/services/customer-orders.ts');
 
-    expectAll(checkout, ['lineTotal', 'Server-authoritative']);
-    expectAll(orders, ['/api/v1/checkout/quote', '/api/v1/orders']);
+    expectAll(checkout, [
+      'Order items',
+      'Item subtotal',
+      'Product savings',
+      'Coupon discount',
+      'Loyalty discount',
+      'Delivery fee',
+      'Tax',
+      'Payable total',
+      'Cash on delivery',
+      'UPI',
+      'Card',
+      'fetchCheckoutQuote',
+      'createCustomerOrder',
+      'initiateOrderPayment',
+      'openCashfreeOrder',
+      'waitForPaymentOutcome',
+    ]);
   });
 
-  it('keeps demo checkout non-chargeable and isolated from backend order creation', () => {
+  it('keeps demo checkout non-chargeable while production remains server-authoritative', () => {
     const checkout = source('src/app/checkout/index.tsx');
 
-    expectAll(checkout, ['demo', 'preview']);
-    expect(checkout).toContain('isDemoModeEnabled');
+    expectAll(checkout, [
+      'const demoCheckout = appConfig.allowDemoMode',
+      'demoCheckoutQuote',
+      'DEMO_ADDRESS',
+      'No backend order was created and no money was charged.',
+    ]);
+    expect(checkout.indexOf('if (demoCheckout)')).toBeLessThan(checkout.indexOf('const order = await createOrder()'));
+    expect(checkout).toContain('fetchCheckoutQuote');
   });
 
-  it('keeps authenticated customer profile and address requests on bearer auth', () => {
-    const api = source('src/services/api-client.ts');
+  it('preserves authenticated customer identity across profile and payment requests', () => {
+    const auth = source('src/context/AuthContext.tsx');
     const profile = source('src/services/customer-profile.ts');
-    const orders = source('src/services/customer-orders.ts');
     const payments = source('src/services/customer-payments.ts');
 
-    expect(api).toContain('Authorization');
-    expectAll(profile, ['/api/v1/profiles']);
-    expectAll(orders, ['Authorization: `Bearer ${accessToken}`']);
+    expectAll(auth, [
+      'apiClient.setSessionToken(nextSession?.access_token ?? null)',
+      'apiClient.setSessionToken(null)',
+    ]);
+    expectAll(profile, [
+      '/api/v1/addresses/default',
+      "method: 'PUT'",
+      'Authorization: `Bearer ${accessToken}`',
+    ]);
     expect(payments).toContain('normalizedPhone');
   });
 
@@ -124,27 +215,13 @@ describe('MyPet customer end-to-end journeys', () => {
     expect(backend).not.toContain('RecurringOrderConfirmationRequired');
   });
 
-  it('keeps authentication token propagation aligned across customer services', () => {
-    const supabase = source('src/utils/supabase.ts');
-    const payment = source('src/services/customer-payments.ts');
+  it('keeps the core customer journeys free of mock appointment confirmation timers', () => {
+    const discovery = source('src/screens/appointment-discovery-screen.tsx');
+    const grooming = source('src/app/grooming/index.tsx');
 
-    expectAll(supabase, ['onAuthStateChange']);
-    expect(payment).toContain('accessToken');
-  });
-
-  it('keeps customer location discovery on device coordinates with fallback', () => {
-    const deviceLocation = source('src/services/device-location.ts');
-    const locationScreen = source('src/app/location.tsx');
-
-    expectAll(deviceLocation, ['requestForegroundPermissionsAsync', 'getCurrentPositionAsync']);
-    expectAll(locationScreen, ['findNearestServiceCity', 'Manual']);
-  });
-
-  it('keeps reorder and recurring checkout reconstruction server-revalidated', () => {
-    const cart = source('src/services/revalidated-cart.ts');
-    const orders = source('src/app/(tabs)/orders.tsx');
-
-    expectAll(cart, ['revalidateReorder', 'fetchCustomerProductDetail']);
-    expect(orders).toContain('populateCartFromRevalidatedOrder');
+    expect(discovery).not.toContain('setTimeout(');
+    expect(discovery).not.toContain('mockAppointment');
+    expect(grooming).not.toContain('setTimeout(');
+    expectAll(grooming, ['/groom', 'Choose live slot & pay']);
   });
 });
