@@ -41,6 +41,11 @@ export interface OfferingDraft {
   imageUrl?: string;
 }
 
+export interface OfferingMediaResponse {
+  offering: MerchantOffering;
+  imageUrl: string;
+}
+
 export async function fetchMerchantProviders(): Promise<MerchantProvider[]> {
   return apiClient.get<MerchantProvider[]>('/api/v1/providers/me');
 }
@@ -85,6 +90,25 @@ export async function updateMerchantOffering(
     `/api/v1/catalog/offerings/${encodeURIComponent(offering.offeringId)}`,
     payload(offering.providerId, draft),
   );
+}
+
+export async function uploadMerchantOfferingImage(
+  offeringId: string,
+  localUri: string,
+  filename: string,
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp',
+): Promise<MerchantOffering> {
+  const form = new FormData();
+  form.append('file', {
+    uri: localUri,
+    name: filename,
+    type: mimeType,
+  } as unknown as Blob);
+  const response = await apiClient.post<OfferingMediaResponse>(
+    `/api/v1/catalog/offerings/${encodeURIComponent(offeringId)}/media`,
+    form,
+  );
+  return response.offering;
 }
 
 export async function deleteMerchantOffering(offeringId: string): Promise<void> {
