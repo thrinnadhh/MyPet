@@ -1,6 +1,7 @@
 package com.pawsnearme.notificationservice.repository
 
 import com.pawsnearme.notificationservice.model.EmailDelivery
+import com.pawsnearme.notificationservice.model.NotificationAdminAudit
 import com.pawsnearme.notificationservice.model.NotificationContact
 import com.pawsnearme.notificationservice.model.NotificationReferenceOwner
 import com.pawsnearme.notificationservice.model.NotificationReferenceOwnerId
@@ -36,4 +37,8 @@ interface EmailDeliveryRepository : JpaRepository<EmailDelivery, UUID> {
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     fun findByEmailDeliveryId(emailDeliveryId: UUID): EmailDelivery?
+}
+
+interface NotificationAdminAuditRepository : JpaRepository<NotificationAdminAudit, UUID> {
+    fun findAllByOrderByCreatedAtDesc(pageable: Pageable): Page<NotificationAdminAudit>
 }
