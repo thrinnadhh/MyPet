@@ -33,6 +33,7 @@ class CashfreeRefundLifecycleService(
     private val baseUrl: String
         get() = if (sandboxMode) "https://sandbox.cashfree.com/pg" else "https://api.cashfree.com/pg"
 
+    @Transactional
     fun processWebhook(
         rawBody: String,
         signature: String,
