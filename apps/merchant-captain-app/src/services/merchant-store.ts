@@ -56,7 +56,7 @@ export interface MerchantStoreProfileUpdate {
 }
 
 export async function fetchMerchantStores(): Promise<MerchantStoreProfile[]> {
-  return apiClient.get<MerchantStoreProfile[]>('/api/v1/providers/merchant-profiles');
+  return apiClient.get<MerchantStoreProfile[]>('/api/v1/providers/me/profiles');
 }
 
 export async function updateMerchantStore(
