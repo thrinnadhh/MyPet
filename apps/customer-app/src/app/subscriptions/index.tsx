@@ -170,6 +170,17 @@ export default function RecurringOrdersScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
       testID="recurring-orders-screen"
     >
+      <FeedbackBanner
+        tone="info"
+        title="No silent charging"
+        message="A recurring schedule never gives MyPet permission to silently charge a prepaid payment method. Prepaid occurrences must complete the normal payment flow before merchant acceptance."
+      />
+      <FeedbackBanner
+        tone="info"
+        title="Revalidate and confirm"
+        message="Before each occurrence becomes a real order, MyPet revalidates the merchant, delivery serviceability, current stock and current price. Invalid occurrences stop without creating an order or payment."
+      />
+
       {params.sourceOrderId ? (
         <AppCard style={styles.card}>
           <SectionHeader title="Subscribe to this completed order" />
