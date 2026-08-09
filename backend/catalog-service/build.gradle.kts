@@ -19,13 +19,17 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.kafka:spring-kafka")
-    
+
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
-    
+
+    // Shared object storage for customer-visible catalog media.
+    implementation(platform("software.amazon.awssdk:bom:2.25.60"))
+    implementation("software.amazon.awssdk:s3")
+
     // PostgreSQL
     runtimeOnly("org.postgresql:postgresql")
-    
+
     // Redis & Jackson Serialization
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
@@ -33,7 +37,7 @@ dependencies {
     // Flyway DB Migrations
     implementation("org.flywaydb:flyway-core:10.1.0")
     runtimeOnly("org.flywaydb:flyway-database-postgresql:10.1.0")
-    
+
     // Test dependencies
     testImplementation("com.h2database:h2")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
