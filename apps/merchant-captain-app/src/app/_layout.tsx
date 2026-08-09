@@ -21,6 +21,7 @@ function canAccessPath(pathname: string, role: string | null): boolean {
   if (
     pathname.startsWith('/orders') ||
     pathname.startsWith('/inventory') ||
+    pathname.startsWith('/catalog-media') ||
     pathname.startsWith('/store') ||
     pathname.startsWith('/subscriptions') ||
     pathname.startsWith('/onboarding') ||
