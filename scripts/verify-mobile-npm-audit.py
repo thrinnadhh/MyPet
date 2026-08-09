@@ -7,10 +7,10 @@ As of 2026-08-09 GitHub lists no patched release for the two allowlisted
 `image-size` advisories. The package is consumed through Metro/Expo build tooling
 and must not be imported by application source.
 
-npm may propagate the root advisory object through every affected parent package,
-so the verifier accepts propagated metadata only when every advisory object still
-names `image-size` and carries one of the two exact GHSA identifiers. Any other
-advisory or dependency root fails closed.
+npm's audit graph may contain dependency cycles between Metro packages. This
+verifier therefore validates all advisory objects first, then proves that every
+high/critical package has a cycle-safe path through its `via` edges to the exact
+allowlisted `image-size` root. Any other advisory or terminal root fails closed.
 """
 
 from __future__ import annotations
@@ -96,66 +96,63 @@ def advisory_identity(entry: dict[str, Any]) -> tuple[str | None, str | None]:
     )
 
 
-def direct_advisories_are_allowlisted(entries: list[dict[str, Any]]) -> bool:
-    for entry in entries:
-        package_name, ghsa = advisory_identity(entry)
-        if package_name != ALLOWED_ROOT_PACKAGE or ghsa not in ALLOWED_GHSA_IDS:
-            return False
-    return True
+def advisory_is_allowlisted(entry: dict[str, Any]) -> bool:
+    package_name, ghsa = advisory_identity(entry)
+    return package_name == ALLOWED_ROOT_PACKAGE and ghsa in ALLOWED_GHSA_IDS
 
 
 def root_is_exact_allowlist(vulnerability: dict[str, Any]) -> bool:
     via = vulnerability.get("via", [])
     if not isinstance(via, list) or not via:
         return False
-    if any(isinstance(entry, str) for entry in via):
+    if any(not isinstance(entry, dict) for entry in via):
         return False
     advisories = [entry for entry in via if isinstance(entry, dict)]
-    if len(advisories) != len(via) or not direct_advisories_are_allowlisted(advisories):
+    if not all(advisory_is_allowlisted(entry) for entry in advisories):
         return False
     return {advisory_identity(entry)[1] for entry in advisories} == ALLOWED_GHSA_IDS
 
 
-def vulnerability_allowed(
+def every_advisory_object_is_allowlisted(vulnerabilities: dict[str, dict[str, Any]]) -> bool:
+    for vulnerability in vulnerabilities.values():
+        via = vulnerability.get("via", [])
+        if not isinstance(via, list):
+            return False
+        for entry in via:
+            if isinstance(entry, dict) and not advisory_is_allowlisted(entry):
+                return False
+            if not isinstance(entry, (dict, str)):
+                return False
+    return True
+
+
+def reaches_allowlisted_root(
     name: str,
     vulnerabilities: dict[str, dict[str, Any]],
-    memo: dict[str, bool],
-    visiting: set[str],
+    visited: set[str],
 ) -> bool:
-    if name in memo:
-        return memo[name]
-    if name in visiting:
-        memo[name] = False
+    if name == ALLOWED_ROOT_PACKAGE:
+        root = vulnerabilities.get(name)
+        return bool(root and root_is_exact_allowlist(root))
+    if name in visited:
         return False
+
     vulnerability = vulnerabilities.get(name)
     if not vulnerability:
-        memo[name] = False
         return False
-
-    visiting.add(name)
     via = vulnerability.get("via", [])
     if not isinstance(via, list) or not via:
-        visiting.remove(name)
-        memo[name] = False
         return False
 
-    direct_advisories = [entry for entry in via if isinstance(entry, dict)]
-    dependency_edges = [entry for entry in via if isinstance(entry, str)]
-    unexpected = [entry for entry in via if not isinstance(entry, (dict, str))]
-
-    if name == ALLOWED_ROOT_PACKAGE:
-        allowed = root_is_exact_allowlist(vulnerability)
-    else:
-        direct_ok = direct_advisories_are_allowlisted(direct_advisories)
-        dependencies_ok = all(
-            vulnerability_allowed(edge, vulnerabilities, memo, visiting)
-            for edge in dependency_edges
-        )
-        allowed = not unexpected and direct_ok and dependencies_ok and bool(direct_advisories or dependency_edges)
-
-    visiting.remove(name)
-    memo[name] = allowed
-    return allowed
+    next_visited = {*visited, name}
+    for entry in via:
+        if isinstance(entry, dict):
+            if advisory_is_allowlisted(entry):
+                return True
+            continue
+        if isinstance(entry, str) and reaches_allowlisted_root(entry, vulnerabilities, next_visited):
+            return True
+    return False
 
 
 def main() -> int:
@@ -194,21 +191,29 @@ def main() -> int:
         )
         return 1
 
-    memo: dict[str, bool] = {}
+    blocking_graph = {name: details for name, details in blocking.items()}
+    root = blocking_graph.get(ALLOWED_ROOT_PACKAGE)
+    if not root or not root_is_exact_allowlist(root):
+        print("FAIL: exact image-size advisory root is absent or has changed.", file=sys.stderr)
+        return 1
+
+    if not every_advisory_object_is_allowlisted(blocking_graph):
+        print("FAIL: a high/critical advisory object is outside the exact image-size allowlist.", file=sys.stderr)
+        return 1
+
     disallowed = [
         name
-        for name in blocking
-        if not vulnerability_allowed(name, vulnerabilities, memo, set())
+        for name in blocking_graph
+        if not reaches_allowlisted_root(name, blocking_graph, set())
     ]
     if disallowed:
         print(
-            "FAIL: high/critical npm vulnerabilities are outside the exact temporary allowlist: "
+            "FAIL: high/critical npm vulnerabilities do not resolve exclusively to the allowlisted root: "
             + ", ".join(sorted(disallowed)),
             file=sys.stderr,
         )
         return 1
 
-    root = vulnerabilities.get(ALLOWED_ROOT_PACKAGE, {})
     effects = set(root.get("effects", []))
     if not effects.intersection(KNOWN_BUILD_CHAIN):
         print(
@@ -218,7 +223,7 @@ def main() -> int:
         return 1
 
     print(
-        "PASS WITH TEMPORARY SECURITY EXCEPTION: all high/critical findings resolve only to "
+        "PASS WITH TEMPORARY SECURITY EXCEPTION: every high/critical npm node reaches only "
         f"{ALLOWED_ROOT_PACKAGE} advisories {sorted(ALLOWED_GHSA_IDS)} through Metro build tooling; "
         f"no app-source import was found; waiver expires {WAIVER_EXPIRES.isoformat()}."
     )
