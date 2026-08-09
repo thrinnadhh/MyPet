@@ -9,10 +9,12 @@ import com.pawsnearme.paymentservice.service.CreateCashfreeOrderRequest
 import com.pawsnearme.paymentservice.service.PaymentResultRequest
 import com.pawsnearme.paymentservice.service.PaymentService
 import jakarta.validation.Valid
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.math.BigDecimal
+import java.security.MessageDigest
 import java.time.LocalDate
 import java.util.UUID
 
@@ -25,6 +27,7 @@ class PaymentController(
     private val cashfreeGatewayService: CashfreeGatewayService,
     private val cashfreeRefundLifecycleService: CashfreeRefundLifecycleService,
     private val couponReservationLifecycleService: CouponReservationLifecycleService,
+    @Value("\${internal.api.secret:}") private val internalSecret: String = "",
 ) {
 
     @PostMapping("/orders")
@@ -185,13 +188,19 @@ class PaymentController(
         paymentService.validateCoupon(code, orderValue, providerId, category),
     )
 
+    /**
+     * Compatibility route for order-service in distributed mode. It is deliberately
+     * service-to-service only. Human Admin refund decisions must go through the order
+     * dispute/cancellation domain actions so actor, reason and business side effects
+     * are captured before the payment provider is invoked.
+     */
     @PostMapping("/refund")
     fun refundPayment(
         @RequestParam orderId: UUID,
-        @RequestHeader("X-User-Role", required = false) role: String?,
-        @RequestHeader("X-User-Id", required = false) userId: String?,
+        @RequestHeader("X-Internal-Secret", required = false) providedSecret: String?,
+        @RequestHeader("X-Service-Name", required = false) serviceName: String?,
     ): ResponseEntity<Any> {
-        requireAdminActor(userId, role)
+        requireTrustedOrderService(providedSecret, serviceName)
         return ResponseEntity.ok(cashfreeGatewayService.refundOrder(orderId))
     }
 
@@ -271,6 +280,15 @@ class PaymentController(
         }
         return runCatching { UUID.fromString(userId) }
             .getOrElse { throw PaymentAccessDeniedException("Valid administrator identity is required") }
+    }
+
+    private fun requireTrustedOrderService(providedSecret: String?, serviceName: String?) {
+        val validSecret = internalSecret.isNotBlank() &&
+            !providedSecret.isNullOrBlank() &&
+            MessageDigest.isEqual(providedSecret.toByteArray(), internalSecret.toByteArray())
+        if (!validSecret || serviceName != "order-service") {
+            throw PaymentAccessDeniedException("Trusted order-service identity required for refund execution")
+        }
     }
 
     @ExceptionHandler(PaymentAccessDeniedException::class)
