@@ -47,7 +47,7 @@ class ReviewEventListenerTests {
             ratingAvg = BigDecimal("4.00")
             ratingCount = 2
         }
-        whenever(providerRepository.findById(providerId)).thenReturn(Optional.of(provider))
+        whenever(providerRepository.findByIdForUpdate(providerId)).thenReturn(Optional.of(provider))
         whenever(providerRepository.save(any())).thenAnswer { it.arguments[0] as Provider }
 
         listener.onReviewEvent(
@@ -72,7 +72,7 @@ class ReviewEventListenerTests {
     @Test
     fun `ReviewSubmitted event for missing provider is skipped without throwing`() {
         val providerId = UUID.randomUUID()
-        whenever(providerRepository.findById(providerId)).thenReturn(Optional.empty())
+        whenever(providerRepository.findByIdForUpdate(providerId)).thenReturn(Optional.empty())
 
         listener.onReviewEvent(
             """
