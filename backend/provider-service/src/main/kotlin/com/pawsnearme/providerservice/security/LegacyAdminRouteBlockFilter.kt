@@ -13,7 +13,6 @@ import org.springframework.web.filter.OncePerRequestFilter
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
 class LegacyAdminRouteBlockFilter : OncePerRequestFilter() {
-    private val legacyProviderApproval = Regex("^/api/v1/providers/[0-9a-fA-F-]{36}/approve$")
     private val legacyProfileAccess = Regex("^/api/v1/profiles/[0-9a-fA-F-]{36}/(revoke|restore)$")
 
     override fun shouldNotFilter(request: HttpServletRequest): Boolean = !isBlocked(request)
@@ -34,7 +33,6 @@ class LegacyAdminRouteBlockFilter : OncePerRequestFilter() {
         val path = request.requestURI
         val method = request.method
         return (method == HttpMethod.GET.name() && path == "/api/v1/providers/pending") ||
-            (method == HttpMethod.POST.name() && legacyProviderApproval.matches(path)) ||
             (method == HttpMethod.GET.name() && path == "/api/v1/profiles") ||
             (method == HttpMethod.POST.name() && legacyProfileAccess.matches(path))
     }
