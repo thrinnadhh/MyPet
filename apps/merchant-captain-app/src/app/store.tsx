@@ -113,7 +113,7 @@ export default function MerchantStoreScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const useCurrentLocation = useCallback(async () => {
+  const captureCurrentLocation = useCallback(async () => {
     setLocating(true);
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
@@ -267,7 +267,7 @@ export default function MerchantStoreScreen() {
                   </View>
                 </View>
                 <View style={styles.actions}>
-                  <ActionButton label={locating ? 'Locating…' : 'Use current location'} variant="secondary" icon="location" disabled={locating || saving} onPress={() => void useCurrentLocation()} />
+                  <ActionButton label={locating ? 'Locating…' : 'Use current location'} variant="secondary" icon="location" disabled={locating || saving} onPress={() => void captureCurrentLocation()} />
                   <ActionButton label="Save profile" icon="check" loading={saving} disabled={locating} onPress={() => void save()} />
                 </View>
               </AppCard>
