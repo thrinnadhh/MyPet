@@ -15,6 +15,7 @@ class SchemaQualifiedOutboxPersistenceTests {
         assertThat(MonolithOutboxOwnerRegistry.schemaFor("RECURRING_ORDER")).isEqualTo("orders")
         assertThat(MonolithOutboxOwnerRegistry.schemaFor("ADMIN_OPERATION")).isEqualTo("orders")
         assertThat(MonolithOutboxOwnerRegistry.schemaFor("APPOINTMENT")).isEqualTo("appointments")
+        assertThat(MonolithOutboxOwnerRegistry.schemaFor("PROFILE")).isEqualTo("providers")
         assertThat(MonolithOutboxOwnerRegistry.schemaFor("VACCINATION")).isEqualTo("providers")
         assertThat(MonolithOutboxOwnerRegistry.schemaFor("CATALOG")).isEqualTo("catalog")
         assertThat(MonolithOutboxOwnerRegistry.schemaFor("OFFERING")).isEqualTo("catalog")
