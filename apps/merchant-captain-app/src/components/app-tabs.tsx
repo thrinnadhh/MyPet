@@ -22,6 +22,7 @@ type WebTab = {
     | '/orders'
     | '/explore'
     | '/inventory'
+    | '/catalog-media'
     | '/store'
     | '/subscriptions'
     | '/finance'
@@ -47,6 +48,7 @@ export default function AppTabs() {
     { name: 'orders', href: '/orders', label: 'Orders', visible: isProvider },
     { name: 'bookings', href: '/explore', label: 'Bookings', visible: isProvider },
     { name: 'inventory', href: '/inventory', label: 'Inventory', visible: isProvider },
+    { name: 'media', href: '/catalog-media', label: 'Media', visible: isProvider },
     { name: 'subscriptions', href: '/subscriptions', label: 'Subscriptions', visible: isProvider },
     { name: 'pos', href: '/billing', label: 'POS', visible: isAdmin || isProvider },
     { name: 'finance', href: '/finance', label: 'Finance', visible: isProvider },
