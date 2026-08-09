@@ -8,7 +8,6 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 import java.sql.Timestamp
 import java.sql.Types
-import java.time.Instant
 import java.util.UUID
 
 /**
@@ -60,8 +59,9 @@ internal object MonolithOutboxOwnerRegistry {
  *
  * The legacy JPA entity deliberately remains unqualified for standalone
  * service compatibility. This adapter replaces that search-path-dependent
- * behavior in the consolidated process by qualifying every insert, select and
- * publication update with its bounded-context schema.
+ * behavior in the consolidated process by qualifying every insert and select
+ * with its bounded-context schema. Publication timestamps are persisted through
+ * the same save/upsert contract used by the shared OutboxPoller.
  */
 @Component
 @Primary
@@ -141,17 +141,6 @@ class SchemaQualifiedOutboxPersistence(
             LIMIT $PER_SCHEMA_BATCH_SIZE
             FOR UPDATE SKIP LOCKED
         """.trimIndent()
-    }
-
-    override fun markPublished(eventId: UUID, publishedAt: Instant) {
-        val updated = MonolithOutboxOwnerRegistry.schemas.sumOf { schema ->
-            jdbcTemplate.update(
-                "UPDATE $schema.outbox_events SET published_at = ? WHERE event_id = ? AND published_at IS NULL",
-                Timestamp.from(publishedAt),
-                eventId,
-            )
-        }
-        require(updated <= 1) { "Outbox event $eventId exists in more than one bounded-context schema" }
     }
 
     companion object {
