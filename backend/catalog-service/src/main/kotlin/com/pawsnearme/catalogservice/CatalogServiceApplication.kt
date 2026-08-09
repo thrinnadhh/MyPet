@@ -9,9 +9,9 @@ import org.springframework.scheduling.annotation.EnableScheduling
 
 @SpringBootApplication
 @EnableScheduling
-@EntityScan(basePackages = ["com.pawsnearme.catalogservice", "com.pawsnearme.common"])
-@EnableJpaRepositories(basePackages = ["com.pawsnearme.catalogservice", "com.pawsnearme.common"])
-@ComponentScan(basePackages = ["com.pawsnearme.catalogservice", "com.pawsnearme.common"])
+@EntityScan(basePackages = ["com.pawsnearme.catalogservice", "com.pawsnearme.common.outbox"])
+@EnableJpaRepositories(basePackages = ["com.pawsnearme.catalogservice", "com.pawsnearme.common.outbox"])
+@ComponentScan(basePackages = ["com.pawsnearme.catalogservice", "com.pawsnearme.common.outbox"])
 class CatalogServiceApplication
 
 fun main(args: Array<String>) {
