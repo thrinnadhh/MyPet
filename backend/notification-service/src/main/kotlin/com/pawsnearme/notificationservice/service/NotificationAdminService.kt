@@ -1,7 +1,9 @@
 package com.pawsnearme.notificationservice.service
 
 import com.pawsnearme.notificationservice.model.EmailDelivery
+import com.pawsnearme.notificationservice.model.NotificationAdminAudit
 import com.pawsnearme.notificationservice.repository.EmailDeliveryRepository
+import com.pawsnearme.notificationservice.repository.NotificationAdminAuditRepository
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -32,9 +34,31 @@ data class AdminEmailDeliveryPage(
     val totalPages: Int,
 )
 
+data class AdminNotificationAuditView(
+    val auditId: UUID,
+    val actorUserId: UUID,
+    val action: String,
+    val targetType: String,
+    val targetId: UUID,
+    val previousState: String?,
+    val newState: String?,
+    val reason: String,
+    val requestId: String?,
+    val createdAt: Instant,
+)
+
+data class AdminNotificationAuditPage(
+    val content: List<AdminNotificationAuditView>,
+    val page: Int,
+    val size: Int,
+    val totalElements: Long,
+    val totalPages: Int,
+)
+
 @Service
 class NotificationAdminService(
     private val deliveryRepository: EmailDeliveryRepository,
+    private val auditRepository: NotificationAdminAuditRepository,
 ) {
     @Transactional(readOnly = true)
     fun list(page: Int, size: Int, status: String?): AdminEmailDeliveryPage {
@@ -59,24 +83,74 @@ class NotificationAdminService(
         )
     }
 
+    @Transactional(readOnly = true)
+    fun audit(page: Int, size: Int): AdminNotificationAuditPage {
+        require(page >= 0) { "Page must be zero or greater" }
+        require(size in 1..100) { "Page size must be between 1 and 100" }
+        val result = auditRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(page, size))
+        return AdminNotificationAuditPage(
+            content = result.content.map {
+                AdminNotificationAuditView(
+                    auditId = it.auditId,
+                    actorUserId = it.actorUserId,
+                    action = it.action,
+                    targetType = it.targetType,
+                    targetId = it.targetId,
+                    previousState = it.previousState,
+                    newState = it.newState,
+                    reason = it.reason,
+                    requestId = it.requestId,
+                    createdAt = it.createdAt,
+                )
+            },
+            page = result.number,
+            size = result.size,
+            totalElements = result.totalElements,
+            totalPages = result.totalPages,
+        )
+    }
+
     /**
      * Schedules exactly one additional attempt for a definitively FAILED delivery.
      * UNKNOWN is deliberately excluded because the provider may already have accepted
      * the original request and retrying it could duplicate customer email.
      */
     @Transactional
-    fun retryFailed(deliveryId: UUID): AdminEmailDeliveryView {
+    fun retryFailed(
+        deliveryId: UUID,
+        actorUserId: UUID,
+        reason: String,
+        requestId: String?,
+    ): AdminEmailDeliveryView {
+        val normalizedReason = reason.trim()
+        require(normalizedReason.length in 3..500) {
+            "An administrative retry reason between 3 and 500 characters is required"
+        }
         val delivery = deliveryRepository.findByEmailDeliveryId(deliveryId)
             ?: throw NoSuchElementException("Email delivery not found: $deliveryId")
         require(delivery.status == "FAILED") {
             "Only definitively FAILED email deliveries can be retried manually"
         }
+        val previousState = delivery.status
         delivery.status = "RETRY"
         delivery.attemptCount = (delivery.attemptCount - 1).coerceAtLeast(0)
         delivery.nextAttemptAt = Instant.now()
         delivery.lastError = "Manual admin retry scheduled after: ${delivery.lastError.orEmpty()}".take(1000)
         delivery.updatedAt = Instant.now()
-        return toView(deliveryRepository.save(delivery))
+        val updated = deliveryRepository.save(delivery)
+        auditRepository.save(
+            NotificationAdminAudit(
+                actorUserId = actorUserId,
+                action = "EMAIL_DELIVERY_RETRY_SCHEDULED",
+                targetType = "EMAIL_DELIVERY",
+                targetId = deliveryId,
+                previousState = previousState,
+                newState = updated.status,
+                reason = normalizedReason,
+                requestId = requestId?.trim()?.takeIf(String::isNotBlank)?.take(160),
+            ),
+        )
+        return toView(updated)
     }
 
     private fun toView(delivery: EmailDelivery) = AdminEmailDeliveryView(
