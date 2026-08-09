@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockito.kotlin.any
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
@@ -100,7 +101,7 @@ class MerchantFinanceControllerTests {
             periodStart = LocalDate.now(),
             periodEnd = LocalDate.now()
         )
-        whenever(payoutRepository.findByPayeeUserIdOrderByCreatedAtDesc(ownerId, any<Pageable>())).thenReturn(
+        whenever(payoutRepository.findByPayeeUserIdOrderByCreatedAtDesc(eq(ownerId), any<Pageable>())).thenReturn(
             PageImpl(listOf(processing, paid))
         )
         whenever(payoutRepository.sumPaidAmountByPayeeUserId(ownerId)).thenReturn(BigDecimal("700.00"))
@@ -129,7 +130,7 @@ class MerchantFinanceControllerTests {
         whenever(orderRepository.findByProviderIdAndStatus(providerId, "DELIVERED")).thenReturn(emptyList())
         whenever(appointmentRepository.findByProviderIdAndStatus(providerId, "COMPLETED")).thenReturn(emptyList())
         whenever(ledgerRepository.findByProviderId(providerId)).thenReturn(emptyList())
-        whenever(payoutRepository.findByPayeeUserIdOrderByCreatedAtDesc(ownerId, any<Pageable>())).thenAnswer { invocation ->
+        whenever(payoutRepository.findByPayeeUserIdOrderByCreatedAtDesc(eq(ownerId), any<Pageable>())).thenAnswer { invocation ->
             val pageable = invocation.arguments[1] as Pageable
             assertEquals(100, pageable.pageSize)
             assertEquals(0, pageable.pageNumber)
@@ -142,7 +143,7 @@ class MerchantFinanceControllerTests {
 
         assertEquals(0, summary.payoutPage)
         assertEquals(100, summary.payoutPageSize)
-        verify(payoutRepository).findByPayeeUserIdOrderByCreatedAtDesc(ownerId, any<Pageable>())
+        verify(payoutRepository).findByPayeeUserIdOrderByCreatedAtDesc(eq(ownerId), any<Pageable>())
     }
 
     @Test
@@ -167,7 +168,7 @@ class MerchantFinanceControllerTests {
         whenever(orderRepository.findByProviderIdAndStatus(providerId, "DELIVERED")).thenReturn(emptyList())
         whenever(appointmentRepository.findByProviderIdAndStatus(providerId, "COMPLETED")).thenReturn(emptyList())
         whenever(ledgerRepository.findByProviderId(providerId)).thenReturn(emptyList())
-        whenever(payoutRepository.findByPayeeUserIdOrderByCreatedAtDesc(ownerId, any<Pageable>())).thenReturn(
+        whenever(payoutRepository.findByPayeeUserIdOrderByCreatedAtDesc(eq(ownerId), any<Pageable>())).thenReturn(
             PageImpl<Payout>(emptyList())
         )
         whenever(payoutRepository.sumPaidAmountByPayeeUserId(ownerId)).thenReturn(BigDecimal.ZERO)
