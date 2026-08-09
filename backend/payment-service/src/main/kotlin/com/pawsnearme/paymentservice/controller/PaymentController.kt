@@ -3,6 +3,7 @@ package com.pawsnearme.paymentservice.controller
 import com.pawsnearme.paymentservice.model.Payout
 import com.pawsnearme.paymentservice.model.Promotion
 import com.pawsnearme.paymentservice.service.CashfreeGatewayService
+import com.pawsnearme.paymentservice.service.CashfreeRefundLifecycleService
 import com.pawsnearme.paymentservice.service.CouponReservationLifecycleService
 import com.pawsnearme.paymentservice.service.CreateCashfreeOrderRequest
 import com.pawsnearme.paymentservice.service.PaymentResultRequest
@@ -22,6 +23,7 @@ class PaymentAccessDeniedException(message: String) : RuntimeException(message)
 class PaymentController(
     private val paymentService: PaymentService,
     private val cashfreeGatewayService: CashfreeGatewayService,
+    private val cashfreeRefundLifecycleService: CashfreeRefundLifecycleService,
     private val couponReservationLifecycleService: CouponReservationLifecycleService,
 ) {
 
@@ -80,7 +82,7 @@ class PaymentController(
     ): ResponseEntity<Any> {
         if (signature.isNullOrBlank()) throw IllegalArgumentException("Missing Cashfree signature header")
         if (timestamp.isNullOrBlank()) throw IllegalArgumentException("Missing Cashfree timestamp header")
-        val isNew = cashfreeGatewayService.processWebhook(payload, signature, timestamp, idempotencyKey)
+        val isNew = cashfreeRefundLifecycleService.processWebhook(payload, signature, timestamp, idempotencyKey)
         return ResponseEntity.ok(mapOf("status" to if (isNew) "processed" else "already_processed"))
     }
 
@@ -187,11 +189,20 @@ class PaymentController(
     fun refundPayment(
         @RequestParam orderId: UUID,
         @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
     ): ResponseEntity<Any> {
-        if (role != "ADMIN") {
-            throw PaymentAccessDeniedException("Access denied: refund requires ADMIN role")
-        }
+        requireAdminActor(userId, role)
         return ResponseEntity.ok(cashfreeGatewayService.refundOrder(orderId))
+    }
+
+    @PostMapping("/refund/{orderId}/reconcile")
+    fun reconcileRefund(
+        @PathVariable orderId: UUID,
+        @RequestHeader("X-User-Role", required = false) role: String?,
+        @RequestHeader("X-User-Id", required = false) userId: String?,
+    ): ResponseEntity<Any> {
+        requireAdminActor(userId, role)
+        return ResponseEntity.ok(cashfreeRefundLifecycleService.reconcileReference(orderId))
     }
 
     @PostMapping("/promotions/reserve")
@@ -253,6 +264,14 @@ class PaymentController(
     fun checkCodEligibility(
         @Valid @RequestBody req: com.pawsnearme.paymentservice.service.CodCheckRequest,
     ): ResponseEntity<Any> = ResponseEntity.ok(paymentService.checkCodEligibility(req))
+
+    private fun requireAdminActor(userId: String?, role: String?): UUID {
+        if (role != "ADMIN") {
+            throw PaymentAccessDeniedException("Access denied: refund operation requires ADMIN role")
+        }
+        return runCatching { UUID.fromString(userId) }
+            .getOrElse { throw PaymentAccessDeniedException("Valid administrator identity is required") }
+    }
 
     @ExceptionHandler(PaymentAccessDeniedException::class)
     fun handleAccessDenied(ex: PaymentAccessDeniedException): ResponseEntity<Any> =
