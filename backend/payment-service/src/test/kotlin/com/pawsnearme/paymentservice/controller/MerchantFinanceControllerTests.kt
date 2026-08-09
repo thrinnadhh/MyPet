@@ -133,7 +133,7 @@ class MerchantFinanceControllerTests {
             val pageable = invocation.arguments[1] as Pageable
             assertEquals(100, pageable.pageSize)
             assertEquals(0, pageable.pageNumber)
-            PageImpl(emptyList())
+            PageImpl<Payout>(emptyList(), pageable, 0)
         }
         whenever(payoutRepository.sumPaidAmountByPayeeUserId(ownerId)).thenReturn(BigDecimal.ZERO)
         whenever(payoutRepository.sumInFlightAmountByPayeeUserId(ownerId)).thenReturn(BigDecimal.ZERO)
@@ -167,7 +167,9 @@ class MerchantFinanceControllerTests {
         whenever(orderRepository.findByProviderIdAndStatus(providerId, "DELIVERED")).thenReturn(emptyList())
         whenever(appointmentRepository.findByProviderIdAndStatus(providerId, "COMPLETED")).thenReturn(emptyList())
         whenever(ledgerRepository.findByProviderId(providerId)).thenReturn(emptyList())
-        whenever(payoutRepository.findByPayeeUserIdOrderByCreatedAtDesc(ownerId, any<Pageable>())).thenReturn(PageImpl(emptyList()))
+        whenever(payoutRepository.findByPayeeUserIdOrderByCreatedAtDesc(ownerId, any<Pageable>())).thenReturn(
+            PageImpl<Payout>(emptyList())
+        )
         whenever(payoutRepository.sumPaidAmountByPayeeUserId(ownerId)).thenReturn(BigDecimal.ZERO)
         whenever(payoutRepository.sumInFlightAmountByPayeeUserId(ownerId)).thenReturn(BigDecimal.ZERO)
 
