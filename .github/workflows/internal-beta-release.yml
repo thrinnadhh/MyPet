@@ -61,15 +61,15 @@ jobs:
           npm ci
           python3 ../../scripts/verify-mobile-npm-audit.py .
           npx --yes expo-doctor@1.20.1
-          npx expo config --type public >/tmp/customer-expo-config.json
+          npx expo config --type public --json >/tmp/customer-expo-config.json
       - name: Validate operational and merchant Expo configurations
         working-directory: apps/merchant-captain-app
         run: |
           npm ci
           python3 ../../scripts/verify-mobile-npm-audit.py .
           npx --yes expo-doctor@1.20.1
-          MYPET_APP_VARIANT=operations EXPO_PUBLIC_APP_VARIANT=operations npx expo config --type public >/tmp/operations-expo-config.json
-          MYPET_APP_VARIANT=merchant EXPO_PUBLIC_APP_VARIANT=merchant npx expo config --type public >/tmp/merchant-expo-config.json
+          MYPET_APP_VARIANT=operations EXPO_PUBLIC_APP_VARIANT=operations npx expo config --type public --json >/tmp/operations-expo-config.json
+          MYPET_APP_VARIANT=merchant EXPO_PUBLIC_APP_VARIANT=merchant npx expo config --type public --json >/tmp/merchant-expo-config.json
           node - <<'NODE'
           const fs = require('node:fs');
           const merchant = JSON.parse(fs.readFileSync('/tmp/merchant-expo-config.json', 'utf8'));
