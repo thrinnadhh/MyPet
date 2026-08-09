@@ -19,6 +19,7 @@
     let configuredApiUrl = null;
     let adminSession = null;
     let authClient = null;
+    const sensitiveMutations = new Set();
 
     try {
         configuredApiUrl = configuredApiBaseUrl ? new URL(configuredApiBaseUrl, window.location.href) : null;
@@ -177,6 +178,95 @@
         localStorage.removeItem('admin_token');
         setAuthenticatedUi(false);
         window.showToast?.('Admin session signed out');
+    };
+
+    async function readSensitiveError(response, fallback) {
+        try {
+            const body = await response.json();
+            return body.error || body.message || fallback;
+        } catch {
+            return `${fallback} (${response.status})`;
+        }
+    }
+
+    async function runSensitiveMutation(key, operation) {
+        if (sensitiveMutations.has(key)) return;
+        sensitiveMutations.add(key);
+        try {
+            await operation();
+        } finally {
+            sensitiveMutations.delete(key);
+        }
+    }
+
+    function requireReason(promptText) {
+        const entered = window.prompt(promptText);
+        if (entered == null) return null;
+        const reason = entered.trim();
+        if (reason.length < 3 || reason.length > 500) {
+            window.showToast?.('A reason between 3 and 500 characters is required.', true);
+            return null;
+        }
+        return reason;
+    }
+
+    // Replace legacy Admin actions with actor-aware, auditable endpoints. These
+    // assignments intentionally override the global functions declared by app.js.
+    window.approveProvider = async (providerId) => {
+        await runSensitiveMutation(`approve-provider:${providerId}`, async () => {
+            try {
+                const response = await window.fetch(`${configuredApiBaseUrl}/api/v1/providers/admin/${encodeURIComponent(providerId)}/approve`, {
+                    method: 'POST',
+                });
+                if (!response.ok) throw new Error(await readSensitiveError(response, 'Provider approval failed'));
+                window.showToast?.('Provider approved');
+                await window.fetchPendingProviders?.();
+            } catch (error) {
+                window.showToast?.(error?.message || 'Provider approval failed', true);
+            }
+        });
+    };
+
+    window.revokeUserAccess = async (userId) => {
+        const reason = requireReason('Enter the reason for revoking this customer’s access:');
+        if (!reason) return;
+        if (!window.confirm('Revoke this user’s access? Active sessions will be blocked by the gateway.')) return;
+
+        await runSensitiveMutation(`revoke-user:${userId}`, async () => {
+            try {
+                const response = await window.fetch(`${configuredApiBaseUrl}/api/v1/profiles/admin/${encodeURIComponent(userId)}/revoke`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason }),
+                });
+                if (!response.ok) throw new Error(await readSensitiveError(response, 'Failed to revoke access'));
+                window.showToast?.('Access revoked');
+                await window.fetchUsers?.();
+            } catch (error) {
+                window.showToast?.(error?.message || 'Failed to revoke access', true);
+            }
+        });
+    };
+
+    window.restoreUserAccess = async (userId) => {
+        const reason = requireReason('Enter the reason for restoring this customer’s access:');
+        if (!reason) return;
+        if (!window.confirm('Restore this user’s access?')) return;
+
+        await runSensitiveMutation(`restore-user:${userId}`, async () => {
+            try {
+                const response = await window.fetch(`${configuredApiBaseUrl}/api/v1/profiles/admin/${encodeURIComponent(userId)}/restore`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason }),
+                });
+                if (!response.ok) throw new Error(await readSensitiveError(response, 'Failed to restore access'));
+                window.showToast?.('Access restored');
+                await window.fetchUsers?.();
+            } catch (error) {
+                window.showToast?.(error?.message || 'Failed to restore access', true);
+            }
+        });
     };
 
     async function initialize() {
