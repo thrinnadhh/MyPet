@@ -69,7 +69,7 @@ class MerchantCatalogControllerTests {
             .thenAnswer { invocation ->
                 val pageable = invocation.arguments[2] as Pageable
                 assertEquals(100, pageable.pageSize)
-                PageImpl(emptyList(), pageable, 0)
+                PageImpl<Offering>(emptyList(), pageable, 0)
             }
 
         val response = controller.listMerchantOfferings(
