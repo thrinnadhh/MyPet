@@ -217,6 +217,10 @@
     <main class="container">
         <nav class="tabs" aria-label="Admin sections">
             <button class="tab-btn active" data-tab="approvals" type="button" onclick="switchTab('approvals')">Provider Approvals</button>
+            <button class="tab-btn" data-tab="merchants" type="button" onclick="switchTab('merchants'); fetchAdminMerchants()">Merchants</button>
+            <button class="tab-btn" data-tab="orders" type="button" onclick="switchTab('orders'); fetchAdminOrders()">Orders</button>
+            <button class="tab-btn" data-tab="catalog" type="button" onclick="switchTab('catalog'); fetchAdminCatalog()">Catalog</button>
+            <button class="tab-btn" data-tab="subscriptions" type="button" onclick="switchTab('subscriptions'); fetchAdminSubscriptions()">Subscriptions</button>
             <button class="tab-btn" data-tab="disputes" type="button" onclick="switchTab('disputes')">Support Disputes</button>
             <button class="tab-btn" data-tab="banner-auction" type="button" onclick="switchTab('banner-auction')">Banner Auction</button>
             <button class="tab-btn" data-tab="users" type="button" onclick="switchTab('users')">User Management</button>
@@ -228,6 +232,34 @@
                     <div class="card">
                         <div class="card-header"><h2 class="card-title">Provider Onboarding Queue</h2><button class="btn btn-emerald" type="button" onclick="fetchPendingProviders()">Refresh</button></div>
                         <div id="pending-providers-list" class="list-container"><div class="empty-state"><span class="empty-icon">⏳</span><p>Sign in to load the onboarding queue.</p></div></div>
+                    </div>
+                </div>
+
+                <div id="merchants-panel" class="tab-panel" hidden>
+                    <div class="card">
+                        <div class="card-header"><h2 class="card-title">Merchant Operations</h2><button class="btn btn-emerald" type="button" onclick="fetchAdminMerchants()">Refresh</button></div>
+                        <div id="admin-merchants-list" class="list-container"><div class="empty-state"><span class="empty-icon">🏪</span><p>Load merchants after authentication.</p></div></div>
+                    </div>
+                </div>
+
+                <div id="orders-panel" class="tab-panel" hidden>
+                    <div class="card">
+                        <div class="card-header"><h2 class="card-title">Order Operations</h2><button class="btn btn-emerald" type="button" onclick="fetchAdminOrders()">Refresh</button></div>
+                        <div id="admin-orders-list" class="list-container"><div class="empty-state"><span class="empty-icon">📦</span><p>Load authoritative orders after authentication.</p></div></div>
+                    </div>
+                </div>
+
+                <div id="catalog-panel" class="tab-panel" hidden>
+                    <div class="card">
+                        <div class="card-header"><h2 class="card-title">Catalog Moderation</h2><button class="btn btn-emerald" type="button" onclick="fetchAdminCatalog()">Refresh</button></div>
+                        <div id="admin-catalog-list" class="list-container"><div class="empty-state"><span class="empty-icon">🛍️</span><p>Load merchant offerings after authentication.</p></div></div>
+                    </div>
+                </div>
+
+                <div id="subscriptions-panel" class="tab-panel" hidden>
+                    <div class="card">
+                        <div class="card-header"><h2 class="card-title">Recurring Order Traceability</h2><button class="btn btn-emerald" type="button" onclick="fetchAdminSubscriptions()">Refresh</button></div>
+                        <div id="admin-subscriptions-list" class="list-container"><div class="empty-state"><span class="empty-icon">🔁</span><p>Load recurring subscriptions after authentication.</p></div></div>
                     </div>
                 </div>
 
@@ -291,6 +323,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="config.js"></script>
     <script src="app.js"></script>
+    <script src="extended-admin.js"></script>
     <script src="secure-admin.js"></script>
 </body>
 </html>
