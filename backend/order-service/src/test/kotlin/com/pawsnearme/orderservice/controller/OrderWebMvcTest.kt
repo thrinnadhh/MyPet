@@ -81,6 +81,7 @@ class OrderWebMvcTest {
             latitude = 13.6288,
             longitude = 79.4192,
         )
+        whenever(providerModule.providerOperational(providerId)).thenReturn(true)
         whenever(checkoutLocationPolicyService.requireAuthoritativeDeliveryLocation(customerId, deliveryAddressId))
             .thenReturn(ownedAddress)
 
