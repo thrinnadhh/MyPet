@@ -13,15 +13,15 @@ class LegacyAdminRouteBlockFilterTests {
     fun `legacy unbounded and unaudited admin routes are blocked`() {
         val id = UUID.randomUUID()
         assertTrue(blocked("GET", "/api/v1/providers/pending"))
-        assertTrue(blocked("POST", "/api/v1/providers/$id/approve"))
         assertTrue(blocked("GET", "/api/v1/profiles"))
         assertTrue(blocked("POST", "/api/v1/profiles/$id/revoke"))
         assertTrue(blocked("POST", "/api/v1/profiles/$id/restore"))
     }
 
     @Test
-    fun `new bounded actor aware admin routes remain available`() {
+    fun `audited provider approval compatibility and new admin routes remain available`() {
         val id = UUID.randomUUID()
+        assertFalse(blocked("POST", "/api/v1/providers/$id/approve"))
         assertFalse(blocked("GET", "/api/v1/providers/admin"))
         assertFalse(blocked("POST", "/api/v1/providers/admin/$id/approve"))
         assertFalse(blocked("GET", "/api/v1/profiles/admin"))
