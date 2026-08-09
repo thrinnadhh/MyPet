@@ -12,6 +12,7 @@ import { Radius, Spacing } from '@/constants/theme';
 import { palette } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
+import { appConfig } from '@/utils/app-config';
 import { supabase } from '@/utils/supabase';
 
 type SignupRole = 'MERCHANT' | 'CAPTAIN';
@@ -72,6 +73,11 @@ export default function LoginScreen() {
       return;
     }
 
+    if (appConfig.isMerchantBuild && signupRole !== 'MERCHANT') {
+      Alert.alert(t('common.error'), 'This Play Store build can create merchant accounts only.');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -121,7 +127,7 @@ export default function LoginScreen() {
           <View style={[styles.logoWrap, { backgroundColor: theme.primary }]}>
             <AppIcon name={signupRole === 'CAPTAIN' ? 'truck' : 'store'} color={palette.white} size={30} />
           </View>
-          <ThemedText style={styles.brand}>{t('login.brand')}</ThemedText>
+          <ThemedText style={styles.brand}>{appConfig.isMerchantBuild ? 'MyPet Merchant' : t('login.brand')}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary" style={styles.tagline}>
             {isSignUp ? t('login.taglineSignUp') : t('login.taglineSignIn')}
           </ThemedText>
@@ -132,7 +138,7 @@ export default function LoginScreen() {
             {isSignUp ? (
               <>
                 <ThemedText type="smallBold" themeColor="textSecondary">
-                  {t('login.accountType')}
+                  {appConfig.isMerchantBuild ? 'Merchant account' : t('login.accountType')}
                 </ThemedText>
                 <View style={styles.roleRow}>
                   <FilterChip
@@ -141,16 +147,20 @@ export default function LoginScreen() {
                     icon="store"
                     onPress={() => setSignupRole('MERCHANT')}
                   />
-                  <FilterChip
-                    label={t('login.captain')}
-                    selected={signupRole === 'CAPTAIN'}
-                    icon="truck"
-                    onPress={() => setSignupRole('CAPTAIN')}
-                  />
+                  {!appConfig.isMerchantBuild ? (
+                    <FilterChip
+                      label={t('login.captain')}
+                      selected={signupRole === 'CAPTAIN'}
+                      icon="truck"
+                      onPress={() => setSignupRole('CAPTAIN')}
+                    />
+                  ) : null}
                 </View>
                 <FeedbackBanner
                   title={signupRole === 'MERCHANT' ? t('login.merchant') : t('login.captain')}
-                  message={selectedRoleHint}
+                  message={appConfig.isMerchantBuild
+                    ? 'Create or sign in to the verified business account that owns your MyPet store, clinic, or grooming center.'
+                    : selectedRoleHint}
                   tone="info"
                   icon={signupRole === 'MERCHANT' ? 'store' : 'truck'}
                 />
@@ -204,7 +214,10 @@ export default function LoginScreen() {
 
         <PrimaryButton
           label={isSignUp ? t('login.toggleToSignIn') : t('login.toggleToSignUp')}
-          onPress={() => setIsSignUp((previous) => !previous)}
+          onPress={() => {
+            setSignupRole('MERCHANT');
+            setIsSignUp((previous) => !previous);
+          }}
           variant="ghost"
         />
       </View>
