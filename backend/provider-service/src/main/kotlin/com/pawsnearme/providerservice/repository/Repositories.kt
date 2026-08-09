@@ -13,7 +13,11 @@ import java.util.Optional
 import java.util.UUID
 
 @Repository
-interface ProfileRepository : JpaRepository<Profile, UUID>
+interface ProfileRepository : JpaRepository<Profile, UUID> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Profile p where p.userId = :userId")
+    fun findByIdForUpdate(@Param("userId") userId: UUID): Optional<Profile>
+}
 
 @Repository
 interface AddressRepository : JpaRepository<Address, UUID> {
