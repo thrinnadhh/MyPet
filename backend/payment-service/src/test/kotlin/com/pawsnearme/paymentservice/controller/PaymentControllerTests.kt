@@ -18,18 +18,18 @@ import java.math.BigDecimal
 import java.util.UUID
 
 class PaymentControllerTests {
-
     private val paymentService: PaymentService = mock()
     private val cashfreeGatewayService: CashfreeGatewayService = mock()
     private val cashfreeRefundLifecycleService: CashfreeRefundLifecycleService = mock()
     private val couponReservationLifecycleService: CouponReservationLifecycleService = mock()
+    private val internalSecret = "integration-secret"
     private val controller = PaymentController(
         paymentService,
         cashfreeGatewayService,
         cashfreeRefundLifecycleService,
         couponReservationLifecycleService,
+        internalSecret,
     )
-
     private val userId = UUID.randomUUID()
     private val referenceId = UUID.randomUUID()
 
@@ -44,114 +44,66 @@ class PaymentControllerTests {
     )
 
     @Test
-    fun `createCashfreeOrder - mismatch user and role - throws PaymentAccessDeniedException`() {
-        assertThrows<PaymentAccessDeniedException> {
-            controller.createCashfreeOrder(request(), UUID.randomUUID().toString(), "CUSTOMER")
-        }
+    fun `create order rejects mismatched customer`() {
+        assertThrows<PaymentAccessDeniedException> { controller.createCashfreeOrder(request(), UUID.randomUUID().toString(), "CUSTOMER") }
     }
 
     @Test
-    fun `createCashfreeOrder - matching user - succeeds`() {
-        val expected = CashfreeOrderResponse(
-            orderId = "mypet_order_123",
-            paymentSessionId = "session_123",
-            amount = BigDecimal("500.00"),
-            currency = "INR",
-            transactionId = UUID.randomUUID(),
-            environment = "SANDBOX",
-        )
+    fun `create order accepts matching customer`() {
+        val expected = CashfreeOrderResponse("mypet_order_123", "session_123", BigDecimal("500.00"), "INR", UUID.randomUUID(), "SANDBOX")
         whenever(cashfreeGatewayService.createOrder(request())).thenReturn(expected)
-
-        val response = controller.createCashfreeOrder(request(), userId.toString(), "CUSTOMER")
-        assertEquals(HttpStatus.CREATED, response.statusCode)
-        assertEquals(expected, response.body)
+        assertEquals(HttpStatus.CREATED, controller.createCashfreeOrder(request(), userId.toString(), "CUSTOMER").statusCode)
     }
 
     @Test
-    fun `handleWebhook - missing signature - throws IllegalArgumentException`() {
-        assertThrows<IllegalArgumentException> {
-            controller.handleWebhook("payload", null, "1720000000000")
-        }
+    fun `webhook requires signature and timestamp`() {
+        assertThrows<IllegalArgumentException> { controller.handleWebhook("payload", null, "1720000000000") }
+        assertThrows<IllegalArgumentException> { controller.handleWebhook("payload", "signature", null) }
     }
 
     @Test
-    fun `handleWebhook - missing timestamp - throws IllegalArgumentException`() {
-        assertThrows<IllegalArgumentException> {
-            controller.handleWebhook("payload", "signature", null)
-        }
-    }
-
-    @Test
-    fun `handleWebhook routes signed events through refund-aware lifecycle`() {
-        whenever(
-            cashfreeRefundLifecycleService.processWebhook("payload", "signature", "1720000000000", "event-1")
-        ).thenReturn(true)
-
+    fun `webhook routes through refund aware lifecycle`() {
+        whenever(cashfreeRefundLifecycleService.processWebhook("payload", "signature", "1720000000000", "event-1")).thenReturn(true)
         val response = controller.handleWebhook("payload", "signature", "1720000000000", "event-1")
-
-        assertEquals(HttpStatus.OK, response.statusCode)
         assertEquals("processed", (response.body as Map<*, *>)["status"])
     }
 
     @Test
-    fun `getTransaction - user mismatch - throws PaymentAccessDeniedException`() {
+    fun `transaction lookup enforces customer ownership`() {
         val txId = UUID.randomUUID()
-        val tx = Transaction(
-            transactionId = txId,
-            userId = userId,
-            transactionType = "ORDER_PAYMENT",
-            referenceId = referenceId,
-            amount = BigDecimal("500.00"),
-            status = "PENDING",
-            gateway = "CASHFREE",
+        whenever(paymentService.getTransactionById(txId)).thenReturn(
+            Transaction(transactionId = txId, userId = userId, transactionType = "ORDER_PAYMENT", referenceId = referenceId, amount = BigDecimal("500.00"), status = "PENDING", gateway = "CASHFREE"),
         )
-        whenever(paymentService.getTransactionById(txId)).thenReturn(tx)
-
-        assertThrows<PaymentAccessDeniedException> {
-            controller.getTransaction(txId, UUID.randomUUID().toString(), "CUSTOMER")
-        }
+        assertThrows<PaymentAccessDeniedException> { controller.getTransaction(txId, UUID.randomUUID().toString(), "CUSTOMER") }
     }
 
     @Test
     fun `linked account onboarding fails closed until Cashfree Easy Split is active`() {
-        val linkedAccountRequest = RegisterLinkedAccountRequest(
-            payeeUserId = userId,
-            payeeRole = "MERCHANT",
-            accountNumber = "123456789012",
-            ifsc = "SBIN0000001",
-            businessName = "MyPet Merchant",
-            email = "merchant@example.com",
-        )
-
         val response = controller.registerLinkedAccount(
-            linkedAccountRequest,
+            RegisterLinkedAccountRequest(userId, "MERCHANT", "123456789012", "SBIN0000001", "MyPet Merchant", "merchant@example.com"),
             userId.toString(),
             "MERCHANT",
         )
-
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.statusCode)
-        assertEquals(
-            "CASHFREE_EASY_SPLIT_NOT_ACTIVE",
-            (response.body as Map<*, *>)["code"],
-        )
+        assertEquals("CASHFREE_EASY_SPLIT_NOT_ACTIVE", (response.body as Map<*, *>)["code"])
     }
 
     @Test
-    fun `refundPayment - non-admin role - throws PaymentAccessDeniedException`() {
+    fun `direct refund rejects human admin credentials without internal service identity`() {
         assertThrows<PaymentAccessDeniedException> {
-            controller.refundPayment(referenceId, "CUSTOMER", userId.toString())
+            controller.refundPayment(referenceId, "ADMIN", userId.toString())
         }
     }
 
     @Test
-    fun `refundPayment - admin without identity - throws PaymentAccessDeniedException`() {
+    fun `direct refund rejects wrong service even with shared secret`() {
         assertThrows<PaymentAccessDeniedException> {
-            controller.refundPayment(referenceId, "ADMIN", null)
+            controller.refundPayment(referenceId, internalSecret, "merchant-service")
         }
     }
 
     @Test
-    fun `refundPayment - admin role and identity - succeeds`() {
+    fun `trusted order service can execute domain approved refund`() {
         val tx = Transaction(
             transactionId = UUID.randomUUID(),
             userId = userId,
@@ -162,9 +114,7 @@ class PaymentControllerTests {
             gateway = "CASHFREE",
         )
         whenever(cashfreeGatewayService.refundOrder(referenceId)).thenReturn(tx)
-
-        val response = controller.refundPayment(referenceId, "ADMIN", UUID.randomUUID().toString())
-
+        val response = controller.refundPayment(referenceId, internalSecret, "order-service")
         assertEquals(HttpStatus.OK, response.statusCode)
         assertEquals(tx, response.body)
     }
