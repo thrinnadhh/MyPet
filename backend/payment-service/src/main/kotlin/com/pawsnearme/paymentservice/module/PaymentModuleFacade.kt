@@ -7,6 +7,7 @@ import com.pawsnearme.common.module.PaymentModuleApi
 import com.pawsnearme.common.module.PaymentTransactionSnapshot
 import com.pawsnearme.common.module.PrepareOrderPaymentCommand
 import com.pawsnearme.common.module.PromotionTerms
+import com.pawsnearme.paymentservice.service.CashfreeGatewayService
 import com.pawsnearme.paymentservice.service.CheckoutLoyaltyService
 import com.pawsnearme.paymentservice.service.CodCheckRequest
 import com.pawsnearme.paymentservice.service.CouponReservationRequest
@@ -23,6 +24,7 @@ class PaymentModuleFacade(
     private val loyaltyLifecycleService: LoyaltyLifecycleService,
     private val orderPaymentLifecycleService: OrderPaymentLifecycleService,
     private val checkoutLoyaltyService: CheckoutLoyaltyService,
+    private val cashfreeGatewayService: CashfreeGatewayService,
 ) : PaymentModuleApi {
 
     override fun transaction(transactionId: UUID): PaymentTransactionSnapshot? =
@@ -110,7 +112,7 @@ class PaymentModuleFacade(
     }
 
     override fun refundOrder(orderId: UUID) {
-        paymentService.refundPayment(orderId)
+        cashfreeGatewayService.refundOrder(orderId)
     }
 
     override fun recordOrderDelivered(
