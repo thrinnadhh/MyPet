@@ -49,7 +49,8 @@ class CatalogModuleFacade(
         name = name,
         price = price,
         status = status.name,
-        stockQuantity = stockQuantity
+        stockQuantity = stockQuantity,
+        listPrice = listPrice,
     )
 
     private fun Slot.toSnapshot() = CatalogSlotSnapshot(
