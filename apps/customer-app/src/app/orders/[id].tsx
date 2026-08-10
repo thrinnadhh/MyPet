@@ -23,7 +23,6 @@ import {
   fetchOrderPaymentStatus,
   initiateOrderPayment,
   openCashfreeOrder,
-  reconcilePaidOrder,
   waitForPaymentOutcome,
 } from '@/services/customer-payments';
 import { buildCartFromRevalidation } from '@/services/revalidated-cart';
@@ -46,18 +45,13 @@ export default function OrderDetailRoute() {
     if (!id || !session) return;
     if (showLoading) setLoading(true);
     try {
-      let next = await fetchOrderDetails(id, session.access_token);
+      const next = await fetchOrderDetails(id, session.access_token);
       if (next.paymentMethod && next.paymentMethod !== 'COD') {
         try {
-          const payment = next.status === 'PLACED'
-            ? await reconcilePaidOrder(id)
-            : await fetchOrderPaymentStatus(id);
+          const payment = await fetchOrderPaymentStatus(id);
           setPaymentStatus(payment.status);
-          if (payment.status === 'SUCCESS' && next.status === 'PLACED') {
-            next = await fetchOrderDetails(id, session.access_token);
-          }
         } catch {
-          setPaymentStatus('NOT_STARTED');
+          setPaymentStatus(next.paymentStatus === 'SUCCESS' ? 'SUCCESS' : 'NOT_STARTED');
         }
       } else {
         setPaymentStatus(next.paymentStatus === 'COD_PENDING' ? 'PENDING' : 'NOT_STARTED');
@@ -143,11 +137,11 @@ export default function OrderDetailRoute() {
       setPaymentStatus(payment.status);
       if (payment.status === 'SUCCESS') {
         await loadOrder(false);
-        Alert.alert('Payment confirmed', 'The server verified your payment and confirmed the order.');
+        Alert.alert('Payment confirmed', 'The server verified your payment. The order remains placed until the merchant accepts it.');
       } else if (payment.status === 'PENDING') {
-        Alert.alert('Confirmation pending', 'Cashfree webhook confirmation is still pending. This screen will keep checking.');
+        Alert.alert('Confirmation pending', 'Cashfree webhook confirmation is still pending. This screen will keep checking automatically.');
       } else {
-        Alert.alert('Payment not completed', 'No successful payment was confirmed. You can retry safely.');
+        Alert.alert('Payment not completed', 'The server marked the payment failed or expired. Reserved stock and discounts are released automatically.');
       }
     } catch (cause: unknown) {
       Alert.alert('Payment unavailable', cause instanceof Error ? cause.message : 'Could not open secure payment.');
@@ -210,11 +204,11 @@ export default function OrderDetailRoute() {
                 <StatusBadge label={paymentStatus} tone={paymentStatus === 'SUCCESS' ? 'success' : 'warning'} />
               </View>
               <ThemedText type="small" themeColor="textSecondary">
-                Method: {order.paymentMethod}. Only Cashfree webhook-confirmed success can advance this order.
+                Method: {order.paymentMethod}. Payment state is owned by Cashfree webhook reconciliation on the MyPet server.
               </ThemedText>
               {order.status === 'PLACED' && paymentStatus !== 'SUCCESS' ? (
                 <PrimaryAction
-                  label={paymentStatus === 'PENDING' ? 'Open Cashfree / check again' : 'Pay securely with Cashfree'}
+                  label={paymentStatus === 'PENDING' ? 'Open Cashfree again' : 'Pay securely with Cashfree'}
                   onPress={() => void handlePayment()}
                   loading={actionLoading}
                 />
