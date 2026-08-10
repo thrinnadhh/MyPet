@@ -39,6 +39,9 @@ class Order(
     @Column(name = "version", nullable = false)
     var version: Long = 0,
 
+    @Column(name = "checkout_request_id", unique = true)
+    var checkoutRequestId: UUID? = null,
+
     @Column(name = "subtotal_amount", nullable = false)
     var subtotalAmount: BigDecimal,
 
@@ -47,6 +50,12 @@ class Order(
 
     @Column(name = "discount_amount", nullable = false)
     var discountAmount: BigDecimal = BigDecimal.ZERO,
+
+    @Column(name = "loyalty_reward_id")
+    var loyaltyRewardId: UUID? = null,
+
+    @Column(name = "loyalty_discount_amount", nullable = false)
+    var loyaltyDiscountAmount: BigDecimal = BigDecimal.ZERO,
 
     @Column(name = "total_amount", nullable = false)
     var totalAmount: BigDecimal,
