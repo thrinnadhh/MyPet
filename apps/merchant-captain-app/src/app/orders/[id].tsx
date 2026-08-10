@@ -103,7 +103,6 @@ export default function MerchantOrderDetailScreen() {
     >
       <ActionButton
         label="Back to orders"
-        icon="chevron-left"
         variant="ghost"
         onPress={() => router.replace('/orders' as never)}
       />
