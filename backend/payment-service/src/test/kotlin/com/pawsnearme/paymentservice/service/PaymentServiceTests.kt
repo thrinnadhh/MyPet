@@ -166,7 +166,10 @@ class PaymentServiceTests {
         )
 
         assertEquals(existing.reservationId, first.reservationId)
-        assertEquals(first, second)
+        assertEquals(first.reservationId, second.reservationId)
+        assertEquals(first.code, second.code)
+        assertEquals(0, first.discountAmount.compareTo(second.discountAmount))
+        assertEquals(first.expiresAt, second.expiresAt)
         verify(promotionRepository, never()).findByCodeForUpdate(any())
     }
 
