@@ -129,7 +129,8 @@ class RemoteCatalogModuleApi(
         name = this["name"]?.toString() ?: "Pet Product",
         price = decimal(this["price"]),
         status = this["status"]?.toString()?.uppercase() ?: "ACTIVE",
-        stockQuantity = (this["stockQuantity"] as? Number)?.toInt()
+        stockQuantity = (this["stockQuantity"] as? Number)?.toInt(),
+        listPrice = this["listPrice"]?.let(::decimal),
     )
 
     private fun internalHeaders() = HttpHeaders().apply {
