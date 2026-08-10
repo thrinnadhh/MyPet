@@ -330,6 +330,8 @@ class DispatchService @Autowired constructor(
     }
 
     private fun isCaptainEligible(captainId: UUID, currentJobId: UUID): Boolean {
+        if (!isCaptainApproved(captainId)) return false
+
         val online = redisTemplate.opsForSet().isMember(ONLINE_KEY, captainId.toString()) == true
         val locationFresh = redisTemplate.hasKey("$LOCATION_FRESH_PREFIX$captainId") == true
         if (!online || !locationFresh) return false
@@ -345,6 +347,22 @@ class DispatchService @Autowired constructor(
                 assignedJob?.status in setOf(JobStatus.ACCEPTED, JobStatus.PICKED_UP)
             }
         return !activeAssignment
+    }
+
+    private fun isCaptainApproved(captainId: UUID): Boolean = try {
+        val query = entityManager.createNativeQuery(
+            """
+                SELECT COUNT(*)
+                FROM captains.captain_profiles
+                WHERE captain_id = :captainId
+                  AND status = 'ACTIVE'
+            """.trimIndent()
+        )
+        query.setParameter("captainId", captainId)
+        (query.singleResult as Number).toLong() == 1L
+    } catch (error: Exception) {
+        logger.warn("Captain approval lookup failed for {}: {}", captainId, error.message)
+        false
     }
 
     private fun getProviderCoordinates(orderId: UUID): Pair<Double, Double>? = try {
