@@ -67,7 +67,7 @@ class PushNotificationService(
         sendToUser(
             userId = userId,
             title = "New order received!",
-            body = "Order #${orderId.toString().take(8)} · ₹$amount — pack before pickup",
+            body = "Order #${orderId.toString().take(8)} · ₹$amount — review and accept or reject",
             templateCode = "MERCHANT_ORDER_ALERT",
             referenceId = orderId,
             sound = "order_alert.wav",
