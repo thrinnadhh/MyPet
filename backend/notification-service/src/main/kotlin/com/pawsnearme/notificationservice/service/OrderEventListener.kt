@@ -2,6 +2,7 @@ package com.pawsnearme.notificationservice.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.common.idempotency.IdempotencyService
+import com.pawsnearme.notificationservice.event.MerchantOrderActionableEvent
 import com.pawsnearme.notificationservice.event.OrderPlacedEvent
 import com.pawsnearme.notificationservice.event.OrderStatusChangedEvent
 import com.pawsnearme.notificationservice.model.InAppNotification
@@ -58,13 +59,14 @@ class OrderEventListener(
                         "provider_id" to event.providerId.toString(),
                     ),
                 )
+            }
+            "MerchantOrderActionable" -> {
+                val event = objectMapper.readValue(message, MerchantOrderActionableEvent::class.java)
                 notifyMerchant(event.merchantOwnerUserId, event.orderId, event.totalAmount.toPlainString())
             }
-            "OrderStatusChanged" -> {
+            "OrderStatusChanged", "OrderCancelled" -> {
                 val event = objectMapper.readValue(message, OrderStatusChangedEvent::class.java)
-                if (event.toStatus == "ACCEPTED") {
-                    notifyMerchant(event.merchantOwnerUserId, event.orderId, event.totalAmount.toPlainString())
-                }
+                notifyCustomerStatus(event)
                 if (event.toStatus == "DELIVERED") {
                     transactionalEmailService.enqueueForReference(
                         referenceType = "ORDER",
@@ -83,6 +85,37 @@ class OrderEventListener(
         }
     }
 
+    private fun notifyCustomerStatus(event: OrderStatusChangedEvent) {
+        val copy = when (event.toStatus) {
+            "ACCEPTED" -> "Order accepted" to "The merchant accepted order #${event.orderId.toString().take(8)}."
+            "REJECTED" -> "Order rejected" to "The merchant could not accept order #${event.orderId.toString().take(8)}."
+            "PREPARING" -> "Order being prepared" to "The merchant started preparing order #${event.orderId.toString().take(8)}."
+            "ASSIGNED" -> "Delivery captain assigned" to "A captain has been assigned to order #${event.orderId.toString().take(8)}."
+            "PICKED_UP" -> "Order picked up" to "Your order #${event.orderId.toString().take(8)} is on the way."
+            "DELIVERED" -> "Order delivered" to "Order #${event.orderId.toString().take(8)} has been delivered."
+            "CANCELLED" -> "Order cancelled" to "Order #${event.orderId.toString().take(8)} has been cancelled."
+            else -> return
+        }
+
+        notificationRepo.save(
+            InAppNotification(
+                userId = event.customerId,
+                notificationType = "ORDER_STATUS_UPDATE",
+                title = copy.first,
+                body = copy.second,
+                referenceId = event.orderId,
+                priority = if (event.toStatus in setOf("REJECTED", "CANCELLED", "DELIVERED")) "HIGH" else "NORMAL",
+            )
+        )
+        pushNotificationService.sendToUser(
+            userId = event.customerId,
+            title = copy.first,
+            body = copy.second,
+            templateCode = "ORDER_STATUS_UPDATE",
+            referenceId = event.orderId,
+        )
+    }
+
     private fun notifyMerchant(merchantUserId: UUID?, orderId: UUID, amount: String) {
         if (merchantUserId == null) {
             log.warn("Skipping merchant alert for order {} — merchantOwnerUserId missing", orderId)
@@ -93,7 +126,7 @@ class OrderEventListener(
                 userId = merchantUserId,
                 notificationType = "MERCHANT_ORDER_ALERT",
                 title = "New order received",
-                body = "Order #${orderId.toString().take(8)} · ₹$amount — pack before pickup",
+                body = "Order #${orderId.toString().take(8)} · ₹$amount — review and accept or reject",
                 referenceId = orderId,
                 priority = "HIGH",
             )
