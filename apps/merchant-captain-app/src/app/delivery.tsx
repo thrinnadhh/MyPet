@@ -45,6 +45,12 @@ interface DispatchOffer {
   response: string | null;
   offerRank: number;
   orderId: string;
+  merchantName?: string | null;
+  pickupAddress?: string | null;
+  pickupLatitude?: number | null;
+  pickupLongitude?: number | null;
+  pickupDistanceKm?: number | null;
+  pickupEtaMinutes?: number | null;
 }
 
 type DeliveryStep = 1 | 2 | 3 | 4;
@@ -246,6 +252,20 @@ export default function DeliveryScreen() {
     }
   }, [activeOffer, authHeaders, loadJobs]);
 
+  const openRoute = useCallback(async (latitude?: number | null, longitude?: number | null, label?: string | null) => {
+    if (latitude == null || longitude == null) {
+      Alert.alert('Navigation unavailable', 'The server did not provide coordinates for this stop.');
+      return;
+    }
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${latitude},${longitude}`)}${label ? `&destination_place_id=${encodeURIComponent(label)}` : ''}`;
+    const supported = await Linking.canOpenURL(url);
+    if (!supported) {
+      Alert.alert('Navigation unavailable', 'This device cannot open the navigation link.');
+      return;
+    }
+    await Linking.openURL(url);
+  }, []);
+
   const callCustomer = useCallback(async () => {
     const phone = activeDelivery?.customerPhone;
     if (!phone) {
@@ -312,7 +332,7 @@ export default function DeliveryScreen() {
       <FeedbackBanner
         tone={appConfig.allowDemoMode ? 'warning' : isOnline ? 'success' : 'info'}
         title={appConfig.allowDemoMode ? 'Sandbox location mode' : isOnline ? 'Online and discoverable' : 'Currently offline'}
-        message={activeDelivery ? 'Active work is restored from the dispatch service and background tracking is enabled.' : 'Background tracking starts only after accepting a delivery.'}
+        message={activeDelivery ? 'Active work is restored from the dispatch service and background tracking is enabled.' : 'Only approved captains with a fresh location and no active delivery are eligible for offers.'}
         icon={appConfig.allowDemoMode ? 'sparkle' : isOnline ? 'check' : 'location'}
       />
 
@@ -354,17 +374,41 @@ export default function DeliveryScreen() {
             </View>
           ) : null}
 
-          {deliveryStep === 1 ? <DeliveryStepView icon="store" title="Travel to the pickup store" message="Destination details remain protected until an authorized delivery-context API is available." action="I have arrived" onAction={() => setDeliveryStep(2)} /> : null}
+          {deliveryStep === 1 ? (
+            <RouteStepView
+              icon="store"
+              title={activeDelivery.merchantName ? `Pickup from ${activeDelivery.merchantName}` : 'Travel to the pickup store'}
+              address={activeDelivery.pickupAddress}
+              distanceKm={activeDelivery.pickupDistanceKm}
+              etaMinutes={activeDelivery.pickupEtaMinutes}
+              navigateLabel="Navigate to shop"
+              onNavigate={() => void openRoute(activeDelivery.pickupLatitude, activeDelivery.pickupLongitude, activeDelivery.merchantName)}
+              action="I have arrived"
+              onAction={() => setDeliveryStep(2)}
+            />
+          ) : null}
           {deliveryStep === 2 ? (
             <View style={styles.stepContent}>
               <StepIcon name="inventory" />
               <ThemedText style={styles.stepTitle}>Verify pickup</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>Enter the merchant-issued code. The dispatch service validates it and changes the job to Picked up.</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>Enter the merchant-issued code. The dispatch service validates it and changes the order to Picked up.</ThemedText>
               <TextField label="Pickup verification code" value={pickupProof} onChangeText={setPickupProof} keyboardType="number-pad" maxLength={8} autoComplete="one-time-code" />
               <ActionButton label="Confirm pickup" icon="check" loading={verifyingProof} onPress={() => void submitProof('pickup', pickupProof)} />
             </View>
           ) : null}
-          {deliveryStep === 3 ? <DeliveryStepView icon="truck" title="Travel to the customer" message="Use the active delivery contact above if you need to call the customer. The job resumes here after an app restart." action="I have arrived" onAction={() => setDeliveryStep(4)} /> : null}
+          {deliveryStep === 3 ? (
+            <RouteStepView
+              icon="truck"
+              title="Navigate to customer"
+              address={activeDelivery.dropAddress}
+              distanceKm={activeDelivery.deliveryDistanceKm}
+              etaMinutes={activeDelivery.deliveryEtaMinutes}
+              navigateLabel="Navigate to customer"
+              onNavigate={() => void openRoute(activeDelivery.dropLatitude, activeDelivery.dropLongitude, 'Customer delivery address')}
+              action="I have arrived"
+              onAction={() => setDeliveryStep(4)}
+            />
+          ) : null}
           {deliveryStep === 4 ? (
             <View style={styles.stepContent}>
               <StepIcon name="check" success />
@@ -410,11 +454,19 @@ export default function DeliveryScreen() {
         <View style={styles.modalBackdrop}>
           <View style={[styles.offerCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]} accessibilityViewIsModal>
             <View style={styles.cardHeader}>
-              <View style={styles.flex}><ThemedText style={styles.offerTitle}>Incoming dispatch offer</ThemedText><ThemedText type="small" themeColor="textSecondary">Order #{activeOffer ? shortOrderId(activeOffer.orderId) : ''}</ThemedText></View>
+              <View style={styles.flex}><ThemedText style={styles.offerTitle}>New delivery offer</ThemedText><ThemedText type="small" themeColor="textSecondary">Order #{activeOffer ? shortOrderId(activeOffer.orderId) : ''}</ThemedText></View>
               <StatusBadge label={`${offerCountdown}s`} tone={offerCountdown <= 10 ? 'danger' : 'warning'} />
             </View>
             <View style={[styles.progressTrack, { backgroundColor: theme.muted }]}><View style={[styles.progressFill, { backgroundColor: offerCountdown <= 10 ? theme.danger : theme.primary, width: `${(offerCountdown / 30) * 100}%` }]} /></View>
-            <ThemedText type="small" themeColor="textSecondary">Accepting creates a resumable server assignment. Proof codes and protected destinations are never included in this offer.</ThemedText>
+            <View style={[styles.routeSummary, { backgroundColor: theme.muted }]}>
+              <ThemedText type="smallBold">{activeOffer?.merchantName ?? 'Pickup merchant'}</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">{activeOffer?.pickupAddress ?? 'Pickup address unavailable'}</ThemedText>
+              <ThemedText type="smallBold">
+                {activeOffer?.pickupDistanceKm != null ? `${activeOffer.pickupDistanceKm.toFixed(1)} km` : 'Distance pending'}
+                {activeOffer?.pickupEtaMinutes != null ? ` · ~${activeOffer.pickupEtaMinutes} min` : ''}
+              </ThemedText>
+            </View>
+            <ThemedText type="small" themeColor="textSecondary">Accepting creates a resumable server assignment. The customer drop address becomes available only after acceptance; pickup and delivery OTPs never leave the dispatch service.</ThemedText>
             <View style={styles.offerActions}>
               <ActionButton label="Decline" variant="ghost" disabled={loading} onPress={() => void respondToOffer('REJECTED')} style={styles.offerAction} />
               <ActionButton label="Accept job" icon="check" loading={loading} onPress={() => void respondToOffer('ACCEPTED')} style={styles.offerAction} />
@@ -432,9 +484,42 @@ function StepIcon({ name, success }: { name: 'inventory' | 'check'; success?: bo
   return <View style={[styles.stepIcon, { backgroundColor: success ? theme.successSoft : theme.primarySoft }]}><AppIcon name={name} color={success ? theme.success : theme.primary} size={28} /></View>;
 }
 
-function DeliveryStepView({ icon, title, message, action, onAction }: { icon: 'store' | 'truck'; title: string; message: string; action: string; onAction: () => void }) {
+function RouteStepView({
+  icon,
+  title,
+  address,
+  distanceKm,
+  etaMinutes,
+  navigateLabel,
+  onNavigate,
+  action,
+  onAction,
+}: {
+  icon: 'store' | 'truck';
+  title: string;
+  address?: string | null;
+  distanceKm?: number | null;
+  etaMinutes?: number | null;
+  navigateLabel: string;
+  onNavigate: () => void;
+  action: string;
+  onAction: () => void;
+}) {
   const theme = useTheme();
-  return <View style={styles.stepContent}><View style={[styles.stepIcon, { backgroundColor: theme.primarySoft }]}><AppIcon name={icon} color={theme.primary} size={28} /></View><ThemedText style={styles.stepTitle}>{title}</ThemedText><ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>{message}</ThemedText><ActionButton label={action} icon={icon === 'store' ? 'check' : 'location'} onPress={onAction} /></View>;
+  return (
+    <View style={styles.stepContent}>
+      <View style={[styles.stepIcon, { backgroundColor: theme.primarySoft }]}><AppIcon name={icon} color={theme.primary} size={28} /></View>
+      <ThemedText style={styles.stepTitle}>{title}</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>{address ?? 'Address unavailable'}</ThemedText>
+      <ThemedText type="smallBold">
+        {distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'Distance pending'}{etaMinutes != null ? ` · ~${etaMinutes} min` : ''}
+      </ThemedText>
+      <View style={styles.routeActions}>
+        <ActionButton label={navigateLabel} icon="location" variant="ghost" onPress={onNavigate} style={styles.routeAction} />
+        <ActionButton label={action} icon="check" onPress={onAction} style={styles.routeAction} />
+      </View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -454,6 +539,9 @@ const styles = StyleSheet.create({
   stepIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
   stepTitle: { ...typography.title, textAlign: 'center' },
   centerText: { textAlign: 'center', maxWidth: 520 },
+  routeSummary: { borderRadius: radii.compact, padding: spacing.x3, gap: spacing.x1 },
+  routeActions: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
+  routeAction: { flexGrow: 1, flexBasis: 170 },
   historySection: { gap: spacing.x3 },
   historyList: { gap: spacing.x2 },
   historyCard: { padding: spacing.x3 },
