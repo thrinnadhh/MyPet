@@ -57,7 +57,10 @@ class CheckoutIntegrityService(
         }
         validateCustomerServiceability(request.city, request.latitude, request.longitude)
 
+        // The commercial hierarchy is intentionally explicit:
+        // list/MRP subtotal - item discount = selling subtotal, then coupon, then loyalty.
         var subtotal = BigDecimal.ZERO
+        var sellingSubtotal = BigDecimal.ZERO
         request.items.forEach { item ->
             val offering = catalogModule.offering(item.offeringId)
             require(offering.providerId == request.providerId) {
@@ -67,12 +70,21 @@ class CheckoutIntegrityService(
             val stock = offering.stockQuantity
                 ?: throw IllegalArgumentException("Offering ${item.offeringId} is not a delivery product")
             require(stock >= item.quantity) { "Insufficient stock for offering ${item.offeringId}" }
-            subtotal = subtotal.add(offering.price.multiply(BigDecimal(item.quantity)))
+
+            val quantity = BigDecimal(item.quantity)
+            val sellingPrice = offering.price
+            val listPrice = offering.listPrice?.max(sellingPrice) ?: sellingPrice
+            subtotal = subtotal.add(listPrice.multiply(quantity))
+            sellingSubtotal = sellingSubtotal.add(sellingPrice.multiply(quantity))
         }
         subtotal = money(subtotal)
+        sellingSubtotal = money(sellingSubtotal)
+        val itemDiscount = money(subtotal.subtract(sellingSubtotal).max(BigDecimal.ZERO))
 
         val couponCode = request.couponCode?.trim()?.uppercase()?.takeIf(String::isNotBlank)
-        val couponDiscount = couponCode?.let { couponDiscount(it, subtotal, request.providerId) } ?: BigDecimal.ZERO
+        val couponDiscount = couponCode?.let {
+            couponDiscount(it, sellingSubtotal, request.providerId)
+        } ?: BigDecimal.ZERO
         val loyaltyTerms = request.loyaltyRewardId?.let { rewardId ->
             paymentModule.loyaltyRewardTerms(rewardId, customerId, request.providerId)
         }
@@ -80,8 +92,7 @@ class CheckoutIntegrityService(
             throw IllegalArgumentException("This loyalty reward cannot be combined with a normal coupon")
         }
 
-        val itemDiscount = BigDecimal.ZERO
-        val afterCoupon = subtotal.subtract(itemDiscount).subtract(couponDiscount).max(BigDecimal.ZERO)
+        val afterCoupon = sellingSubtotal.subtract(couponDiscount).max(BigDecimal.ZERO)
         val loyaltyDiscount = loyaltyTerms?.amount?.min(afterCoupon) ?: BigDecimal.ZERO
         val taxableBase = afterCoupon.subtract(loyaltyDiscount).max(BigDecimal.ZERO)
         val deliveryFee = quoteDelivery(request.providerId, request.latitude, request.longitude)
@@ -235,10 +246,11 @@ class CheckoutIntegrityService(
             }
 
             fresh.couponCode?.let { code ->
+                val couponBase = fresh.subtotal.subtract(fresh.itemDiscount).max(BigDecimal.ZERO)
                 val discount = paymentModule.reserveCoupon(
                     CouponReservationCommand(
                         code = code,
-                        orderValue = fresh.subtotal,
+                        orderValue = couponBase,
                         providerId = request.providerId,
                         userId = customerId,
                         orderId = orderId,
