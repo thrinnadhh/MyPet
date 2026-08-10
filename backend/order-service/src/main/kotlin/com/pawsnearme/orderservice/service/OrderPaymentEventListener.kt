@@ -66,7 +66,10 @@ class OrderPaymentEventListener(
                     paymentModule.refundOrder(requireNotNull(order.orderId))
                     return
                 }
-                orderService.confirmOrder(requireNotNull(order.orderId), event.transactionId)
+                val confirmed = orderService.confirmOrder(requireNotNull(order.orderId), event.transactionId)
+                confirmed.loyaltyRewardId?.let { rewardId ->
+                    paymentModule.redeemLoyaltyReward(rewardId, confirmed.customerId, requireNotNull(confirmed.orderId))
+                }
             }
             "PaymentFailed", "PaymentExpired" -> {
                 if (order.paymentStatus in setOf(PaymentStatus.SUCCESS, PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED)) return
