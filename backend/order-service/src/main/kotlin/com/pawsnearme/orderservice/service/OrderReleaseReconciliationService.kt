@@ -33,19 +33,21 @@ class OrderReleaseReconciliationService(
     @Transactional
     fun handlePayload(message: String) {
         val node = runCatching { objectMapper.readTree(message) }.getOrElse { error ->
-            logger.warn("Ignoring malformed order release event", error)
+            logger.warn("Ignoring malformed order financial event", error)
             return
         }
         val eventType = node.path("eventType").asText()
         if (eventType !in setOf("OrderCancelled", "OrderStatusChanged")) return
         val toStatus = node.path("toStatus").asText()
-        if (toStatus !in setOf(OrderStatus.CANCELLED.name, OrderStatus.REJECTED.name)) return
         val orderId = runCatching { UUID.fromString(node.path("orderId").asText()) }.getOrNull() ?: return
-        reconcile(orderId)
+        when (toStatus) {
+            OrderStatus.CANCELLED.name, OrderStatus.REJECTED.name -> reconcileRelease(orderId)
+            OrderStatus.DELIVERED.name -> settleDelivered(orderId)
+        }
     }
 
     @Transactional
-    fun reconcile(orderId: UUID) {
+    fun reconcileRelease(orderId: UUID) {
         val order = orderRepository.findById(orderId).orElse(null) ?: return
         if (order.status !in setOf(OrderStatus.CANCELLED, OrderStatus.REJECTED)) return
 
@@ -80,6 +82,15 @@ class OrderReleaseReconciliationService(
                 paymentModule.refundOrder(orderId)
             }
             else -> Unit
+        }
+    }
+
+    @Transactional
+    fun settleDelivered(orderId: UUID) {
+        val order = orderRepository.findById(orderId).orElse(null) ?: return
+        if (order.status != OrderStatus.DELIVERED) return
+        order.loyaltyRewardId?.let { rewardId ->
+            paymentModule.redeemLoyaltyReward(rewardId, order.customerId, orderId)
         }
     }
 }
