@@ -5,7 +5,7 @@ import com.pawsnearme.orderservice.model.OrderActor
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.model.PaymentStatus
 
-class OrderTransitionConflictException(message: String) : RuntimeException(message)
+class OrderTransitionConflictException(message: String) : IllegalStateException(message)
 
 object OrderTransitionPolicy {
     private val merchantActionablePaymentStatuses = setOf(PaymentStatus.COD_PENDING, PaymentStatus.SUCCESS)
