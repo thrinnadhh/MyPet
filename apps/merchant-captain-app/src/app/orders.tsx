@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
@@ -53,6 +54,7 @@ function tone(status: MerchantOrder['status']): 'neutral' | 'success' | 'warning
 
 export default function MerchantOrdersScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const { providerId } = useAuth();
   const [orders, setOrders] = useState<MerchantOrder[]>([]);
   const [filter, setFilter] = useState<MerchantOrderQueue>('NEW');
@@ -246,29 +248,33 @@ export default function MerchantOrdersScreen() {
                       <FeedbackBanner tone="warning" title="Cancellation note" message={order.cancellationReason} />
                     ) : null}
 
-                    {actions.length > 0 ? (
-                      <View style={styles.actions}>
-                        {actions.map((action) => (
-                          <ActionButton
-                            key={action.status}
-                            label={action.label}
-                            icon={action.destructive ? 'xmark' : 'check'}
-                            variant={action.destructive ? 'destructive' : 'primary'}
-                            loading={refreshingOrderId === order.orderId}
-                            onPress={() => {
-                              setError(null);
-                              setPending({ order, action });
-                              setNote('');
-                            }}
-                            style={styles.action}
-                          />
-                        ))}
-                      </View>
-                    ) : (
-                      <ThemedText type="small" themeColor="textSecondary">
-                        No merchant action is available in this server state.
-                      </ThemedText>
-                    )}
+                    <View style={styles.actions}>
+                      <ActionButton
+                        label="View operational detail"
+                        icon="chevron"
+                        variant="ghost"
+                        onPress={() => router.push(`/orders/${order.orderId}` as never)}
+                        style={styles.action}
+                      />
+                      {actions.map((action) => (
+                        <ActionButton
+                          key={action.status}
+                          label={action.label}
+                          icon={action.destructive ? 'xmark' : 'check'}
+                          variant={action.destructive ? 'destructive' : 'primary'}
+                          loading={refreshingOrderId === order.orderId}
+                          onPress={() => {
+                            setError(null);
+                            setPending({ order, action });
+                            setNote('');
+                          }}
+                          style={styles.action}
+                        />
+                      ))}
+                    </View>
+                    {actions.length === 0 ? (
+                      <ThemedText type="small" themeColor="textSecondary">No merchant action is available in this server state.</ThemedText>
+                    ) : null}
                   </AppCard>
                 );
               })}
@@ -277,21 +283,11 @@ export default function MerchantOrdersScreen() {
         </>
       ) : null}
 
-      <Modal
-        visible={pending !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPending(null)}
-      >
+      <Modal visible={pending !== null} transparent animationType="fade" onRequestClose={() => setPending(null)}>
         <View style={styles.modalBackdrop}>
-          <View
-            style={[styles.modal, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
-            accessibilityViewIsModal
-          >
+          <View style={[styles.modal, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]} accessibilityViewIsModal>
             <ThemedText type="title">{pending?.action.label}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Order #{pending?.order.orderId.slice(0, 8).toUpperCase()}. The server validates this exact transition and actor.
-            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">Order #{pending?.order.orderId.slice(0, 8).toUpperCase()}. The server validates this exact transition and actor.</ThemedText>
             <TextInput
               value={note}
               onChangeText={setNote}
@@ -322,15 +318,7 @@ export default function MerchantOrdersScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   filters: { gap: spacing.x2, paddingRight: spacing.x4 },
-  search: {
-    minHeight: touchTarget,
-    borderWidth: 1,
-    borderRadius: radii.compact,
-    paddingLeft: spacing.x3,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.x2,
-  },
+  search: { minHeight: touchTarget, borderWidth: 1, borderRadius: radii.compact, paddingLeft: spacing.x3, flexDirection: 'row', alignItems: 'center', gap: spacing.x2 },
   searchInput: { flex: 1, minHeight: touchTarget, ...typography.body, paddingVertical: 0 },
   clear: { width: touchTarget, height: touchTarget, alignItems: 'center', justifyContent: 'center' },
   list: { gap: spacing.x3 },
