@@ -2,6 +2,7 @@ package com.pawsnearme.orderservice.service
 
 import com.pawsnearme.orderservice.model.AdminAuditLog
 import com.pawsnearme.orderservice.model.OrderStatus
+import com.pawsnearme.orderservice.model.PaymentStatus
 import com.pawsnearme.orderservice.model.ServiceAreaConfig
 import com.pawsnearme.orderservice.repository.AdminAuditLogRepository
 import com.pawsnearme.orderservice.repository.DisputeRepository
@@ -72,7 +73,6 @@ class AdminOperationsService(
         OrderStatus.PREPARING,
         OrderStatus.READY_FOR_PICKUP,
         OrderStatus.ASSIGNED,
-        OrderStatus.REASSIGNED,
         OrderStatus.PICKED_UP
     )
 
@@ -84,7 +84,7 @@ class AdminOperationsService(
         return AdminOperationsSnapshot(
             activeOrders = active.size,
             delayedOrders = active.count { it.placedAt.isBefore(delayBoundary) },
-            failedPayments = orders.count { it.paymentStatus.equals("FAILED", ignoreCase = true) },
+            failedPayments = orders.count { it.paymentStatus == PaymentStatus.FAILED },
             openDisputes = disputeRepository.findAll().count { it.status.equals("OPEN", ignoreCase = true) },
             openSupportCases = supportCaseRepository.findAllByOrderByCreatedAtDesc()
                 .count { it.status.equals("OPEN", ignoreCase = true) },
