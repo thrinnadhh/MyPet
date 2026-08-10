@@ -47,6 +47,9 @@ jobs:
             apps/customer-app/package-lock.json
             apps/merchant-captain-app/package-lock.json
 
+      - name: Validate Canonical Order Contract
+        run: node scripts/generate-order-contracts.mjs --check
+
       - name: Validate Customer App
         run: |
           cd apps/customer-app
