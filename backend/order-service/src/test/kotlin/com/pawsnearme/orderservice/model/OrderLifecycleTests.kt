@@ -1,54 +1,86 @@
 package com.pawsnearme.orderservice.model
 
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import java.math.BigDecimal
-import java.time.Instant
-import java.util.UUID
 
 class OrderLifecycleTests {
     @Test
-    fun `accepted COD order receives accepted timestamp before insert`() {
-        val placedAt = Instant.parse("2026-08-01T10:49:50Z")
-        val order = order(OrderStatus.ACCEPTED, placedAt)
+    fun `canonical order statuses contain no legacy reassigned state`() {
+        val statuses = OrderStatus.entries.map { it.name }
 
-        order.alignLifecycleTimestamps()
-
-        assertEquals(placedAt, order.acceptedAt)
+        assertTrue(
+            statuses == listOf(
+                "PLACED",
+                "ACCEPTED",
+                "PREPARING",
+                "READY_FOR_PICKUP",
+                "ASSIGNED",
+                "PICKED_UP",
+                "DELIVERED",
+                "COMPLETED",
+                "REJECTED",
+                "CANCELLED"
+            )
+        )
+        assertFalse("REASSIGNED" in statuses)
     }
 
     @Test
-    fun `placed online order does not receive accepted timestamp`() {
-        val order = order(OrderStatus.PLACED, Instant.now())
-
-        order.alignLifecycleTimestamps()
-
-        assertNull(order.acceptedAt)
+    fun `canonical payment statuses are independent from order status`() {
+        assertTrue(
+            PaymentStatus.entries.map { it.name } == listOf(
+                "PENDING",
+                "SUCCESS",
+                "FAILED",
+                "COD_PENDING",
+                "COD_COLLECTED",
+                "REFUND_PENDING",
+                "REFUNDED"
+            )
+        )
     }
 
     @Test
-    fun `existing accepted timestamp is not overwritten`() {
-        val placedAt = Instant.parse("2026-08-01T10:49:50Z")
-        val acceptedAt = placedAt.plusSeconds(30)
-        val order = order(OrderStatus.ACCEPTED, placedAt).apply { this.acceptedAt = acceptedAt }
-
-        order.alignLifecycleTimestamps()
-
-        assertNotNull(order.acceptedAt)
-        assertEquals(acceptedAt, order.acceptedAt)
+    fun `merchant must accept before preparing and preparing before ready`() {
+        assertTrue(CanonicalOrderContract.canTransition(OrderStatus.PLACED, OrderStatus.ACCEPTED, OrderActor.MERCHANT))
+        assertFalse(CanonicalOrderContract.canTransition(OrderStatus.PLACED, OrderStatus.READY_FOR_PICKUP, OrderActor.MERCHANT))
+        assertTrue(CanonicalOrderContract.canTransition(OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderActor.MERCHANT))
+        assertFalse(CanonicalOrderContract.canTransition(OrderStatus.ACCEPTED, OrderStatus.READY_FOR_PICKUP, OrderActor.MERCHANT))
+        assertTrue(CanonicalOrderContract.canTransition(OrderStatus.PREPARING, OrderStatus.READY_FOR_PICKUP, OrderActor.MERCHANT))
     }
 
-    private fun order(status: OrderStatus, placedAt: Instant) = Order(
-        customerId = UUID.randomUUID(),
-        providerId = UUID.randomUUID(),
-        deliveryAddressId = UUID.randomUUID(),
-        status = status,
-        subtotalAmount = BigDecimal("199.00"),
-        totalAmount = BigDecimal("257.95"),
-        paymentMethod = if (status == OrderStatus.ACCEPTED) "COD" else "CARD",
-        paymentStatus = if (status == OrderStatus.ACCEPTED) "COD_PENDING" else "PENDING",
-        placedAt = placedAt
-    )
+    @Test
+    fun `dispatch alone assigns a ready order`() {
+        assertTrue(CanonicalOrderContract.canTransition(OrderStatus.READY_FOR_PICKUP, OrderStatus.ASSIGNED, OrderActor.DISPATCH))
+        assertFalse(CanonicalOrderContract.canTransition(OrderStatus.READY_FOR_PICKUP, OrderStatus.ASSIGNED, OrderActor.MERCHANT))
+        assertFalse(CanonicalOrderContract.canTransition(OrderStatus.READY_FOR_PICKUP, OrderStatus.ASSIGNED, OrderActor.CAPTAIN))
+    }
+
+    @Test
+    fun `captain must pick up before delivery`() {
+        assertTrue(CanonicalOrderContract.canTransition(OrderStatus.ASSIGNED, OrderStatus.PICKED_UP, OrderActor.CAPTAIN))
+        assertFalse(CanonicalOrderContract.canTransition(OrderStatus.ASSIGNED, OrderStatus.DELIVERED, OrderActor.CAPTAIN))
+        assertTrue(CanonicalOrderContract.canTransition(OrderStatus.PICKED_UP, OrderStatus.DELIVERED, OrderActor.CAPTAIN))
+    }
+
+    @Test
+    fun `system alone completes delivered order`() {
+        assertTrue(CanonicalOrderContract.canTransition(OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderActor.SYSTEM))
+        assertFalse(CanonicalOrderContract.canTransition(OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderActor.MERCHANT))
+    }
+
+    @Test
+    fun `customer cancellation is only from placed`() {
+        assertTrue(CanonicalOrderContract.canTransition(OrderStatus.PLACED, OrderStatus.CANCELLED, OrderActor.CUSTOMER))
+        assertFalse(CanonicalOrderContract.canTransition(OrderStatus.ACCEPTED, OrderStatus.CANCELLED, OrderActor.CUSTOMER))
+        assertTrue(CanonicalOrderContract.canTransition(OrderStatus.ACCEPTED, OrderStatus.CANCELLED, OrderActor.MERCHANT))
+    }
+
+    @Test
+    fun `invalid lifecycle jumps are rejected`() {
+        assertFalse(CanonicalOrderContract.canTransition(OrderStatus.ACCEPTED, OrderStatus.DELIVERED, OrderActor.MERCHANT))
+        assertFalse(CanonicalOrderContract.canTransition(OrderStatus.PLACED, OrderStatus.DELIVERED, OrderActor.MERCHANT))
+        assertFalse(CanonicalOrderContract.canTransition(OrderStatus.COMPLETED, OrderStatus.PLACED, OrderActor.SYSTEM))
+    }
 }
