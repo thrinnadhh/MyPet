@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
+import org.mockito.kotlin.isNull
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -62,7 +63,7 @@ class CheckoutIntegrityServiceTests {
         val offeringId = UUID.randomUUID()
         val addressId = UUID.randomUUID()
         val rewardId = UUID.randomUUID()
-        whenever(discoveryModule.checkServiceability(eq("Tirupati"), eq(13.63), eq(79.42), any()))
+        whenever(discoveryModule.checkServiceability(eq("Tirupati"), eq(13.63), eq(79.42), isNull()))
             .thenReturn(ServiceabilityDecision(true, null))
         whenever(providerModule.location(providerId)).thenReturn(
             ProviderLocationSnapshot(providerId, "Tirupati", "517501", 13.63, 79.42)
@@ -113,7 +114,7 @@ class CheckoutIntegrityServiceTests {
         val providerId = UUID.randomUUID()
         val offeringId = UUID.randomUUID()
         val rewardId = UUID.randomUUID()
-        whenever(discoveryModule.checkServiceability(any(), any(), any(), any()))
+        whenever(discoveryModule.checkServiceability(eq("Tirupati"), eq(13.63), eq(79.42), isNull()))
             .thenReturn(ServiceabilityDecision(true, null))
         whenever(providerModule.location(providerId)).thenReturn(
             ProviderLocationSnapshot(providerId, "Tirupati", "517501", 13.63, 79.42)
@@ -150,7 +151,7 @@ class CheckoutIntegrityServiceTests {
         val customerId = UUID.randomUUID()
         val providerId = UUID.randomUUID()
         val offeringId = UUID.randomUUID()
-        whenever(discoveryModule.checkServiceability(any(), any(), any(), any()))
+        whenever(discoveryModule.checkServiceability(eq("Tirupati"), any(), any(), isNull()))
             .thenReturn(ServiceabilityDecision(true, null))
         whenever(providerModule.location(providerId)).thenReturn(
             ProviderLocationSnapshot(providerId, "Tirupati", "517501", 13.63, 79.42)
