@@ -27,6 +27,12 @@ class OrderCompensation(
     @Column(name = "coupon_code")
     var couponCode: String? = null,
 
+    @Column(name = "loyalty_reward_id")
+    var loyaltyRewardId: UUID? = null,
+
+    @Column(name = "payment_prepared", nullable = false)
+    var paymentPrepared: Boolean = false,
+
     @Column(name = "payload_json", nullable = false, columnDefinition = "TEXT")
     var payloadJson: String,
 
