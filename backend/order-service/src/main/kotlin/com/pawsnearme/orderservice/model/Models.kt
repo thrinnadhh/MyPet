@@ -5,12 +5,6 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
 
-enum class OrderStatus {
-    PLACED, ACCEPTED, PREPARING, READY_FOR_PICKUP,
-    ASSIGNED, REASSIGNED, PICKED_UP, DELIVERED, COMPLETED,
-    REJECTED, CANCELLED
-}
-
 @Entity
 @Table(name = "orders", schema = "orders")
 class Order(
@@ -40,6 +34,10 @@ class Order(
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     var status: OrderStatus = OrderStatus.PLACED,
+
+    @Version
+    @Column(name = "version", nullable = false)
+    var version: Long = 0,
 
     @Column(name = "subtotal_amount", nullable = false)
     var subtotalAmount: BigDecimal,
@@ -86,16 +84,10 @@ class Order(
     @Column(name = "payment_method", nullable = false)
     var paymentMethod: String = "CARD",
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "payment_status", nullable = false)
-    var paymentStatus: String = "PENDING"
-) {
-    @PrePersist
-    fun alignLifecycleTimestamps() {
-        if (status == OrderStatus.ACCEPTED && acceptedAt == null) {
-            acceptedAt = placedAt
-        }
-    }
-}
+    var paymentStatus: PaymentStatus = PaymentStatus.PENDING
+)
 
 @Entity
 @Table(name = "order_items", schema = "orders")
