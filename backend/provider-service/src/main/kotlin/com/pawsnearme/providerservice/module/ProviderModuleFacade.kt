@@ -1,5 +1,6 @@
 package com.pawsnearme.providerservice.module
 
+import com.pawsnearme.common.module.ProviderLocationSnapshot
 import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.common.module.VaccinationReminderSnapshot
 import com.pawsnearme.providerservice.repository.ProviderRepository
@@ -15,6 +16,18 @@ class ProviderModuleFacade(
 
     override fun ownerUserId(providerId: UUID): UUID? =
         providerRepository.findById(providerId).orElse(null)?.ownerUserId
+
+    override fun location(providerId: UUID): ProviderLocationSnapshot {
+        val provider = providerRepository.findById(providerId)
+            .orElseThrow { NoSuchElementException("Provider with ID $providerId not found") }
+        return ProviderLocationSnapshot(
+            providerId = requireNotNull(provider.providerId),
+            city = provider.city,
+            pincode = provider.pincode,
+            latitude = provider.geoLocation.y,
+            longitude = provider.geoLocation.x
+        )
+    }
 
     override fun enabledVaccinationReminders(): List<VaccinationReminderSnapshot> =
         vaccinationReminderRepository.findByEnabledTrue().map { reminder ->

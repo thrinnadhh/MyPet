@@ -61,12 +61,7 @@ interface OrderTrackingDto {
   items: string[];
   paymentMethod?: string | null;
   paymentStatus?: CustomerOrderPaymentStatus | null;
-  statusHistory?: Array<{
-    fromStatus: OrderStatus | null;
-    toStatus: OrderStatus;
-    changedAt: string;
-    note: string | null;
-  }>;
+  statusHistory?: CustomerOrderRecord['statusHistory'];
 }
 
 interface OrderDetailsDto {
@@ -132,46 +127,37 @@ async function providerName(providerId: string, accessToken?: string | null): Pr
   }
 }
 
-export async function fetchCustomerOrders(
-  customerId: string,
-  accessToken?: string | null,
-): Promise<CustomerOrderRecord[]> {
+export async function fetchCustomerOrders(customerId: string, accessToken?: string | null): Promise<CustomerOrderRecord[]> {
   const cacheKey = `${CACHE_PREFIX}${customerId}`;
-
   try {
     const response = await fetch(
       `${appConfig.apiBaseUrl}/api/v1/orders/customer/${encodeURIComponent(customerId)}/tracking`,
       { headers: headers(accessToken) },
     );
     if (!response.ok) throw await responseError(response, 'Could not load order history');
-
     const rawOrders = (await response.json()) as OrderTrackingDto[];
-    const orders: CustomerOrderRecord[] = await Promise.all(
-      rawOrders.map(async (order) => {
-        const rawTotal = Number(order.totalAmount) || 0;
-        return {
-          id: order.orderId,
-          providerId: order.providerId,
-          providerName: await providerName(order.providerId, accessToken),
-          items: order.items || [],
-          total: `₹${rawTotal.toFixed(0)}`,
-          rawTotal,
-          status: order.status,
-          orderedAt: order.placedAt,
-          hasReview: false,
-          flowStep: order.flowStep || 'placed',
-          paymentMethod: order.paymentMethod,
-          paymentStatus: order.paymentStatus,
-          statusHistory: order.statusHistory || [],
-        };
-      }),
-    );
-
+    const orders: CustomerOrderRecord[] = await Promise.all(rawOrders.map(async (order) => {
+      const rawTotal = Number(order.totalAmount) || 0;
+      return {
+        id: order.orderId,
+        providerId: order.providerId,
+        providerName: await providerName(order.providerId, accessToken),
+        items: order.items || [],
+        total: `₹${rawTotal.toFixed(0)}`,
+        rawTotal,
+        status: order.status,
+        orderedAt: order.placedAt,
+        hasReview: false,
+        flowStep: order.flowStep || 'placed',
+        paymentMethod: order.paymentMethod,
+        paymentStatus: order.paymentStatus,
+        statusHistory: order.statusHistory || [],
+      };
+    }));
     await AsyncStorage.setItem(cacheKey, JSON.stringify(orders)).catch(() => null);
     return orders;
   } catch (error) {
     if (!isOfflineFailure(error)) throw error;
-
     const cached = await AsyncStorage.getItem(cacheKey).catch(() => null);
     if (cached) {
       try {
@@ -185,21 +171,13 @@ export async function fetchCustomerOrders(
   }
 }
 
-export async function fetchOrderDetails(
-  orderId: string,
-  accessToken?: string | null,
-): Promise<CustomerOrderRecord> {
-  const response = await fetch(
-    `${appConfig.apiBaseUrl}/api/v1/orders/${encodeURIComponent(orderId)}`,
-    { headers: headers(accessToken) },
-  );
+export async function fetchOrderDetails(orderId: string, accessToken?: string | null): Promise<CustomerOrderRecord> {
+  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders/${encodeURIComponent(orderId)}`, { headers: headers(accessToken) });
   if (!response.ok) throw await responseError(response, 'Could not load order details');
-
   const order = (await response.json()) as OrderDetailsDto;
   const rawTotal = Number(order.totalAmount) || 0;
   const resolvedOrderId = order.orderId || order.id;
   if (!resolvedOrderId) throw new Error('Order service returned an invalid order ID');
-
   return {
     id: resolvedOrderId,
     providerId: order.providerId,
@@ -221,27 +199,16 @@ export async function fetchOrderDetails(
   };
 }
 
-export async function cancelOrder(
-  orderId: string,
-  reason: string,
-  accessToken?: string | null,
-): Promise<void> {
+export async function cancelOrder(orderId: string, reason: string, accessToken?: string | null): Promise<void> {
   const url = `${appConfig.apiBaseUrl}/api/v1/orders/${encodeURIComponent(orderId)}/cancel?reason=${encodeURIComponent(reason)}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: headers(accessToken),
-  });
+  const response = await fetch(url, { method: 'POST', headers: headers(accessToken) });
   if (!response.ok) throw await responseError(response, 'Could not cancel order');
 }
 
-export async function reorderItems(
-  orderId: string,
-  accessToken?: string | null,
-): Promise<ReorderValidationResult> {
-  const response = await fetch(
-    `${appConfig.apiBaseUrl}/api/v1/orders/${encodeURIComponent(orderId)}/reorder`,
-    { method: 'POST', headers: headers(accessToken) },
-  );
+export async function reorderItems(orderId: string, accessToken?: string | null): Promise<ReorderValidationResult> {
+  const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders/${encodeURIComponent(orderId)}/reorder`, {
+    method: 'POST', headers: headers(accessToken),
+  });
   if (!response.ok) throw await responseError(response, 'Reorder revalidation failed');
   return (await response.json()) as ReorderValidationResult;
 }
@@ -252,6 +219,7 @@ export interface CheckoutQuoteInput {
   deliveryAddressId: string;
   items: Array<{ offeringId: string; quantity: number }>;
   couponCode?: string | null;
+  loyaltyRewardId?: string | null;
   paymentMethod?: CustomerPaymentMethod | string | null;
   city?: string | null;
   latitude?: number | null;
@@ -275,23 +243,11 @@ export interface CheckoutQuoteOutput {
   expiresAt: string;
 }
 
-export interface CreateOrderInput {
-  customerId: string;
-  providerId: string;
-  deliveryAddressId: string;
-  items: Array<{ offeringId: string; quantity: number }>;
-  couponCode?: string | null;
-  paymentMethod?: CustomerPaymentMethod | string | null;
+export interface CreateOrderInput extends CheckoutQuoteInput {
   quoteToken?: string | null;
-  city?: string | null;
-  latitude?: number | null;
-  longitude?: number | null;
 }
 
-export async function fetchCheckoutQuote(
-  input: CheckoutQuoteInput,
-  accessToken?: string | null,
-): Promise<CheckoutQuoteOutput> {
+export async function fetchCheckoutQuote(input: CheckoutQuoteInput, accessToken?: string | null): Promise<CheckoutQuoteOutput> {
   const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/checkout/quote`, {
     method: 'POST',
     headers: { ...headers(accessToken), 'Content-Type': 'application/json' },
@@ -301,15 +257,13 @@ export async function fetchCheckoutQuote(
   return (await response.json()) as CheckoutQuoteOutput;
 }
 
-export async function createCustomerOrder(
-  input: CreateOrderInput,
-  accessToken?: string | null,
-): Promise<CustomerOrderRecord> {
+export async function createCustomerOrder(input: CreateOrderInput, accessToken?: string | null): Promise<CustomerOrderRecord> {
   if (!accessToken) throw new Error('Sign in before placing an order.');
-  const contact = await fetchDeliveryContact(accessToken, input.deliveryAddressId);
-  if (!contact?.phoneNumber) {
-    throw new Error('Add a delivery contact number to this address before placing your order.');
+  if (!input.quoteToken) {
+    throw new Error('Checkout has an invalid response because the quote is missing. Request a fresh checkout quote before placing the order.');
   }
+  const contact = await fetchDeliveryContact(accessToken, input.deliveryAddressId);
+  if (!contact?.phoneNumber) throw new Error('Add a delivery contact number to this address before placing your order.');
 
   const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders`, {
     method: 'POST',
@@ -317,6 +271,7 @@ export async function createCustomerOrder(
       ...headers(accessToken),
       'Content-Type': 'application/json',
       'X-Delivery-Contact-Phone': contact.phoneNumber,
+      'X-Idempotency-Key': `checkout:${input.quoteToken}`,
     },
     body: JSON.stringify(input),
   });
@@ -324,11 +279,8 @@ export async function createCustomerOrder(
 
   const order = (await response.json()) as CreatedOrderDto;
   const orderId = typeof order.orderId === 'string' ? order.orderId : order.id;
-  if (typeof orderId !== 'string' || typeof order.providerId !== 'string') {
-    throw new Error('Order service returned an invalid response');
-  }
+  if (typeof orderId !== 'string' || typeof order.providerId !== 'string') throw new Error('Order service returned an invalid response');
   const rawTotal = Number(order.totalAmount) || 0;
-
   return {
     id: orderId,
     providerId: order.providerId,

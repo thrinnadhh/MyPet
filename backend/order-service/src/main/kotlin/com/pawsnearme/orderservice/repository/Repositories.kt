@@ -10,13 +10,15 @@ import com.pawsnearme.orderservice.model.Invoice
 import com.pawsnearme.orderservice.model.SupportCase
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.stereotype.Repository
+import java.time.Instant
 import java.util.UUID
 
 @Repository
 interface OrderRepository : JpaRepository<Order, UUID> {
     fun findByCustomerId(customerId: UUID): List<Order>
     fun findByProviderId(providerId: UUID): List<Order>
-    fun findByStatusAndDeliveredAtBefore(status: OrderStatus, deliveredBefore: java.time.Instant): List<Order>
+    fun findByStatusAndDeliveredAtBefore(status: OrderStatus, deliveredBefore: Instant): List<Order>
+    fun findByCheckoutRequestId(checkoutRequestId: UUID): Order?
 }
 
 @Repository

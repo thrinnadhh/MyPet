@@ -16,6 +16,14 @@ data class InternalProviderOwnerResponse(
     val ownerUserId: UUID
 )
 
+data class InternalProviderLocationResponse(
+    val providerId: UUID,
+    val city: String,
+    val pincode: String,
+    val latitude: Double,
+    val longitude: Double
+)
+
 @RestController
 @RequestMapping("/api/v1/internal/providers")
 class InternalProviderController(
@@ -27,11 +35,7 @@ class InternalProviderController(
         @PathVariable id: UUID,
         @RequestHeader("X-Internal-Secret", required = false) providedSecret: String?
     ): ResponseEntity<InternalProviderOwnerResponse> {
-        if (internalSecret.isBlank() || providedSecret.isNullOrBlank() ||
-            !MessageDigest.isEqual(providedSecret.toByteArray(), internalSecret.toByteArray())
-        ) {
-            throw ProviderAccessDeniedException("Forbidden")
-        }
+        authorize(providedSecret)
         val provider = providerRepository.findById(id)
             .orElseThrow { NoSuchElementException("Provider with ID $id not found") }
         return ResponseEntity.ok(
@@ -40,5 +44,32 @@ class InternalProviderController(
                 ownerUserId = provider.ownerUserId
             )
         )
+    }
+
+    @GetMapping("/{id}/location")
+    fun getProviderLocation(
+        @PathVariable id: UUID,
+        @RequestHeader("X-Internal-Secret", required = false) providedSecret: String?
+    ): ResponseEntity<InternalProviderLocationResponse> {
+        authorize(providedSecret)
+        val provider = providerRepository.findById(id)
+            .orElseThrow { NoSuchElementException("Provider with ID $id not found") }
+        return ResponseEntity.ok(
+            InternalProviderLocationResponse(
+                providerId = requireNotNull(provider.providerId),
+                city = provider.city,
+                pincode = provider.pincode,
+                latitude = provider.geoLocation.y,
+                longitude = provider.geoLocation.x
+            )
+        )
+    }
+
+    private fun authorize(providedSecret: String?) {
+        if (internalSecret.isBlank() || providedSecret.isNullOrBlank() ||
+            !MessageDigest.isEqual(providedSecret.toByteArray(), internalSecret.toByteArray())
+        ) {
+            throw ProviderAccessDeniedException("Forbidden")
+        }
     }
 }

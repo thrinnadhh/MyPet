@@ -65,11 +65,13 @@ if runner_path.is_file():
         "/status?status=IN_PROGRESS",
         "_original_request(method, path, actor, payload, expected=(400,))",
         '"unsupportedStatusRejected": True',
-        "confirm_paid_order",
-        'confirmed.get("status") == "PLACED"',
-        'confirmed.get("paymentStatus") == "SUCCESS"',
-        'confirmed.get("acceptedAt") is None',
-        "payment confirmation advanced the order lifecycle",
+        "post_cashfree_success_webhook",
+        "observe_webhook_reconciled_order",
+        'reconciled.get("status") == "PLACED"',
+        'reconciled.get("paymentStatus") == "SUCCESS"',
+        'reconciled.get("acceptedAt") is None',
+        "payment webhook advanced the order lifecycle",
+        "no client `/confirm` call was used",
         "certify_preparing_gate",
         "status?status=PREPARING",
         '"/status?status=READY_FOR_PICKUP"',
@@ -101,9 +103,11 @@ if runner_path.is_file():
         'details.get("status") == "ACCEPTED"',
         "COD order did not enter the accepted placement state",
         "_payment_transactions",
+        "confirm_paid_order",
+        "/confirm?paymentId=",
     ):
         if forbidden in runner:
-            failures.append(f"M8 runner still contains obsolete order lifecycle compatibility: {forbidden}")
+            failures.append(f"M8 runner still contains obsolete order/payment compatibility: {forbidden}")
 
 if catalog_path.is_file():
     catalog = catalog_path.read_text(encoding="utf-8")
