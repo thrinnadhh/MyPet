@@ -251,7 +251,7 @@ export default function MerchantOrdersScreen() {
                     <View style={styles.actions}>
                       <ActionButton
                         label="View operational detail"
-                        icon="chevron"
+                        icon="document"
                         variant="ghost"
                         onPress={() => router.push(`/orders/${order.orderId}` as never)}
                         style={styles.action}
