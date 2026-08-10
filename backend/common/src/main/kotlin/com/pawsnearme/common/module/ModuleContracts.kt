@@ -89,7 +89,9 @@ data class CatalogOfferingSnapshot(
     val name: String,
     val price: BigDecimal,
     val status: String,
-    val stockQuantity: Int?
+    val stockQuantity: Int?,
+    /** Optional list/MRP price used only to derive server-side item discounts. */
+    val listPrice: BigDecimal? = null
 )
 
 data class StockMutationCommand(
