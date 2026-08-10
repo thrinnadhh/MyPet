@@ -1,8 +1,8 @@
+// GENERATED FROM contracts/checkout-pricing.json. DO NOT EDIT BY HAND.
 package com.pawsnearme.orderservice.service
 
 import java.math.BigDecimal
 
-/** Generated projection of contracts/checkout-pricing.json. */
 object CheckoutPricingContract {
     val TAX_RATE: BigDecimal = BigDecimal("0.05")
     val BASE_DELIVERY_FEE: BigDecimal = BigDecimal("29.00")
