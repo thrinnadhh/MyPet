@@ -1,18 +1,19 @@
 package com.pawsnearme.orderservice.controller
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.pawsnearme.orderservice.model.Order
-import com.pawsnearme.orderservice.model.OrderStatus
-import com.pawsnearme.orderservice.repository.OrderRepository
-import com.pawsnearme.orderservice.service.CheckoutQuoteResponse
-import com.pawsnearme.orderservice.service.CustomerDeliveryContact
-import com.pawsnearme.orderservice.service.DeliveryContactLookup
-import com.pawsnearme.orderservice.service.OrderService
 import com.pawsnearme.common.idempotency.IdempotencyService
 import com.pawsnearme.common.idempotency.ProcessedEventRepository
 import com.pawsnearme.common.outbox.OutboxPoller
 import com.pawsnearme.common.outbox.OutboxRepository
 import com.pawsnearme.common.outbox.OutboxService
+import com.pawsnearme.orderservice.model.Order
+import com.pawsnearme.orderservice.model.OrderStatus
+import com.pawsnearme.orderservice.repository.OrderRepository
+import com.pawsnearme.orderservice.service.CheckoutIntegrityService
+import com.pawsnearme.orderservice.service.CheckoutQuoteResponse
+import com.pawsnearme.orderservice.service.CustomerDeliveryContact
+import com.pawsnearme.orderservice.service.DeliveryContactLookup
+import com.pawsnearme.orderservice.service.OrderService
 import com.pawsnearme.orderservice.service.QuoteStore
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
@@ -54,6 +55,9 @@ class OrderWebMvcTest {
 
     @MockBean
     private lateinit var orderService: OrderService
+
+    @MockBean
+    private lateinit var checkoutIntegrityService: CheckoutIntegrityService
 
     @MockBean
     private lateinit var orderRepository: OrderRepository
@@ -105,7 +109,7 @@ class OrderWebMvcTest {
             expiresAt = Instant.now().plusSeconds(900)
         )
 
-        whenever(orderService.calculateQuote(any())).thenReturn(quoteResponse)
+        whenever(checkoutIntegrityService.calculateQuote(any())).thenReturn(quoteResponse)
 
         val jsonRequest = """
             {
@@ -156,6 +160,7 @@ class OrderWebMvcTest {
         val deliveryAddressId = UUID.randomUUID()
         val offeringId = UUID.randomUUID()
         val orderId = UUID.randomUUID()
+        val idempotencyKey = "checkout:Q-TEST12345"
 
         val createdOrder = Order(
             orderId = orderId,
@@ -170,7 +175,7 @@ class OrderWebMvcTest {
 
         whenever(deliveryContactLookup.forCustomerAddress(customerId, deliveryAddressId))
             .thenReturn(CustomerDeliveryContact("+919876543210"))
-        whenever(orderService.createOrder(any())).thenReturn(createdOrder)
+        whenever(checkoutIntegrityService.createOrder(any(), eq(idempotencyKey))).thenReturn(createdOrder)
         whenever(orderRepository.save(any())).thenAnswer { it.arguments[0] as Order }
 
         val jsonRequest = """
@@ -192,6 +197,7 @@ class OrderWebMvcTest {
             post("/api/v1/orders")
                 .header("X-User-Id", customerId.toString())
                 .header("X-User-Phone", "+919876543210")
+                .header("X-Idempotency-Key", idempotencyKey)
                 .header("X-Delivery-Contact-Phone", "+919999999999")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(jsonRequest)
