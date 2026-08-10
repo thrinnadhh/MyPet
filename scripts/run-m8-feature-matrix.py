@@ -175,9 +175,6 @@ def verify_monolith_loyalty_handoff(path: str, payload: Any) -> Any:
         )
         _verified_in_process_loyalty_events.add(key)
 
-    # The scenario intentionally replays the event to prove idempotency. In monolith
-    # mode the production handoff already occurred during delivery, so the equivalent
-    # replay result is processed=false; progress/ledger assertions verify the award.
     return {"processed": False, "verifiedInProcess": True}
 
 
@@ -223,34 +220,39 @@ def internal_loyalty_request(
     return decoded
 
 
-def confirm_paid_order(actor: Any, order_id: str, payment_id: str) -> dict[str, Any]:
-    """Confirm payment without advancing the merchant-owned order lifecycle."""
-    confirmed = _original_request(
-        "POST",
-        f"/api/v1/orders/{order_id}/confirm?paymentId={payment_id}",
-        actor,
-        expected=(200,),
+def observe_webhook_reconciled_order(actor: Any, order_id: str) -> dict[str, Any]:
+    """Prove the server reconciles payment without a client order-confirm mutation."""
+    reconciled = _original_poll(
+        "webhook-owned order payment reconciliation",
+        lambda: _original_request(
+            "GET",
+            f"/api/v1/orders/{order_id}",
+            actor,
+            expected=(200,),
+        ),
+        lambda value: value.get("paymentStatus") == "SUCCESS",
+        timeout=30,
     )
     _original_require(
-        confirmed.get("status") == "PLACED",
-        "payment confirmation advanced the order lifecycle",
-        confirmed,
+        reconciled.get("status") == "PLACED",
+        "payment webhook advanced the order lifecycle",
+        reconciled,
     )
     _original_require(
-        confirmed.get("paymentStatus") == "SUCCESS",
-        "payment confirmation did not persist SUCCESS",
-        confirmed,
+        reconciled.get("paymentStatus") == "SUCCESS",
+        "payment webhook did not persist SUCCESS",
+        reconciled,
     )
     _original_require(
-        confirmed.get("acceptedAt") is None,
-        "payment confirmation incorrectly populated merchant acceptance time",
-        confirmed,
+        reconciled.get("acceptedAt") is None,
+        "payment webhook incorrectly populated merchant acceptance time",
+        reconciled,
     )
     matrix.append_report(
-        "- ✅ **order/payment separation** — online payment confirmation persisted "
-        f"`SUCCESS` while order `{order_id}` remained `PLACED`; merchant acceptance stayed separate.\n"
+        "- ✅ **server-owned payment reconciliation** — signed Cashfree webhook persisted "
+        f"`SUCCESS` for order `{order_id}` while lifecycle stayed `PLACED`; no client `/confirm` call was used.\n"
     )
-    return confirmed
+    return reconciled
 
 
 def certify_preparing_gate(method: str, path: str, actor: Any, payload: Any) -> Any:
@@ -302,9 +304,6 @@ def contract_request(
         _original_request(method, path, actor, payload, expected=(400,))
         return {"status": "CONFIRMED", "unsupportedStatusRejected": True}
 
-    # The historical M8 scenario asks for COD. The current connected certification
-    # deliberately exercises the online branch so it can prove payment and merchant
-    # acceptance are independent states.
     if (
         method == "POST"
         and path == "/api/v1/orders"
@@ -327,6 +326,9 @@ def contract_request(
         _original_require(created.get("paymentStatus") == "PENDING", "online order was not payment PENDING", created)
         return created
 
+    # The historical scenario still names the removed client result endpoint. Translate
+    # that call into the production path: initiate Cashfree, deliver its signed webhook,
+    # observe OrderService reconciliation, and return the historical event-shaped evidence.
     if (
         method == "POST"
         and path == "/api/v1/payments/transactions/result"
@@ -348,13 +350,16 @@ def contract_request(
             expected=(201,),
         )
         post_cashfree_success_webhook(initiation["orderId"], payload["amount"])
-        payment_result = _original_request(method, path, actor, payload, expected=(200,))
-        confirm_paid_order(
-            actor,
-            str(payload["referenceId"]),
-            str(initiation["transactionId"]),
-        )
-        return payment_result
+        observe_webhook_reconciled_order(actor, str(payload["referenceId"]))
+        return {
+            "eventType": "PaymentCaptured",
+            "transactionId": initiation["transactionId"],
+            "referenceId": payload["referenceId"],
+            "amount": payload["amount"],
+            "gateway": "CASHFREE",
+            "gatewayTransactionId": initiation["orderId"],
+            "serverReconciled": True,
+        }
 
     if (
         method == "PUT"
