@@ -71,7 +71,7 @@ if runner_path.is_file():
         'confirmed.get("acceptedAt") is None',
         "payment confirmation advanced the order lifecycle",
         "certify_preparing_gate",
-        '"/status?status=PREPARING"',
+        "status?status=PREPARING",
         '"/status?status=READY_FOR_PICKUP"',
         "direct `ACCEPTED → READY_FOR_PICKUP`",
         "matrix.require = contract_require",
