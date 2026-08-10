@@ -1,6 +1,7 @@
 package com.pawsnearme.orderservice.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.pawsnearme.common.module.PaymentModuleApi
 import com.pawsnearme.orderservice.model.OrderActor
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.model.PaymentStatus
@@ -30,6 +31,7 @@ class OrderPaymentEventListener(
     private val objectMapper: ObjectMapper,
     private val orderRepository: OrderRepository,
     private val orderService: OrderService,
+    private val paymentModule: PaymentModuleApi,
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -58,14 +60,13 @@ class OrderPaymentEventListener(
             "PaymentCaptured" -> {
                 if (order.paymentStatus == PaymentStatus.SUCCESS && order.paymentId == event.transactionId) return
                 if (order.status in setOf(OrderStatus.CANCELLED, OrderStatus.REJECTED)) {
-                    // A late success after the order became terminal must be refunded rather
-                    // than making the cancelled order merchant-actionable again.
                     order.paymentId = event.transactionId
-                    order.paymentStatus = PaymentStatus.SUCCESS
+                    order.paymentStatus = PaymentStatus.REFUND_PENDING
                     orderRepository.saveAndFlush(order)
+                    paymentModule.refundOrder(requireNotNull(order.orderId))
                     return
                 }
-                orderService.confirmOrder(order.orderId!!, event.transactionId)
+                orderService.confirmOrder(requireNotNull(order.orderId), event.transactionId)
             }
             "PaymentFailed", "PaymentExpired" -> {
                 if (order.paymentStatus in setOf(PaymentStatus.SUCCESS, PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED)) return
@@ -74,7 +75,7 @@ class OrderPaymentEventListener(
                 orderRepository.saveAndFlush(order)
                 if (order.status == OrderStatus.PLACED) {
                     orderService.updateOrderStatus(
-                        orderId = order.orderId!!,
+                        orderId = requireNotNull(order.orderId),
                         newStatus = OrderStatus.CANCELLED,
                         changedBy = order.customerId,
                         actorRole = OrderActor.CUSTOMER,
