@@ -63,7 +63,7 @@ class CashfreeGatewayServiceTests {
         )
         whenever(transactions.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(any(), any()))
             .thenReturn(null)
-        whenever(transactions.save(any())).thenAnswer { invocation ->
+        whenever(transactions.saveAndFlush(any())).thenAnswer { invocation ->
             invocation.getArgument<Transaction>(0).also {
                 it.transactionId = it.transactionId ?: UUID.randomUUID()
             }
@@ -102,7 +102,7 @@ class CashfreeGatewayServiceTests {
         )
         whenever(transactions.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(any(), any()))
             .thenReturn(null)
-        whenever(transactions.save(any())).thenAnswer { invocation ->
+        whenever(transactions.saveAndFlush(any())).thenAnswer { invocation ->
             invocation.getArgument<Transaction>(0).also {
                 it.transactionId = it.transactionId ?: UUID.randomUUID()
             }
