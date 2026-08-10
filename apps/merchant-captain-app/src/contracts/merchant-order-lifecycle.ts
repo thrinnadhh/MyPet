@@ -1,16 +1,12 @@
-export type MerchantOrderStatus =
-  | 'PLACED'
-  | 'ACCEPTED'
-  | 'PREPARING'
-  | 'READY_FOR_PICKUP'
-  | 'ASSIGNED'
-  | 'REASSIGNED'
-  | 'PICKED_UP'
-  | 'DELIVERED'
-  | 'COMPLETED'
-  | 'REJECTED'
-  | 'CANCELLED';
+import {
+  MERCHANT_ORDER_QUEUES,
+  type MerchantOrderQueue,
+  type OrderStatus,
+  type PaymentStatus,
+} from './order-contract.generated';
 
+export type MerchantOrderStatus = OrderStatus;
+export type MerchantPaymentStatus = PaymentStatus;
 export type MerchantOrderAction = 'ACCEPTED' | 'PREPARING' | 'READY_FOR_PICKUP' | 'REJECTED' | 'CANCELLED';
 
 export interface MerchantOrderActionDefinition {
@@ -28,7 +24,7 @@ export function merchantOrderActions(status: MerchantOrderStatus): MerchantOrder
       ];
     case 'ACCEPTED':
       return [
-        { status: 'PREPARING', label: 'Start packing' },
+        { status: 'PREPARING', label: 'Start preparing' },
         { status: 'CANCELLED', label: 'Cancel order', destructive: true },
       ];
     case 'PREPARING':
@@ -41,3 +37,18 @@ export function merchantOrderActions(status: MerchantOrderStatus): MerchantOrder
 export function isMerchantOrderActive(status: MerchantOrderStatus): boolean {
   return !['DELIVERED', 'COMPLETED', 'REJECTED', 'CANCELLED'].includes(status);
 }
+
+export function isMerchantOrderInQueue(
+  status: MerchantOrderStatus,
+  paymentStatus: MerchantPaymentStatus,
+  queue: MerchantOrderQueue,
+): boolean {
+  const config = MERCHANT_ORDER_QUEUES[queue];
+  if (!(config.statuses as readonly MerchantOrderStatus[]).includes(status)) return false;
+  if ('paymentStatuses' in config) {
+    return (config.paymentStatuses as readonly MerchantPaymentStatus[]).includes(paymentStatus);
+  }
+  return true;
+}
+
+export type { MerchantOrderQueue } from './order-contract.generated';
