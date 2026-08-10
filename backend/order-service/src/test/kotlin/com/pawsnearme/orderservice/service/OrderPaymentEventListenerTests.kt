@@ -1,6 +1,6 @@
 package com.pawsnearme.orderservice.service
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.pawsnearme.common.module.PaymentModuleApi
 import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderActor
@@ -23,7 +23,8 @@ class OrderPaymentEventListenerTests {
     private val repository: OrderRepository = mock()
     private val orderService: OrderService = mock()
     private val paymentModule: PaymentModuleApi = mock()
-    private val listener = OrderPaymentEventListener(ObjectMapper(), repository, orderService, paymentModule)
+    private val objectMapper = jacksonObjectMapper().findAndRegisterModules()
+    private val listener = OrderPaymentEventListener(objectMapper, repository, orderService, paymentModule)
 
     @Test
     fun `captured payment confirms payment only and leaves lifecycle placed`() {
@@ -108,7 +109,7 @@ class OrderPaymentEventListenerTests {
         eventType: String,
         transactionId: UUID,
         reason: String? = null,
-    ): String = ObjectMapper().writeValueAsString(
+    ): String = objectMapper.writeValueAsString(
         OrderPaymentLifecycleEvent(
             eventId = UUID.randomUUID(),
             eventType = eventType,
