@@ -1,20 +1,8 @@
-package com.pawsnearme.notificationservice.event
+package com.pawsnearme.orderservice.service
 
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
-
-data class OrderPlacedEvent(
-    val eventId: UUID = UUID.randomUUID(),
-    val eventType: String = "OrderPlaced",
-    val orderId: UUID,
-    val actorId: UUID,
-    val customerId: UUID,
-    val providerId: UUID,
-    val merchantOwnerUserId: UUID? = null,
-    val totalAmount: BigDecimal,
-    val occurredAt: Instant = Instant.now(),
-)
 
 data class MerchantOrderActionableEvent(
     val eventId: UUID = UUID.randomUUID(),
@@ -25,10 +13,10 @@ data class MerchantOrderActionableEvent(
     val providerId: UUID,
     val merchantOwnerUserId: UUID? = null,
     val totalAmount: BigDecimal,
-    val occurredAt: Instant = Instant.now(),
+    val occurredAt: Instant = Instant.now()
 )
 
-data class OrderStatusChangedEvent(
+data class CanonicalOrderStatusChangedEvent(
     val eventId: UUID = UUID.randomUUID(),
     val eventType: String,
     val orderId: UUID,
@@ -41,5 +29,5 @@ data class OrderStatusChangedEvent(
     val captainId: UUID? = null,
     val providerId: UUID? = null,
     val merchantOwnerUserId: UUID? = null,
-    val occurredAt: Instant = Instant.now(),
+    val occurredAt: Instant = Instant.now()
 )

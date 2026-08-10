@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "orderStatuses": [
+    "PLACED",
+    "ACCEPTED",
+    "PREPARING",
+    "READY_FOR_PICKUP",
+    "ASSIGNED",
+    "PICKED_UP",
+    "DELIVERED",
+    "COMPLETED",
+    "REJECTED",
+    "CANCELLED"
+  ],
+  "paymentStatuses": [
+    "PENDING",
+    "SUCCESS",
+    "FAILED",
+    "COD_PENDING",
+    "COD_COLLECTED",
+    "REFUND_PENDING",
+    "REFUNDED"
+  ],
+  "actors": [
+    "CUSTOMER",
+    "MERCHANT",
+    "DISPATCH",
+    "CAPTAIN",
+    "SYSTEM"
+  ],
+  "transitions": [
+    { "actor": "CUSTOMER", "from": "PLACED", "to": "CANCELLED" },
+    { "actor": "MERCHANT", "from": "PLACED", "to": "ACCEPTED" },
+    { "actor": "MERCHANT", "from": "PLACED", "to": "REJECTED" },
+    { "actor": "MERCHANT", "from": "ACCEPTED", "to": "PREPARING" },
+    { "actor": "MERCHANT", "from": "ACCEPTED", "to": "CANCELLED" },
+    { "actor": "MERCHANT", "from": "PREPARING", "to": "READY_FOR_PICKUP" },
+    { "actor": "DISPATCH", "from": "READY_FOR_PICKUP", "to": "ASSIGNED" },
+    { "actor": "CAPTAIN", "from": "ASSIGNED", "to": "PICKED_UP" },
+    { "actor": "CAPTAIN", "from": "PICKED_UP", "to": "DELIVERED" },
+    { "actor": "SYSTEM", "from": "DELIVERED", "to": "COMPLETED" }
+  ],
+  "merchantQueues": {
+    "NEW": {
+      "statuses": ["PLACED"],
+      "paymentStatuses": ["COD_PENDING", "SUCCESS"]
+    },
+    "ACCEPTED": { "statuses": ["ACCEPTED"] },
+    "PREPARING": { "statuses": ["PREPARING"] },
+    "READY": { "statuses": ["READY_FOR_PICKUP"] },
+    "DELIVERY": { "statuses": ["ASSIGNED", "PICKED_UP"] },
+    "PAST": { "statuses": ["DELIVERED", "COMPLETED", "CANCELLED", "REJECTED"] }
+  }
+}

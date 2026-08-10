@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute the M8 scenario graph with explicit contract and async evidence."""
+"""Execute the M8 scenario graph with explicit current-contract evidence."""
 
 from __future__ import annotations
 
@@ -81,11 +81,10 @@ GATEWAY_SECRET = configured_env_value("GATEWAY_SECRET")
 _original_request = matrix.request
 _original_poll = matrix.poll
 _original_require = matrix.require
-_payment_transactions: dict[str, str] = {}
 _verified_in_process_loyalty_events: set[tuple[str, str]] = set()
 
 
-def post_cashfree_success_webhook(order_id: str, amount: Any) -> Any:
+def post_cashfree_success_webhook(payment_order_id: str, amount: Any) -> Any:
     """Deliver a correctly signed Cashfree sandbox success event through the gateway."""
     timestamp = str(int(time.time() * 1000))
     payload = {
@@ -93,12 +92,12 @@ def post_cashfree_success_webhook(order_id: str, amount: Any) -> Any:
         "event_time": "2026-08-06T00:00:00Z",
         "data": {
             "order": {
-                "order_id": order_id,
+                "order_id": payment_order_id,
                 "order_amount": amount,
                 "order_currency": "INR",
             },
             "payment": {
-                "cf_payment_id": f"m8_{order_id[-20:]}",
+                "cf_payment_id": f"m8_{payment_order_id[-20:]}",
                 "payment_status": "SUCCESS",
                 "payment_amount": amount,
                 "payment_currency": "INR",
@@ -121,7 +120,7 @@ def post_cashfree_success_webhook(order_id: str, amount: Any) -> Any:
             "Content-Type": "application/json",
             "X-Webhook-Timestamp": timestamp,
             "X-Webhook-Signature": signature,
-            "X-Idempotency-Key": f"m8-cashfree-{order_id}",
+            "X-Idempotency-Key": f"m8-cashfree-{payment_order_id}",
         },
         method="POST",
     )
@@ -224,6 +223,65 @@ def internal_loyalty_request(
     return decoded
 
 
+def confirm_paid_order(actor: Any, order_id: str, payment_id: str) -> dict[str, Any]:
+    """Confirm payment without advancing the merchant-owned order lifecycle."""
+    confirmed = _original_request(
+        "POST",
+        f"/api/v1/orders/{order_id}/confirm?paymentId={payment_id}",
+        actor,
+        expected=(200,),
+    )
+    _original_require(
+        confirmed.get("status") == "PLACED",
+        "payment confirmation advanced the order lifecycle",
+        confirmed,
+    )
+    _original_require(
+        confirmed.get("paymentStatus") == "SUCCESS",
+        "payment confirmation did not persist SUCCESS",
+        confirmed,
+    )
+    _original_require(
+        confirmed.get("acceptedAt") is None,
+        "payment confirmation incorrectly populated merchant acceptance time",
+        confirmed,
+    )
+    matrix.append_report(
+        "- ✅ **order/payment separation** — online payment confirmation persisted "
+        f"`SUCCESS` while order `{order_id}` remained `PLACED`; merchant acceptance stayed separate.\n"
+    )
+    return confirmed
+
+
+def certify_preparing_gate(method: str, path: str, actor: Any, payload: Any) -> Any:
+    """Prove READY_FOR_PICKUP cannot skip PREPARING, then follow the valid path."""
+    order_id = path.removeprefix("/api/v1/orders/").split("/", 1)[0]
+
+    _original_request(method, path, actor, payload, expected=(409,))
+    preparing = _original_request(
+        "PUT",
+        f"/api/v1/orders/{order_id}/status?status=PREPARING",
+        actor,
+        expected=(200,),
+    )
+    _original_require(
+        preparing.get("status") == "PREPARING",
+        "merchant could not transition ACCEPTED order to PREPARING",
+        preparing,
+    )
+    ready = _original_request(method, path, actor, payload, expected=(200,))
+    _original_require(
+        ready.get("status") == "READY_FOR_PICKUP",
+        "merchant could not transition PREPARING order to READY_FOR_PICKUP",
+        ready,
+    )
+    matrix.append_report(
+        "- ✅ **canonical fulfillment gate** — direct `ACCEPTED → READY_FOR_PICKUP` "
+        f"was rejected for order `{order_id}`, then `PREPARING → READY_FOR_PICKUP` succeeded.\n"
+    )
+    return ready
+
+
 def contract_request(
     method: str,
     path: str,
@@ -244,6 +302,9 @@ def contract_request(
         _original_request(method, path, actor, payload, expected=(400,))
         return {"status": "CONFIRMED", "unsupportedStatusRejected": True}
 
+    # The historical M8 scenario asks for COD. The current connected certification
+    # deliberately exercises the online branch so it can prove payment and merchant
+    # acceptance are independent states.
     if (
         method == "POST"
         and path == "/api/v1/orders"
@@ -261,7 +322,10 @@ def contract_request(
             expected=(200,),
         )
         online_payload["quoteToken"] = online_quote["quoteToken"]
-        return _original_request(method, path, actor, online_payload, expected)
+        created = _original_request(method, path, actor, online_payload, expected)
+        _original_require(created.get("status") == "PLACED", "online order was not PLACED", created)
+        _original_require(created.get("paymentStatus") == "PENDING", "online order was not payment PENDING", created)
+        return created
 
     if (
         method == "POST"
@@ -284,23 +348,20 @@ def contract_request(
             expected=(201,),
         )
         post_cashfree_success_webhook(initiation["orderId"], payload["amount"])
-        _payment_transactions[str(payload["referenceId"])] = str(initiation["transactionId"])
-        return _original_request(method, path, actor, payload, expected=(200,))
+        payment_result = _original_request(method, path, actor, payload, expected=(200,))
+        confirm_paid_order(
+            actor,
+            str(payload["referenceId"]),
+            str(initiation["transactionId"]),
+        )
+        return payment_result
 
     if (
         method == "PUT"
         and path.startswith("/api/v1/orders/")
-        and "/status?status=ACCEPTED" in path
+        and "/status?status=READY_FOR_PICKUP" in path
     ):
-        order_id = path.removeprefix("/api/v1/orders/").split("/", 1)[0]
-        payment_id = _payment_transactions.get(order_id)
-        if payment_id is not None:
-            return _original_request(
-                "POST",
-                f"/api/v1/orders/{order_id}/confirm?paymentId={payment_id}",
-                actor,
-                expected=(200,),
-            )
+        return certify_preparing_gate(method, path, actor, payload)
 
     if method == "GET" and path.startswith("/api/v1/dispatch/jobs/by-order/"):
         order_id = path.rsplit("/", 1)[-1]
@@ -332,19 +393,6 @@ def contract_request(
 
 
 def contract_require(condition: bool, message: str, details: Any = None) -> None:
-    if message == "order was not placed" and isinstance(details, dict):
-        is_valid_cod_order = (
-            details.get("status") == "ACCEPTED"
-            and details.get("paymentMethod") == "COD"
-            and details.get("paymentStatus") == "COD_PENDING"
-            and details.get("acceptedAt") is not None
-        )
-        _original_require(
-            condition or is_valid_cod_order,
-            "COD order did not enter the accepted placement state",
-            details,
-        )
-        return
     if message == "first loyalty event not processed" and not condition:
         matrix.append_report(
             "- ✅ **loyalty delivery integration** — the delivered-order award "

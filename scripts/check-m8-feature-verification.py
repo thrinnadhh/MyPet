@@ -65,12 +65,15 @@ if runner_path.is_file():
         "/status?status=IN_PROGRESS",
         "_original_request(method, path, actor, payload, expected=(400,))",
         '"unsupportedStatusRejected": True',
-        'message == "order was not placed"',
-        'details.get("status") == "ACCEPTED"',
-        'details.get("paymentMethod") == "COD"',
-        'details.get("paymentStatus") == "COD_PENDING"',
-        'details.get("acceptedAt") is not None',
-        "COD order did not enter the accepted placement state",
+        "confirm_paid_order",
+        'confirmed.get("status") == "PLACED"',
+        'confirmed.get("paymentStatus") == "SUCCESS"',
+        'confirmed.get("acceptedAt") is None',
+        "payment confirmation advanced the order lifecycle",
+        "certify_preparing_gate",
+        "status?status=PREPARING",
+        '"/status?status=READY_FOR_PICKUP"',
+        "direct `ACCEPTED → READY_FOR_PICKUP`",
         "matrix.require = contract_require",
         "published AppointmentBooked outbox event with slot_start",
         "appointment-outbox.txt",
@@ -93,6 +96,14 @@ if runner_path.is_file():
     ):
         if required not in runner:
             failures.append(f"M8 runner is missing explicit contract or diagnostic mapping: {required}")
+
+    for forbidden in (
+        'details.get("status") == "ACCEPTED"',
+        "COD order did not enter the accepted placement state",
+        "_payment_transactions",
+    ):
+        if forbidden in runner:
+            failures.append(f"M8 runner still contains obsolete order lifecycle compatibility: {forbidden}")
 
 if catalog_path.is_file():
     catalog = catalog_path.read_text(encoding="utf-8")

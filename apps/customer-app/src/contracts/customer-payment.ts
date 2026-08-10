@@ -1,4 +1,9 @@
+import type { PaymentStatus } from './order-contract.generated';
+
 export type CustomerPaymentMethod = 'COD' | 'CARD' | 'UPI';
+
+// Transaction/gateway UI state. This is deliberately separate from the canonical
+// order payment status generated from contracts/order-lifecycle.json.
 export type CustomerPaymentStatus =
   | 'NOT_STARTED'
   | 'PENDING'
@@ -6,6 +11,8 @@ export type CustomerPaymentStatus =
   | 'FAILED'
   | 'REFUNDED'
   | 'PARTIALLY_REFUNDED';
+
+export type CustomerOrderPaymentStatus = PaymentStatus;
 
 export interface CustomerPaymentState {
   orderId: string;

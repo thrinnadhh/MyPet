@@ -1,6 +1,7 @@
 package com.pawsnearme.orderservice.service
 
 import com.pawsnearme.common.scheduling.WorkerScheduler
+import com.pawsnearme.orderservice.model.OrderActor
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
@@ -32,10 +33,11 @@ class OrderCompletionWorker(
         delivered.forEach { order ->
             try {
                 orderService.updateOrderStatus(
-                    order.orderId!!,
-                    OrderStatus.COMPLETED,
-                    systemActorId,
-                    "Auto-completed after delivery window",
+                    orderId = order.orderId!!,
+                    newStatus = OrderStatus.COMPLETED,
+                    changedBy = systemActorId,
+                    actorRole = OrderActor.SYSTEM,
+                    note = "Auto-completed after delivery window",
                 )
                 log.info("Auto-completed order {}", order.orderId)
             } catch (e: Exception) {

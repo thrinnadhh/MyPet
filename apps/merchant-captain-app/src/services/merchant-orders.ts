@@ -1,15 +1,19 @@
 import {
   type MerchantOrderAction,
   type MerchantOrderStatus,
+  type MerchantPaymentStatus,
 } from '../contracts/merchant-order-lifecycle';
 import { apiClient } from './api-client';
 
 export {
   isMerchantOrderActive,
+  isMerchantOrderInQueue,
   merchantOrderActions,
   type MerchantOrderAction,
   type MerchantOrderActionDefinition,
+  type MerchantOrderQueue,
   type MerchantOrderStatus,
+  type MerchantPaymentStatus,
 } from '../contracts/merchant-order-lifecycle';
 
 export interface MerchantOrder {
@@ -26,7 +30,7 @@ export interface MerchantOrder {
   totalAmount: number;
   paymentId?: string | null;
   paymentMethod: string;
-  paymentStatus: string;
+  paymentStatus: MerchantPaymentStatus;
   placedAt: string;
   acceptedAt?: string | null;
   readyAt?: string | null;
@@ -43,6 +47,10 @@ export async function fetchMerchantOrders(providerId: string): Promise<MerchantO
   return [...orders].sort(
     (left, right) => new Date(right.placedAt).getTime() - new Date(left.placedAt).getTime(),
   );
+}
+
+export async function fetchMerchantOrder(orderId: string): Promise<MerchantOrder> {
+  return apiClient.get<MerchantOrder>(`/api/v1/orders/${encodeURIComponent(orderId)}`);
 }
 
 export async function transitionMerchantOrder(

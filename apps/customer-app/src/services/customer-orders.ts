@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { OrderFlowStepId } from '@/constants/content';
-import type { CustomerPaymentMethod, CustomerPaymentStatus } from '@/contracts/customer-payment';
+import type { CustomerOrderPaymentStatus, CustomerPaymentMethod } from '@/contracts/customer-payment';
+import type { OrderStatus } from '@/contracts/order-contract.generated';
 import { fetchDeliveryContact } from '@/services/customer-profile';
 import { appConfig } from '@/utils/app-config';
 
@@ -14,20 +15,20 @@ export interface CustomerOrderRecord {
   items: string[];
   total: string;
   rawTotal: number;
-  status: string;
+  status: OrderStatus;
   orderedAt: string;
   hasReview: boolean;
   flowStep: OrderFlowStepId;
   paymentMethod?: CustomerPaymentMethod | string | null;
-  paymentStatus?: CustomerPaymentStatus | string | null;
+  paymentStatus?: CustomerOrderPaymentStatus | null;
   isSubscription?: boolean;
   deliveryAddressId?: string;
   deliveryContactPhone?: string | null;
   deliveryContactVerified?: boolean;
   captainId?: string;
   statusHistory?: Array<{
-    fromStatus: string | null;
-    toStatus: string;
+    fromStatus: OrderStatus | null;
+    toStatus: OrderStatus;
     changedAt: string;
     note: string | null;
   }>;
@@ -53,16 +54,16 @@ export interface ReorderValidationResult {
 interface OrderTrackingDto {
   orderId: string;
   providerId: string;
-  status: string;
+  status: OrderStatus;
   flowStep: OrderFlowStepId;
   totalAmount: number | string;
   placedAt: string;
   items: string[];
   paymentMethod?: string | null;
-  paymentStatus?: string | null;
+  paymentStatus?: CustomerOrderPaymentStatus | null;
   statusHistory?: Array<{
-    fromStatus: string | null;
-    toStatus: string;
+    fromStatus: OrderStatus | null;
+    toStatus: OrderStatus;
     changedAt: string;
     note: string | null;
   }>;
@@ -73,13 +74,13 @@ interface OrderDetailsDto {
   id?: string;
   providerId: string;
   totalAmount: number | string;
-  status: string;
+  status: OrderStatus;
   placedAt?: string;
   createdAt?: string;
   items?: Array<{ offeringNameSnapshot?: string; name?: string }>;
   flowStep?: OrderFlowStepId;
   paymentMethod?: string | null;
-  paymentStatus?: string | null;
+  paymentStatus?: CustomerOrderPaymentStatus | null;
   deliveryAddressId?: string;
   deliveryContactPhone?: string | null;
   deliveryContactVerified?: boolean;

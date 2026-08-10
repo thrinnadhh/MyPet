@@ -20,28 +20,34 @@ import { radii, shadows, spacing, touchTarget, typography } from '@/design/token
 import { useTheme } from '@/hooks/use-theme';
 import {
   fetchMerchantOrders,
-  isMerchantOrderActive,
+  isMerchantOrderInQueue,
   merchantOrderActions,
   transitionMerchantOrder,
   type MerchantOrder,
   type MerchantOrderActionDefinition,
+  type MerchantOrderQueue,
 } from '@/services/merchant-orders';
 import { formatCurrency, formatDateTime, formatOrderStatus } from '@/utils/formatters';
 
-type OrderFilter = 'NEW' | 'ACTIVE' | 'READY' | 'PAST';
+const FILTERS: MerchantOrderQueue[] = ['NEW', 'ACCEPTED', 'PREPARING', 'READY', 'DELIVERY', 'PAST'];
+const FILTER_LABELS: Record<MerchantOrderQueue, string> = {
+  NEW: 'New',
+  ACCEPTED: 'Accepted',
+  PREPARING: 'Preparing',
+  READY: 'Ready',
+  DELIVERY: 'Delivery',
+  PAST: 'Past',
+};
 
-function filterOrder(order: MerchantOrder, filter: OrderFilter): boolean {
-  if (filter === 'NEW') return order.status === 'PLACED';
-  if (filter === 'READY') return order.status === 'READY_FOR_PICKUP';
-  if (filter === 'PAST') return !isMerchantOrderActive(order.status);
-  return isMerchantOrderActive(order.status) && order.status !== 'PLACED';
+function filterOrder(order: MerchantOrder, filter: MerchantOrderQueue): boolean {
+  return isMerchantOrderInQueue(order.status, order.paymentStatus, filter);
 }
 
 function tone(status: MerchantOrder['status']): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
   if (['DELIVERED', 'COMPLETED'].includes(status)) return 'success';
   if (['REJECTED', 'CANCELLED'].includes(status)) return 'danger';
   if (['PLACED', 'ACCEPTED', 'PREPARING', 'READY_FOR_PICKUP'].includes(status)) return 'warning';
-  if (['ASSIGNED', 'REASSIGNED', 'PICKED_UP'].includes(status)) return 'info';
+  if (['ASSIGNED', 'PICKED_UP'].includes(status)) return 'info';
   return 'neutral';
 }
 
@@ -49,7 +55,7 @@ export default function MerchantOrdersScreen() {
   const theme = useTheme();
   const { providerId } = useAuth();
   const [orders, setOrders] = useState<MerchantOrder[]>([]);
-  const [filter, setFilter] = useState<OrderFilter>('NEW');
+  const [filter, setFilter] = useState<MerchantOrderQueue>('NEW');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -82,15 +88,13 @@ export default function MerchantOrdersScreen() {
     void load();
   }, [load]);
 
-  const counts = useMemo(
-    () => ({
-      NEW: orders.filter((order) => filterOrder(order, 'NEW')).length,
-      ACTIVE: orders.filter((order) => filterOrder(order, 'ACTIVE')).length,
-      READY: orders.filter((order) => filterOrder(order, 'READY')).length,
-      PAST: orders.filter((order) => filterOrder(order, 'PAST')).length,
-    }),
-    [orders],
-  );
+  const counts = useMemo(() => {
+    const result = {} as Record<MerchantOrderQueue, number>;
+    FILTERS.forEach((queue) => {
+      result[queue] = orders.filter((order) => filterOrder(order, queue)).length;
+    });
+    return result;
+  }, [orders]);
 
   const visibleOrders = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -132,7 +136,7 @@ export default function MerchantOrdersScreen() {
         <AppBar
           eyebrow="MERCHANT WORKSPACE"
           title="Orders"
-          subtitle="Accept, pack and hand over paid customer orders"
+          subtitle="Accept, prepare and hand over actionable customer orders"
           action={<RoleBadge role="merchant" />}
         />
       }
@@ -158,10 +162,10 @@ export default function MerchantOrdersScreen() {
       {providerId ? (
         <>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-            {(['NEW', 'ACTIVE', 'READY', 'PAST'] as const).map((value) => (
+            {FILTERS.map((value) => (
               <FilterChip
                 key={value}
-                label={`${value === 'NEW' ? 'New' : value === 'ACTIVE' ? 'In progress' : value === 'READY' ? 'Ready' : 'Past'} (${counts[value]})`}
+                label={`${FILTER_LABELS[value]} (${counts[value] ?? 0})`}
                 selected={filter === value}
                 onPress={() => setFilter(value)}
               />
@@ -196,7 +200,13 @@ export default function MerchantOrdersScreen() {
             <StateView
               kind="empty"
               title={query ? 'No matching orders' : 'No orders in this queue'}
-              message={query ? 'Try another order or customer ID.' : 'New orders will appear here after server confirmation.'}
+              message={
+                query
+                  ? 'Try another order or customer ID.'
+                  : filter === 'NEW'
+                    ? 'COD orders and paid online orders waiting for your decision will appear here.'
+                    : 'Orders will move here only through the canonical lifecycle.'
+              }
               actionLabel={query ? 'Clear search' : 'Refresh'}
               onAction={query ? () => setQuery('') : () => void load()}
             />
@@ -280,7 +290,7 @@ export default function MerchantOrdersScreen() {
           >
             <ThemedText type="title">{pending?.action.label}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              Order #{pending?.order.orderId.slice(0, 8).toUpperCase()}. The server validates whether this transition is still allowed.
+              Order #{pending?.order.orderId.slice(0, 8).toUpperCase()}. The server validates this exact transition and actor.
             </ThemedText>
             <TextInput
               value={note}
