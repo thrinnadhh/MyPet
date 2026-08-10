@@ -163,7 +163,7 @@ export async function playMerchantOrderAlertSound() {
     await Notifications.scheduleNotificationAsync({
       content: {
         title: 'New order received!',
-        body: 'Pack before pickup',
+        body: 'Review the order and accept or reject it',
         sound:
           Platform.OS === 'android'
             ? 'order_alert.wav'
