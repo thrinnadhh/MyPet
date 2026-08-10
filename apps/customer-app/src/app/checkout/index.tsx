@@ -7,6 +7,14 @@ import { AppBar, PrimaryAction, StateView, StatusBadge } from '@/components/foun
 import { ScreenShell } from '@/components/foundation/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ResilientRemoteImage } from '@/components/ui/resilient-remote-image';
+import {
+  CHECKOUT_TAX_RATE,
+  DELIVERY_BASE_FEE,
+  DELIVERY_INCLUDED_DISTANCE_KM,
+  DELIVERY_MAX_SERVICE_DISTANCE_KM,
+  DELIVERY_PER_KM_FEE,
+  DELIVERY_ROUTE_DISTANCE_FACTOR,
+} from '@/contracts/checkout-pricing.generated';
 import type { CustomerPaymentMethod } from '@/contracts/customer-payment';
 import { useAuth } from '@/context/AuthContext';
 import { useAuthIntent } from '@/context/AuthIntentContext';
@@ -49,15 +57,46 @@ const DEMO_ADDRESS: CustomerAddress = {
   isDefault: true,
 };
 
+// Demo mode changes data source/external effects only. Pricing uses the same
+// merchant-origin contract as production.
+const DEMO_MERCHANT_LOCATION = { latitude: 13.6355, longitude: 79.4199 };
+
 function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const radiusKm = 6371.0088;
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const startLat = toRadians(lat1);
+  const endLat = toRadians(lat2);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(startLat) * Math.cos(endLat) * Math.sin(dLon / 2) ** 2;
+  return 2 * radiusKm * Math.asin(Math.sqrt(Math.min(1, Math.max(0, a))));
+}
+
+function demoDeliveryFee(address: CustomerAddress): number {
+  const straightLineKm = haversineKm(
+    DEMO_MERCHANT_LOCATION.latitude,
+    DEMO_MERCHANT_LOCATION.longitude,
+    address.geoLat ?? DEMO_ADDRESS.geoLat!,
+    address.geoLng ?? DEMO_ADDRESS.geoLng!,
+  );
+  const routeKm = roundMoney(straightLineKm * DELIVERY_ROUTE_DISTANCE_FACTOR);
+  if (routeKm > DELIVERY_MAX_SERVICE_DISTANCE_KM) {
+    throw new Error('Demo address is outside the canonical merchant delivery radius.');
+  }
+  const billableKm = Math.max(0, routeKm - DELIVERY_INCLUDED_DISTANCE_KM);
+  return roundMoney(DELIVERY_BASE_FEE + billableKm * DELIVERY_PER_KM_FEE);
+}
+
 function demoCheckoutQuote(subtotal: number, couponCode: string | null): CheckoutQuoteOutput {
   const couponDiscount = couponCode ? Math.min(100, roundMoney(subtotal * 0.05)) : 0;
-  const deliveryFee = subtotal >= 999 ? 0 : 49;
+  const deliveryFee = demoDeliveryFee(DEMO_ADDRESS);
   const taxable = Math.max(0, subtotal - couponDiscount);
-  const tax = roundMoney(taxable * 0.05);
+  const tax = roundMoney(taxable * CHECKOUT_TAX_RATE);
   const payableTotal = roundMoney(taxable + deliveryFee + tax);
 
   return {
@@ -244,16 +283,16 @@ export default function CheckoutScreen() {
 
       if (payment.status === 'SUCCESS') {
         await clearCart();
-        Alert.alert('Payment confirmed', 'Your order is now confirmed by the MyPet server.');
+        Alert.alert('Payment confirmed', 'Your payment was confirmed by the MyPet server. The merchant can now accept or reject the order.');
         router.replace(`/orders/${order.id}` as never);
       } else if (payment.status === 'PENDING') {
         Alert.alert(
           'Payment confirmation pending',
-          'Cashfree has not confirmed the payment yet. Track or retry from the order screen.',
+          'Cashfree has not confirmed the payment yet. MyPet will reconcile it automatically; you do not need to resubmit the order.',
           [{ text: 'View order', onPress: () => router.replace(`/orders/${order.id}` as never) }],
         );
       } else {
-        Alert.alert('Payment not completed', 'No successful payment was confirmed. You can retry safely.');
+        Alert.alert('Payment not completed', 'The server marked this payment failed or expired. Reserved stock and discounts will be released automatically.');
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Could not complete checkout.';
@@ -353,7 +392,7 @@ export default function CheckoutScreen() {
           <View style={[styles.notice, { backgroundColor: theme.primarySoft }]}>
             <StatusBadge label="DEMO CHECKOUT" tone="warning" />
             <ThemedText type="small" themeColor="textSecondary">
-              Development simulation only. No order is sent to the backend and no payment is charged.
+              Development simulation only. No order is sent to the backend and no payment is charged. Pricing rules are identical to production.
             </ThemedText>
           </View>
         ) : null}
@@ -380,20 +419,14 @@ export default function CheckoutScreen() {
           {items.map((item) => (
             <View key={`${item.product.id}-${item.selectedVariant?.id ?? 'default'}`} style={styles.itemRow}>
               <View style={[styles.itemImageWrap, { backgroundColor: theme.muted }]}>
-                <ResilientRemoteImage
-                  uri={item.product.imageUrl}
-                  fallbackUri={categoryImage(item.product.category)}
-                  style={styles.itemImage}
-                />
+                <ResilientRemoteImage uri={item.product.imageUrl} fallbackUri={categoryImage(item.product.category)} style={styles.itemImage} />
               </View>
               <View style={styles.itemCopy}>
                 <ThemedText style={styles.itemName} numberOfLines={2}>{item.product.name}</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
                   {item.selectedVariant?.name ?? 'Standard'} · Qty {item.quantity}
                 </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  ₹{item.unitPrice.toFixed(2)} × {item.quantity}
-                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">₹{item.unitPrice.toFixed(2)} × {item.quantity}</ThemedText>
               </View>
               <ThemedText style={styles.lineTotal}>₹{(item.unitPrice * item.quantity).toFixed(2)}</ThemedText>
             </View>
@@ -413,10 +446,7 @@ export default function CheckoutScreen() {
                   key={method.id}
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
-                  onPress={() => {
-                    setPaymentMethod(method.id);
-                    setPendingOrder(null);
-                  }}
+                  onPress={() => { setPaymentMethod(method.id); setPendingOrder(null); }}
                   style={[
                     styles.method,
                     {
@@ -425,9 +455,7 @@ export default function CheckoutScreen() {
                     },
                   ]}
                 >
-                  <ThemedText style={{ fontWeight: '700', color: selected ? theme.primary : theme.text }}>
-                    {method.label}
-                  </ThemedText>
+                  <ThemedText style={{ fontWeight: '700', color: selected ? theme.primary : theme.text }}>{method.label}</ThemedText>
                 </Pressable>
               );
             })}
@@ -440,9 +468,7 @@ export default function CheckoutScreen() {
           {paymentMethod === 'COD' && quote && !quote.isCodAvailable ? (
             <View style={styles.warningRow}>
               <AppIcon name="warning" size={16} color={theme.danger} />
-              <ThemedText type="small" style={{ color: theme.danger, flex: 1 }}>
-                {quote.codRejectionReason || 'COD is unavailable for this order.'}
-              </ThemedText>
+              <ThemedText type="small" style={{ color: theme.danger, flex: 1 }}>{quote.codRejectionReason || 'COD is unavailable for this order.'}</ThemedText>
             </View>
           ) : null}
         </View>
@@ -492,9 +518,7 @@ export default function CheckoutScreen() {
         {pendingOrder && paymentMethod !== 'COD' ? (
           <View style={[styles.notice, { backgroundColor: theme.primarySoft }]}>
             <ThemedText style={{ fontWeight: '700' }}>Payment retry for order #{pendingOrder.id.slice(0, 8)}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Retrying reuses the existing order and does not reserve stock twice.
-            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">Retrying reuses the existing order and does not reserve stock twice.</ThemedText>
           </View>
         ) : null}
 
@@ -516,9 +540,7 @@ function PriceRow({ label, value }: { label: string; value: number }) {
   return (
     <View style={styles.headerRow}>
       <ThemedText themeColor="textSecondary">{label}</ThemedText>
-      <ThemedText style={styles.priceValue}>
-        {value < 0 ? '-' : ''}₹{Math.abs(value).toFixed(2)}
-      </ThemedText>
+      <ThemedText style={styles.priceValue}>{value < 0 ? '-' : ''}₹{Math.abs(value).toFixed(2)}</ThemedText>
     </View>
   );
 }
