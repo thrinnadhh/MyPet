@@ -3,6 +3,7 @@ package com.pawsnearme.dispatchservice.service
 import com.pawsnearme.dispatchservice.model.*
 import com.pawsnearme.dispatchservice.repository.*
 import jakarta.persistence.EntityManager
+import jakarta.persistence.Query
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -27,6 +28,7 @@ class DispatchServiceTests {
     private val redisSetOperations: SetOperations<String, String> = mock()
     private val kafkaTemplate: KafkaTemplate<String, Any> = mock()
     private val entityManager: EntityManager = mock()
+    private val approvalQuery: Query = mock()
     private val outboxService: com.pawsnearme.common.outbox.OutboxService = mock()
     private val idempotencyService: com.pawsnearme.common.idempotency.IdempotencyService = mock()
     private val restTemplate: org.springframework.web.client.RestOperations = mock()
@@ -126,12 +128,33 @@ class DispatchServiceTests {
     }
 
     @Test
+    fun `persisted non-active captain cannot accept even with stale Redis markers`() {
+        val offerId = UUID.randomUUID()
+        val jobId = UUID.randomUUID()
+        val captainId = UUID.randomUUID()
+        val offer = DispatchOffer(offerId = offerId, jobId = jobId, captainId = captainId, offerRank = 1)
+        whenever(offerRepository.findById(offerId)).thenReturn(Optional.of(offer))
+        stubCaptainApproval(captainId, approved = false)
+        whenever(redisTemplate.opsForSet()).thenReturn(redisSetOperations)
+        whenever(redisSetOperations.isMember("captains:online", captainId.toString())).thenReturn(true)
+        whenever(redisTemplate.hasKey("captains:location:fresh:$captainId")).thenReturn(true)
+
+        val error = assertThrows<IllegalStateException> {
+            service.respondToOffer(offerId, "ACCEPTED", captainId)
+        }
+
+        assertTrue(error.message!!.contains("no longer eligible"))
+        verify(offerRepository, never()).saveAndFlush(any())
+    }
+
+    @Test
     fun `captain must remain online and location-fresh when accepting offer`() {
         val offerId = UUID.randomUUID()
         val jobId = UUID.randomUUID()
         val captainId = UUID.randomUUID()
         val offer = DispatchOffer(offerId = offerId, jobId = jobId, captainId = captainId, offerRank = 1)
         whenever(offerRepository.findById(offerId)).thenReturn(Optional.of(offer))
+        stubCaptainApproval(captainId, approved = true)
         whenever(redisTemplate.opsForSet()).thenReturn(redisSetOperations)
         whenever(redisSetOperations.isMember("captains:online", captainId.toString())).thenReturn(true)
         whenever(redisTemplate.hasKey("captains:location:fresh:$captainId")).thenReturn(false)
@@ -154,6 +177,7 @@ class DispatchServiceTests {
         val acceptedOffer = DispatchOffer(jobId = activeJobId, captainId = captainId, response = "ACCEPTED", offerRank = 1)
         val activeJob = DispatchJob(jobId = activeJobId, orderId = UUID.randomUUID(), status = JobStatus.PICKED_UP)
         whenever(offerRepository.findById(offerId)).thenReturn(Optional.of(offer))
+        stubCaptainApproval(captainId, approved = true)
         whenever(redisTemplate.opsForSet()).thenReturn(redisSetOperations)
         whenever(redisSetOperations.isMember("captains:online", captainId.toString())).thenReturn(true)
         whenever(redisTemplate.hasKey("captains:location:fresh:$captainId")).thenReturn(true)
@@ -387,6 +411,7 @@ class DispatchServiceTests {
     }
 
     private fun stubEligibleCaptain(captainId: UUID, currentJobId: UUID) {
+        stubCaptainApproval(captainId, approved = true)
         whenever(redisTemplate.opsForSet()).thenReturn(redisSetOperations)
         whenever(redisSetOperations.isMember("captains:online", captainId.toString())).thenReturn(true)
         whenever(redisTemplate.hasKey("captains:location:fresh:$captainId")).thenReturn(true)
@@ -394,5 +419,12 @@ class DispatchServiceTests {
         whenever(offerRepository.findByCaptainIdAndResponseOrderByRespondedAtDesc(captainId, "ACCEPTED"))
             .thenReturn(emptyList())
         whenever(offerRepository.findByJobId(currentJobId)).thenReturn(emptyList())
+    }
+
+    private fun stubCaptainApproval(captainId: UUID, approved: Boolean) {
+        whenever(entityManager.createNativeQuery(argThat<String> { contains("captains.captain_profiles") }))
+            .thenReturn(approvalQuery)
+        whenever(approvalQuery.setParameter("captainId", captainId)).thenReturn(approvalQuery)
+        whenever(approvalQuery.singleResult).thenReturn(if (approved) 1L else 0L)
     }
 }
