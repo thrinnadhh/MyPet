@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppIcon } from '@/components/app-icon';
-import { AppBar, FeedbackBanner, PrimaryAction, StateView, StatusBadge } from '@/components/foundation/primitives';
+import { AppBar, PrimaryAction, StateView, StatusBadge } from '@/components/foundation/primitives';
 import { ScreenShell } from '@/components/foundation/screen-shell';
 import { OrderFlowTracker } from '@/components/order-flow-tracker';
 import { ThemedText } from '@/components/themed-text';
@@ -189,12 +189,15 @@ export default function OrderDetailRoute() {
               <OrderFlowTracker status={order.status} />
             </View>
             {order.status === 'PICKED_UP' ? (
-              <FeedbackBanner
-                tone="info"
-                title="Arriving"
-                message="Your captain has picked up the order and is travelling to your delivery address."
-                icon="location"
-              />
+              <View style={[styles.arrivingBox, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
+                <View style={[styles.arrivingIcon, { backgroundColor: theme.backgroundElement }]}>
+                  <AppIcon name="location" size={18} color={theme.accent} />
+                </View>
+                <View style={styles.flex}>
+                  <ThemedText type="smallBold">Arriving</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">Your captain has picked up the order and is travelling to your delivery address.</ThemedText>
+                </View>
+              </View>
             ) : null}
             {activeOrderPollInterval(order.status) ? (
               <ThemedText type="small" themeColor="textSecondary">Refreshing automatically while the order is active.</ThemedText>
@@ -266,6 +269,8 @@ const styles = StyleSheet.create({
   storeName: { ...typography.title },
   sectionTitle: { ...typography.label, fontWeight: '700' },
   trackerBox: { padding: spacing.x3, borderRadius: radii.compact },
+  arrivingBox: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.compact, padding: spacing.x3, flexDirection: 'row', gap: spacing.x3, alignItems: 'center' },
+  arrivingIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.x2, paddingVertical: spacing.x1 },
   itemText: { ...typography.body, flex: 1 },
   divider: { height: StyleSheet.hairlineWidth, marginVertical: spacing.x1 },
