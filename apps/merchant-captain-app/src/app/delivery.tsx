@@ -252,12 +252,12 @@ export default function DeliveryScreen() {
     }
   }, [activeOffer, authHeaders, loadJobs]);
 
-  const openRoute = useCallback(async (latitude?: number | null, longitude?: number | null, label?: string | null) => {
+  const openRoute = useCallback(async (latitude?: number | null, longitude?: number | null) => {
     if (latitude == null || longitude == null) {
       Alert.alert('Navigation unavailable', 'The server did not provide coordinates for this stop.');
       return;
     }
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${latitude},${longitude}`)}${label ? `&destination_place_id=${encodeURIComponent(label)}` : ''}`;
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${latitude},${longitude}`)}`;
     const supported = await Linking.canOpenURL(url);
     if (!supported) {
       Alert.alert('Navigation unavailable', 'This device cannot open the navigation link.');
@@ -382,7 +382,7 @@ export default function DeliveryScreen() {
               distanceKm={activeDelivery.pickupDistanceKm}
               etaMinutes={activeDelivery.pickupEtaMinutes}
               navigateLabel="Navigate to shop"
-              onNavigate={() => void openRoute(activeDelivery.pickupLatitude, activeDelivery.pickupLongitude, activeDelivery.merchantName)}
+              onNavigate={() => void openRoute(activeDelivery.pickupLatitude, activeDelivery.pickupLongitude)}
               action="I have arrived"
               onAction={() => setDeliveryStep(2)}
             />
@@ -404,7 +404,7 @@ export default function DeliveryScreen() {
               distanceKm={activeDelivery.deliveryDistanceKm}
               etaMinutes={activeDelivery.deliveryEtaMinutes}
               navigateLabel="Navigate to customer"
-              onNavigate={() => void openRoute(activeDelivery.dropLatitude, activeDelivery.dropLongitude, 'Customer delivery address')}
+              onNavigate={() => void openRoute(activeDelivery.dropLatitude, activeDelivery.dropLongitude)}
               action="I have arrived"
               onAction={() => setDeliveryStep(4)}
             />
