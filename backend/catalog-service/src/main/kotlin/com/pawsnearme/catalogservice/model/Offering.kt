@@ -28,7 +28,7 @@ class Offering(
     @Column(name = "price", nullable = false, precision = 10, scale = 2)
     var price: BigDecimal,
 
-    @Column(name = "list_price", precision = 10, scale = 2)
+    @Column(name = "list_price", precision = 12, scale = 2)
     var listPrice: BigDecimal? = null,
 
     @Column(name = "image_url")
