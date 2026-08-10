@@ -4,6 +4,14 @@ UPDATE orders.orders
 SET status = 'ASSIGNED'
 WHERE status = 'REASSIGNED';
 
+UPDATE orders.order_status_history
+SET from_status = 'ASSIGNED'
+WHERE from_status = 'REASSIGNED';
+
+UPDATE orders.order_status_history
+SET to_status = 'ASSIGNED'
+WHERE to_status = 'REASSIGNED';
+
 ALTER TABLE orders.orders
     ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
 
