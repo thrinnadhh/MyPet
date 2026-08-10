@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import { AppIcon } from '@/components/app-icon';
 import { ThemedText } from '@/components/themed-text';
 import type { OrderStatus } from '@/contracts/order-contract.generated';
-import { Radius, Spacing } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 const ACTIVE_STEPS = [
@@ -73,7 +73,7 @@ const styles = StyleSheet.create({
   dot: {
     width: 22,
     height: 22,
-    borderRadius: Radius.round,
+    borderRadius: 11,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
