@@ -57,17 +57,22 @@ class OrderPaymentEventListener(
         when (event.eventType) {
             "PaymentCaptured" -> {
                 if (order.paymentStatus == PaymentStatus.SUCCESS && order.paymentId == event.transactionId) return
+                if (order.status in setOf(OrderStatus.CANCELLED, OrderStatus.REJECTED)) {
+                    // A late success after the order became terminal must be refunded rather
+                    // than making the cancelled order merchant-actionable again.
+                    order.paymentId = event.transactionId
+                    order.paymentStatus = PaymentStatus.SUCCESS
+                    orderRepository.saveAndFlush(order)
+                    return
+                }
                 orderService.confirmOrder(order.orderId!!, event.transactionId)
             }
             "PaymentFailed", "PaymentExpired" -> {
-                if (order.paymentStatus == PaymentStatus.SUCCESS) return
-                if (order.status in setOf(OrderStatus.CANCELLED, OrderStatus.REJECTED)) return
+                if (order.paymentStatus in setOf(PaymentStatus.SUCCESS, PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED)) return
+                order.paymentId = event.transactionId
                 order.paymentStatus = PaymentStatus.FAILED
                 orderRepository.saveAndFlush(order)
                 if (order.status == OrderStatus.PLACED) {
-                    // Payment failure is a system consequence. The lifecycle contract permits
-                    // PLACED cancellation; the customer ID is retained as the financial owner
-                    // while the audit note records the automated cause.
                     orderService.updateOrderStatus(
                         orderId = order.orderId!!,
                         newStatus = OrderStatus.CANCELLED,
@@ -80,6 +85,16 @@ class OrderPaymentEventListener(
                         },
                     )
                 }
+            }
+            "PaymentRefundPending" -> {
+                order.paymentId = event.transactionId
+                order.paymentStatus = PaymentStatus.REFUND_PENDING
+                orderRepository.saveAndFlush(order)
+            }
+            "PaymentRefunded" -> {
+                order.paymentId = event.transactionId
+                order.paymentStatus = PaymentStatus.REFUNDED
+                orderRepository.saveAndFlush(order)
             }
         }
     }
