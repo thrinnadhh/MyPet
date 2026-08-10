@@ -95,10 +95,14 @@ export async function createHostedCheckoutSession(transactionId: string): Promis
   return apiClient.post<HostedCheckoutSession>('/api/v1/payments/checkout-sessions', { transactionId });
 }
 
-export async function fetchOrderPaymentStatus(orderId: string): Promise<CustomerPaymentStatusView> {
+export async function fetchReferencePaymentStatus(referenceId: string): Promise<CustomerPaymentStatusView> {
   return apiClient.get<CustomerPaymentStatusView>(
-    `/api/v1/payments/transactions/reference/${encodeURIComponent(orderId)}`,
+    `/api/v1/payments/transactions/reference/${encodeURIComponent(referenceId)}`,
   );
+}
+
+export async function fetchOrderPaymentStatus(orderId: string): Promise<CustomerPaymentStatusView> {
+  return fetchReferencePaymentStatus(orderId);
 }
 
 export async function openCashfreeOrder(initialization: CashfreeOrderInitialization): Promise<void> {
@@ -118,17 +122,25 @@ export async function openCashfreeOrder(initialization: CashfreeOrderInitializat
 
 /**
  * Payment reconciliation is server-owned. The customer app only observes the
- * status produced by Cashfree webhook -> PaymentService -> OrderService.
+ * status produced by Cashfree webhook -> PaymentService -> owning domain.
  */
+export async function waitForReferencePaymentOutcome(
+  referenceId: string,
+  attempts = 15,
+  delayMs = 2_000,
+): Promise<CustomerPaymentStatusView> {
+  let latest = await fetchReferencePaymentStatus(referenceId);
+  for (let attempt = 1; attempt < attempts && latest.status === 'PENDING'; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    latest = await fetchReferencePaymentStatus(referenceId);
+  }
+  return latest;
+}
+
 export async function waitForPaymentOutcome(
   orderId: string,
   attempts = 15,
   delayMs = 2_000,
 ): Promise<CustomerPaymentStatusView> {
-  let latest = await fetchOrderPaymentStatus(orderId);
-  for (let attempt = 1; attempt < attempts && latest.status === 'PENDING'; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-    latest = await fetchOrderPaymentStatus(orderId);
-  }
-  return latest;
+  return waitForReferencePaymentOutcome(orderId, attempts, delayMs);
 }
