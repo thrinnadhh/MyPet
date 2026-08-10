@@ -90,6 +90,16 @@ class OrderPaymentLifecycleService(
         return transaction.toSnapshot()
     }
 
+    @Transactional
+    fun publishRefundState(transaction: Transaction): Transaction {
+        when (transaction.status) {
+            "REFUND_PENDING" -> publish(transaction, "PaymentRefundPending", "Cashfree refund is pending")
+            "REFUNDED" -> publish(transaction, "PaymentRefunded", "Cashfree refund completed")
+            else -> throw IllegalStateException("Cannot publish refund lifecycle for payment status ${transaction.status}")
+        }
+        return transaction
+    }
+
     private fun publish(transaction: Transaction, eventType: String, reason: String?) {
         val transactionId = requireNotNull(transaction.transactionId) { "Payment transaction ID is missing" }
         val event = PaymentLifecycleEvent(
