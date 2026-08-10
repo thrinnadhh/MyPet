@@ -33,7 +33,8 @@ class SchedulerArchitectureTest {
         val scheduledCount = sources.sumOf { Regex("@Scheduled\\s*\\(").findAll(it).count() }
         val lockCount = sources.sumOf { Regex("@SchedulerLock\\s*\\(").findAll(it).count() }
 
-        assertEquals(11, scheduledCount)
+        // Sprint 2 adds PendingPaymentOrderWorker as the twelfth scheduled job.
+        assertEquals(12, scheduledCount)
         assertEquals(scheduledCount, lockCount)
     }
 
