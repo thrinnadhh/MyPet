@@ -58,8 +58,14 @@ const DEMO_ADDRESS: CustomerAddress = {
 };
 
 // Demo mode changes data source/external effects only. Pricing uses the same
-// merchant-origin contract as production.
+// merchant-origin and promotion algorithms as production.
 const DEMO_MERCHANT_LOCATION = { latitude: 13.6355, longitude: 79.4199 };
+const DEMO_PROMOTIONS = {
+  DEMO10: { discountType: 'PERCENTAGE', discountValue: 10, maxDiscountAmount: 100 },
+  DEMO50: { discountType: 'FLAT', discountValue: 50, maxDiscountAmount: null },
+} as const;
+
+type DemoPromotionCode = keyof typeof DEMO_PROMOTIONS;
 
 function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -92,23 +98,42 @@ function demoDeliveryFee(address: CustomerAddress): number {
   return roundMoney(DELIVERY_BASE_FEE + billableKm * DELIVERY_PER_KM_FEE);
 }
 
-function demoCheckoutQuote(subtotal: number, couponCode: string | null): CheckoutQuoteOutput {
-  const couponDiscount = couponCode ? Math.min(100, roundMoney(subtotal * 0.05)) : 0;
+function demoCouponDiscount(couponCode: string | null, sellingSubtotal: number): number {
+  if (!couponCode) return 0;
+  const promotion = DEMO_PROMOTIONS[couponCode as DemoPromotionCode];
+  if (!promotion) throw new Error('Invalid demo coupon. Use DEMO10 or DEMO50.');
+
+  if (promotion.discountType === 'PERCENTAGE') {
+    const raw = roundMoney(sellingSubtotal * promotion.discountValue / 100);
+    return roundMoney(Math.min(raw, promotion.maxDiscountAmount ?? raw));
+  }
+  return roundMoney(Math.min(promotion.discountValue, sellingSubtotal));
+}
+
+function demoCheckoutQuote(
+  sellingSubtotal: number,
+  itemDiscount: number,
+  couponCode: string | null,
+): CheckoutQuoteOutput {
+  const canonicalItemDiscount = roundMoney(Math.max(0, itemDiscount));
+  const subtotal = roundMoney(sellingSubtotal + canonicalItemDiscount);
+  const couponDiscount = demoCouponDiscount(couponCode, sellingSubtotal);
   const deliveryFee = demoDeliveryFee(DEMO_ADDRESS);
-  const taxable = Math.max(0, subtotal - couponDiscount);
+  const taxable = Math.max(0, sellingSubtotal - couponDiscount);
   const tax = roundMoney(taxable * CHECKOUT_TAX_RATE);
   const payableTotal = roundMoney(taxable + deliveryFee + tax);
 
   return {
     quoteToken: `DEMO-${Date.now()}`,
-    subtotal: roundMoney(subtotal),
-    itemDiscount: 0,
+    subtotal,
+    itemDiscount: canonicalItemDiscount,
     couponDiscount,
     loyaltyDiscount: 0,
     deliveryFee,
     tax,
     roundOff: 0,
     payableTotal,
+    couponCode,
     isCodAvailable: true,
     expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
   };
@@ -180,7 +205,7 @@ export default function CheckoutScreen() {
 
     if (demoCheckout) {
       setAddress(DEMO_ADDRESS);
-      setQuote(demoCheckoutQuote(itemSubtotal, appliedCoupon));
+      setQuote(demoCheckoutQuote(itemSubtotal, itemSavings, appliedCoupon));
       setPendingOrder(null);
       setState('ready');
       return;
@@ -213,7 +238,7 @@ export default function CheckoutScreen() {
     } catch (error) {
       setState(isOfflineError(error) ? 'offline' : 'error');
     }
-  }, [appliedCoupon, cartLoading, checkoutItems, demoCheckout, hasPreviewItems, itemSubtotal, paymentMethod, providerId, session, user]);
+  }, [appliedCoupon, cartLoading, checkoutItems, demoCheckout, hasPreviewItems, itemSavings, itemSubtotal, paymentMethod, providerId, session, user]);
 
   useEffect(() => {
     if (user && session) void loadData();
@@ -222,6 +247,10 @@ export default function CheckoutScreen() {
   const handleApplyCoupon = () => {
     const code = couponCodeInput.trim().toUpperCase();
     if (!code) return;
+    if (demoCheckout && !(code in DEMO_PROMOTIONS)) {
+      Alert.alert('Invalid coupon', 'Demo checkout supports DEMO10 and DEMO50 only.');
+      return;
+    }
     setAppliedCoupon(code);
     setCouponCodeInput('');
   };
@@ -487,7 +516,7 @@ export default function CheckoutScreen() {
               <TextInput
                 value={couponCodeInput}
                 onChangeText={setCouponCodeInput}
-                placeholder={demoCheckout ? 'Enter any demo coupon' : 'Enter coupon code'}
+                placeholder={demoCheckout ? 'Try DEMO10 or DEMO50' : 'Enter coupon code'}
                 placeholderTextColor={theme.textSecondary}
                 autoCapitalize="characters"
                 style={[styles.input, { color: theme.text, borderColor: theme.border }]}
@@ -503,6 +532,7 @@ export default function CheckoutScreen() {
           <View style={[styles.card, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
             <ThemedText style={styles.cardTitle}>Final payment breakdown</ThemedText>
             <PriceRow label="Products" value={quote.subtotal} />
+            {quote.itemDiscount > 0 ? <PriceRow label="Item discount" value={-quote.itemDiscount} /> : null}
             {quote.couponDiscount > 0 ? <PriceRow label="Coupon discount" value={-quote.couponDiscount} /> : null}
             {quote.loyaltyDiscount > 0 ? <PriceRow label="Loyalty discount" value={-quote.loyaltyDiscount} /> : null}
             <PriceRow label="Delivery fee" value={quote.deliveryFee} />
