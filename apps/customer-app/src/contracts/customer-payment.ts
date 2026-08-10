@@ -9,6 +9,7 @@ export type CustomerPaymentStatus =
   | 'PENDING'
   | 'SUCCESS'
   | 'FAILED'
+  | 'EXPIRED'
   | 'REFUNDED'
   | 'PARTIALLY_REFUNDED';
 
@@ -29,7 +30,7 @@ export function paymentAllowsCartClear(status: CustomerPaymentStatus): boolean {
 }
 
 export function paymentNeedsRetry(status: CustomerPaymentStatus): boolean {
-  return status === 'FAILED' || status === 'NOT_STARTED';
+  return status === 'FAILED' || status === 'EXPIRED' || status === 'NOT_STARTED';
 }
 
 export function isTerminalOrderStatus(status: string): boolean {
