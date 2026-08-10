@@ -1,4 +1,4 @@
-// Generated projection of contracts/checkout-pricing.json.
+// GENERATED FROM contracts/checkout-pricing.json. DO NOT EDIT BY HAND.
 export const CHECKOUT_TAX_RATE = 0.05;
 export const DELIVERY_BASE_FEE = 29;
 export const DELIVERY_INCLUDED_DISTANCE_KM = 2;
