@@ -69,10 +69,17 @@ class OrderReleaseReconciliationService(
             paymentModule.releaseLoyaltyReward(rewardId, order.customerId, orderId)
         }
 
-        if (order.paymentStatus == PaymentStatus.SUCCESS) {
-            order.paymentStatus = PaymentStatus.REFUND_PENDING
-            orderRepository.saveAndFlush(order)
-            paymentModule.refundOrder(orderId)
+        when (order.paymentStatus) {
+            PaymentStatus.PENDING -> paymentModule.expireOrderPayment(
+                orderId,
+                "Order ${order.status.name.lowercase()} before online payment completed",
+            )
+            PaymentStatus.SUCCESS -> {
+                order.paymentStatus = PaymentStatus.REFUND_PENDING
+                orderRepository.saveAndFlush(order)
+                paymentModule.refundOrder(orderId)
+            }
+            else -> Unit
         }
     }
 }
