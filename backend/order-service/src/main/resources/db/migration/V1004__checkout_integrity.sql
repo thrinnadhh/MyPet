@@ -1,4 +1,4 @@
--- Sprint 2: checkout idempotency and loyalty reconciliation persistence.
+-- Sprint 2: checkout idempotency, loyalty reconciliation and durable compensation state.
 
 ALTER TABLE orders.orders
     ADD COLUMN IF NOT EXISTS checkout_request_id UUID,
@@ -14,3 +14,7 @@ ALTER TABLE orders.orders
 ALTER TABLE orders.orders
     ADD CONSTRAINT chk_orders_loyalty_discount_nonnegative
     CHECK (loyalty_discount_amount >= 0);
+
+ALTER TABLE orders.order_compensations
+    ADD COLUMN IF NOT EXISTS loyalty_reward_id UUID,
+    ADD COLUMN IF NOT EXISTS payment_prepared BOOLEAN NOT NULL DEFAULT FALSE;
