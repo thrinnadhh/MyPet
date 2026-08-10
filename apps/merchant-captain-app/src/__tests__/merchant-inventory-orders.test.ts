@@ -63,8 +63,8 @@ test('merchant order workspace uses provider-scoped reads and specific-order ale
   assert.match(screen, /isMerchantOrderInQueue/);
   assert.match(screen, /formatCurrency/);
   assert.match(screen, /apiErrorKind/);
-  assert.match(detail, /Accept order/);
-  assert.match(detail, /Reject order/);
+  assert.match(detail, /merchantOrderActions/);
+  assert.match(detail, /isMerchantOrderInQueue/);
   assert.match(layout, /pathname\.startsWith\('\/orders'\)/);
   assert.match(tabs, /name:\s*'orders'/);
   assert.match(tabs, /href:\s*'\/orders'/);
