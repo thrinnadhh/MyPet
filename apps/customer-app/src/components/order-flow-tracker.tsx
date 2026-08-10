@@ -58,7 +58,7 @@ export function OrderFlowTracker({ status }: { status: OrderStatus }) {
       {terminalLabel ? (
         <View style={styles.row}>
           <View style={[styles.dot, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-            <AppIcon name="xmark" color="#FFFFFF" size={12} />
+            <AppIcon name="close" color="#FFFFFF" size={12} />
           </View>
           <ThemedText type="small" style={{ fontWeight: '900', color: theme.danger }}>{terminalLabel}</ThemedText>
         </View>
