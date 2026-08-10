@@ -259,7 +259,9 @@ export async function fetchCheckoutQuote(input: CheckoutQuoteInput, accessToken?
 
 export async function createCustomerOrder(input: CreateOrderInput, accessToken?: string | null): Promise<CustomerOrderRecord> {
   if (!accessToken) throw new Error('Sign in before placing an order.');
-  if (!input.quoteToken) throw new Error('Request a fresh checkout quote before placing the order.');
+  if (!input.quoteToken) {
+    throw new Error('Checkout has an invalid response because the quote is missing. Request a fresh checkout quote before placing the order.');
+  }
   const contact = await fetchDeliveryContact(accessToken, input.deliveryAddressId);
   if (!contact?.phoneNumber) throw new Error('Add a delivery contact number to this address before placing your order.');
 
