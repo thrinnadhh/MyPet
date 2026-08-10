@@ -112,7 +112,8 @@ class PaymentModuleFacade(
     }
 
     override fun refundOrder(orderId: UUID) {
-        cashfreeGatewayService.refundOrder(orderId)
+        val transaction = cashfreeGatewayService.refundOrder(orderId)
+        orderPaymentLifecycleService.publishRefundState(transaction)
     }
 
     override fun recordOrderDelivered(
