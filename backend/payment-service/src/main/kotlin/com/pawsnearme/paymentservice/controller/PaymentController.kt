@@ -3,9 +3,9 @@ package com.pawsnearme.paymentservice.controller
 import com.pawsnearme.paymentservice.model.Payout
 import com.pawsnearme.paymentservice.model.Promotion
 import com.pawsnearme.paymentservice.service.CashfreeGatewayService
+import com.pawsnearme.paymentservice.service.CashfreeWebhookLifecycleService
 import com.pawsnearme.paymentservice.service.CouponReservationLifecycleService
 import com.pawsnearme.paymentservice.service.CreateCashfreeOrderRequest
-import com.pawsnearme.paymentservice.service.PaymentResultRequest
 import com.pawsnearme.paymentservice.service.PaymentService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
@@ -22,6 +22,7 @@ class PaymentAccessDeniedException(message: String) : RuntimeException(message)
 class PaymentController(
     private val paymentService: PaymentService,
     private val cashfreeGatewayService: CashfreeGatewayService,
+    private val cashfreeWebhookLifecycleService: CashfreeWebhookLifecycleService,
     private val couponReservationLifecycleService: CouponReservationLifecycleService,
 ) {
 
@@ -55,22 +56,6 @@ class PaymentController(
         return ResponseEntity.status(HttpStatus.CREATED).body(cashfreeGatewayService.createOrder(request))
     }
 
-    @PostMapping("/transactions/result")
-    fun reconcilePaymentResult(
-        @Valid @RequestBody request: PaymentResultRequest,
-        @RequestHeader("X-User-Id", required = false) xUserId: String?,
-        @RequestHeader("X-User-Role", required = false) xUserRole: String?,
-    ): ResponseEntity<Any> {
-        if (xUserRole != "ADMIN" && xUserId != request.userId.toString()) {
-            throw PaymentAccessDeniedException("Access denied for payment result")
-        }
-        val event = cashfreeGatewayService.reconcile(request.referenceId)
-        if (event.actorId != request.userId || event.amount.compareTo(request.amount) != 0) {
-            throw IllegalArgumentException("Payment result does not match the initiated transaction")
-        }
-        return ResponseEntity.ok(event)
-    }
-
     @PostMapping("/webhook")
     fun handleWebhook(
         @RequestBody payload: String,
@@ -80,7 +65,7 @@ class PaymentController(
     ): ResponseEntity<Any> {
         if (signature.isNullOrBlank()) throw IllegalArgumentException("Missing Cashfree signature header")
         if (timestamp.isNullOrBlank()) throw IllegalArgumentException("Missing Cashfree timestamp header")
-        val isNew = cashfreeGatewayService.processWebhook(payload, signature, timestamp, idempotencyKey)
+        val isNew = cashfreeWebhookLifecycleService.process(payload, signature, timestamp, idempotencyKey)
         return ResponseEntity.ok(mapOf("status" to if (isNew) "processed" else "already_processed"))
     }
 
