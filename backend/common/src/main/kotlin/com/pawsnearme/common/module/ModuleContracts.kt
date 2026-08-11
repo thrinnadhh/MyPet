@@ -46,6 +46,17 @@ interface PaymentModuleApi {
     fun recordOrderDelivered(orderId: UUID, customerId: UUID, providerId: UUID, netAmount: BigDecimal)
     fun recordOrderRefunded(orderId: UUID, customerId: UUID, providerId: UUID)
 
+    /** Trusted service completion earns the same provider-scoped loyalty star as a delivered product order. */
+    fun recordServiceCompleted(
+        referenceId: UUID,
+        customerId: UUID,
+        providerId: UUID,
+        netAmount: BigDecimal,
+        serviceType: String,
+    ) {
+        throw UnsupportedOperationException("Service completion loyalty is not implemented by this adapter")
+    }
+
     /** Creates/reuses the durable server-owned PENDING transaction for online checkout. */
     fun prepareOrderPayment(command: PrepareOrderPaymentCommand): PaymentTransactionSnapshot =
         throw UnsupportedOperationException("Order payment preparation is not implemented by this adapter")
