@@ -269,7 +269,8 @@ class CustomerOrderProjectionService(
     private fun provider(providerId: UUID): ProviderProjection {
         val row = entityManager.createNativeQuery(
             """
-                SELECT provider_id, name, provider_type, ST_Y(geo_location), ST_X(geo_location)
+                SELECT provider_id, name, provider_type,
+                       ST_Y(geo_location::geometry), ST_X(geo_location::geometry)
                 FROM providers.providers
                 WHERE provider_id = :providerId
                 LIMIT 1
