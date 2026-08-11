@@ -16,6 +16,18 @@ data class OrderPlacedEvent(
     val occurredAt: Instant = Instant.now(),
 )
 
+data class MerchantOrderActionableEvent(
+    val eventId: UUID = UUID.randomUUID(),
+    val eventType: String = "MerchantOrderActionable",
+    val orderId: UUID,
+    val actorId: UUID,
+    val customerId: UUID,
+    val providerId: UUID,
+    val merchantOwnerUserId: UUID? = null,
+    val totalAmount: BigDecimal,
+    val occurredAt: Instant = Instant.now(),
+)
+
 data class OrderStatusChangedEvent(
     val eventId: UUID = UUID.randomUUID(),
     val eventType: String,
