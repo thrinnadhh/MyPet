@@ -82,11 +82,7 @@ class OrderPaymentEventListener(
                         newStatus = OrderStatus.CANCELLED,
                         changedBy = order.customerId,
                         actorRole = OrderActor.CUSTOMER,
-                        note = event.reason ?: if (event.eventType == "PaymentExpired") {
-                            "Online payment expired"
-                        } else {
-                            "Online payment failed"
-                        },
+                        note = event.reason ?: if (event.eventType == "PaymentExpired") "Online payment expired" else "Online payment failed",
                     )
                 }
             }
@@ -96,9 +92,15 @@ class OrderPaymentEventListener(
                 orderRepository.saveAndFlush(order)
             }
             "PaymentRefunded" -> {
+                if (order.paymentStatus == PaymentStatus.REFUNDED) return
                 order.paymentId = event.transactionId
                 order.paymentStatus = PaymentStatus.REFUNDED
                 orderRepository.saveAndFlush(order)
+                paymentModule.recordOrderRefunded(
+                    requireNotNull(order.orderId),
+                    order.customerId,
+                    order.providerId,
+                )
             }
         }
     }
