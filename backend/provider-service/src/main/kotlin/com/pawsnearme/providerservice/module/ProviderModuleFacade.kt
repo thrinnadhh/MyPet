@@ -2,6 +2,7 @@ package com.pawsnearme.providerservice.module
 
 import com.pawsnearme.common.module.CustomerPetIdentitySnapshot
 import com.pawsnearme.common.module.DeliveryAddressSnapshot
+import com.pawsnearme.common.module.ProviderLocationSnapshot
 import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.common.module.VaccinationReminderSnapshot
 import com.pawsnearme.providerservice.model.ProviderStatus
@@ -24,6 +25,18 @@ class ProviderModuleFacade(
 
     override fun ownerUserId(providerId: UUID): UUID? =
         providerRepository.findById(providerId).orElse(null)?.ownerUserId
+
+    override fun location(providerId: UUID): ProviderLocationSnapshot {
+        val provider = providerRepository.findById(providerId)
+            .orElseThrow { NoSuchElementException("Provider with ID $providerId not found") }
+        return ProviderLocationSnapshot(
+            providerId = requireNotNull(provider.providerId),
+            city = provider.city,
+            pincode = provider.pincode,
+            latitude = provider.geoLocation.y,
+            longitude = provider.geoLocation.x
+        )
+    }
 
     override fun providerOperational(providerId: UUID): Boolean =
         providerRepository.findById(providerId).orElse(null)?.status == ProviderStatus.ACTIVE
