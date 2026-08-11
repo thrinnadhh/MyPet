@@ -74,18 +74,18 @@ type CanonicalCaptainDto = {
 interface OrderTrackingDto {
   orderId: string;
   providerId: string;
-  providerName: string;
+  providerName?: string;
   status: OrderStatus;
-  flowStep: OrderFlowStepId;
+  flowStep?: OrderFlowStepId;
   totalAmount: number | string;
   placedAt: string;
-  items: string[];
-  paymentMethod: string;
-  paymentStatus: CustomerOrderPaymentStatus;
+  items?: string[] | null;
+  paymentMethod?: string | null;
+  paymentStatus?: CustomerOrderPaymentStatus | null;
   captain?: CanonicalCaptainDto | null;
   etaMinutes?: number | null;
   deliveryStatus?: string | null;
-  statusHistory: CustomerOrderRecord['statusHistory'];
+  statusHistory?: CustomerOrderRecord['statusHistory'];
 }
 
 interface CustomerOrderDetailResponse {
@@ -247,7 +247,7 @@ function canonicalToRecord(order: CustomerOrderDetailResponse): CustomerOrderRec
 }
 
 async function providerName(providerId: string, accessToken?: string | null): Promise<string> {
-  // Backward-compatible fallback for older mocked/legacy create responses only.
+  // Legacy-protocol compatibility only. Sprint 4 tracking/detail responses carry provider truth server-side.
   try {
     const response = await fetch(
       `${appConfig.apiBaseUrl}/api/v1/providers/${encodeURIComponent(providerId)}`,
@@ -270,19 +270,21 @@ export async function fetchCustomerOrders(customerId: string, accessToken?: stri
     );
     if (!response.ok) throw await responseError(response, 'Could not load order history');
     const rawOrders = (await response.json()) as OrderTrackingDto[];
-    const orders: CustomerOrderRecord[] = rawOrders.map((order) => {
+    const orders: CustomerOrderRecord[] = await Promise.all(rawOrders.map(async (order) => {
       const rawTotal = Number(order.totalAmount) || 0;
+      const canonicalProviderName = order.providerName?.trim();
+      const resolvedProviderName = canonicalProviderName || await providerName(order.providerId, accessToken);
       return {
         id: order.orderId,
         providerId: order.providerId,
-        providerName: order.providerName,
-        items: order.items,
+        providerName: resolvedProviderName,
+        items: Array.isArray(order.items) ? order.items : ['Pet Item'],
         total: `₹${rawTotal.toFixed(0)}`,
         rawTotal,
         status: order.status,
         orderedAt: order.placedAt,
         hasReview: false,
-        flowStep: order.flowStep,
+        flowStep: order.flowStep || 'placed',
         paymentMethod: order.paymentMethod,
         paymentStatus: order.paymentStatus,
         captainId: order.captain?.captainId,
@@ -291,7 +293,7 @@ export async function fetchCustomerOrders(customerId: string, accessToken?: stri
         deliveryStatus: order.deliveryStatus,
         statusHistory: order.statusHistory || [],
       };
-    });
+    }));
     await AsyncStorage.setItem(cacheKey, JSON.stringify(orders)).catch(() => null);
     return orders;
   } catch (error) {
