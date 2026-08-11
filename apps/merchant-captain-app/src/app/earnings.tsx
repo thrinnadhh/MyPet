@@ -4,29 +4,44 @@ import {
   View, 
   FlatList, 
   ActivityIndicator, 
-  useColorScheme, 
   TouchableOpacity,
   Modal,
   TextInput,
   ScrollView,
   Alert
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { AppIcon } from '@/components/app-icon';
+import {
+  ActionButton,
+  AppBar,
+  FeedbackBanner,
+  FilterChip,
+  MetricCard,
+  RoleBadge,
+  SectionHeader,
+  StateView,
+  StatusBadge,
+} from '@/components/foundation/primitives';
+import { ScreenShell } from '@/components/foundation/screen-shell';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Spacing, Colors } from '@/constants/theme';
+import { AppCard } from '@/components/ui/app-card';
+import { BottomTabInset } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { radii, shadows, spacing, touchTarget, typography } from '@/design/tokens';
+import { useTheme } from '@/hooks/use-theme';
 import { appConfig } from '@/utils/app-config';
+import { formatCurrency, formatDateTime } from '@/utils/formatters';
 
 const DEMO_PROVIDERS = [
   {
     id: 'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
-    label: '🏬 Pet Store',
+    label: 'Pet Store',
     fulfillmentType: 'DELIVERY',
   },
   {
     id: 'e2b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
-    label: '✂️ Groomer',
+    label: 'Groomer',
     fulfillmentType: 'APPOINTMENT',
   },
 ];
@@ -100,65 +115,48 @@ const MOCK_EARNINGS: EarningRecord[] = [
 
 const MOCK_PAYOUTS: PayoutRecord[] = [
   {
-    payoutId: 'payout-1',
-    payeeUserId: 'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
+    payoutId: 'payout-demo-1001',
+    payeeUserId: 'usr-1',
     payeeRole: 'MERCHANT',
-    amount: 1200.00,
+    amount: 4850.00,
     status: 'PAID',
-    periodStart: '2026-06-01',
-    periodEnd: '2026-06-15',
-    paidAt: new Date(Date.now() - 3600 * 1000 * 48).toISOString(),
-    createdAt: new Date(Date.now() - 3600 * 1000 * 48).toISOString()
+    periodStart: new Date(Date.now() - 3600 * 1000 * 24 * 14).toISOString(),
+    periodEnd: new Date(Date.now() - 3600 * 1000 * 24 * 7).toISOString(),
+    paidAt: new Date(Date.now() - 3600 * 1000 * 24 * 5).toISOString(),
+    createdAt: new Date(Date.now() - 3600 * 1000 * 24 * 7).toISOString(),
   },
-  {
-    payoutId: 'payout-2',
-    payeeUserId: 'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
-    payeeRole: 'MERCHANT',
-    amount: 850.00,
-    status: 'PENDING',
-    periodStart: '2026-06-16',
-    periodEnd: '2026-06-30',
-    paidAt: null,
-    createdAt: new Date().toISOString()
-  }
 ];
 
 const MOCK_PROMOTIONS: Promotion[] = [
   {
     promotionId: 'promo-1',
-    providerId: 'e1b07384-d113-4e4e-9c8e-3d8e3d8e3d8e',
-    code: 'DROOLS10',
+    providerId: 'demo-provider',
+    code: 'PET10',
     discountType: 'PERCENTAGE',
     discountValue: 10,
     maxDiscountAmount: 100,
     minOrderValue: 500,
-    applicableCategory: 'Drools',
-    validFrom: '2026-06-01T00:00:00Z',
-    validUntil: '2026-07-31T23:59:59Z',
-    isActive: true
-  }
+    applicableCategory: 'Food',
+    validFrom: new Date().toISOString(),
+    validUntil: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(),
+    isActive: true,
+  },
 ];
 
 export default function EarningsScreen() {
-  const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
-  const colors = Colors[scheme];
+  const theme = useTheme();
   const { user, session, activeRole } = useAuth();
-
-  // Common State
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [screenError, setScreenError] = useState('');
 
-  // Captain View State
   const [earnings, setEarnings] = useState<EarningRecord[]>([]);
 
-  // Provider (Merchant) View State
   const [providers, setProviders] = useState<ProviderOption[]>(appConfig.allowDemoMode ? DEMO_PROVIDERS : []);
   const [selectedProvider, setSelectedProvider] = useState<ProviderOption | null>(appConfig.allowDemoMode ? DEMO_PROVIDERS[0] : null);
   const [payouts, setPayouts] = useState<PayoutRecord[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   
-  // Promotion Creation Form State
   const [showPromoModal, setShowPromoModal] = useState(false);
   const [promoCode, setPromoCode] = useState('');
   const [discountType, setDiscountType] = useState<'PERCENTAGE' | 'FLAT'>('PERCENTAGE');
@@ -180,7 +178,6 @@ export default function EarningsScreen() {
     return headers;
   }, [activeRole, session, user]);
 
-  // Fetch Providers list for Merchant
   const fetchProviders = useCallback(async () => {
     if (!user || activeRole !== 'PROVIDER') return;
     if (appConfig.allowDemoMode) {
@@ -219,7 +216,6 @@ export default function EarningsScreen() {
     }
   }, [activeRole, authHeaders, user]);
 
-  // Fetch Captain Earnings
   const fetchCaptainEarnings = useCallback(async (showLoader = true) => {
     if (!user) return;
     if (showLoader) setLoading(true);
@@ -250,13 +246,11 @@ export default function EarningsScreen() {
     }
   }, [authHeaders, user]);
 
-  // Fetch Merchant Payouts & Promotions
   const fetchMerchantData = useCallback(async (showLoader = true) => {
     if (!user || !selectedProvider) return;
     if (showLoader) setLoading(true);
     setScreenError('');
     try {
-      // 1. Fetch Payout History
       const payoutResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/payments/payouts/user/${user.id}`, {
         headers: authHeaders('MERCHANT')
       });
@@ -270,7 +264,6 @@ export default function EarningsScreen() {
         setPayouts([]);
       }
 
-      // 2. Fetch promotions
       const promoResponse = await fetch(`${appConfig.apiBaseUrl}/api/v1/payments/promotions?providerId=${selectedProvider.id}`, {
         headers: authHeaders('MERCHANT'),
       });
@@ -331,7 +324,6 @@ export default function EarningsScreen() {
     if (!promoCode.trim()) return setErrorMsg('Coupon code is required');
     if (isNaN(val) || val <= 0) return setErrorMsg('Invalid discount value');
 
-    // Client-side Discount War Prevention rules
     if (discountType === 'FLAT') {
       if (minOrd === null || isNaN(minOrd) || minOrd <= 0) {
         return setErrorMsg('Minimum order value is required for flat discounts');
@@ -360,7 +352,7 @@ export default function EarningsScreen() {
       applicableCategory: applicableCategory.trim() || null,
       providerId: selectedProvider.id,
       validFrom: new Date().toISOString(),
-      validUntil: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(), // 30 days
+      validUntil: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(),
       isActive: true
     };
 
@@ -394,431 +386,290 @@ export default function EarningsScreen() {
     }
   };
 
-  // Rendering Helper for Captain View
   if (activeRole !== 'PROVIDER') {
     const totalEarnings = earnings.reduce((sum, item) => sum + item.amount, 0);
     const totalDeliveries = earnings.length;
 
     return (
-      <ThemedView style={styles.container}>
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.header}>
-            <ThemedText type="subtitle">Captain Earnings</ThemedText>
-            <ThemedText type="small" style={{ color: colors.textSecondary }}>
-              Track your delivery payouts and stats 📈
-            </ThemedText>
-          </View>
-
-          <View style={styles.statsRow}>
-            <View style={[styles.statBox, { backgroundColor: colors.backgroundElement }]}>
-              <ThemedText type="small" style={{ color: colors.textSecondary }}>Total Earnings</ThemedText>
-              <ThemedText style={[styles.statValue, { color: colors.cta }]}>₹{totalEarnings.toFixed(2)}</ThemedText>
-            </View>
-
-            <View style={[styles.statBox, { backgroundColor: colors.backgroundElement }]}>
-              <ThemedText type="small" style={{ color: colors.textSecondary }}>Deliveries</ThemedText>
-              <ThemedText style={[styles.statValue, { color: colors.primary }]}>{totalDeliveries}</ThemedText>
-            </View>
-          </View>
-
-          {screenError ? (
-            <View style={[styles.errorBanner, { borderColor: colors.warning }]}>
-              <ThemedText style={{ color: colors.warning, fontWeight: '700' }}>{screenError}</ThemedText>
-            </View>
-          ) : null}
-
-          <View style={styles.listHeader}>
-            <ThemedText style={{ fontWeight: '700' }}>Recent Delivery Transactions</ThemedText>
-          </View>
-
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" />
-            </View>
-          ) : (
-            <FlatList
-              data={earnings}
-              keyExtractor={(item) => item.earningId}
-              onRefresh={handleRefresh}
-              refreshing={refreshing}
-              renderItem={({ item }) => (
-                <View style={[styles.earningItem, { borderBottomColor: colors.backgroundSelected }]}>
-                  <View>
-                    <ThemedText style={{ fontWeight: '600' }}>Order #{item.orderId.split('-').pop() || item.orderId}</ThemedText>
-                    <ThemedText type="small" style={{ color: colors.textSecondary, marginTop: Spacing.one }}>
-                      {new Date(item.earnedAt).toLocaleString()}
-                    </ThemedText>
-                    <ThemedText type="small" style={{ color: item.payoutId ? colors.cta : colors.textSecondary, marginTop: Spacing.one }}>
-                      {item.payoutId ? `Payout linked #${item.payoutId.split('-').pop()}` : 'Awaiting payout batch'}
-                    </ThemedText>
-                  </View>
-                  <ThemedText style={{ fontWeight: '700', color: colors.cta }}>
-                    +₹{item.amount.toFixed(2)}
-                  </ThemedText>
-                </View>
-              )}
-              ListEmptyComponent={
-                <View style={styles.centered}>
-                  <ThemedText style={{ color: colors.textSecondary }}>No earnings recorded yet.</ThemedText>
-                </View>
-              }
-            />
-          )}
-        </SafeAreaView>
-      </ThemedView>
-    );
-  }
-
-  // Rendering for Merchant/Provider View
-  const merchantTotalPayout = payouts.reduce((sum, item) => sum + item.amount, 0);
-
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        {/* Provider Selector Header */}
-        <View style={styles.providerHeader}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.providersScroll}>
-            {providers.map((p) => (
-              <TouchableOpacity
-                key={p.id}
-                onPress={() => setSelectedProvider(p)}
-                style={[
-                  styles.providerTab,
-                  { backgroundColor: selectedProvider?.id === p.id ? colors.primary : colors.backgroundElement }
-                ]}>
-                <ThemedText style={{ color: selectedProvider?.id === p.id ? '#fff' : colors.text, fontWeight: '600' }}>
-                  {p.label}
-                </ThemedText>
-              </TouchableOpacity>
-            ))}
-            {providers.length === 0 ? (
-              <ThemedText style={{ color: colors.textSecondary }}>No approved providers found.</ThemedText>
-            ) : null}
-          </ScrollView>
-        </View>
-
-        <View style={styles.header}>
-          <ThemedText type="subtitle">Merchant Payouts & Coupons</ThemedText>
-          <ThemedText type="small" style={{ color: colors.textSecondary }}>
-            Manage payouts history and discount war prevention coupons
-          </ThemedText>
-        </View>
-
-        <View style={styles.statsRow}>
-          <View style={[styles.statBox, { backgroundColor: colors.backgroundElement }]}>
-            <ThemedText type="small" style={{ color: colors.textSecondary }}>Total Payouts</ThemedText>
-            <ThemedText style={[styles.statValue, { color: colors.cta }]}>₹{merchantTotalPayout.toFixed(2)}</ThemedText>
-          </View>
-          <View style={[styles.statBox, { backgroundColor: colors.backgroundElement }]}>
-            <ThemedText type="small" style={{ color: colors.textSecondary }}>Active Coupons</ThemedText>
-            <ThemedText style={[styles.statValue, { color: colors.primary }]}>{promotions.length}</ThemedText>
-          </View>
+      <ScreenShell
+        header={
+          <AppBar
+            eyebrow="CAPTAIN WORKSPACE"
+            title="Earnings & Payouts"
+            subtitle="Track delivery payouts and settlement status"
+            action={<RoleBadge role="captain" />}
+          />
+        }
+        testID="captain-earnings"
+      >
+        <View style={styles.metricGrid}>
+          <MetricCard
+            label="Total Earnings"
+            value={formatCurrency(totalEarnings)}
+            icon="wallet"
+            tone="primary"
+            style={styles.metricHalf}
+          />
+          <MetricCard
+            label="Completed Deliveries"
+            value={String(totalDeliveries)}
+            icon="truck"
+            tone="success"
+            style={styles.metricHalf}
+          />
         </View>
 
         {screenError ? (
-          <View style={[styles.errorBanner, { borderColor: colors.warning }]}>
-            <ThemedText style={{ color: colors.warning, fontWeight: '700' }}>{screenError}</ThemedText>
-          </View>
+          <FeedbackBanner tone="warning" title="Earnings notice" message={screenError} icon="dispute" />
         ) : null}
 
-        <View style={styles.listHeaderRow}>
-          <ThemedText style={{ fontWeight: '700' }}>Payout History</ThemedText>
-        </View>
-
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" />
-          </View>
-        ) : (
-          <ScrollView contentContainerStyle={{ paddingBottom: Spacing.four }}>
-            {payouts.length === 0 ? (
-              <View style={styles.centered}>
-                <ThemedText style={{ color: colors.textSecondary }}>No payouts recorded.</ThemedText>
-              </View>
-            ) : (
-              payouts.map((item) => (
-                <View key={item.payoutId} style={[styles.earningItem, { borderBottomColor: colors.backgroundSelected }]}>
-                  <View>
-                    <ThemedText style={{ fontWeight: '600' }}>Payout #{item.payoutId.split('-').pop()}</ThemedText>
-                    <ThemedText type="small" style={{ color: colors.textSecondary, marginTop: Spacing.one }}>
-                      Period: {item.periodStart} to {item.periodEnd}
-                    </ThemedText>
+        <AppCard style={styles.sectionCard}>
+          <SectionHeader title="Recent delivery payouts" subtitle="Automatic weekly settlements" />
+          {loading ? (
+            <StateView kind="loading" title="Loading earnings" message="Fetching delivery ledger..." />
+          ) : earnings.length === 0 ? (
+            <StateView kind="empty" title="No earnings recorded" message="Complete delivery trips to see your earnings here." />
+          ) : (
+            <View style={styles.historyList}>
+              {earnings.map((item) => (
+                <View key={item.earningId} style={[styles.historyRow, { borderColor: theme.border }]}>
+                  <View style={styles.historyMeta}>
+                    <ThemedText type="smallBold">Order #{item.orderId.split('-').pop() || item.orderId}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">{formatDateTime(item.earnedAt)}</ThemedText>
                   </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <ThemedText style={{ fontWeight: '700', color: colors.cta }}>₹{item.amount.toFixed(2)}</ThemedText>
-                    <ThemedText type="small" style={{ color: item.status === 'PAID' ? colors.cta : '#eab308' }}>
-                      {item.status}
-                    </ThemedText>
+                  <View style={styles.historyPrice}>
+                    <ThemedText type="smallBold" style={{ color: theme.success }}>+{formatCurrency(item.amount)}</ThemedText>
+                    <StatusBadge label={item.payoutId ? 'Paid out' : 'Pending Batch'} tone={item.payoutId ? 'success' : 'warning'} />
                   </View>
                 </View>
-              ))
-            )}
-
-            <View style={styles.listHeaderRow}>
-              <ThemedText style={{ fontWeight: '700' }}>Active Coupons (Discount War Prevention)</ThemedText>
-              <TouchableOpacity onPress={() => setShowPromoModal(true)} style={[styles.addButton, { backgroundColor: colors.primary }]}>
-                <ThemedText style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>+ Create Coupon</ThemedText>
-              </TouchableOpacity>
+              ))}
             </View>
+          )}
+        </AppCard>
+      </ScreenShell>
+    );
+  }
 
-            {promotions.length === 0 ? (
-              <View style={styles.centered}>
-                <ThemedText style={{ color: colors.textSecondary }}>No active promotions.</ThemedText>
-              </View>
-            ) : (
-              promotions.map((promo) => (
-                <View key={promo.promotionId ?? promo.code} style={[styles.earningItem, { borderBottomColor: colors.backgroundSelected }]}>
-                  <View>
-                    <ThemedText style={{ fontWeight: '700', color: colors.primary }}>{promo.code}</ThemedText>
-                    <ThemedText type="small" style={{ color: colors.textSecondary }}>
-                      {promo.discountType === 'PERCENTAGE' ? `${promo.discountValue}% Off` : `₹${promo.discountValue} Off`}
-                      {promo.applicableCategory ? ` on ${promo.applicableCategory}` : ''}
-                    </ThemedText>
-                    <ThemedText type="small" style={{ color: colors.textSecondary }}>
-                      Min Order: ₹{promo.minOrderValue}
-                    </ThemedText>
-                  </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <ThemedText type="small" style={{ color: colors.cta }}>ACTIVE</ThemedText>
-                  </View>
+  const merchantTotalPayout = payouts.reduce((sum, item) => sum + item.amount, 0);
+
+  return (
+    <ScreenShell
+      header={
+        <AppBar
+          eyebrow="MERCHANT WORKSPACE"
+          title="Payouts & Coupons"
+          subtitle="Manage settlement history and GST Section 52 compliance"
+          action={<RoleBadge role="merchant" />}
+        />
+      }
+      testID="merchant-earnings"
+    >
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.providersScroll}>
+        {providers.map((p) => (
+          <FilterChip
+            key={p.id}
+            label={p.label}
+            selected={selectedProvider?.id === p.id}
+            onPress={() => setSelectedProvider(p)}
+          />
+        ))}
+      </ScrollView>
+
+      <FeedbackBanner
+        tone="info"
+        title="Platform GST & TCS Section 52 Notice"
+        message="1% TCS (0.5% CGST + 0.5% SGST) is deducted at source on net taxable supplies. Monthly GSTR-8 reports are generated for compliance."
+        icon="shield"
+      />
+
+      <View style={styles.metricGrid}>
+        <MetricCard
+          label="Total Payouts"
+          value={formatCurrency(merchantTotalPayout)}
+          icon="wallet"
+          tone="primary"
+          style={styles.metricHalf}
+        />
+        <MetricCard
+          label="Active Coupons"
+          value={String(promotions.length)}
+          icon="sparkle"
+          tone="accent"
+          style={styles.metricHalf}
+        />
+      </View>
+
+      {screenError ? (
+        <FeedbackBanner tone="warning" title="Payout notice" message={screenError} icon="dispute" />
+      ) : null}
+
+      <AppCard style={styles.sectionCard}>
+        <SectionHeader title="Payout History" subtitle="Verified bank transfers and payouts" />
+        {loading ? (
+          <StateView kind="loading" title="Loading payouts" message="Fetching settlement ledger..." />
+        ) : payouts.length === 0 ? (
+          <StateView kind="empty" title="No payouts recorded" message="Payout settlements will appear here after order completion." />
+        ) : (
+          <View style={styles.historyList}>
+            {payouts.map((item) => (
+              <View key={item.payoutId} style={[styles.historyRow, { borderColor: theme.border }]}>
+                <View style={styles.historyMeta}>
+                  <ThemedText type="smallBold">Payout #{item.payoutId.split('-').pop()}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Period: {formatDateTime(item.periodStart)} to {formatDateTime(item.periodEnd)}
+                  </ThemedText>
                 </View>
-              ))
-            )}
-          </ScrollView>
+                <View style={styles.historyPrice}>
+                  <ThemedText type="smallBold" style={{ color: theme.primary }}>{formatCurrency(item.amount)}</ThemedText>
+                  <StatusBadge label={item.status} tone={item.status === 'PAID' ? 'success' : 'warning'} />
+                </View>
+              </View>
+            ))}
+          </View>
         )}
+      </AppCard>
 
-        {/* Create Promotion Modal */}
-        <Modal visible={showPromoModal} animationType="slide" transparent>
-          <View style={styles.modalOverlay}>
-            <ThemedView style={[styles.modalContent, { backgroundColor: colors.background }]}>
-              <ThemedText type="subtitle" style={{ marginBottom: Spacing.three }}>Create Promotion Coupon</ThemedText>
-              
-              {errorMsg ? (
-                <ThemedText style={{ color: '#ef4444', marginBottom: Spacing.two, fontWeight: '600' }}>⚠️ {errorMsg}</ThemedText>
-              ) : null}
+      <AppCard style={styles.sectionCard}>
+        <SectionHeader
+          title="Active Coupons"
+          subtitle="Discount war prevention rules (Max 30%)"
+          actionLabel="+ Create Coupon"
+          onAction={() => setShowPromoModal(true)}
+        />
+        {promotions.length === 0 ? (
+          <StateView kind="empty" title="No active promotions" message="Create coupons with minimum order values to boost sales." />
+        ) : (
+          <View style={styles.historyList}>
+            {promotions.map((promo) => (
+              <View key={promo.promotionId ?? promo.code} style={[styles.historyRow, { borderColor: theme.border }]}>
+                <View style={styles.historyMeta}>
+                  <ThemedText type="smallBold" style={{ color: theme.primary }}>{promo.code}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {promo.discountType === 'PERCENTAGE' ? `${promo.discountValue}% Off` : `₹${promo.discountValue} Off`}
+                    {promo.applicableCategory ? ` on ${promo.applicableCategory}` : ''} · Min Order: {formatCurrency(promo.minOrderValue ?? 0)}
+                  </ThemedText>
+                </View>
+                <StatusBadge label="ACTIVE" tone="success" />
+              </View>
+            ))}
+          </View>
+        )}
+      </AppCard>
 
-              <ScrollView style={{ width: '100%' }}>
-                <ThemedText type="small" style={{ color: colors.textSecondary, marginBottom: Spacing.one }}>Coupon Code (e.g. DROOLS10)</ThemedText>
+      {/* Create Promotion Modal */}
+      <Modal visible={showPromoModal} animationType="slide" transparent onRequestClose={() => setShowPromoModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: theme.backgroundElement }]}>
+            <SectionHeader title="Create Promotion Coupon" subtitle="Set discount rules & minimum order threshold" />
+
+            {errorMsg ? (
+              <FeedbackBanner tone="danger" title="Invalid promotion settings" message={errorMsg} icon="dispute" />
+            ) : null}
+
+            <ScrollView style={{ maxHeight: 380 }}>
+              <View style={styles.formGroup}>
+                <ThemedText type="smallBold">Coupon Code (e.g. PET10)</ThemedText>
                 <TextInput
                   value={promoCode}
                   onChangeText={setPromoCode}
-                  style={[styles.input, { borderColor: colors.backgroundSelected, color: colors.text }]}
+                  style={[styles.input, { borderColor: theme.border, color: theme.text, backgroundColor: theme.muted }]}
                   placeholder="CODE"
-                  placeholderTextColor={colors.textSecondary}
+                  placeholderTextColor={theme.textSecondary}
                   autoCapitalize="characters"
                 />
 
-                <ThemedText type="small" style={{ color: colors.textSecondary, marginBottom: Spacing.one }}>Discount Type</ThemedText>
-                <View style={styles.typeSelectorRow}>
-                  <TouchableOpacity
-                    onPress={() => setDiscountType('PERCENTAGE')}
-                    style={[styles.typeButton, { borderColor: colors.primary, backgroundColor: discountType === 'PERCENTAGE' ? colors.primary : 'transparent' }]}>
-                    <ThemedText style={{ color: discountType === 'PERCENTAGE' ? '#fff' : colors.text }}>Percentage</ThemedText>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setDiscountType('FLAT')}
-                    style={[styles.typeButton, { borderColor: colors.primary, backgroundColor: discountType === 'FLAT' ? colors.primary : 'transparent' }]}>
-                    <ThemedText style={{ color: discountType === 'FLAT' ? '#fff' : colors.text }}>Flat Amount</ThemedText>
-                  </TouchableOpacity>
-                </View>
-
-                <ThemedText type="small" style={{ color: colors.textSecondary, marginBottom: Spacing.one }}>Discount Value (Max 30% / 30% of min order)</ThemedText>
+                <ThemedText type="smallBold">Discount Value</ThemedText>
                 <TextInput
                   value={discountValue}
                   onChangeText={setDiscountValue}
-                  style={[styles.input, { borderColor: colors.backgroundSelected, color: colors.text }]}
-                  placeholder="e.g. 10"
-                  placeholderTextColor={colors.textSecondary}
+                  style={[styles.input, { borderColor: theme.border, color: theme.text, backgroundColor: theme.muted }]}
+                  placeholder="Percentage (e.g. 10)"
+                  placeholderTextColor={theme.textSecondary}
                   keyboardType="numeric"
                 />
 
-                <ThemedText type="small" style={{ color: colors.textSecondary, marginBottom: Spacing.one }}>Minimum Order Value (Required, must be at least 1.5x discount)</ThemedText>
+                <ThemedText type="smallBold">Minimum Order Value (Required)</ThemedText>
                 <TextInput
                   value={minOrderValue}
                   onChangeText={setMinOrderValue}
-                  style={[styles.input, { borderColor: colors.backgroundSelected, color: colors.text }]}
-                  placeholder="e.g. 500"
-                  placeholderTextColor={colors.textSecondary}
+                  style={[styles.input, { borderColor: theme.border, color: theme.text, backgroundColor: theme.muted }]}
+                  placeholder="Min order amount in ₹ (e.g. 500)"
+                  placeholderTextColor={theme.textSecondary}
                   keyboardType="numeric"
                 />
-
-                <ThemedText type="small" style={{ color: colors.textSecondary, marginBottom: Spacing.one }}>Max Discount Amount (Optional for percentage)</ThemedText>
-                <TextInput
-                  value={maxDiscountAmount}
-                  onChangeText={setMaxDiscountAmount}
-                  style={[styles.input, { borderColor: colors.backgroundSelected, color: colors.text }]}
-                  placeholder="e.g. 100"
-                  placeholderTextColor={colors.textSecondary}
-                  keyboardType="numeric"
-                />
-
-                <ThemedText type="small" style={{ color: colors.textSecondary, marginBottom: Spacing.one }}>Applicable Category Filter (Optional, e.g. Drools)</ThemedText>
-                <TextInput
-                  value={applicableCategory}
-                  onChangeText={setApplicableCategory}
-                  style={[styles.input, { borderColor: colors.backgroundSelected, color: colors.text }]}
-                  placeholder="e.g. Drools"
-                  placeholderTextColor={colors.textSecondary}
-                />
-              </ScrollView>
-
-              <View style={styles.modalActions}>
-                <TouchableOpacity onPress={() => setShowPromoModal(false)} style={[styles.cancelButton, { backgroundColor: colors.backgroundElement }]}>
-                  <ThemedText style={{ color: colors.text, fontWeight: '700' }}>Cancel</ThemedText>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleCreatePromotion} style={[styles.submitButton, { backgroundColor: colors.primary }]}>
-                  <ThemedText style={{ color: '#fff', fontWeight: '700' }}>Create</ThemedText>
-                </TouchableOpacity>
               </View>
-            </ThemedView>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <ActionButton label="Cancel" variant="secondary" onPress={() => setShowPromoModal(false)} style={{ flex: 1 }} />
+              <ActionButton label="Create Coupon" onPress={handleCreatePromotion} style={{ flex: 1 }} />
+            </View>
           </View>
-        </Modal>
-      </SafeAreaView>
-    </ThemedView>
+        </View>
+      </Modal>
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.two,
-    marginBottom: Spacing.three,
-  },
-  providerHeader: {
-    paddingTop: Spacing.three,
-    paddingBottom: Spacing.two,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
-  },
   providersScroll: {
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.two,
+    gap: spacing.x2,
+    paddingBottom: spacing.x2,
+  },
+  metricGrid: {
     flexDirection: 'row',
+    gap: spacing.x3,
   },
-  providerTab: {
-    paddingVertical: Spacing.one * 1.5,
-    paddingHorizontal: Spacing.three,
-    borderRadius: 20,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: Spacing.three,
-    paddingHorizontal: Spacing.four,
-    marginBottom: Spacing.four,
-  },
-  statBox: {
+  metricHalf: {
     flex: 1,
-    padding: Spacing.three,
-    borderRadius: Spacing.two,
-    gap: Spacing.one,
   },
-  statValue: {
-    fontSize: 22,
-    fontWeight: 'bold',
+  sectionCard: {
+    padding: spacing.x4,
+    gap: spacing.x3,
   },
-  listHeader: {
-    paddingHorizontal: Spacing.four,
-    paddingBottom: Spacing.two,
+  historyList: {
+    gap: spacing.x2,
   },
-  listHeaderRow: {
+  historyRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    marginTop: Spacing.two,
-  },
-  addButton: {
-    paddingVertical: Spacing.one * 1.5,
-    paddingHorizontal: Spacing.two,
-    borderRadius: Spacing.one,
-  },
-  earningItem: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.three,
-    borderBottomWidth: 1,
+    paddingVertical: spacing.x3,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  loadingContainer: {
+  historyMeta: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    gap: 2,
   },
-  centered: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.six,
-  },
-  errorBanner: {
-    marginHorizontal: Spacing.four,
-    marginBottom: Spacing.three,
-    borderWidth: 1,
-    borderRadius: Spacing.one,
-    padding: Spacing.two,
+  historyPrice: {
+    alignItems: 'flex-end',
+    gap: 4,
   },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: Spacing.four,
+    justifyContent: 'flex-end',
   },
-  modalContent: {
-    width: '100%',
-    maxHeight: '80%',
-    borderRadius: Spacing.two,
-    padding: Spacing.four,
-    alignItems: 'center',
+  modalCard: {
+    borderTopLeftRadius: radii.feature,
+    borderTopRightRadius: radii.feature,
+    padding: spacing.x6,
+    paddingBottom: BottomTabInset + spacing.x6,
+    gap: spacing.x4,
+  },
+  formGroup: {
+    gap: spacing.x3,
   },
   input: {
-    width: '100%',
-    height: 48,
     borderWidth: 1,
-    borderRadius: Spacing.one,
-    paddingHorizontal: Spacing.two,
-    marginBottom: Spacing.three,
-    fontSize: 16,
-  },
-  typeSelectorRow: {
-    flexDirection: 'row',
-    gap: Spacing.two,
-    marginBottom: Spacing.three,
-    width: '100%',
-  },
-  typeButton: {
-    flex: 1,
-    height: 44,
-    borderWidth: 1,
-    borderRadius: Spacing.one,
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderRadius: radii.compact,
+    padding: spacing.x3,
+    minHeight: touchTarget,
+    ...typography.body,
   },
   modalActions: {
     flexDirection: 'row',
-    width: '100%',
-    gap: Spacing.three,
-    marginTop: Spacing.four,
+    gap: spacing.x3,
+    marginTop: spacing.x2,
   },
-  cancelButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: Spacing.one,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  submitButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: Spacing.one,
-    justifyContent: 'center',
-    alignItems: 'center',
-  }
 });
