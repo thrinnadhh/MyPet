@@ -64,23 +64,28 @@ class PaymentModuleFacade(
             )
         ).discountAmount
 
-    override fun releaseCoupon(code: String, userId: UUID, orderId: UUID) =
+    override fun releaseCoupon(code: String, userId: UUID, orderId: UUID) {
         paymentService.releaseCouponReservation(code, userId, orderId)
+    }
 
-    override fun redeemCoupon(code: String, userId: UUID, orderId: UUID) =
+    override fun redeemCoupon(code: String, userId: UUID, orderId: UUID) {
         paymentService.redeemCouponReservation(code, userId, orderId)
+    }
 
     override fun loyaltyRewardTerms(rewardId: UUID, customerId: UUID, providerId: UUID): LoyaltyRewardTerms =
         checkoutLoyaltyService.terms(rewardId, customerId, providerId)
 
-    override fun reserveLoyaltyReward(rewardId: UUID, customerId: UUID, providerId: UUID, orderId: UUID) =
+    override fun reserveLoyaltyReward(rewardId: UUID, customerId: UUID, providerId: UUID, orderId: UUID) {
         checkoutLoyaltyService.reserve(rewardId, customerId, providerId, orderId)
+    }
 
-    override fun releaseLoyaltyReward(rewardId: UUID, customerId: UUID, orderId: UUID) =
+    override fun releaseLoyaltyReward(rewardId: UUID, customerId: UUID, orderId: UUID) {
         checkoutLoyaltyService.release(rewardId, customerId, orderId)
+    }
 
-    override fun redeemLoyaltyReward(rewardId: UUID, customerId: UUID, orderId: UUID) =
+    override fun redeemLoyaltyReward(rewardId: UUID, customerId: UUID, orderId: UUID) {
         checkoutLoyaltyService.redeem(rewardId, customerId, orderId)
+    }
 
     override fun codEligibility(amount: BigDecimal, city: String?, providerId: UUID?): CodEligibilityDecision =
         paymentService.checkCodEligibility(CodCheckRequest(amount = amount, city = city, providerId = providerId)).let { decision ->
