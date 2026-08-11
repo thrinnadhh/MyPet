@@ -20,15 +20,13 @@ import { spacing, typography } from '@/design/tokens';
 import { playMerchantOrderAlertSound } from '@/hooks/usePushNotifications';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
+import {
+  fetchMerchantDashboardMetrics,
+  type MerchantDashboardMetrics,
+} from '@/services/merchant-dashboard';
 import { fetchUnreadMerchantAlerts, markAlertRead } from '@/services/notifications';
 import { appConfig } from '@/utils/app-config';
-
-const ACTIONS = [
-  { id: 'approval', labelKey: 'home.providerApproval', valueKey: 'home.providerApprovalValue', tone: 'warning', icon: 'shield' },
-  { id: 'catalog', labelKey: 'home.catalogReadiness', valueKey: 'home.catalogReadinessValue', tone: 'success', icon: 'inventory' },
-  { id: 'orders', labelKey: 'home.openOrders', valueKey: 'home.openOrdersValue', tone: 'primary', icon: 'cart' },
-  { id: 'billing', labelKey: 'home.posSync', valueKey: 'home.posSyncValue', tone: 'success', icon: 'wallet' },
-] as const;
+import { formatCurrency, formatStatusLabel } from '@/utils/formatters';
 
 const LIVE_TASK_KEYS = ['home.task1', 'home.task2', 'home.task3', 'home.task4'] as const;
 
@@ -38,13 +36,62 @@ type QuickAction = {
   route: string;
 };
 
+const DEMO_METRICS: MerchantDashboardMetrics = {
+  providerStatus: 'DEMO',
+  activeOfferings: 8,
+  lowStockOfferings: 2,
+  openOrders: 3,
+  todayOrders: 5,
+  todayRevenue: 6240,
+  todayBookings: 2,
+};
+
 export default function Index() {
   const { width } = useWindowDimensions();
   const theme = useTheme();
-  const { user, role, activeRole, session } = useAuth();
+  const { user, role, activeRole, session, providerId } = useAuth();
   const { t } = useTranslation();
   const router = useRouter();
   const [incomingOrder, setIncomingOrder] = useState<{ id: string; amount: string } | null>(null);
+  const [metrics, setMetrics] = useState<MerchantDashboardMetrics | null>(null);
+  const [metricsError, setMetricsError] = useState<unknown>(null);
+
+  useEffect(() => {
+    if (activeRole !== 'PROVIDER') {
+      setMetrics(null);
+      setMetricsError(null);
+      return undefined;
+    }
+    if (appConfig.allowDemoMode) {
+      setMetrics(DEMO_METRICS);
+      setMetricsError(null);
+      return undefined;
+    }
+    if (!providerId) {
+      setMetrics(null);
+      return undefined;
+    }
+
+    let active = true;
+    const load = async () => {
+      try {
+        const next = await fetchMerchantDashboardMetrics(providerId);
+        if (active) {
+          setMetrics(next);
+          setMetricsError(null);
+        }
+      } catch (error) {
+        if (active) setMetricsError(error);
+      }
+    };
+
+    void load();
+    const interval = setInterval(() => void load(), 30_000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [activeRole, providerId]);
 
   useEffect(() => {
     if (activeRole !== 'PROVIDER') return undefined;
@@ -91,6 +138,61 @@ export default function Index() {
 
   const roleBadge = activeRole === 'ADMIN' ? 'admin' : activeRole === 'PROVIDER' ? 'merchant' : 'captain';
   const cardWidth: DimensionValue = width >= 920 ? '23.5%' : width >= 620 ? '48%' : '100%';
+
+  const merchantMetricCards = useMemo(() => {
+    if (!metrics) return [];
+    return [
+      {
+        id: 'provider-status',
+        label: 'Provider status',
+        value: formatStatusLabel(metrics.providerStatus),
+        tone: metrics.providerStatus === 'ACTIVE' ? 'success' as const : 'warning' as const,
+        icon: 'shield' as AppIconName,
+      },
+      {
+        id: 'catalog',
+        label: 'Active catalog',
+        value: `${metrics.activeOfferings} items`,
+        tone: 'success' as const,
+        icon: 'inventory' as AppIconName,
+      },
+      {
+        id: 'orders',
+        label: 'Open orders',
+        value: `${metrics.openOrders} active`,
+        tone: metrics.openOrders > 0 ? 'primary' as const : 'accent' as const,
+        icon: 'cart' as AppIconName,
+      },
+      {
+        id: 'today-sales',
+        label: "Today's fulfilled revenue",
+        value: formatCurrency(metrics.todayRevenue),
+        tone: 'success' as const,
+        icon: 'wallet' as AppIconName,
+      },
+      {
+        id: 'today-orders',
+        label: "Today's orders",
+        value: String(metrics.todayOrders),
+        tone: 'accent' as const,
+        icon: 'cart' as AppIconName,
+      },
+      {
+        id: 'low-stock',
+        label: 'Low / zero stock',
+        value: String(metrics.lowStockOfferings),
+        tone: metrics.lowStockOfferings > 0 ? 'warning' as const : 'success' as const,
+        icon: 'inventory' as AppIconName,
+      },
+      {
+        id: 'bookings',
+        label: "Today's open bookings",
+        value: String(metrics.todayBookings),
+        tone: 'accent' as const,
+        icon: 'calendar' as AppIconName,
+      },
+    ];
+  }, [metrics]);
 
   const quickActions = useMemo<QuickAction[]>(() => {
     const shared: QuickAction[] = [
@@ -145,11 +247,20 @@ export default function Index() {
         title={appConfig.allowDemoMode ? t('common.demo') : t('common.live')}
         message={
           appConfig.allowDemoMode
-            ? 'Demo data is enabled for this workspace. Live actions remain clearly separated.'
+            ? 'Demo data is enabled for this workspace. Demo metrics are explicitly non-production.'
             : 'Connected to the live MyPet operational services.'
         }
         icon={appConfig.allowDemoMode ? 'sparkle' : 'check'}
       />
+
+      {activeRole === 'PROVIDER' && metricsError ? (
+        <FeedbackBanner
+          tone="danger"
+          title="Dashboard metrics unavailable"
+          message="Live dashboard values could not be refreshed. Operational actions remain available; retry after connectivity recovers."
+          icon="dispute"
+        />
+      ) : null}
 
       {activeRole === 'PROVIDER' && incomingOrder ? (
         <OrderIncomingAlert
@@ -165,18 +276,23 @@ export default function Index() {
         />
       ) : null}
 
-      <View style={styles.metricGrid}>
-        {ACTIONS.map((action) => (
-          <MetricCard
-            key={action.id}
-            label={t(action.labelKey)}
-            value={t(action.valueKey)}
-            tone={action.tone}
-            icon={action.icon}
-            style={{ width: cardWidth }}
-          />
-        ))}
-      </View>
+      {activeRole === 'PROVIDER' ? (
+        <View style={styles.metricGrid}>
+          {merchantMetricCards.map((metric) => (
+            <MetricCard
+              key={metric.id}
+              label={metric.label}
+              value={metric.value}
+              tone={metric.tone}
+              icon={metric.icon}
+              style={{ width: cardWidth }}
+            />
+          ))}
+          {!metrics && providerId ? (
+            <ThemedText type="small" themeColor="textSecondary">Loading live merchant metrics…</ThemedText>
+          ) : null}
+        </View>
+      ) : null}
 
       <AppCard style={styles.sectionCard}>
         <SectionHeader title={t('home.today')} subtitle={t('home.operationalChecklist')} />

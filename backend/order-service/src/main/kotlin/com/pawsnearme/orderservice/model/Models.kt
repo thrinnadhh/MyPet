@@ -98,7 +98,10 @@ class Order(
 
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_status", nullable = false)
-    var paymentStatus: PaymentStatus = PaymentStatus.PENDING
+    var paymentStatus: PaymentStatus = PaymentStatus.PENDING,
+
+    @Column(name = "recurring_occurrence_id")
+    var recurringOccurrenceId: UUID? = null
 ) {
     /**
      * Keep the merchant SLA timestamp server-owned even when the transition is

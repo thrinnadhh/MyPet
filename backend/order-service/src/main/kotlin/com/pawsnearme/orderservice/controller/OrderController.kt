@@ -5,6 +5,7 @@ import com.pawsnearme.orderservice.repository.OrderRepository
 import com.pawsnearme.orderservice.service.CheckoutIntegrityService
 import com.pawsnearme.orderservice.service.CreateOrderRequest
 import com.pawsnearme.orderservice.service.DeliveryContactLookup
+import com.pawsnearme.orderservice.service.MerchantOrderQueryService
 import com.pawsnearme.orderservice.service.OrderService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
@@ -20,6 +21,7 @@ class OrderController(
     private val checkoutIntegrityService: CheckoutIntegrityService,
     private val orderRepository: OrderRepository,
     private val deliveryContactLookup: DeliveryContactLookup,
+    private val merchantOrderQueryService: MerchantOrderQueryService,
 ) {
 
     @PostMapping
@@ -89,11 +91,29 @@ class OrderController(
     @GetMapping("/provider/{providerId}")
     fun getOrdersByProvider(
         @PathVariable providerId: UUID,
+        @RequestParam(required = false) page: Int?,
+        @RequestParam(defaultValue = "50") size: Int,
         @RequestHeader(value = "X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader(value = "X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
-        if (authenticatedUserId.isNullOrBlank()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
-        return ResponseEntity.ok(orderService.getOrdersByProviderWithAuth(providerId, UUID.fromString(authenticatedUserId), authenticatedUserRole))
+        if (authenticatedUserId.isNullOrBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
+        }
+        val callerId = runCatching { UUID.fromString(authenticatedUserId) }.getOrNull()
+            ?: return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Invalid authenticated user context."))
+        return if (page == null) {
+            ResponseEntity.ok(merchantOrderQueryService.listProviderOrders(providerId, callerId, authenticatedUserRole))
+        } else {
+            ResponseEntity.ok(
+                merchantOrderQueryService.listProviderOrdersPage(
+                    providerId = providerId,
+                    callerId = callerId,
+                    callerRole = authenticatedUserRole,
+                    page = page,
+                    size = size,
+                )
+            )
+        }
     }
 
     @PostMapping("/{id}/cancel")

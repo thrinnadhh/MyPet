@@ -20,7 +20,7 @@ import { useAuth } from '@/context/AuthContext';
 import { radii, shadows, spacing, touchTarget, typography } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import {
-  fetchMerchantOrders,
+  fetchMerchantOrdersPage,
   isMerchantOrderInQueue,
   merchantOrderActions,
   transitionMerchantOrder,
@@ -30,6 +30,7 @@ import {
 } from '@/services/merchant-orders';
 import { formatCurrency, formatDateTime, formatOrderStatus } from '@/utils/formatters';
 
+const ORDER_PAGE_SIZE = 40;
 const FILTERS: MerchantOrderQueue[] = ['NEW', 'ACCEPTED', 'PREPARING', 'READY', 'DELIVERY', 'PAST'];
 const FILTER_LABELS: Record<MerchantOrderQueue, string> = {
   NEW: 'New',
@@ -52,6 +53,18 @@ function tone(status: MerchantOrder['status']): 'neutral' | 'success' | 'warning
   return 'neutral';
 }
 
+function compact(value: string): string {
+  return value.slice(0, 8).toUpperCase();
+}
+
+function mergeNewestPage(current: MerchantOrder[], newest: MerchantOrder[]): MerchantOrder[] {
+  const newestIds = new Set(newest.map((order) => order.orderId));
+  return [
+    ...newest,
+    ...current.filter((order) => !newestIds.has(order.orderId)),
+  ];
+}
+
 export default function MerchantOrdersScreen() {
   const theme = useTheme();
   const router = useRouter();
@@ -60,6 +73,10 @@ export default function MerchantOrdersScreen() {
   const [filter, setFilter] = useState<MerchantOrderQueue>('NEW');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextPage, setNextPage] = useState(1);
+  const [totalElements, setTotalElements] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [refreshingOrderId, setRefreshingOrderId] = useState<string | null>(null);
   const [pending, setPending] = useState<{
@@ -68,27 +85,72 @@ export default function MerchantOrdersScreen() {
   } | null>(null);
   const [note, setNote] = useState('');
 
-  const load = useCallback(async () => {
+  const loadLatest = useCallback(async (silent = false) => {
     if (!providerId) {
       setOrders([]);
+      setTotalElements(0);
+      setHasMore(false);
+      setNextPage(1);
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setError(null);
+    if (!silent) setLoading(true);
     try {
-      setOrders(await fetchMerchantOrders(providerId));
+      const result = await fetchMerchantOrdersPage(providerId, 0, ORDER_PAGE_SIZE);
+      if (silent) {
+        setOrders((current) => {
+          const merged = mergeNewestPage(current, result.content);
+          setHasMore(merged.length < result.totalElements);
+          return merged;
+        });
+      } else {
+        setOrders(result.content);
+        setNextPage(1);
+        setHasMore(result.hasNext);
+      }
+      setTotalElements(result.totalElements);
+      setError(null);
     } catch (loadError) {
       setError(loadError);
-      setOrders([]);
+      if (!silent) {
+        setOrders([]);
+        setTotalElements(0);
+        setHasMore(false);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [providerId]);
 
+  const loadMore = useCallback(async () => {
+    if (!providerId || !hasMore || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const result = await fetchMerchantOrdersPage(providerId, nextPage, ORDER_PAGE_SIZE);
+      setOrders((current) => {
+        const existingIds = new Set(current.map((order) => order.orderId));
+        return [
+          ...current,
+          ...result.content.filter((order) => !existingIds.has(order.orderId)),
+        ];
+      });
+      setNextPage((value) => value + 1);
+      setTotalElements(result.totalElements);
+      setHasMore(result.hasNext);
+      setError(null);
+    } catch (loadError) {
+      setError(loadError);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, loadingMore, nextPage, providerId]);
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadLatest();
+    if (!providerId) return undefined;
+    const interval = setInterval(() => void loadLatest(true), 10_000);
+    return () => clearInterval(interval);
+  }, [loadLatest, providerId]);
 
   const counts = useMemo(() => {
     const result = {} as Record<MerchantOrderQueue, number>;
@@ -103,8 +165,14 @@ export default function MerchantOrdersScreen() {
     return orders.filter((order) => {
       if (!filterOrder(order, filter)) return false;
       if (!normalizedQuery) return true;
-      return [order.orderId, order.customerId, order.paymentMethod, order.paymentStatus]
-        .some((value) => value?.toLowerCase().includes(normalizedQuery));
+      return [
+        order.orderId,
+        order.customerId,
+        order.paymentMethod,
+        order.paymentStatus,
+        order.couponCode ?? '',
+        ...order.items.map((item) => item.name),
+      ].some((value) => value.toLowerCase().includes(normalizedQuery));
     });
   }, [filter, orders, query]);
 
@@ -112,23 +180,21 @@ export default function MerchantOrdersScreen() {
     if (!pending) return;
     setRefreshingOrderId(pending.order.orderId);
     try {
-      const updated = await transitionMerchantOrder(
+      await transitionMerchantOrder(
         pending.order.orderId,
         pending.action.status,
         note,
       );
-      setOrders((current) =>
-        current.map((order) => (order.orderId === updated.orderId ? updated : order)),
-      );
+      await loadLatest(true);
       setPending(null);
       setNote('');
     } catch (transitionError) {
       setError(transitionError);
-      if (apiErrorKind(transitionError) === 'conflict') void load();
+      if (apiErrorKind(transitionError) === 'conflict') void loadLatest(true);
     } finally {
       setRefreshingOrderId(null);
     }
-  }, [load, note, pending]);
+  }, [loadLatest, note, pending]);
 
   const errorTrace = error instanceof ApiError && error.traceId ? ` Reference: ${error.traceId}.` : '';
 
@@ -138,7 +204,7 @@ export default function MerchantOrdersScreen() {
         <AppBar
           eyebrow="MERCHANT WORKSPACE"
           title="Orders"
-          subtitle="Accept, prepare and hand over actionable customer orders"
+          subtitle="Server-authoritative items, payment, pricing and canonical fulfilment state"
           action={<RoleBadge role="merchant" />}
         />
       }
@@ -174,15 +240,24 @@ export default function MerchantOrdersScreen() {
             ))}
           </ScrollView>
 
+          {totalElements > 0 ? (
+            <FeedbackBanner
+              tone="info"
+              title="Bounded live order queue"
+              message={`Loaded ${orders.length} of ${totalElements} orders. The newest ${ORDER_PAGE_SIZE} are refreshed every 10 seconds; older history loads only when requested. Queue counts and search apply to loaded orders.`}
+              icon="history"
+            />
+          ) : null}
+
           <View style={[styles.search, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
             <AppIcon name="search" color={theme.textSecondary} size={18} />
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Search order or customer ID"
+              placeholder="Search loaded order, customer, coupon or item"
               placeholderTextColor={theme.textSecondary}
               style={[styles.searchInput, { color: theme.text }]}
-              accessibilityLabel="Search merchant orders"
+              accessibilityLabel="Search loaded merchant orders"
               returnKeyType="search"
             />
             {query ? (
@@ -201,16 +276,16 @@ export default function MerchantOrdersScreen() {
           {!loading && !error && visibleOrders.length === 0 ? (
             <StateView
               kind="empty"
-              title={query ? 'No matching orders' : 'No orders in this queue'}
-              message={
-                query
-                  ? 'Try another order or customer ID.'
+              title={query ? 'No matching loaded orders' : 'No orders in this loaded queue'}
+              message={query
+                ? 'Try another order, customer, coupon or product, or load older history.'
+                : hasMore
+                  ? 'Load older history to continue checking this canonical queue.'
                   : filter === 'NEW'
                     ? 'COD orders and paid online orders waiting for your decision will appear here.'
-                    : 'Orders will move here only through the canonical lifecycle.'
-              }
-              actionLabel={query ? 'Clear search' : 'Refresh'}
-              onAction={query ? () => setQuery('') : () => void load()}
+                    : 'Orders will move here only through the canonical lifecycle.'}
+              actionLabel={query ? 'Clear search' : hasMore ? 'Load older orders' : 'Refresh'}
+              onAction={query ? () => setQuery('') : hasMore ? () => void loadMore() : () => void loadLatest()}
             />
           ) : null}
 
@@ -225,9 +300,9 @@ export default function MerchantOrdersScreen() {
                         <AppIcon name="cart" color={theme.primary} size={22} />
                       </View>
                       <View style={styles.flex}>
-                        <ThemedText style={styles.orderTitle}>Order #{order.orderId.slice(0, 8).toUpperCase()}</ThemedText>
+                        <ThemedText style={styles.orderTitle}>Order #{compact(order.orderId)}</ThemedText>
                         <ThemedText type="small" themeColor="textSecondary">
-                          {formatDateTime(order.placedAt)} · Customer {order.customerId.slice(0, 8).toUpperCase()}
+                          {formatDateTime(order.placedAt)} · Customer {compact(order.customerId)}
                         </ThemedText>
                       </View>
                       <StatusBadge label={formatOrderStatus(order.status)} tone={tone(order.status)} />
@@ -242,7 +317,46 @@ export default function MerchantOrdersScreen() {
                         <ThemedText type="small" themeColor="textSecondary">Payment</ThemedText>
                         <ThemedText type="smallBold">{order.paymentMethod} · {formatOrderStatus(order.paymentStatus)}</ThemedText>
                       </View>
+                      <View style={styles.summaryCell}>
+                        <ThemedText type="small" themeColor="textSecondary">Delivery contact</ThemedText>
+                        <ThemedText type="smallBold">
+                          {order.deliveryContactPhone ?? 'Not available'}{order.deliveryContactVerified ? ' · verified' : ''}
+                        </ThemedText>
+                      </View>
                     </View>
+
+                    <View style={styles.detailSection}>
+                      <ThemedText type="smallBold">Items</ThemedText>
+                      {order.items.length === 0 ? (
+                        <FeedbackBanner tone="danger" title="Order items missing" message="The server returned this order without item snapshots. Do not fulfil it until the order data is reconciled." />
+                      ) : order.items.map((item) => (
+                        <View key={`${order.orderId}-${item.offeringId}`} style={styles.itemRow}>
+                          <View style={styles.flex}>
+                            <ThemedText type="smallBold">{item.name}</ThemedText>
+                            <ThemedText type="small" themeColor="textSecondary">
+                              {item.quantity} × {formatCurrency(item.unitPrice)}
+                            </ThemedText>
+                          </View>
+                          <ThemedText type="smallBold">{formatCurrency(item.lineTotal)}</ThemedText>
+                        </View>
+                      ))}
+                    </View>
+
+                    <View style={[styles.breakdown, { borderColor: theme.border }]}>
+                      <View style={styles.breakdownRow}><ThemedText type="small" themeColor="textSecondary">Subtotal</ThemedText><ThemedText type="small">{formatCurrency(order.subtotalAmount)}</ThemedText></View>
+                      {order.discountAmount > 0 ? <View style={styles.breakdownRow}><ThemedText type="small" themeColor="textSecondary">Discount{order.couponCode ? ` (${order.couponCode})` : ''}</ThemedText><ThemedText type="small">−{formatCurrency(order.discountAmount)}</ThemedText></View> : null}
+                      <View style={styles.breakdownRow}><ThemedText type="small" themeColor="textSecondary">Delivery fee</ThemedText><ThemedText type="small">{formatCurrency(order.deliveryFee)}</ThemedText></View>
+                      <View style={styles.breakdownRow}><ThemedText type="small" themeColor="textSecondary">Tax</ThemedText><ThemedText type="small">{formatCurrency(order.taxAmount)}</ThemedText></View>
+                      <View style={styles.breakdownRow}><ThemedText type="smallBold">Authoritative total</ThemedText><ThemedText type="smallBold">{formatCurrency(order.totalAmount)}</ThemedText></View>
+                    </View>
+
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Delivery address reference: {compact(order.deliveryAddressId)}
+                      {order.acceptedAt ? ` · Accepted ${formatDateTime(order.acceptedAt)}` : ''}
+                      {order.readyAt ? ` · Ready ${formatDateTime(order.readyAt)}` : ''}
+                      {order.pickedUpAt ? ` · Picked up ${formatDateTime(order.pickedUpAt)}` : ''}
+                      {order.deliveredAt ? ` · Delivered ${formatDateTime(order.deliveredAt)}` : ''}
+                    </ThemedText>
 
                     {order.cancellationReason ? (
                       <FeedbackBanner tone="warning" title="Cancellation note" message={order.cancellationReason} />
@@ -280,6 +394,17 @@ export default function MerchantOrdersScreen() {
               })}
             </View>
           ) : null}
+
+          {hasMore ? (
+            <ActionButton
+              label={loadingMore ? 'Loading older orders…' : `Load older orders (${orders.length}/${totalElements})`}
+              variant="secondary"
+              icon="history"
+              loading={loadingMore}
+              disabled={loadingMore}
+              onPress={() => void loadMore()}
+            />
+          ) : null}
         </>
       ) : null}
 
@@ -287,7 +412,9 @@ export default function MerchantOrdersScreen() {
         <View style={styles.modalBackdrop}>
           <View style={[styles.modal, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]} accessibilityViewIsModal>
             <ThemedText type="title">{pending?.action.label}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">Order #{pending?.order.orderId.slice(0, 8).toUpperCase()}. The server validates this exact transition and actor.</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Order #{pending ? compact(pending.order.orderId) : ''}. The server validates this exact transition and actor.
+            </ThemedText>
             <TextInput
               value={note}
               onChangeText={setNote}
@@ -329,6 +456,10 @@ const styles = StyleSheet.create({
   summary: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x4, padding: spacing.x3, borderRadius: radii.compact },
   summaryCell: { flexGrow: 1, minWidth: 140, gap: spacing.x1 },
   amount: { ...typography.title, fontSize: 19, lineHeight: 24 },
+  detailSection: { gap: spacing.x2 },
+  itemRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.x3 },
+  breakdown: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.x2, gap: spacing.x1 },
+  breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.x3 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x2 },
   action: { flexGrow: 1, flexBasis: 160 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(11,28,48,0.58)', padding: spacing.x4, alignItems: 'center', justifyContent: 'center' },

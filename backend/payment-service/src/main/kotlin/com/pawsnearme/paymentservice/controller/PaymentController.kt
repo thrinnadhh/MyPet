@@ -4,6 +4,7 @@ import com.pawsnearme.paymentservice.model.Payout
 import com.pawsnearme.paymentservice.model.Promotion
 import com.pawsnearme.paymentservice.service.CashfreeGatewayService
 import com.pawsnearme.paymentservice.service.CashfreeWebhookLifecycleService
+import com.pawsnearme.paymentservice.service.CouponReservationLifecycleService
 import com.pawsnearme.paymentservice.service.CreateCashfreeOrderRequest
 import com.pawsnearme.paymentservice.service.PaymentService
 import jakarta.validation.Valid
@@ -22,6 +23,7 @@ class PaymentController(
     private val paymentService: PaymentService,
     private val cashfreeGatewayService: CashfreeGatewayService,
     private val cashfreeWebhookLifecycleService: CashfreeWebhookLifecycleService,
+    private val couponReservationLifecycleService: CouponReservationLifecycleService,
 ) {
 
     @PostMapping("/orders")
@@ -200,7 +202,7 @@ class PaymentController(
         if (xUserRole != "ADMIN" && xUserId != userId.toString()) {
             throw PaymentAccessDeniedException("Access denied for coupon release")
         }
-        paymentService.releaseCouponReservation(code, userId, orderId)
+        couponReservationLifecycleService.release(code, userId, orderId)
         return ResponseEntity.ok(mapOf("status" to "released"))
     }
 
