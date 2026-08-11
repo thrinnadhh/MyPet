@@ -1,18 +1,23 @@
 import {
   type MerchantOrderAction,
   type MerchantOrderStatus,
+  type MerchantPaymentStatus,
 } from '../contracts/merchant-order-lifecycle';
 import { apiClient } from './api-client';
 
 export {
   isMerchantOrderActive,
+  isMerchantOrderInQueue,
   merchantOrderActions,
   type MerchantOrderAction,
   type MerchantOrderActionDefinition,
+  type MerchantOrderQueue,
   type MerchantOrderStatus,
+  type MerchantPaymentStatus,
 } from '../contracts/merchant-order-lifecycle';
 
 export interface MerchantOrderItem {
+  orderItemId?: string;
   offeringId: string;
   name: string;
   unitPrice: number;
@@ -37,9 +42,10 @@ export interface MerchantOrder {
   couponCode?: string | null;
   paymentId?: string | null;
   paymentMethod: string;
-  paymentStatus: string;
+  paymentStatus: MerchantPaymentStatus;
   placedAt: string;
   acceptedAt?: string | null;
+  preparingAt?: string | null;
   readyAt?: string | null;
   pickedUpAt?: string | null;
   deliveredAt?: string | null;
@@ -58,6 +64,49 @@ export interface MerchantOrderPage {
   content: MerchantOrder[];
 }
 
+export interface MerchantDeliveryAddress {
+  label?: string | null;
+  line1: string;
+  line2?: string | null;
+  city: string;
+  state: string;
+  pincode: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface MerchantOrderHistoryEntry {
+  fromStatus?: MerchantOrderStatus | null;
+  toStatus: MerchantOrderStatus;
+  changedAt: string;
+  actorId?: string | null;
+  note?: string | null;
+}
+
+export interface MerchantOrderDetail {
+  orderId: string;
+  customerId: string;
+  customerName?: string | null;
+  deliveryAddressId: string;
+  deliveryAddress: MerchantDeliveryAddress;
+  contactPhone?: string | null;
+  contactVerified: boolean;
+  items: MerchantOrderItem[];
+  paymentMethod: string;
+  paymentStatus: MerchantPaymentStatus;
+  subtotal: number;
+  discount: number;
+  delivery: number;
+  tax: number;
+  total: number;
+  placedAt: string;
+  acceptedAt?: string | null;
+  preparingAt?: string | null;
+  readyAt?: string | null;
+  status: MerchantOrderStatus;
+  history: MerchantOrderHistoryEntry[];
+}
+
 export async function fetchMerchantOrdersPage(
   providerId: string,
   page = 0,
@@ -74,6 +123,16 @@ export async function fetchMerchantOrdersPage(
 export async function fetchMerchantOrders(providerId: string): Promise<MerchantOrder[]> {
   const result = await fetchMerchantOrdersPage(providerId, 0, 100);
   return result.content;
+}
+
+export async function fetchMerchantOrder(orderId: string): Promise<MerchantOrder> {
+  return apiClient.get<MerchantOrder>(`/api/v1/orders/${encodeURIComponent(orderId)}`);
+}
+
+export async function fetchMerchantOrderDetail(orderId: string): Promise<MerchantOrderDetail> {
+  return apiClient.get<MerchantOrderDetail>(
+    `/api/v1/orders/${encodeURIComponent(orderId)}/merchant-detail`,
+  );
 }
 
 export async function transitionMerchantOrder(
