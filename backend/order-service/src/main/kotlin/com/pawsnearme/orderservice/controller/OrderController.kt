@@ -4,6 +4,7 @@ import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
 import com.pawsnearme.orderservice.service.CheckoutIntegrityService
 import com.pawsnearme.orderservice.service.CreateOrderRequest
+import com.pawsnearme.orderservice.service.CustomerOrderProjectionService
 import com.pawsnearme.orderservice.service.DeliveryContactLookup
 import com.pawsnearme.orderservice.service.OrderService
 import jakarta.validation.Valid
@@ -20,6 +21,7 @@ class OrderController(
     private val checkoutIntegrityService: CheckoutIntegrityService,
     private val orderRepository: OrderRepository,
     private val deliveryContactLookup: DeliveryContactLookup,
+    private val customerOrderProjectionService: CustomerOrderProjectionService? = null,
 ) {
 
     @PostMapping
@@ -53,7 +55,12 @@ class OrderController(
         order.deliveryContactPhone = normalizedDeliveryPhone
         order.deliveryContactVerified = normalizeIndiaMobile(verifiedAuthPhone) == normalizedDeliveryPhone
         val saved = orderRepository.save(order)
-        return ResponseEntity.status(HttpStatus.CREATED).body(saved)
+        val response = customerOrderProjectionService?.detail(
+            requireNotNull(saved.orderId),
+            customerId,
+            "CUSTOMER",
+        ) ?: saved
+        return ResponseEntity.status(HttpStatus.CREATED).body(response)
     }
 
     @GetMapping("/{id}")
@@ -63,7 +70,10 @@ class OrderController(
         @RequestHeader(value = "X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
         if (authenticatedUserId.isNullOrBlank()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
-        return ResponseEntity.ok(orderService.getOrderWithAuth(id, UUID.fromString(authenticatedUserId), authenticatedUserRole))
+        val callerId = UUID.fromString(authenticatedUserId)
+        val response = customerOrderProjectionService?.detail(id, callerId, authenticatedUserRole)
+            ?: orderService.getOrderWithAuth(id, callerId, authenticatedUserRole)
+        return ResponseEntity.ok(response)
     }
 
     @GetMapping("/customer/{customerId}")
@@ -73,7 +83,10 @@ class OrderController(
         @RequestHeader(value = "X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
         if (authenticatedUserId.isNullOrBlank()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
-        return ResponseEntity.ok(orderService.getOrdersByCustomerWithAuth(customerId, UUID.fromString(authenticatedUserId), authenticatedUserRole))
+        val callerId = UUID.fromString(authenticatedUserId)
+        val response = customerOrderProjectionService?.tracking(customerId, callerId, authenticatedUserRole)
+            ?: orderService.getOrdersByCustomerWithAuth(customerId, callerId, authenticatedUserRole)
+        return ResponseEntity.ok(response)
     }
 
     @GetMapping("/customer/{customerId}/tracking")
@@ -83,7 +96,10 @@ class OrderController(
         @RequestHeader(value = "X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
         if (authenticatedUserId.isNullOrBlank()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Missing authenticated user context."))
-        return ResponseEntity.ok(orderService.getCustomerOrderSummariesWithAuth(customerId, UUID.fromString(authenticatedUserId), authenticatedUserRole))
+        val callerId = UUID.fromString(authenticatedUserId)
+        val response = customerOrderProjectionService?.tracking(customerId, callerId, authenticatedUserRole)
+            ?: orderService.getCustomerOrderSummariesWithAuth(customerId, callerId, authenticatedUserRole)
+        return ResponseEntity.ok(response)
     }
 
     @GetMapping("/provider/{providerId}")
