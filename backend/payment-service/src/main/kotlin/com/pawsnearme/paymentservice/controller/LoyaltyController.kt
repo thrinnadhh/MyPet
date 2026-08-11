@@ -189,7 +189,7 @@ class LoyaltyController(
 
     private fun authorizeProgramWrite(providerId: UUID?, actorId: UUID, role: String?) {
         if (role.equals("ADMIN", ignoreCase = true)) return
-        if (!role.equals("PROVIDER", ignoreCase = true) && !role.equals("MERCHANT", ignoreCase = true)) {
+        if (!role.equals("MERCHANT", ignoreCase = true)) {
             throw PaymentAccessDeniedException("Modifying loyalty programs requires ADMIN or MERCHANT role")
         }
         val requestedProviderId = providerId
