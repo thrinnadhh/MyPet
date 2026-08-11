@@ -15,7 +15,7 @@ import java.util.UUID
 
 class RemoteCatalogModuleApiTests {
     @Test
-    fun `offering lookup uses authenticated internal catalog endpoint`() {
+    fun `offering lookup preserves list price over authenticated internal catalog endpoint`() {
         val restTemplate = RestTemplate()
         val server = MockRestServiceServer.bindTo(restTemplate).build()
         val offeringId = UUID.randomUUID()
@@ -33,6 +33,7 @@ class RemoteCatalogModuleApiTests {
                       "providerId": "$providerId",
                       "name": "M8 Dog Food",
                       "price": 199.00,
+                      "listPrice": 249.00,
                       "status": "ACTIVE",
                       "stockQuantity": 25
                     }
@@ -51,6 +52,7 @@ class RemoteCatalogModuleApiTests {
         assertEquals(providerId, snapshot.providerId)
         assertEquals("M8 Dog Food", snapshot.name)
         assertEquals(0, snapshot.price.compareTo(BigDecimal("199.00")))
+        assertEquals(0, requireNotNull(snapshot.listPrice).compareTo(BigDecimal("249.00")))
         assertEquals("ACTIVE", snapshot.status)
         assertEquals(25, snapshot.stockQuantity)
         server.verify()

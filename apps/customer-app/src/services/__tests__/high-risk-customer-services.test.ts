@@ -3,12 +3,10 @@ import * as WebBrowser from 'expo-web-browser';
 
 import { apiClient } from '../api-client';
 import {
-  confirmPaidOrder,
   createHostedCheckoutSession,
   fetchOrderPaymentStatus,
   initiateOrderPayment,
   openCashfreeOrder,
-  reconcilePaidOrder,
   waitForPaymentOutcome,
 } from '../customer-payments';
 import {
@@ -164,43 +162,30 @@ describe('high-risk customer service contracts', () => {
       ).rejects.toThrow('invalid checkout session');
     });
 
-    it('reconciles authoritative status and confirms only successful payments', async () => {
-      mockedApiClient.post
-        .mockResolvedValueOnce(payment)
-        .mockResolvedValueOnce(undefined);
-
-      await expect(reconcilePaidOrder('order/1')).resolves.toEqual(payment);
-      expect(mockedApiClient.post).toHaveBeenNthCalledWith(
-        1,
-        '/api/v1/payments/transactions/reference/order%2F1/reconcile',
-      );
-      expect(mockedApiClient.post).toHaveBeenNthCalledWith(
-        2,
-        '/api/v1/orders/order%2F1/confirm?paymentId=txn-1',
-      );
-
+    it('observes authoritative payment status without client reconciliation or order confirmation', async () => {
       mockedApiClient.get.mockResolvedValueOnce(payment);
+
       await expect(fetchOrderPaymentStatus('order/1')).resolves.toEqual(payment);
       expect(mockedApiClient.get).toHaveBeenCalledWith(
         '/api/v1/payments/transactions/reference/order%2F1',
       );
-
-      mockedApiClient.post.mockResolvedValueOnce(undefined);
-      await confirmPaidOrder('order/1', 'txn/1');
-      expect(mockedApiClient.post).toHaveBeenLastCalledWith(
-        '/api/v1/orders/order%2F1/confirm?paymentId=txn%2F1',
-      );
+      expect(mockedApiClient.post).not.toHaveBeenCalled();
     });
 
-    it('polls pending outcomes and stops after a terminal status', async () => {
-      mockedApiClient.post
+    it('polls pending outcomes with GET only and stops after a terminal status', async () => {
+      mockedApiClient.get
         .mockResolvedValueOnce({ ...payment, status: 'PENDING' })
         .mockResolvedValueOnce({ ...payment, status: 'FAILED' });
 
       const result = await waitForPaymentOutcome('order-1', 3, 0);
 
       expect(result.status).toBe('FAILED');
-      expect(mockedApiClient.post).toHaveBeenCalledTimes(2);
+      expect(mockedApiClient.get).toHaveBeenCalledTimes(2);
+      expect(mockedApiClient.get).toHaveBeenNthCalledWith(
+        1,
+        '/api/v1/payments/transactions/reference/order-1',
+      );
+      expect(mockedApiClient.post).not.toHaveBeenCalled();
     });
   });
 

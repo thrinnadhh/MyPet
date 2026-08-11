@@ -2,8 +2,6 @@ package com.pawsnearme.paymentservice.controller
 
 import com.pawsnearme.paymentservice.model.Transaction
 import com.pawsnearme.paymentservice.repository.TransactionRepository
-import com.pawsnearme.paymentservice.service.CashfreeGatewayService
-import com.pawsnearme.paymentservice.service.PaymentResultEvent
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -16,8 +14,7 @@ import java.util.UUID
 
 class CustomerPaymentStatusControllerTests {
     private val transactionRepository: TransactionRepository = mock()
-    private val cashfreeGatewayService: CashfreeGatewayService = mock()
-    private val service = CustomerPaymentStatusService(transactionRepository, cashfreeGatewayService)
+    private val service = CustomerPaymentStatusService(transactionRepository)
     private val controller = CustomerPaymentStatusController(service)
 
     @Test
@@ -40,30 +37,20 @@ class CustomerPaymentStatusControllerTests {
     }
 
     @Test
-    fun `owner can request server side Cashfree reconciliation`() {
+    fun `payment status observation does not mutate a pending transaction`() {
         val userId = UUID.randomUUID()
         val referenceId = UUID.randomUUID()
         val transactionId = UUID.randomUUID()
         val pending = transaction(userId, referenceId, transactionId, "PENDING")
-        val success = transaction(userId, referenceId, transactionId, "SUCCESS")
         whenever(transactionRepository.findFirstByReferenceIdOrderByCreatedAtDesc(referenceId))
-            .thenReturn(pending, success)
-        whenever(cashfreeGatewayService.reconcile(referenceId)).thenReturn(
-            PaymentResultEvent(
-                eventType = "PaymentCaptured",
-                transactionId = transactionId,
-                referenceId = referenceId,
-                actorId = userId,
-                amount = BigDecimal("799.00"),
-                gateway = "CASHFREE",
-                gatewayTransactionId = "mypet_order_123",
-            ),
-        )
+            .thenReturn(pending)
 
-        val response = controller.reconcileLatestForReference(referenceId, userId.toString(), "CUSTOMER")
+        val first = controller.getLatestForReference(referenceId, userId.toString(), "CUSTOMER")
+        val second = controller.getLatestForReference(referenceId, userId.toString(), "CUSTOMER")
 
-        assertEquals(HttpStatus.OK, response.statusCode)
-        assertEquals("SUCCESS", response.body?.status)
+        assertEquals("PENDING", first.body?.status)
+        assertEquals("PENDING", second.body?.status)
+        assertEquals("PENDING", pending.status)
     }
 
     @Test
@@ -75,18 +62,6 @@ class CustomerPaymentStatusControllerTests {
 
         assertThrows<PaymentAccessDeniedException> {
             controller.getLatestForReference(referenceId, UUID.randomUUID().toString(), "CUSTOMER")
-        }
-    }
-
-    @Test
-    fun `different customer cannot trigger Cashfree reconciliation`() {
-        val ownerId = UUID.randomUUID()
-        val referenceId = UUID.randomUUID()
-        whenever(transactionRepository.findFirstByReferenceIdOrderByCreatedAtDesc(referenceId))
-            .thenReturn(transaction(ownerId, referenceId, UUID.randomUUID(), "PENDING"))
-
-        assertThrows<PaymentAccessDeniedException> {
-            controller.reconcileLatestForReference(referenceId, UUID.randomUUID().toString(), "CUSTOMER")
         }
     }
 

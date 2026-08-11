@@ -5,6 +5,7 @@ import com.pawsnearme.dispatchservice.model.JobStatus
 import com.pawsnearme.dispatchservice.repository.DispatchOfferRepository
 import com.pawsnearme.dispatchservice.repository.DispatchJobRepository
 import com.pawsnearme.dispatchservice.service.DeliveryContactLookup
+import com.pawsnearme.dispatchservice.service.DispatchRouteContextLookup
 import com.pawsnearme.dispatchservice.service.DispatchService
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -20,7 +21,13 @@ data class DispatchOfferDTO(
     val respondedAt: Instant?,
     val response: String?,
     val offerRank: Int,
-    val orderId: UUID
+    val orderId: UUID,
+    val merchantName: String? = null,
+    val pickupAddress: String? = null,
+    val pickupLatitude: Double? = null,
+    val pickupLongitude: Double? = null,
+    val pickupDistanceKm: Double? = null,
+    val pickupEtaMinutes: Int? = null,
 )
 
 data class DispatchJobView(
@@ -32,7 +39,18 @@ data class DispatchJobView(
     val resolvedAt: Instant?,
     val assignedAt: Instant?,
     val customerPhone: String? = null,
-    val customerPhoneVerified: Boolean = false
+    val customerPhoneVerified: Boolean = false,
+    val merchantName: String? = null,
+    val pickupAddress: String? = null,
+    val pickupLatitude: Double? = null,
+    val pickupLongitude: Double? = null,
+    val dropAddress: String? = null,
+    val dropLatitude: Double? = null,
+    val dropLongitude: Double? = null,
+    val pickupDistanceKm: Double? = null,
+    val pickupEtaMinutes: Int? = null,
+    val deliveryDistanceKm: Double? = null,
+    val deliveryEtaMinutes: Int? = null,
 )
 
 data class DeliveryProofRequest(
@@ -45,7 +63,8 @@ class DispatchController(
     private val dispatchService: DispatchService,
     private val offerRepository: DispatchOfferRepository,
     private val jobRepository: DispatchJobRepository,
-    private val deliveryContactLookup: DeliveryContactLookup
+    private val deliveryContactLookup: DeliveryContactLookup,
+    private val routeContextLookup: DispatchRouteContextLookup,
 ) {
 
     @PostMapping("/offers/{offerId}/respond")
@@ -77,6 +96,7 @@ class DispatchController(
         val dtos = offers.map { offer ->
             val job = jobRepository.findById(offer.jobId)
                 .orElseThrow { NoSuchElementException("Job ${offer.jobId} not found") }
+            val route = routeContextLookup.forOrder(job.orderId, finalCaptainId)
             DispatchOfferDTO(
                 offerId = offer.offerId!!,
                 jobId = offer.jobId,
@@ -85,7 +105,13 @@ class DispatchController(
                 respondedAt = offer.respondedAt,
                 response = offer.response,
                 offerRank = offer.offerRank,
-                orderId = job.orderId
+                orderId = job.orderId,
+                merchantName = route?.merchantName,
+                pickupAddress = route?.pickupAddress,
+                pickupLatitude = route?.pickupLatitude,
+                pickupLongitude = route?.pickupLongitude,
+                pickupDistanceKm = route?.pickupDistanceKm,
+                pickupEtaMinutes = route?.pickupEtaMinutes,
             )
         }
         return ResponseEntity.ok(dtos)
@@ -93,7 +119,7 @@ class DispatchController(
 
     /**
      * Authenticated captain history and restart-resume source.
-     * Delivery contact is exposed only while the accepted job is active.
+     * Delivery contact and drop address are exposed only while an accepted job is active.
      * OTP values never leave the dispatch service.
      */
     @GetMapping("/jobs/me")
@@ -106,7 +132,7 @@ class DispatchController(
             .findByCaptainIdAndResponseOrderByRespondedAtDesc(captainId, "ACCEPTED")
             .mapNotNull { offer ->
                 jobRepository.findById(offer.jobId).orElse(null)?.let { job ->
-                    toView(job, offer.respondedAt)
+                    toView(job, offer.respondedAt, captainId)
                 }
             }
         return ResponseEntity.ok(jobs)
@@ -122,7 +148,10 @@ class DispatchController(
         val jobs = jobRepository.findAll()
             .filter { status == null || it.status == status }
             .sortedByDescending { it.createdAt }
-            .map { toView(it, acceptedOfferFor(it)?.respondedAt) }
+            .map { job ->
+                val accepted = acceptedOfferFor(job)
+                toView(job, accepted?.respondedAt, accepted?.captainId)
+            }
         return ResponseEntity.ok(jobs)
     }
 
@@ -134,7 +163,8 @@ class DispatchController(
         if (role != "ADMIN") return adminOnly()
         val job = jobRepository.findByOrderId(orderId)
             ?: throw NoSuchElementException("Job for order $orderId not found")
-        return ResponseEntity.ok(toView(job, acceptedOfferFor(job)?.respondedAt))
+        val accepted = acceptedOfferFor(job)
+        return ResponseEntity.ok(toView(job, accepted?.respondedAt, accepted?.captainId))
     }
 
     @PostMapping("/jobs/{jobId}/pickup")
@@ -146,7 +176,7 @@ class DispatchController(
         if (xUserId.isNullOrBlank()) return unauthorizedCaptain()
         val captainId = UUID.fromString(xUserId)
         val updated = dispatchService.markPickedUp(jobId, captainId, request.proofCode)
-        return ResponseEntity.ok(toView(updated, acceptedOfferFor(updated)?.respondedAt))
+        return ResponseEntity.ok(toView(updated, acceptedOfferFor(updated)?.respondedAt, captainId))
     }
 
     @PostMapping("/jobs/{jobId}/deliver")
@@ -158,7 +188,7 @@ class DispatchController(
         if (xUserId.isNullOrBlank()) return unauthorizedCaptain()
         val captainId = UUID.fromString(xUserId)
         val updated = dispatchService.markDelivered(jobId, captainId, request.proofCode)
-        return ResponseEntity.ok(toView(updated, acceptedOfferFor(updated)?.respondedAt))
+        return ResponseEntity.ok(toView(updated, acceptedOfferFor(updated)?.respondedAt, captainId))
     }
 
     @PostMapping("/admin/check-timeouts")
@@ -173,9 +203,10 @@ class DispatchController(
     private fun acceptedOfferFor(job: DispatchJob) = job.jobId
         ?.let { offerRepository.findByJobId(it).firstOrNull { offer -> offer.response == "ACCEPTED" } }
 
-    private fun toView(job: DispatchJob, assignedAt: Instant?): DispatchJobView {
+    private fun toView(job: DispatchJob, assignedAt: Instant?, captainId: UUID?): DispatchJobView {
         val active = job.status == JobStatus.ACCEPTED || job.status == JobStatus.PICKED_UP
         val contact = if (active) deliveryContactLookup.forOrder(job.orderId) else null
+        val route = if (active && captainId != null) routeContextLookup.forOrder(job.orderId, captainId) else null
         return DispatchJobView(
             jobId = requireNotNull(job.jobId),
             orderId = job.orderId,
@@ -185,7 +216,18 @@ class DispatchController(
             resolvedAt = job.resolvedAt,
             assignedAt = assignedAt,
             customerPhone = contact?.phoneNumber,
-            customerPhoneVerified = contact?.verified ?: false
+            customerPhoneVerified = contact?.verified ?: false,
+            merchantName = route?.merchantName,
+            pickupAddress = route?.pickupAddress,
+            pickupLatitude = route?.pickupLatitude,
+            pickupLongitude = route?.pickupLongitude,
+            dropAddress = route?.dropAddress,
+            dropLatitude = route?.dropLatitude,
+            dropLongitude = route?.dropLongitude,
+            pickupDistanceKm = route?.pickupDistanceKm,
+            pickupEtaMinutes = route?.pickupEtaMinutes,
+            deliveryDistanceKm = route?.deliveryDistanceKm,
+            deliveryEtaMinutes = route?.deliveryEtaMinutes,
         )
     }
 

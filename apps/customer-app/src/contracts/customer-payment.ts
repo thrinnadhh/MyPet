@@ -1,11 +1,19 @@
+import type { PaymentStatus } from './order-contract.generated';
+
 export type CustomerPaymentMethod = 'COD' | 'CARD' | 'UPI';
+
+// Transaction/gateway UI state. This is deliberately separate from the canonical
+// order payment status generated from contracts/order-lifecycle.json.
 export type CustomerPaymentStatus =
   | 'NOT_STARTED'
   | 'PENDING'
   | 'SUCCESS'
   | 'FAILED'
+  | 'EXPIRED'
   | 'REFUNDED'
   | 'PARTIALLY_REFUNDED';
+
+export type CustomerOrderPaymentStatus = PaymentStatus;
 
 export interface CustomerPaymentState {
   orderId: string;
@@ -22,7 +30,7 @@ export function paymentAllowsCartClear(status: CustomerPaymentStatus): boolean {
 }
 
 export function paymentNeedsRetry(status: CustomerPaymentStatus): boolean {
-  return status === 'FAILED' || status === 'NOT_STARTED';
+  return status === 'FAILED' || status === 'EXPIRED' || status === 'NOT_STARTED';
 }
 
 export function isTerminalOrderStatus(status: string): boolean {

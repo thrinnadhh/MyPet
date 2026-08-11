@@ -74,23 +74,24 @@ describe('customer appointment payments', () => {
     });
   });
 
-  it('polls appointment reconciliation until Cashfree returns a terminal status', async () => {
-    mockedApiClient.post
+  it('polls authoritative appointment payment status with GET until terminal', async () => {
+    mockedApiClient.get
       .mockResolvedValueOnce({ ...appointmentPayment, status: 'PENDING' })
       .mockResolvedValueOnce(appointmentPayment);
 
     const result = await waitForReferencePaymentOutcome('appointment/1', 3, 0);
 
     expect(result.status).toBe('SUCCESS');
-    expect(mockedApiClient.post).toHaveBeenCalledTimes(2);
-    expect(mockedApiClient.post).toHaveBeenNthCalledWith(
+    expect(mockedApiClient.get).toHaveBeenCalledTimes(2);
+    expect(mockedApiClient.get).toHaveBeenNthCalledWith(
       1,
-      '/api/v1/payments/transactions/reference/appointment%2F1/reconcile',
+      '/api/v1/payments/transactions/reference/appointment%2F1',
     );
-    expect(mockedApiClient.post).toHaveBeenNthCalledWith(
+    expect(mockedApiClient.get).toHaveBeenNthCalledWith(
       2,
-      '/api/v1/payments/transactions/reference/appointment%2F1/reconcile',
+      '/api/v1/payments/transactions/reference/appointment%2F1',
     );
+    expect(mockedApiClient.post).not.toHaveBeenCalled();
   });
 
   it('accepts an absolute hosted checkout URL from the trusted payment service', async () => {

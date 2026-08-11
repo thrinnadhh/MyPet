@@ -73,6 +73,8 @@ class DispatchService @Autowired constructor(
     companion object {
         private val logger = LoggerFactory.getLogger(DispatchService::class.java)
         private const val GEO_KEY = "captains:locations"
+        private const val ONLINE_KEY = "captains:online"
+        private const val LOCATION_FRESH_PREFIX = "captains:location:fresh:"
         private const val ORDER_EVENT_CONSUMER_SCOPE = "dispatch-orders"
     }
 
@@ -91,6 +93,12 @@ class DispatchService @Autowired constructor(
             return
         }
 
+        // Dispatch is owned by exactly one canonical transition. A READY status
+        // produced by any other source must never start captain search.
+        if (event["fromStatus"] as? String != "PREPARING" || event["toStatus"] as? String != "READY_FOR_PICKUP") {
+            return
+        }
+
         val eventIdStr = event["eventId"] as? String ?: event["event_id"] as? String ?: return
         val eventId = try {
             UUID.fromString(eventIdStr)
@@ -103,12 +111,10 @@ class DispatchService @Autowired constructor(
             return
         }
 
-        if (event["toStatus"] as? String == "READY_FOR_PICKUP") {
-            val orderIdStr = event["orderId"] as? String ?: return
-            val orderId = UUID.fromString(orderIdStr)
-            logger.info("Received READY_FOR_PICKUP for order {}. Starting dispatch...", orderId)
-            startDispatchProcess(orderId)
-        }
+        val orderIdStr = event["orderId"] as? String ?: return
+        val orderId = UUID.fromString(orderIdStr)
+        logger.info("Received PREPARING -> READY_FOR_PICKUP for order {}. Starting dispatch...", orderId)
+        startDispatchProcess(orderId)
     }
 
     fun startDispatchProcess(orderId: UUID): DispatchJob {
@@ -181,10 +187,14 @@ class DispatchService @Autowired constructor(
                 null
             }
 
-            val onlineCaptains = results?.content?.map { UUID.fromString(it.content.name) } ?: emptyList()
-            val existingOffers = offerRepository.findByJobId(currentJob.jobId!!)
+            val geoCaptains = results?.content?.mapNotNull { result ->
+                runCatching { UUID.fromString(result.content.name) }.getOrNull()
+            } ?: emptyList()
+            val existingOffers = offerRepository.findByJobId(requireNotNull(currentJob.jobId))
             val attemptedCaptains = existingOffers.map { it.captainId }.toSet()
-            val candidate = onlineCaptains.firstOrNull { it !in attemptedCaptains }
+            val candidate = geoCaptains.firstOrNull { captainId ->
+                captainId !in attemptedCaptains && isCaptainEligible(captainId, requireNotNull(currentJob.jobId))
+            }
 
             if (candidate != null) {
                 val offer = DispatchOffer(
@@ -202,14 +212,14 @@ class DispatchService @Autowired constructor(
                     candidate,
                     mapOf("offer_id" to offer.offerId.toString(), "offer_rank" to offer.offerRank)
                 )
-                logger.info("Offered Job {} to Captain {}.", currentJob.jobId, candidate)
+                logger.info("Offered Job {} to eligible Captain {}.", currentJob.jobId, candidate)
                 return
             }
 
             currentJob.attemptCount += 1
             currentJob = jobRepository.save(currentJob)
             logger.debug(
-                "No candidate for job {} on attempt {}. Retrying in loop.",
+                "No eligible captain for job {} on attempt {}. Retrying in loop.",
                 currentJob.jobId,
                 currentJob.attemptCount
             )
@@ -225,6 +235,9 @@ class DispatchService @Autowired constructor(
         }
         if (offer.response != null) {
             throw IllegalStateException("Offer already responded with ${offer.response}")
+        }
+        if (response == "ACCEPTED" && !isCaptainEligible(captainId, offer.jobId)) {
+            throw IllegalStateException("Captain is no longer eligible to accept this delivery offer")
         }
 
         val savedOffer = try {
@@ -314,6 +327,42 @@ class DispatchService @Autowired constructor(
                 triggerNextOffer(job)
             }
         }
+    }
+
+    private fun isCaptainEligible(captainId: UUID, currentJobId: UUID): Boolean {
+        if (!isCaptainApproved(captainId)) return false
+
+        val online = redisTemplate.opsForSet().isMember(ONLINE_KEY, captainId.toString()) == true
+        val locationFresh = redisTemplate.hasKey("$LOCATION_FRESH_PREFIX$captainId") == true
+        if (!online || !locationFresh) return false
+
+        val anotherPendingOffer = offerRepository.findByCaptainIdAndResponseIsNull(captainId)
+            .any { it.jobId != currentJobId }
+        if (anotherPendingOffer) return false
+
+        val activeAssignment = offerRepository
+            .findByCaptainIdAndResponseOrderByRespondedAtDesc(captainId, "ACCEPTED")
+            .any { acceptedOffer ->
+                val assignedJob = jobRepository.findById(acceptedOffer.jobId).orElse(null)
+                assignedJob?.status in setOf(JobStatus.ACCEPTED, JobStatus.PICKED_UP)
+            }
+        return !activeAssignment
+    }
+
+    private fun isCaptainApproved(captainId: UUID): Boolean = try {
+        val query = entityManager.createNativeQuery(
+            """
+                SELECT COUNT(*)
+                FROM captains.captain_profiles
+                WHERE captain_id = :captainId
+                  AND status = 'ACTIVE'
+            """.trimIndent()
+        )
+        query.setParameter("captainId", captainId)
+        (query.singleResult as Number).toLong() == 1L
+    } catch (error: Exception) {
+        logger.warn("Captain approval lookup failed for {}: {}", captainId, error.message)
+        false
     }
 
     private fun getProviderCoordinates(orderId: UUID): Pair<Double, Double>? = try {

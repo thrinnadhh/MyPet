@@ -1,13 +1,11 @@
 package com.pawsnearme.paymentservice.controller
 
 import com.pawsnearme.paymentservice.repository.TransactionRepository
-import com.pawsnearme.paymentservice.service.CashfreeGatewayService
 import org.springframework.http.ResponseEntity
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
@@ -29,7 +27,6 @@ data class CustomerPaymentStatusView(
 @Service
 class CustomerPaymentStatusService(
     private val transactionRepository: TransactionRepository,
-    private val cashfreeGatewayService: CashfreeGatewayService,
 ) {
     @Transactional(readOnly = true)
     fun latestForReference(
@@ -37,31 +34,15 @@ class CustomerPaymentStatusService(
         requesterId: String?,
         requesterRole: String?,
     ): CustomerPaymentStatusView {
-        val transaction = ownedTransaction(referenceId, requesterId, requesterRole)
-        return transaction.toStatusView()
-    }
-
-    fun reconcileForReference(
-        referenceId: UUID,
-        requesterId: String?,
-        requesterRole: String?,
-    ): CustomerPaymentStatusView {
-        val transaction = ownedTransaction(referenceId, requesterId, requesterRole)
-        if (transaction.gateway != "CASHFREE") {
-            throw IllegalStateException("Payment transaction is not configured for Cashfree")
-        }
-        cashfreeGatewayService.reconcile(referenceId)
-        return ownedTransaction(referenceId, requesterId, requesterRole).toStatusView()
-    }
-
-    private fun ownedTransaction(referenceId: UUID, requesterId: String?, requesterRole: String?) =
-        transactionRepository.findFirstByReferenceIdOrderByCreatedAtDesc(referenceId)
-            ?.also { transaction ->
-                if (requesterRole != "ADMIN" && requesterId != transaction.userId.toString()) {
+        val transaction = transactionRepository.findFirstByReferenceIdOrderByCreatedAtDesc(referenceId)
+            ?.also { tx ->
+                if (requesterRole != "ADMIN" && requesterId != tx.userId.toString()) {
                     throw PaymentAccessDeniedException("Access denied for payment status")
                 }
             }
             ?: throw NoSuchElementException("Payment transaction not found for reference ID $referenceId")
+        return transaction.toStatusView()
+    }
 
     private fun com.pawsnearme.paymentservice.model.Transaction.toStatusView() = CustomerPaymentStatusView(
         transactionId = requireNotNull(transactionId),
@@ -87,14 +68,5 @@ class CustomerPaymentStatusController(
         @RequestHeader("X-User-Role", required = false) xUserRole: String?,
     ): ResponseEntity<CustomerPaymentStatusView> = ResponseEntity.ok(
         paymentStatusService.latestForReference(referenceId, xUserId, xUserRole),
-    )
-
-    @PostMapping("/{referenceId}/reconcile")
-    fun reconcileLatestForReference(
-        @PathVariable referenceId: UUID,
-        @RequestHeader("X-User-Id", required = false) xUserId: String?,
-        @RequestHeader("X-User-Role", required = false) xUserRole: String?,
-    ): ResponseEntity<CustomerPaymentStatusView> = ResponseEntity.ok(
-        paymentStatusService.reconcileForReference(referenceId, xUserId, xUserRole),
     )
 }

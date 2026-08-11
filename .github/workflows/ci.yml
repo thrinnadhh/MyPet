@@ -47,6 +47,11 @@ jobs:
             apps/customer-app/package-lock.json
             apps/merchant-captain-app/package-lock.json
 
+      - name: Validate Canonical Checkout Contracts
+        run: |
+          node scripts/generate-order-contracts.mjs --check
+          node scripts/generate-checkout-pricing-contracts.mjs --check
+
       - name: Validate Customer App
         run: |
           cd apps/customer-app

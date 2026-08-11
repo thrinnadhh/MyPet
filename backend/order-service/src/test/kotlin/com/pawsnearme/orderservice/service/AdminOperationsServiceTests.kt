@@ -4,6 +4,7 @@ import com.pawsnearme.orderservice.model.AdminAuditLog
 import com.pawsnearme.orderservice.model.Dispute
 import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderStatus
+import com.pawsnearme.orderservice.model.PaymentStatus
 import com.pawsnearme.orderservice.model.ServiceAreaConfig
 import com.pawsnearme.orderservice.model.SupportCase
 import com.pawsnearme.orderservice.repository.AdminAuditLogRepository
@@ -56,9 +57,9 @@ class AdminOperationsServiceTests {
         val now = Instant.parse("2026-08-02T06:00:00Z")
         whenever(orderRepository.findAll()).thenReturn(
             listOf(
-                order(OrderStatus.PREPARING, now.minus(3, ChronoUnit.HOURS), "SUCCESS"),
-                order(OrderStatus.READY_FOR_PICKUP, now.minus(30, ChronoUnit.MINUTES), "FAILED"),
-                order(OrderStatus.COMPLETED, now.minus(8, ChronoUnit.HOURS), "SUCCESS")
+                order(OrderStatus.PREPARING, now.minus(3, ChronoUnit.HOURS), PaymentStatus.SUCCESS),
+                order(OrderStatus.READY_FOR_PICKUP, now.minus(30, ChronoUnit.MINUTES), PaymentStatus.FAILED),
+                order(OrderStatus.COMPLETED, now.minus(8, ChronoUnit.HOURS), PaymentStatus.SUCCESS)
             )
         )
         whenever(disputeRepository.findAll()).thenReturn(
@@ -126,7 +127,7 @@ class AdminOperationsServiceTests {
         }
     }
 
-    private fun order(status: OrderStatus, placedAt: Instant, paymentStatus: String) = Order(
+    private fun order(status: OrderStatus, placedAt: Instant, paymentStatus: PaymentStatus) = Order(
         customerId = UUID.randomUUID(),
         providerId = UUID.randomUUID(),
         deliveryAddressId = UUID.randomUUID(),

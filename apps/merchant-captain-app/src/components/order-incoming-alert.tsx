@@ -10,13 +10,13 @@ export function OrderIncomingAlert({
   visible,
   orderId,
   amount,
-  onAccept,
+  onView,
   onDismiss,
 }: {
   visible: boolean;
   orderId: string;
   amount: string;
-  onAccept: () => void;
+  onView: () => void;
   onDismiss: () => void;
 }) {
   const theme = useTheme();
@@ -47,17 +47,17 @@ export function OrderIncomingAlert({
             <ThemedText style={styles.subtitle}>
               Order #{orderId.slice(0, 8)} · {amount}
             </ThemedText>
-            <ThemedText style={styles.hint}>Loud alert enabled — pack before pickup</ThemedText>
+            <ThemedText style={styles.hint}>Review this order before accepting or rejecting it</ThemedText>
           </View>
         </View>
         <View style={styles.actions}>
           <Pressable
-            onPress={onAccept}
+            onPress={onView}
             style={[styles.accept, { backgroundColor: '#FFFFFF' }]}
             accessibilityRole="button"
-            accessibilityLabel="Accept and pack order"
+            accessibilityLabel="View order"
           >
-            <ThemedText style={{ color: theme.danger, fontWeight: '900' }}>Pack order</ThemedText>
+            <ThemedText style={{ color: theme.danger, fontWeight: '900' }}>View order</ThemedText>
           </Pressable>
           <Pressable onPress={onDismiss} accessibilityRole="button" accessibilityLabel="Dismiss alert">
             <ThemedText style={{ color: '#FFFFFF', fontWeight: '700' }}>Dismiss</ThemedText>
