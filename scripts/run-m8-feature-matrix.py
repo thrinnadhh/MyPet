@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute the M8 scenario graph with explicit contract and async evidence."""
+"""Execute the M8 scenario graph with explicit current-contract evidence."""
 
 from __future__ import annotations
 
@@ -81,11 +81,10 @@ GATEWAY_SECRET = configured_env_value("GATEWAY_SECRET")
 _original_request = matrix.request
 _original_poll = matrix.poll
 _original_require = matrix.require
-_payment_transactions: dict[str, str] = {}
 _verified_in_process_loyalty_events: set[tuple[str, str]] = set()
 
 
-def post_cashfree_success_webhook(order_id: str, amount: Any) -> Any:
+def post_cashfree_success_webhook(payment_order_id: str, amount: Any) -> Any:
     """Deliver a correctly signed Cashfree sandbox success event through the gateway."""
     timestamp = str(int(time.time() * 1000))
     payload = {
@@ -93,12 +92,12 @@ def post_cashfree_success_webhook(order_id: str, amount: Any) -> Any:
         "event_time": "2026-08-06T00:00:00Z",
         "data": {
             "order": {
-                "order_id": order_id,
+                "order_id": payment_order_id,
                 "order_amount": amount,
                 "order_currency": "INR",
             },
             "payment": {
-                "cf_payment_id": f"m8_{order_id[-20:]}",
+                "cf_payment_id": f"m8_{payment_order_id[-20:]}",
                 "payment_status": "SUCCESS",
                 "payment_amount": amount,
                 "payment_currency": "INR",
@@ -121,7 +120,7 @@ def post_cashfree_success_webhook(order_id: str, amount: Any) -> Any:
             "Content-Type": "application/json",
             "X-Webhook-Timestamp": timestamp,
             "X-Webhook-Signature": signature,
-            "X-Idempotency-Key": f"m8-cashfree-{order_id}",
+            "X-Idempotency-Key": f"m8-cashfree-{payment_order_id}",
         },
         method="POST",
     )
@@ -186,6 +185,7 @@ def internal_loyalty_request(
     payload: Any = None,
     expected: tuple[int, ...] = (200,),
 ) -> Any:
+    """Exercise loyalty events on the same internal boundary used in production."""
     if MONOLITH_MODE:
         return verify_monolith_loyalty_handoff(path, payload)
 
@@ -220,6 +220,70 @@ def internal_loyalty_request(
     return decoded
 
 
+def observe_webhook_reconciled_order(actor: Any, order_id: str) -> dict[str, Any]:
+    """Prove the server reconciles payment without a client order-confirm mutation."""
+    reconciled = _original_poll(
+        "webhook-owned order payment reconciliation",
+        lambda: _original_request(
+            "GET",
+            f"/api/v1/orders/{order_id}",
+            actor,
+            expected=(200,),
+        ),
+        lambda value: value.get("paymentStatus") == "SUCCESS",
+        timeout=30,
+    )
+    _original_require(
+        reconciled.get("status") == "PLACED",
+        "payment webhook advanced the order lifecycle",
+        reconciled,
+    )
+    _original_require(
+        reconciled.get("paymentStatus") == "SUCCESS",
+        "payment webhook did not persist SUCCESS",
+        reconciled,
+    )
+    _original_require(
+        reconciled.get("acceptedAt") is None,
+        "payment webhook incorrectly populated merchant acceptance time",
+        reconciled,
+    )
+    matrix.append_report(
+        "- ✅ **server-owned payment reconciliation** — signed Cashfree webhook persisted "
+        f"`SUCCESS` for order `{order_id}` while lifecycle stayed `PLACED`; no client `/confirm` call was used.\n"
+    )
+    return reconciled
+
+
+def certify_preparing_gate(method: str, path: str, actor: Any, payload: Any) -> Any:
+    """Prove READY_FOR_PICKUP cannot skip PREPARING, then follow the valid path."""
+    order_id = path.removeprefix("/api/v1/orders/").split("/", 1)[0]
+
+    _original_request(method, path, actor, payload, expected=(409,))
+    preparing = _original_request(
+        "PUT",
+        f"/api/v1/orders/{order_id}/status?status=PREPARING",
+        actor,
+        expected=(200,),
+    )
+    _original_require(
+        preparing.get("status") == "PREPARING",
+        "merchant could not transition ACCEPTED order to PREPARING",
+        preparing,
+    )
+    ready = _original_request(method, path, actor, payload, expected=(200,))
+    _original_require(
+        ready.get("status") == "READY_FOR_PICKUP",
+        "merchant could not transition PREPARING order to READY_FOR_PICKUP",
+        ready,
+    )
+    matrix.append_report(
+        "- ✅ **canonical fulfillment gate** — direct `ACCEPTED → READY_FOR_PICKUP` "
+        f"was rejected for order `{order_id}`, then `PREPARING → READY_FOR_PICKUP` succeeded.\n"
+    )
+    return ready
+
+
 def contract_request(
     method: str,
     path: str,
@@ -240,9 +304,6 @@ def contract_request(
         _original_request(method, path, actor, payload, expected=(400,))
         return {"status": "CONFIRMED", "unsupportedStatusRejected": True}
 
-    # The shared M8 scenario was originally authored around COD. The connected
-    # payment certification intentionally exercises the prepaid CARD path instead,
-    # but the order must still remain PLACED until the merchant explicitly accepts.
     if (
         method == "POST"
         and path == "/api/v1/orders"
@@ -260,8 +321,14 @@ def contract_request(
             expected=(200,),
         )
         online_payload["quoteToken"] = online_quote["quoteToken"]
-        return _original_request(method, path, actor, online_payload, expected)
+        created = _original_request(method, path, actor, online_payload, expected)
+        _original_require(created.get("status") == "PLACED", "online order was not PLACED", created)
+        _original_require(created.get("paymentStatus") == "PENDING", "online order was not payment PENDING", created)
+        return created
 
+    # The historical scenario still names the removed client result endpoint. Translate
+    # that call into the production path: initiate Cashfree, deliver its signed webhook,
+    # observe OrderService reconciliation, and return the historical event-shaped evidence.
     if (
         method == "POST"
         and path == "/api/v1/payments/transactions/result"
@@ -283,32 +350,23 @@ def contract_request(
             expected=(201,),
         )
         post_cashfree_success_webhook(initiation["orderId"], payload["amount"])
-        _payment_transactions[str(payload["referenceId"])] = str(initiation["transactionId"])
-        return _original_request(method, path, actor, payload, expected=(200,))
+        observe_webhook_reconciled_order(actor, str(payload["referenceId"]))
+        return {
+            "eventType": "PaymentCaptured",
+            "transactionId": initiation["transactionId"],
+            "referenceId": payload["referenceId"],
+            "amount": payload["amount"],
+            "gateway": "CASHFREE",
+            "gatewayTransactionId": initiation["orderId"],
+            "serverReconciled": True,
+        }
 
     if (
         method == "PUT"
         and path.startswith("/api/v1/orders/")
-        and "/status?status=ACCEPTED" in path
+        and "/status?status=READY_FOR_PICKUP" in path
     ):
-        order_id = path.removeprefix("/api/v1/orders/").split("/", 1)[0]
-        payment_id = _payment_transactions.get(order_id)
-        if payment_id is not None:
-            payment_confirmed = _original_request(
-                "POST",
-                f"/api/v1/orders/{order_id}/confirm?paymentId={payment_id}",
-                actor,
-                expected=(200,),
-            )
-            if payment_confirmed.get("status") != "PLACED" or payment_confirmed.get("paymentStatus") != "SUCCESS":
-                raise AssertionError(
-                    "Verified prepaid payment must leave the order PLACED until merchant acceptance: "
-                    f"{payment_confirmed}"
-                )
-            accepted = _original_request(method, path, actor, payload, expected)
-            if accepted.get("status") != "ACCEPTED":
-                raise AssertionError(f"Merchant acceptance did not produce ACCEPTED: {accepted}")
-            return accepted
+        return certify_preparing_gate(method, path, actor, payload)
 
     if method == "GET" and path.startswith("/api/v1/dispatch/jobs/by-order/"):
         order_id = path.rsplit("/", 1)[-1]

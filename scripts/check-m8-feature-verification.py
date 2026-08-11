@@ -65,11 +65,17 @@ if runner_path.is_file():
         "/status?status=IN_PROGRESS",
         "_original_request(method, path, actor, payload, expected=(400,))",
         '"unsupportedStatusRejected": True',
-        'payment_confirmed.get("status") != "PLACED"',
-        'payment_confirmed.get("paymentStatus") != "SUCCESS"',
-        "Verified prepaid payment must leave the order PLACED until merchant acceptance",
-        "Merchant acceptance did not produce ACCEPTED",
-        'accepted = _original_request(method, path, actor, payload, expected)',
+        "post_cashfree_success_webhook",
+        "observe_webhook_reconciled_order",
+        'reconciled.get("status") == "PLACED"',
+        'reconciled.get("paymentStatus") == "SUCCESS"',
+        'reconciled.get("acceptedAt") is None',
+        "payment webhook advanced the order lifecycle",
+        "no client `/confirm` call was used",
+        "certify_preparing_gate",
+        "status?status=PREPARING",
+        '"/status?status=READY_FOR_PICKUP"',
+        "direct `ACCEPTED → READY_FOR_PICKUP`",
         "matrix.require = contract_require",
         "published AppointmentBooked outbox event with slot_start",
         "appointment-outbox.txt",
@@ -92,6 +98,16 @@ if runner_path.is_file():
     ):
         if required not in runner:
             failures.append(f"M8 runner is missing explicit contract or diagnostic mapping: {required}")
+
+    for forbidden in (
+        'details.get("status") == "ACCEPTED"',
+        "COD order did not enter the accepted placement state",
+        "_payment_transactions",
+        "confirm_paid_order",
+        "/confirm?paymentId=",
+    ):
+        if forbidden in runner:
+            failures.append(f"M8 runner still contains obsolete order/payment compatibility: {forbidden}")
 
 if catalog_path.is_file():
     catalog = catalog_path.read_text(encoding="utf-8")
