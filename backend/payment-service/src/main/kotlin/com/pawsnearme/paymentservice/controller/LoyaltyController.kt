@@ -38,6 +38,14 @@ data class OrderRefundedEventPayload(
     val providerId: UUID
 )
 
+data class ServiceCompletedEventPayload(
+    val referenceId: UUID,
+    val customerId: UUID,
+    val providerId: UUID,
+    val netAmount: BigDecimal,
+    val serviceType: String,
+)
+
 data class ReserveRewardRequest(
     val code: String,
     val providerId: UUID,
@@ -68,9 +76,7 @@ class LoyaltyController(
         ResponseEntity.ok(loyaltyService.getProgress(requireUser(xUserId), providerId))
 
     @GetMapping("/wallet")
-    fun getWallet(
-        @RequestHeader("X-User-Id", required = false) xUserId: String?
-    ): ResponseEntity<List<LoyaltyWalletRewardDto>> =
+    fun getWallet(@RequestHeader("X-User-Id", required = false) xUserId: String?): ResponseEntity<List<LoyaltyWalletRewardDto>> =
         ResponseEntity.ok(loyaltyService.getCustomerWallet(requireUser(xUserId)))
 
     @GetMapping("/ledger")
@@ -112,14 +118,7 @@ class LoyaltyController(
     ): ResponseEntity<Any> {
         requireInternalCaller(internalSecret)
         return ResponseEntity.ok(
-            mapOf(
-                "processed" to loyaltyLifecycleService.recordDelivered(
-                    payload.orderId,
-                    payload.customerId,
-                    payload.providerId,
-                    payload.netAmount
-                )
-            )
+            mapOf("processed" to loyaltyLifecycleService.recordDelivered(payload.orderId, payload.customerId, payload.providerId, payload.netAmount))
         )
     }
 
@@ -130,11 +129,24 @@ class LoyaltyController(
     ): ResponseEntity<Any> {
         requireInternalCaller(internalSecret)
         return ResponseEntity.ok(
+            mapOf("processed" to loyaltyLifecycleService.recordRefunded(payload.orderId, payload.customerId, payload.providerId))
+        )
+    }
+
+    @PostMapping("/events/service-completed")
+    fun handleServiceCompleted(
+        @RequestBody payload: ServiceCompletedEventPayload,
+        @RequestHeader("X-Internal-Secret", required = false) internalSecret: String?,
+    ): ResponseEntity<Any> {
+        requireInternalCaller(internalSecret)
+        return ResponseEntity.ok(
             mapOf(
-                "processed" to loyaltyLifecycleService.recordRefunded(
-                    payload.orderId,
+                "processed" to loyaltyLifecycleService.recordServiceCompleted(
+                    payload.referenceId,
                     payload.customerId,
-                    payload.providerId
+                    payload.providerId,
+                    payload.netAmount,
+                    payload.serviceType,
                 )
             )
         )
@@ -144,15 +156,9 @@ class LoyaltyController(
     fun reconcileAccount(
         @RequestParam providerId: UUID,
         @RequestHeader("X-User-Id", required = false) xUserId: String?
-    ): ResponseEntity<Any> =
-        ResponseEntity.ok(
-            mapOf(
-                "starBalance" to loyaltyReconciliationService.reconcile(
-                    requireUser(xUserId),
-                    providerId,
-                )
-            )
-        )
+    ): ResponseEntity<Any> = ResponseEntity.ok(
+        mapOf("starBalance" to loyaltyReconciliationService.reconcile(requireUser(xUserId), providerId))
+    )
 
     @GetMapping("/programs")
     fun getProgram(@RequestParam(required = false) providerId: UUID?): ResponseEntity<LoyaltyProgram> =
@@ -184,10 +190,10 @@ class LoyaltyController(
     private fun authorizeProgramWrite(providerId: UUID?, actorId: UUID, role: String?) {
         if (role.equals("ADMIN", ignoreCase = true)) return
         if (!role.equals("PROVIDER", ignoreCase = true) && !role.equals("MERCHANT", ignoreCase = true)) {
-            throw PaymentAccessDeniedException("Modifying loyalty programs requires ADMIN or PROVIDER role")
+            throw PaymentAccessDeniedException("Modifying loyalty programs requires ADMIN or MERCHANT role")
         }
         val requestedProviderId = providerId
-            ?: throw PaymentAccessDeniedException("Providers may not modify the platform-default loyalty program")
+            ?: throw PaymentAccessDeniedException("Merchants may not modify the platform-default loyalty program")
         if (providerModule.ownerUserId(requestedProviderId) != actorId) {
             throw PaymentAccessDeniedException("Provider loyalty program is owned by another merchant")
         }
@@ -226,10 +232,7 @@ class LoyaltyController(
 
     companion object {
         private val ALLOWED_REWARDS = setOf(
-            BigDecimal("50"),
-            BigDecimal("100"),
-            BigDecimal("150"),
-            BigDecimal("200")
+            BigDecimal("50"), BigDecimal("100"), BigDecimal("150"), BigDecimal("200")
         )
     }
 }
