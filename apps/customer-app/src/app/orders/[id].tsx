@@ -180,20 +180,27 @@ export default function OrderDetailRoute() {
             <View style={styles.headerRow}>
               <View style={styles.flex}>
                 <ThemedText style={styles.storeName}>{order.providerName}</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Placed {new Date(order.orderedAt).toLocaleString()}
-                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">Placed {new Date(order.orderedAt).toLocaleString()}</ThemedText>
               </View>
-              <StatusBadge label={order.status} tone={order.status === 'DELIVERED' ? 'success' : 'warning'} />
+              <StatusBadge label={order.status.replaceAll('_', ' ')} tone={['DELIVERED', 'COMPLETED'].includes(order.status) ? 'success' : 'warning'} />
             </View>
             <ThemedText style={styles.sectionTitle}>Order progress</ThemedText>
             <View style={[styles.trackerBox, { backgroundColor: theme.primarySoft }]}>
-              <OrderFlowTracker currentStep={order.flowStep} />
+              <OrderFlowTracker status={order.status} />
             </View>
+            {order.status === 'PICKED_UP' ? (
+              <View style={[styles.arrivingBox, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
+                <View style={[styles.arrivingIcon, { backgroundColor: theme.backgroundElement }]}>
+                  <AppIcon name="location" size={18} color={theme.accent} />
+                </View>
+                <View style={styles.flex}>
+                  <ThemedText type="smallBold">Arriving</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">Your captain has picked up the order and is travelling to your delivery address.</ThemedText>
+                </View>
+              </View>
+            ) : null}
             {activeOrderPollInterval(order.status) ? (
-              <ThemedText type="small" themeColor="textSecondary">
-                Refreshing automatically while the order is active.
-              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">Refreshing automatically while the order is active.</ThemedText>
             ) : null}
           </View>
 
@@ -203,15 +210,9 @@ export default function OrderDetailRoute() {
                 <ThemedText style={styles.sectionTitle}>Online payment</ThemedText>
                 <StatusBadge label={paymentStatus} tone={paymentStatus === 'SUCCESS' ? 'success' : 'warning'} />
               </View>
-              <ThemedText type="small" themeColor="textSecondary">
-                Method: {order.paymentMethod}. Payment state is owned by Cashfree webhook reconciliation on the MyPet server.
-              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">Method: {order.paymentMethod}. Payment state is owned by Cashfree webhook reconciliation on the MyPet server.</ThemedText>
               {order.status === 'PLACED' && paymentStatus !== 'SUCCESS' ? (
-                <PrimaryAction
-                  label={paymentStatus === 'PENDING' ? 'Open Cashfree again' : 'Pay securely with Cashfree'}
-                  onPress={() => void handlePayment()}
-                  loading={actionLoading}
-                />
+                <PrimaryAction label={paymentStatus === 'PENDING' ? 'Open Cashfree again' : 'Pay securely with Cashfree'} onPress={() => void handlePayment()} loading={actionLoading} />
               ) : null}
             </View>
           ) : null}
@@ -236,17 +237,15 @@ export default function OrderDetailRoute() {
               <ThemedText style={styles.sectionTitle}>Status history</ThemedText>
               {order.statusHistory.map((entry, index) => (
                 <View key={`${entry.toStatus}-${entry.changedAt}-${index}`} style={styles.historyRow}>
-                  <ThemedText style={{ fontWeight: '700' }}>{entry.toStatus}</ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {new Date(entry.changedAt).toLocaleString()}{entry.note ? ` · ${entry.note}` : ''}
-                  </ThemedText>
+                  <ThemedText style={{ fontWeight: '700' }}>{entry.toStatus.replaceAll('_', ' ')}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">{new Date(entry.changedAt).toLocaleString()}{entry.note ? ` · ${entry.note}` : ''}</ThemedText>
                 </View>
               ))}
             </View>
           ) : null}
 
           <View style={styles.actions}>
-            {['PLACED', 'ACCEPTED'].includes(order.status) ? (
+            {order.status === 'PLACED' ? (
               <Pressable style={[styles.cancelButton, { borderColor: theme.danger }]} onPress={() => void handleCancel()}>
                 <ThemedText style={{ color: theme.danger, fontWeight: '700' }}>Cancel order</ThemedText>
               </Pressable>
@@ -270,6 +269,8 @@ const styles = StyleSheet.create({
   storeName: { ...typography.title },
   sectionTitle: { ...typography.label, fontWeight: '700' },
   trackerBox: { padding: spacing.x3, borderRadius: radii.compact },
+  arrivingBox: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.compact, padding: spacing.x3, flexDirection: 'row', gap: spacing.x3, alignItems: 'center' },
+  arrivingIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.x2, paddingVertical: spacing.x1 },
   itemText: { ...typography.body, flex: 1 },
   divider: { height: StyleSheet.hairlineWidth, marginVertical: spacing.x1 },

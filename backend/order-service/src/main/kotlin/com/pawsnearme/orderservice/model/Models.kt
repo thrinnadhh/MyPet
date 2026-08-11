@@ -69,6 +69,9 @@ class Order(
     @Column(name = "accepted_at")
     var acceptedAt: Instant? = null,
 
+    @Column(name = "preparing_at")
+    var preparingAt: Instant? = null,
+
     @Column(name = "ready_at")
     var readyAt: Instant? = null,
 
@@ -96,7 +99,19 @@ class Order(
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_status", nullable = false)
     var paymentStatus: PaymentStatus = PaymentStatus.PENDING
-)
+) {
+    /**
+     * Keep the merchant SLA timestamp server-owned even when the transition is
+     * invoked through a module adapter. The status history remains the source of
+     * actor identity and note; this timestamp is the denormalized SLA marker.
+     */
+    @PreUpdate
+    fun capturePreparingTimestamp() {
+        if (status == OrderStatus.PREPARING && preparingAt == null) {
+            preparingAt = Instant.now()
+        }
+    }
+}
 
 @Entity
 @Table(name = "order_items", schema = "orders")

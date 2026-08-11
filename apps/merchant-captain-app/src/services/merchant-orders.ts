@@ -33,11 +33,64 @@ export interface MerchantOrder {
   paymentStatus: MerchantPaymentStatus;
   placedAt: string;
   acceptedAt?: string | null;
+  preparingAt?: string | null;
   readyAt?: string | null;
   picked_upAt?: string | null;
   deliveredAt?: string | null;
   cancelledAt?: string | null;
   cancellationReason?: string | null;
+}
+
+export interface MerchantDeliveryAddress {
+  label?: string | null;
+  line1: string;
+  line2?: string | null;
+  city: string;
+  state: string;
+  pincode: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface MerchantOrderItem {
+  orderItemId: string;
+  offeringId: string;
+  name: string;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+}
+
+export interface MerchantOrderHistoryEntry {
+  fromStatus?: MerchantOrderStatus | null;
+  toStatus: MerchantOrderStatus;
+  changedAt: string;
+  actorId?: string | null;
+  note?: string | null;
+}
+
+export interface MerchantOrderDetail {
+  orderId: string;
+  customerId: string;
+  customerName?: string | null;
+  deliveryAddressId: string;
+  deliveryAddress: MerchantDeliveryAddress;
+  contactPhone?: string | null;
+  contactVerified: boolean;
+  items: MerchantOrderItem[];
+  paymentMethod: string;
+  paymentStatus: MerchantPaymentStatus;
+  subtotal: number;
+  discount: number;
+  delivery: number;
+  tax: number;
+  total: number;
+  placedAt: string;
+  acceptedAt?: string | null;
+  preparingAt?: string | null;
+  readyAt?: string | null;
+  status: MerchantOrderStatus;
+  history: MerchantOrderHistoryEntry[];
 }
 
 export async function fetchMerchantOrders(providerId: string): Promise<MerchantOrder[]> {
@@ -51,6 +104,12 @@ export async function fetchMerchantOrders(providerId: string): Promise<MerchantO
 
 export async function fetchMerchantOrder(orderId: string): Promise<MerchantOrder> {
   return apiClient.get<MerchantOrder>(`/api/v1/orders/${encodeURIComponent(orderId)}`);
+}
+
+export async function fetchMerchantOrderDetail(orderId: string): Promise<MerchantOrderDetail> {
+  return apiClient.get<MerchantOrderDetail>(
+    `/api/v1/orders/${encodeURIComponent(orderId)}/merchant-detail`,
+  );
 }
 
 export async function transitionMerchantOrder(

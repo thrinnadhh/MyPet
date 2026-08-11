@@ -3,28 +3,32 @@ package com.pawsnearme.dispatchservice.service
 import com.pawsnearme.dispatchservice.model.*
 import com.pawsnearme.dispatchservice.repository.*
 import jakarta.persistence.EntityManager
+import jakarta.persistence.Query
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockito.kotlin.*
+import org.springframework.data.redis.core.SetOperations
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.http.HttpMethod
 import org.springframework.http.ResponseEntity
 import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.web.client.RestTemplate
 import java.time.Instant
 import java.util.Optional
 import java.util.UUID
-import org.springframework.orm.ObjectOptimisticLockingFailureException
 
 class DispatchServiceTests {
 
     private val jobRepository: DispatchJobRepository = mock()
     private val offerRepository: DispatchOfferRepository = mock()
     private val redisTemplate: StringRedisTemplate = mock()
+    private val redisSetOperations: SetOperations<String, String> = mock()
     private val kafkaTemplate: KafkaTemplate<String, Any> = mock()
     private val entityManager: EntityManager = mock()
+    private val approvalQuery: Query = mock()
     private val outboxService: com.pawsnearme.common.outbox.OutboxService = mock()
     private val idempotencyService: com.pawsnearme.common.idempotency.IdempotencyService = mock()
     private val restTemplate: org.springframework.web.client.RestOperations = mock()
@@ -44,13 +48,31 @@ class DispatchServiceTests {
             0,
             0L,
             orderId.toString(),
-            """{"eventId":"$eventId","toStatus":"READY_FOR_PICKUP","orderId":"$orderId"}"""
+            """{"eventId":"$eventId","fromStatus":"PREPARING","toStatus":"READY_FOR_PICKUP","orderId":"$orderId"}"""
         )
 
         service.handleOrderStatusChanged(record)
 
         verify(idempotencyService).checkAndRecord("dispatch-orders", eventId)
         verify(idempotencyService, never()).checkAndRecord(eventId)
+        verify(jobRepository, never()).findByOrderId(any())
+    }
+
+    @Test
+    fun `READY_FOR_PICKUP without PREPARING transition never starts dispatch`() {
+        val eventId = UUID.randomUUID()
+        val orderId = UUID.randomUUID()
+        val record = ConsumerRecord(
+            "orders.events",
+            0,
+            0L,
+            orderId.toString(),
+            """{"eventId":"$eventId","fromStatus":"ACCEPTED","toStatus":"READY_FOR_PICKUP","orderId":"$orderId"}"""
+        )
+
+        service.handleOrderStatusChanged(record)
+
+        verify(idempotencyService, never()).checkAndRecord(any<String>(), any())
         verify(jobRepository, never()).findByOrderId(any())
     }
 
@@ -106,6 +128,72 @@ class DispatchServiceTests {
     }
 
     @Test
+    fun `persisted non-active captain cannot accept even with stale Redis markers`() {
+        val offerId = UUID.randomUUID()
+        val jobId = UUID.randomUUID()
+        val captainId = UUID.randomUUID()
+        val offer = DispatchOffer(offerId = offerId, jobId = jobId, captainId = captainId, offerRank = 1)
+        whenever(offerRepository.findById(offerId)).thenReturn(Optional.of(offer))
+        stubCaptainApproval(captainId, approved = false)
+        whenever(redisTemplate.opsForSet()).thenReturn(redisSetOperations)
+        whenever(redisSetOperations.isMember("captains:online", captainId.toString())).thenReturn(true)
+        whenever(redisTemplate.hasKey("captains:location:fresh:$captainId")).thenReturn(true)
+
+        val error = assertThrows<IllegalStateException> {
+            service.respondToOffer(offerId, "ACCEPTED", captainId)
+        }
+
+        assertTrue(error.message!!.contains("no longer eligible"))
+        verify(offerRepository, never()).saveAndFlush(any())
+    }
+
+    @Test
+    fun `captain must remain online and location-fresh when accepting offer`() {
+        val offerId = UUID.randomUUID()
+        val jobId = UUID.randomUUID()
+        val captainId = UUID.randomUUID()
+        val offer = DispatchOffer(offerId = offerId, jobId = jobId, captainId = captainId, offerRank = 1)
+        whenever(offerRepository.findById(offerId)).thenReturn(Optional.of(offer))
+        stubCaptainApproval(captainId, approved = true)
+        whenever(redisTemplate.opsForSet()).thenReturn(redisSetOperations)
+        whenever(redisSetOperations.isMember("captains:online", captainId.toString())).thenReturn(true)
+        whenever(redisTemplate.hasKey("captains:location:fresh:$captainId")).thenReturn(false)
+
+        val error = assertThrows<IllegalStateException> {
+            service.respondToOffer(offerId, "ACCEPTED", captainId)
+        }
+
+        assertTrue(error.message!!.contains("no longer eligible"))
+        verify(offerRepository, never()).saveAndFlush(any())
+    }
+
+    @Test
+    fun `captain with another active assignment cannot accept second delivery`() {
+        val offerId = UUID.randomUUID()
+        val jobId = UUID.randomUUID()
+        val captainId = UUID.randomUUID()
+        val activeJobId = UUID.randomUUID()
+        val offer = DispatchOffer(offerId = offerId, jobId = jobId, captainId = captainId, offerRank = 1)
+        val acceptedOffer = DispatchOffer(jobId = activeJobId, captainId = captainId, response = "ACCEPTED", offerRank = 1)
+        val activeJob = DispatchJob(jobId = activeJobId, orderId = UUID.randomUUID(), status = JobStatus.PICKED_UP)
+        whenever(offerRepository.findById(offerId)).thenReturn(Optional.of(offer))
+        stubCaptainApproval(captainId, approved = true)
+        whenever(redisTemplate.opsForSet()).thenReturn(redisSetOperations)
+        whenever(redisSetOperations.isMember("captains:online", captainId.toString())).thenReturn(true)
+        whenever(redisTemplate.hasKey("captains:location:fresh:$captainId")).thenReturn(true)
+        whenever(offerRepository.findByCaptainIdAndResponseIsNull(captainId)).thenReturn(listOf(offer))
+        whenever(offerRepository.findByCaptainIdAndResponseOrderByRespondedAtDesc(captainId, "ACCEPTED"))
+            .thenReturn(listOf(acceptedOffer))
+        whenever(jobRepository.findById(activeJobId)).thenReturn(Optional.of(activeJob))
+
+        val error = assertThrows<IllegalStateException> {
+            service.respondToOffer(offerId, "ACCEPTED", captainId)
+        }
+
+        assertTrue(error.message!!.contains("no longer eligible"))
+    }
+
+    @Test
     fun `markPickedUp - accepted captain - records picked-up state`() {
         val restTemplate: RestTemplate = mock()
         val serviceWithRest = DispatchService(
@@ -135,6 +223,25 @@ class DispatchServiceTests {
             eventId = any(), aggregateType = eq("DISPATCH"), aggregateId = eq(jobId),
             eventType = eq("DispatchJobPickedUp"), eventPayload = any()
         )
+    }
+
+    @Test
+    fun `wrong pickup OTP cannot move assignment`() {
+        val jobId = UUID.randomUUID()
+        val captainId = UUID.randomUUID()
+        val job = DispatchJob(orderId = UUID.randomUUID(), status = JobStatus.ACCEPTED, pickupOtp = "1234")
+            .also { it.jobId = jobId }
+        val offer = DispatchOffer(jobId = jobId, captainId = captainId, response = "ACCEPTED", offerRank = 1)
+        whenever(jobRepository.findById(jobId)).thenReturn(Optional.of(job))
+        whenever(offerRepository.findByJobIdAndCaptainId(jobId, captainId)).thenReturn(offer)
+
+        val error = assertThrows<IllegalArgumentException> {
+            service.markPickedUp(jobId, captainId, "0000")
+        }
+
+        assertTrue(error.message!!.contains("Invalid pickup"))
+        assertEquals(JobStatus.ACCEPTED, job.status)
+        verify(jobRepository, never()).save(job)
     }
 
     @Test
@@ -168,6 +275,25 @@ class DispatchServiceTests {
             eventId = any(), aggregateType = eq("DISPATCH"), aggregateId = eq(jobId),
             eventType = eq("DispatchJobDelivered"), eventPayload = any()
         )
+    }
+
+    @Test
+    fun `wrong delivery OTP cannot complete picked-up job`() {
+        val jobId = UUID.randomUUID()
+        val captainId = UUID.randomUUID()
+        val job = DispatchJob(orderId = UUID.randomUUID(), status = JobStatus.PICKED_UP, deliveryOtp = "5678")
+            .also { it.jobId = jobId }
+        val offer = DispatchOffer(jobId = jobId, captainId = captainId, response = "ACCEPTED", offerRank = 1)
+        whenever(jobRepository.findById(jobId)).thenReturn(Optional.of(job))
+        whenever(offerRepository.findByJobIdAndCaptainId(jobId, captainId)).thenReturn(offer)
+
+        val error = assertThrows<IllegalArgumentException> {
+            service.markDelivered(jobId, captainId, "1111")
+        }
+
+        assertTrue(error.message!!.contains("Invalid handover"))
+        assertEquals(JobStatus.PICKED_UP, job.status)
+        verify(jobRepository, never()).save(job)
     }
 
     @Test
@@ -217,6 +343,7 @@ class DispatchServiceTests {
             offeredAt = offer.offeredAt, offerRank = offer.offerRank, response = "TIMED_OUT"
         )
         whenever(offerRepository.findById(offerId)).thenReturn(Optional.of(offer), Optional.of(resolvedOffer))
+        stubEligibleCaptain(offer.captainId, offer.jobId)
         whenever(offerRepository.saveAndFlush(any())).thenThrow(
             ObjectOptimisticLockingFailureException(DispatchOffer::class.java, offerId)
         )
@@ -261,6 +388,7 @@ class DispatchServiceTests {
         whenever(jobRepository.findById(jobId)).thenReturn(Optional.of(job))
         whenever(jobRepository.findByStatus(JobStatus.OFFERED)).thenReturn(listOf(job))
         whenever(offerRepository.findByJobIdAndResponseIsNull(jobId)).thenReturn(offer)
+        stubEligibleCaptain(captainId, jobId)
         whenever(restTemplate.exchange(any<String>(), eq(HttpMethod.PUT), any(), eq(Any::class.java)))
             .thenReturn(ResponseEntity.ok(Any()))
         var callCount = 0
@@ -280,5 +408,23 @@ class DispatchServiceTests {
         assertEquals(JobStatus.ACCEPTED, job.status)
         service.checkOfferTimeouts()
         assertEquals(JobStatus.ACCEPTED, job.status)
+    }
+
+    private fun stubEligibleCaptain(captainId: UUID, currentJobId: UUID) {
+        stubCaptainApproval(captainId, approved = true)
+        whenever(redisTemplate.opsForSet()).thenReturn(redisSetOperations)
+        whenever(redisSetOperations.isMember("captains:online", captainId.toString())).thenReturn(true)
+        whenever(redisTemplate.hasKey("captains:location:fresh:$captainId")).thenReturn(true)
+        whenever(offerRepository.findByCaptainIdAndResponseIsNull(captainId)).thenReturn(emptyList())
+        whenever(offerRepository.findByCaptainIdAndResponseOrderByRespondedAtDesc(captainId, "ACCEPTED"))
+            .thenReturn(emptyList())
+        whenever(offerRepository.findByJobId(currentJobId)).thenReturn(emptyList())
+    }
+
+    private fun stubCaptainApproval(captainId: UUID, approved: Boolean) {
+        whenever(entityManager.createNativeQuery(argThat<String> { contains("captains.captain_profiles") }))
+            .thenReturn(approvalQuery)
+        whenever(approvalQuery.setParameter("captainId", captainId)).thenReturn(approvalQuery)
+        whenever(approvalQuery.singleResult).thenReturn(if (approved) 1L else 0L)
     }
 }

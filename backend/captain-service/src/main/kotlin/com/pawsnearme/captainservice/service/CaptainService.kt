@@ -19,6 +19,7 @@ import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
+import java.time.Duration
 import java.util.UUID
 
 @Service
@@ -34,6 +35,9 @@ class CaptainService(
     companion object {
         private val logger = LoggerFactory.getLogger(CaptainService::class.java)
         private const val GEO_KEY = "captains:locations"
+        private const val ONLINE_KEY = "captains:online"
+        private const val LOCATION_FRESH_PREFIX = "captains:location:fresh:"
+        private val LOCATION_FRESHNESS = Duration.ofSeconds(60)
     }
 
     fun onboardCaptain(
@@ -59,6 +63,7 @@ class CaptainService(
         profile.bankAccount = bankDataCipher.encrypt(bankAccount)
         profile.bankIfsc = bankDataCipher.encrypt(bankIfsc)
         profile.selfieDocUrl = selfieDocUrl
+        clearAvailability(captainId)
         val saved = profileRepository.save(profile)
         documents.forEach { (type, url) ->
             documentRepository.save(
@@ -80,6 +85,7 @@ class CaptainService(
     fun rejectCaptain(captainId: UUID): CaptainProfile {
         val profile = getProfile(captainId)
         profile.status = CaptainStatus.REJECTED
+        clearAvailability(captainId)
         return profileRepository.save(profile)
     }
 
@@ -99,6 +105,7 @@ class CaptainService(
     ): String {
         val profile = getProfile(captainId)
         if (profile.status != CaptainStatus.ACTIVE) {
+            clearAvailability(captainId)
             throw IllegalStateException("Captain account is not active.")
         }
 
@@ -111,20 +118,30 @@ class CaptainService(
                 RedisPoint(longitude, latitude),
                 captainId.toString(),
             )
+            redisTemplate.opsForSet().add(ONLINE_KEY, captainId.toString())
+            touchLocationFreshness(captainId)
             return "ONLINE"
         }
 
-        redisTemplate.opsForZSet().remove(GEO_KEY, captainId.toString())
+        clearAvailability(captainId)
         return "OFFLINE"
     }
 
     fun updateLocation(captainId: UUID, longitude: Double, latitude: Double) {
-        getProfile(captainId)
+        val profile = getProfile(captainId)
+        if (profile.status != CaptainStatus.ACTIVE) {
+            clearAvailability(captainId)
+            throw IllegalStateException("Captain account is not active.")
+        }
+        if (redisTemplate.opsForSet().isMember(ONLINE_KEY, captainId.toString()) != true) {
+            throw IllegalStateException("Captain must be online before location updates are accepted.")
+        }
         redisTemplate.opsForGeo().add(
             GEO_KEY,
             RedisPoint(longitude, latitude),
             captainId.toString(),
         )
+        touchLocationFreshness(captainId)
     }
 
     @Transactional(readOnly = true)
@@ -171,5 +188,19 @@ class CaptainService(
                 )
             }
         }
+    }
+
+    private fun touchLocationFreshness(captainId: UUID) {
+        redisTemplate.opsForValue().set(
+            "$LOCATION_FRESH_PREFIX$captainId",
+            "fresh",
+            LOCATION_FRESHNESS,
+        )
+    }
+
+    private fun clearAvailability(captainId: UUID) {
+        runCatching { redisTemplate.opsForZSet().remove(GEO_KEY, captainId.toString()) }
+        runCatching { redisTemplate.opsForSet().remove(ONLINE_KEY, captainId.toString()) }
+        runCatching { redisTemplate.delete("$LOCATION_FRESH_PREFIX$captainId") }
     }
 }
