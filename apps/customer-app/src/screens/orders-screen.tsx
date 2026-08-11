@@ -29,8 +29,8 @@ function formattedOrderDate(value: string): string {
 
 function statusTone(status: string): 'success' | 'warning' | 'error' | 'neutral' {
   if (['DELIVERED', 'COMPLETED'].includes(status)) return 'success';
-  if (['CANCELLED', 'FAILED', 'REFUNDED'].includes(status)) return 'error';
-  if (['PLACED', 'ACCEPTED', 'PACKING', 'READY_FOR_PICKUP', 'ASSIGNED', 'PICKED_UP', 'OUT_FOR_DELIVERY'].includes(status)) {
+  if (['CANCELLED', 'REJECTED'].includes(status)) return 'error';
+  if (['PLACED', 'ACCEPTED', 'PREPARING', 'READY_FOR_PICKUP', 'ASSIGNED', 'PICKED_UP'].includes(status)) {
     return 'warning';
   }
   return 'neutral';
@@ -180,8 +180,8 @@ export default function OrdersScreen() {
       {state === 'ready' && filteredOrders.length > 0 ? (
         <View style={styles.list}>
           {filteredOrders.map((order) => {
-            const isCancellable = ['PLACED', 'ACCEPTED'].includes(order.status);
-            const isPast = ['DELIVERED', 'COMPLETED', 'CANCELLED'].includes(order.status);
+            const isCancellable = order.status === 'PLACED';
+            const isPast = ['DELIVERED', 'COMPLETED', 'CANCELLED', 'REJECTED'].includes(order.status);
             const tone = statusTone(order.status);
             const accentColor =
               tone === 'success'

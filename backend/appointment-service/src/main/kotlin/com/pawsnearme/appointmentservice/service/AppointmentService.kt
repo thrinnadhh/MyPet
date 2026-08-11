@@ -17,6 +17,7 @@ import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.RestOperations
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -97,13 +98,14 @@ class AppointmentService @Autowired constructor(
         outboxService,
         RemoteCatalogModuleApi(restTemplate, catalogServiceUrl, gatewayTrustSecret),
         RemoteProviderModuleApi(restTemplate, providerServiceUrl, internalApiSecret, gatewayTrustSecret),
-        RemotePaymentModuleApi(restTemplate, paymentServiceUrl, gatewayTrustSecret),
+        RemotePaymentModuleApi(restTemplate, paymentServiceUrl, gatewayTrustSecret, internalApiSecret),
         holdDurationSeconds
     )
 
     private val logger = LoggerFactory.getLogger(AppointmentService::class.java)
     private val writeLockDuration = Duration.ofSeconds(10)
     private val holdDuration: Duration get() = Duration.ofSeconds(holdDurationSeconds)
+    private val lifecyclePolicy = AppointmentLifecyclePolicy()
 
     private fun writeLockKey(slotId: UUID) = "lock:slots:$slotId"
     private fun holdKey(slotId: UUID) = "hold:slots:$slotId"
@@ -254,6 +256,7 @@ class AppointmentService @Autowired constructor(
         }
     }
 
+    @Transactional
     fun confirmAppointment(
         appointmentId: UUID,
         paymentId: UUID?,
@@ -263,11 +266,6 @@ class AppointmentService @Autowired constructor(
         val appointment = appointmentRepository.findById(appointmentId)
             .orElseThrow { NoSuchElementException("Appointment with ID $appointmentId not found") }
         assertCanAccessAppointment(appointment, callerId, callerRole)
-
-        if (!appointment.payAtClinic) {
-            if (paymentId == null) throw IllegalArgumentException("paymentId is required to confirm this appointment.")
-            verifyAppointmentPayment(appointment, paymentId)
-        }
         if (appointment.status != AppointmentStatus.SLOT_HELD) {
             throw IllegalStateException("Appointment is not in SLOT_HELD state. Current state: ${appointment.status}")
         }
@@ -276,16 +274,22 @@ class AppointmentService @Autowired constructor(
         if (appointment.bookedAt.isBefore(cutoff) || redisTemplate.hasKey(holdKey(appointment.slotId)) == false) {
             appointment.status = AppointmentStatus.EXPIRED
             appointmentRepository.save(appointment)
-            logStatusChange(
-                appointmentId,
-                AppointmentStatus.SLOT_HELD,
-                AppointmentStatus.EXPIRED,
-                appointment.customerId,
-                "Hold expired before confirmation"
-            )
+            logStatusChange(appointmentId, AppointmentStatus.SLOT_HELD, AppointmentStatus.EXPIRED, appointment.customerId, "Hold expired before confirmation")
             redisTemplate.delete(holdKey(appointment.slotId))
             rollbackSlot(appointment.slotId, "expired hold")
             throw IllegalStateException("Slot hold has expired. Please select the slot and try again.")
+        }
+
+        var confirmationFrom = AppointmentStatus.SLOT_HELD
+        if (!appointment.payAtClinic) {
+            if (paymentId == null) throw IllegalArgumentException("paymentId is required to confirm this appointment.")
+            verifyAppointmentPayment(appointment, paymentId)
+            appointment.paymentId = paymentId
+            appointment.status = AppointmentStatus.PAID
+            appointmentRepository.save(appointment)
+            logStatusChange(appointmentId, AppointmentStatus.SLOT_HELD, AppointmentStatus.PAID, appointment.customerId, "Appointment payment verified")
+            publishAppointmentStatusChanged(appointment, AppointmentStatus.SLOT_HELD, AppointmentStatus.PAID, appointment.customerId)
+            confirmationFrom = AppointmentStatus.PAID
         }
 
         try {
@@ -294,36 +298,25 @@ class AppointmentService @Autowired constructor(
             throw IllegalStateException("Failed to book slot in Catalog Service: ${error.message}", error)
         }
 
-        val oldStatus = appointment.status
         appointment.status = AppointmentStatus.CONFIRMED
-        appointment.paymentId = paymentId
+        appointment.paymentId = paymentId ?: appointment.paymentId
         val saved = appointmentRepository.save(appointment)
-        logStatusChange(saved.appointmentId!!, oldStatus, AppointmentStatus.CONFIRMED, saved.customerId, "Appointment confirmed")
+        logStatusChange(saved.appointmentId!!, confirmationFrom, AppointmentStatus.CONFIRMED, saved.customerId, "Appointment confirmed")
         redisTemplate.delete(holdKey(saved.slotId))
         publishAppointmentBooked(saved)
-        publishAppointmentStatusChanged(saved, oldStatus, AppointmentStatus.CONFIRMED, saved.customerId)
+        publishAppointmentStatusChanged(saved, confirmationFrom, AppointmentStatus.CONFIRMED, saved.customerId)
         return saved
     }
 
     @Scheduled(fixedDelay = 5000)
-    @SchedulerLock(
-        name = "appointment_cleanupExpiredHolds",
-        lockAtMostFor = "PT30S",
-        lockAtLeastFor = "PT1S"
-    )
+    @SchedulerLock(name = "appointment_cleanupExpiredHolds", lockAtMostFor = "PT30S", lockAtLeastFor = "PT1S")
     fun cleanupExpiredHolds() {
         val cutoff = Instant.now().minusSeconds(holdDurationSeconds)
         appointmentRepository.findByStatusAndBookedAtBefore(AppointmentStatus.SLOT_HELD, cutoff).forEach { appointment ->
             try {
                 appointment.status = AppointmentStatus.EXPIRED
                 appointmentRepository.save(appointment)
-                logStatusChange(
-                    appointment.appointmentId!!,
-                    AppointmentStatus.SLOT_HELD,
-                    AppointmentStatus.EXPIRED,
-                    appointment.customerId,
-                    "Slot hold expired"
-                )
+                logStatusChange(appointment.appointmentId!!, AppointmentStatus.SLOT_HELD, AppointmentStatus.EXPIRED, appointment.customerId, "Slot hold expired")
                 redisTemplate.delete(holdKey(appointment.slotId))
                 updateCatalogSlotStatus(appointment.slotId, "AVAILABLE")
                 logger.info("Slot hold expired for appointment {}, slot {} is now AVAILABLE.", appointment.appointmentId, appointment.slotId)
@@ -350,29 +343,18 @@ class AppointmentService @Autowired constructor(
     private fun assertCanAccessAppointment(appointment: Appointment, callerId: UUID, callerRole: String?) {
         val isAdmin = callerRole?.uppercase() == "ADMIN"
         val isCustomer = appointment.customerId == callerId
-        val isProviderStaff = callerRole?.uppercase() == "MERCHANT" &&
-            fetchProviderOwnerUserId(appointment.providerId) == callerId
-        if (!isAdmin && !isCustomer && !isProviderStaff) {
-            throw AppointmentAccessDeniedException("Access denied to appointment data.")
-        }
+        val isProviderStaff = callerRole?.uppercase() == "MERCHANT" && fetchProviderOwnerUserId(appointment.providerId) == callerId
+        if (!isAdmin && !isCustomer && !isProviderStaff) throw AppointmentAccessDeniedException("Access denied to appointment data.")
     }
 
     private fun verifyAppointmentPayment(appointment: Appointment, paymentId: UUID) {
         val transaction = paymentModule.transaction(paymentId)
             ?: throw IllegalStateException("Payment transaction not found for ID $paymentId")
         if (transaction.status != "SUCCESS") throw IllegalStateException("Payment transaction is not successful.")
-        if (transaction.referenceId != appointment.appointmentId) {
-            throw IllegalStateException("Payment transaction does not match this appointment.")
-        }
-        if (transaction.userId != appointment.customerId) {
-            throw IllegalStateException("Payment transaction does not belong to the appointment customer.")
-        }
-        if (transaction.transactionType != "APPOINTMENT_PAYMENT") {
-            throw IllegalStateException("Payment transaction type is invalid for appointment confirmation.")
-        }
-        if (transaction.amount.compareTo(appointment.priceAmount) != 0) {
-            throw IllegalStateException("Payment amount does not match appointment price.")
-        }
+        if (transaction.referenceId != appointment.appointmentId) throw IllegalStateException("Payment transaction does not match this appointment.")
+        if (transaction.userId != appointment.customerId) throw IllegalStateException("Payment transaction does not belong to the appointment customer.")
+        if (transaction.transactionType != "APPOINTMENT_PAYMENT") throw IllegalStateException("Payment transaction type is invalid for appointment confirmation.")
+        if (transaction.amount.compareTo(appointment.priceAmount) != 0) throw IllegalStateException("Payment amount does not match appointment price.")
     }
 
     fun getAppointmentsByCustomer(targetCustomerId: UUID, callerId: UUID, callerRole: String?): List<Appointment> {
@@ -385,12 +367,11 @@ class AppointmentService @Autowired constructor(
     fun getAppointmentsByProvider(providerId: UUID, callerId: UUID, callerRole: String?): List<Appointment> {
         val isAdmin = callerRole?.uppercase() == "ADMIN"
         val isProviderStaff = callerRole?.uppercase() == "MERCHANT" && fetchProviderOwnerUserId(providerId) == callerId
-        if (!isAdmin && !isProviderStaff) {
-            throw AppointmentAccessDeniedException("Access denied to provider appointments.")
-        }
+        if (!isAdmin && !isProviderStaff) throw AppointmentAccessDeniedException("Access denied to provider appointments.")
         return appointmentRepository.findByProviderId(providerId)
     }
 
+    @Transactional
     fun updateAppointmentStatus(
         appointmentId: UUID,
         newStatus: AppointmentStatus,
@@ -403,23 +384,13 @@ class AppointmentService @Autowired constructor(
             .orElseThrow { NoSuchElementException("Appointment with ID $appointmentId not found") }
         val isAdmin = callerRole?.uppercase() == "ADMIN"
         val isCustomer = appointment.customerId == changedBy
-        val isProviderStaff = callerRole?.uppercase() == "MERCHANT" &&
-            fetchProviderOwnerUserId(appointment.providerId) == changedBy
+        val isProviderStaff = callerRole?.uppercase() == "MERCHANT" && fetchProviderOwnerUserId(appointment.providerId) == changedBy
         if (!isAdmin && !isProviderStaff && !(isCustomer && newStatus == AppointmentStatus.CANCELLED)) {
             throw AppointmentAccessDeniedException("Access denied to change appointment status.")
         }
 
         val oldStatus = appointment.status
-        if (newStatus == AppointmentStatus.CANCELLED && oldStatus in setOf(
-                AppointmentStatus.COMPLETED,
-                AppointmentStatus.CANCELLED,
-                AppointmentStatus.EXPIRED,
-                AppointmentStatus.NO_SHOW
-            )
-        ) {
-            throw IllegalStateException("Appointment in status $oldStatus cannot be cancelled.")
-        }
-
+        lifecyclePolicy.requireAllowed(oldStatus, newStatus, callerRole, isCustomer)
         appointment.status = newStatus
         when (newStatus) {
             AppointmentStatus.COMPLETED -> {
@@ -441,10 +412,28 @@ class AppointmentService @Autowired constructor(
 
         val updated = appointmentRepository.save(appointment)
         logStatusChange(appointmentId, oldStatus, newStatus, changedBy, note)
-        if (newStatus == AppointmentStatus.COMPLETED) generateInvoiceForAppointment(updated)
+        if (newStatus == AppointmentStatus.COMPLETED) {
+            generateInvoiceForAppointment(updated)
+            paymentModule.recordServiceCompleted(
+                referenceId = appointmentId,
+                customerId = updated.customerId,
+                providerId = updated.providerId,
+                netAmount = updated.priceAmount,
+                serviceType = classifyServiceType(updated.offeringId),
+            )
+        }
         publishAppointmentStatusChanged(updated, oldStatus, newStatus, changedBy)
         return updated
     }
+
+    private fun classifyServiceType(offeringId: UUID): String = runCatching {
+        val name = catalogModule.offering(offeringId).name.uppercase()
+        when {
+            "GROOM" in name || "SPA" in name -> "GROOMING"
+            "VET" in name || "CONSULT" in name || "CLINIC" in name -> "VET"
+            else -> "SERVICE"
+        }
+    }.getOrDefault("SERVICE")
 
     fun rescheduleAppointment(
         appointmentId: UUID,
@@ -463,10 +452,7 @@ class AppointmentService @Autowired constructor(
         if (activeAppointmentExists(newSlotId)) throw IllegalStateException("New slot is already booked or held.")
 
         try {
-            updateCatalogSlotStatus(
-                newSlotId,
-                if (appointment.status == AppointmentStatus.CONFIRMED) "BOOKED" else "HELD"
-            )
+            updateCatalogSlotStatus(newSlotId, if (appointment.status == AppointmentStatus.CONFIRMED) "BOOKED" else "HELD")
         } catch (error: Exception) {
             throw IllegalStateException("Failed to update new slot status in Catalog Service: ${error.message}", error)
         }
@@ -495,13 +481,7 @@ class AppointmentService @Autowired constructor(
         }
     }
 
-    private fun logStatusChange(
-        appointmentId: UUID,
-        from: AppointmentStatus?,
-        to: AppointmentStatus,
-        by: UUID,
-        note: String?
-    ) {
+    private fun logStatusChange(appointmentId: UUID, from: AppointmentStatus?, to: AppointmentStatus, by: UUID, note: String?) {
         appointmentStatusHistoryRepository.save(
             AppointmentStatusHistory(
                 appointmentId = appointmentId,

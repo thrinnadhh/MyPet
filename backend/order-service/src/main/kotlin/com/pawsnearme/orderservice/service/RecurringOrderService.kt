@@ -43,7 +43,8 @@ data class RecurringOrderView(
 
 data class RecurringOrderConfirmation(
     val subscription: RecurringOrderView,
-    val reorder: ReorderValidationResponse
+    val reorder: ReorderValidationResponse,
+    val createdOrderId: UUID? = null,
 )
 
 @Service
@@ -51,7 +52,10 @@ class RecurringOrderService(
     private val repository: RecurringOrderSubscriptionRepository,
     private val orderRepository: OrderRepository,
     private val orderService: OrderService,
-    private val outboxService: OutboxService
+    private val outboxService: OutboxService,
+    private val checkoutIntegrityService: CheckoutIntegrityService,
+    private val deliveryAddressLookup: CustomerDeliveryAddressLookup,
+    private val deliveryContactLookup: DeliveryContactLookup,
 ) {
     @Transactional
     fun create(customerId: UUID, request: CreateRecurringOrderRequest): RecurringOrderView {
@@ -66,12 +70,16 @@ class RecurringOrderService(
         if (repository.existsByCustomerIdAndSourceOrderIdAndStatusNot(customerId, request.sourceOrderId, RecurringOrderStatus.CANCELLED)) {
             throw IllegalStateException("An active subscription already exists for this order.")
         }
+        val deliveryAddressId = request.deliveryAddressId ?: order.deliveryAddressId
+        requireNotNull(deliveryAddressLookup.forCustomerAddress(customerId, deliveryAddressId)) {
+            "Recurring delivery address must belong to the customer and remain available."
+        }
         val saved = repository.save(
             RecurringOrderSubscription(
                 customerId = customerId,
                 providerId = order.providerId,
                 sourceOrderId = request.sourceOrderId,
-                deliveryAddressId = request.deliveryAddressId ?: order.deliveryAddressId,
+                deliveryAddressId = deliveryAddressId,
                 cadenceDays = request.cadenceDays,
                 quantityMultiplier = request.quantityMultiplier,
                 nextOrderAt = Instant.now().plus(request.cadenceDays.toLong(), ChronoUnit.DAYS)
@@ -115,7 +123,12 @@ class RecurringOrderService(
                     validateQuantity(it)
                     subscription.quantityMultiplier = it
                 }
-                request.deliveryAddressId?.let { subscription.deliveryAddressId = it }
+                request.deliveryAddressId?.let {
+                    requireNotNull(deliveryAddressLookup.forCustomerAddress(customerId, it)) {
+                        "Recurring delivery address must belong to the customer and remain available."
+                    }
+                    subscription.deliveryAddressId = it
+                }
                 require(subscription.status != RecurringOrderStatus.CANCELLED) { "Cancelled subscriptions cannot be changed." }
             }
             else -> throw IllegalArgumentException("Unsupported subscription action.")
@@ -126,16 +139,81 @@ class RecurringOrderService(
         return saved.toView()
     }
 
+    /**
+     * Customer confirmation creates a fresh normal order through CheckoutIntegrityService.
+     * The recurring subscription is only a scheduler; fulfillment always starts at PLACED.
+     */
     @Transactional
     fun confirm(customerId: UUID, subscriptionId: UUID): RecurringOrderConfirmation {
         val subscription = owned(customerId, subscriptionId)
         require(subscription.status == RecurringOrderStatus.AWAITING_CONFIRMATION) {
             "This subscription is not awaiting customer confirmation."
         }
+        val sourceOrder = orderRepository.findById(subscription.sourceOrderId)
+            .orElseThrow { IllegalArgumentException("Source order not found.") }
+        require(sourceOrder.customerId == customerId) { "Source order belongs to another customer." }
+        require(sourceOrder.providerId == subscription.providerId) { "Recurring provider no longer matches source order." }
+
         val validation = orderService.revalidateReorder(subscription.sourceOrderId, customerId, "CUSTOMER")
         if (!validation.canReorder) {
             return RecurringOrderConfirmation(subscription.toView(), validation)
         }
+        val address = deliveryAddressLookup.forCustomerAddress(customerId, subscription.deliveryAddressId)
+            ?: return RecurringOrderConfirmation(
+                subscription.toView(),
+                validation.copy(isProviderServiceable = false, canReorder = false),
+            )
+        val items = validation.items.map { item ->
+            OrderItemRequest(
+                offeringId = item.offeringId,
+                quantity = item.quantity * subscription.quantityMultiplier,
+            )
+        }
+        if (items.isEmpty()) {
+            return RecurringOrderConfirmation(subscription.toView(), validation.copy(canReorder = false))
+        }
+
+        val quote = try {
+            checkoutIntegrityService.calculateQuote(
+                CheckoutQuoteRequest(
+                    customerId = customerId,
+                    providerId = subscription.providerId,
+                    deliveryAddressId = subscription.deliveryAddressId,
+                    items = items,
+                    paymentMethod = sourceOrder.paymentMethod,
+                    city = address.city,
+                    latitude = address.latitude,
+                    longitude = address.longitude,
+                )
+            )
+        } catch (error: IllegalArgumentException) {
+            return RecurringOrderConfirmation(
+                subscription.toView(),
+                validation.copy(isProviderServiceable = false, canReorder = false),
+            )
+        }
+
+        val idempotencyKey = "recurring:${subscription.subscriptionId}:${subscription.nextOrderAt}"
+        val created = checkoutIntegrityService.createOrder(
+            CreateOrderRequest(
+                customerId = customerId,
+                providerId = subscription.providerId,
+                deliveryAddressId = subscription.deliveryAddressId,
+                items = items,
+                paymentMethod = sourceOrder.paymentMethod,
+                quoteToken = quote.quoteToken,
+                city = address.city,
+                latitude = address.latitude,
+                longitude = address.longitude,
+            ),
+            idempotencyKey,
+        )
+        require(created.status == OrderStatus.PLACED) { "Recurring confirmation must create a normal PLACED order." }
+        val contact = deliveryContactLookup.forCustomerAddress(customerId, subscription.deliveryAddressId)
+        created.deliveryContactPhone = contact?.phoneNumber
+        created.deliveryContactVerified = contact?.verified ?: false
+        orderRepository.save(created)
+
         subscription.status = RecurringOrderStatus.ACTIVE
         subscription.nextOrderAt = Instant.now().plus(subscription.cadenceDays.toLong(), ChronoUnit.DAYS)
         subscription.lastRemindedAt = null
@@ -144,9 +222,14 @@ class RecurringOrderService(
         publish(
             "RecurringOrderConfirmed",
             saved,
-            mapOf("requiresNewQuote" to true, "automaticCharge" to false)
+            mapOf(
+                "createdOrderId" to requireNotNull(created.orderId).toString(),
+                "createdOrderStatus" to created.status.name,
+                "automaticCharge" to false,
+                "normalOrderLifecycle" to true,
+            )
         )
-        return RecurringOrderConfirmation(saved.toView(), validation)
+        return RecurringOrderConfirmation(saved.toView(), validation, requireNotNull(created.orderId))
     }
 
     @Transactional

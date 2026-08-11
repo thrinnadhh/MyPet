@@ -35,6 +35,8 @@ export interface RecurringOrderConfirmation {
     items: ReorderValidationItem[];
     canReorder: boolean;
   };
+  /** Present only after confirmation successfully creates a normal PLACED order. */
+  createdOrderId?: string | null;
 }
 
 export function isRecurringCadence(value: number): value is RecurringCadence {

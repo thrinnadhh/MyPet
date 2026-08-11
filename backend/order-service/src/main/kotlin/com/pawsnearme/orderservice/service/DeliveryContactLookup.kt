@@ -6,6 +6,8 @@ import java.util.UUID
 
 data class CustomerDeliveryContact(
     val phoneNumber: String,
+    /** Address contact existence does not prove authenticated ownership of the phone number. */
+    val verified: Boolean = false,
 )
 
 @Component

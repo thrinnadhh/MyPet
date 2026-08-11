@@ -24,6 +24,11 @@ interface TransactionRepository : JpaRepository<Transaction, UUID> {
     fun findFirstByReferenceIdOrderByCreatedAtDesc(referenceId: UUID): Transaction?
     fun findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(referenceId: UUID, statuses: Collection<String>): Transaction?
     fun findByGatewayTransactionId(gatewayTransactionId: String): Transaction?
+    fun findTop100ByTransactionTypeAndStatusAndCreatedAtBeforeOrderByCreatedAtAsc(
+        transactionType: String,
+        status: String,
+        createdAt: Instant,
+    ): List<Transaction>
 }
 
 @Repository

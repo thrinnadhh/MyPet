@@ -1,6 +1,5 @@
 package com.pawsnearme.paymentservice.service
 
-import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.common.idempotency.IdempotencyService
 import com.pawsnearme.paymentservice.model.Transaction
@@ -64,14 +63,15 @@ class CashfreeGatewayService(
     private val transactionRepository: TransactionRepository,
     private val orderRefRepository: OrderRefRepository,
     private val appointmentRefRepository: AppointmentRefRepository,
-    private val idempotencyService: IdempotencyService,
-    private val objectMapper: ObjectMapper,
+    @Suppress("unused") private val idempotencyService: IdempotencyService,
+    @Suppress("unused") private val objectMapper: ObjectMapper,
     @Value("\${CASHFREE_CLIENT_ID:}") private val clientId: String = "",
     @Value("\${CASHFREE_CLIENT_SECRET:}") private val clientSecret: String = "",
     @Value("\${CASHFREE_WEBHOOK_SECRET:}") private val configuredWebhookSecret: String = "",
     @Value("\${CASHFREE_API_VERSION:2025-01-01}") private val apiVersion: String = "2025-01-01",
     @Value("\${CASHFREE_SANDBOX_MODE:false}") private val sandboxMode: Boolean = false,
     private val restTemplate: RestOperations = RestTemplate(),
+    private val orderPaymentLifecycleService: OrderPaymentLifecycleService? = null,
 ) {
     private val logger = LoggerFactory.getLogger(CashfreeGatewayService::class.java)
 
@@ -107,17 +107,12 @@ class CashfreeGatewayService(
 
     private fun validateReference(request: CreateCashfreeOrderRequest) {
         require(request.amount > BigDecimal.ZERO) { "Payment amount must be greater than zero" }
-
         when (request.transactionType) {
             "ORDER_PAYMENT" -> {
                 val order = orderRefRepository.findById(request.referenceId)
                     .orElseThrow { IllegalArgumentException("Order not found for payment reference") }
-                if (order.customerId != request.userId) {
-                    throw IllegalArgumentException("Payment reference does not belong to this user")
-                }
-                if (order.status != "PLACED") {
-                    throw IllegalStateException("Order is not awaiting online payment")
-                }
+                if (order.customerId != request.userId) throw IllegalArgumentException("Payment reference does not belong to this user")
+                if (order.status != "PLACED") throw IllegalStateException("Order is not awaiting online payment")
                 if (order.totalAmount.compareTo(request.amount) != 0) {
                     throw IllegalArgumentException("Payment amount does not match the server-authoritative order total")
                 }
@@ -125,12 +120,8 @@ class CashfreeGatewayService(
             "APPOINTMENT_PAYMENT" -> {
                 val appointment = appointmentRefRepository.findById(request.referenceId)
                     .orElseThrow { IllegalArgumentException("Appointment not found for payment reference") }
-                if (appointment.customerId != request.userId) {
-                    throw IllegalArgumentException("Appointment payment reference does not belong to this user")
-                }
-                if (appointment.status != "SLOT_HELD") {
-                    throw IllegalStateException("Appointment is not awaiting online payment")
-                }
+                if (appointment.customerId != request.userId) throw IllegalArgumentException("Appointment payment reference does not belong to this user")
+                if (appointment.status != "SLOT_HELD") throw IllegalStateException("Appointment is not awaiting online payment")
                 if (appointment.priceAmount.compareTo(request.amount) != 0) {
                     throw IllegalArgumentException("Payment amount does not match the server-authoritative appointment price")
                 }
@@ -142,33 +133,32 @@ class CashfreeGatewayService(
     @Transactional
     fun createOrder(request: CreateCashfreeOrderRequest): CashfreeOrderResponse {
         validateReference(request)
+        val amount = request.amount.setScale(2, RoundingMode.HALF_UP)
 
         val completed = transactionRepository.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(
             request.referenceId,
             listOf("SUCCESS", "REFUNDED", "REFUND_PENDING"),
         )
-        if (completed != null) {
-            throw IllegalStateException("Payment is already completed for reference ID ${request.referenceId}")
-        }
+        if (completed != null) throw IllegalStateException("Payment is already completed for reference ID ${request.referenceId}")
 
         val pending = transactionRepository.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(
             request.referenceId,
             listOf("PENDING"),
         )
-        if (pending != null && pending.gateway == "CASHFREE" && !pending.gatewayTransactionId.isNullOrBlank()) {
-            return responseForExisting(pending)
-        }
         if (pending != null) {
-            pending.status = "FAILED"
-            transactionRepository.save(pending)
+            require(pending.userId == request.userId) { "Prepared payment belongs to another customer" }
+            require(pending.transactionType == request.transactionType) { "Prepared payment type does not match" }
+            require(pending.amount.compareTo(amount) == 0) { "Prepared payment amount does not match" }
+            require(pending.gateway == "CASHFREE") { "Prepared payment is not configured for Cashfree" }
+            if (!pending.gatewayTransactionId.isNullOrBlank()) return responseForExisting(pending)
         }
 
-        val transaction = transactionRepository.save(
+        val transaction = pending ?: transactionRepository.saveAndFlush(
             Transaction(
                 userId = request.userId,
                 transactionType = request.transactionType,
                 referenceId = request.referenceId,
-                amount = request.amount.setScale(2, RoundingMode.HALF_UP),
+                amount = amount,
                 status = "PENDING",
                 gateway = "CASHFREE",
             ),
@@ -184,7 +174,7 @@ class CashfreeGatewayService(
         }
 
         transaction.gatewayTransactionId = cashfreeOrderId
-        transactionRepository.save(transaction)
+        transactionRepository.saveAndFlush(transaction)
         return CashfreeOrderResponse(
             orderId = cashfreeOrderId,
             paymentSessionId = sessionId,
@@ -201,9 +191,7 @@ class CashfreeGatewayService(
         cashfreeOrderId: String,
         transactionId: UUID,
     ): String {
-        if (!credentialsConfigured()) {
-            throw IllegalStateException("Cashfree credentials are not configured")
-        }
+        if (!credentialsConfigured()) throw IllegalStateException("Cashfree credentials are not configured")
         val customerDetails = linkedMapOf<String, Any>(
             "customer_id" to request.userId.toString(),
             "customer_phone" to normalizePhone(request.customerPhone),
@@ -223,7 +211,6 @@ class CashfreeGatewayService(
                 "mypet_transaction_type" to request.transactionType,
             ),
         )
-
         try {
             val response = restTemplate.exchange(
                 "$baseUrl/orders",
@@ -231,27 +218,20 @@ class CashfreeGatewayService(
                 HttpEntity(body, authenticatedHeaders(transactionId)),
                 Map::class.java,
             )
-            val responseBody = response.body
-                ?: throw IllegalStateException("Cashfree returned an empty order response")
+            val responseBody = response.body ?: throw IllegalStateException("Cashfree returned an empty order response")
             val returnedOrderId = responseBody["order_id"] as? String
                 ?: throw IllegalStateException("Cashfree response did not contain order_id")
-            if (returnedOrderId != cashfreeOrderId) {
-                throw IllegalStateException("Cashfree returned an unexpected order ID")
-            }
+            if (returnedOrderId != cashfreeOrderId) throw IllegalStateException("Cashfree returned an unexpected order ID")
             return responseBody["payment_session_id"] as? String
                 ?: throw IllegalStateException("Cashfree response did not contain payment_session_id")
         } catch (error: Exception) {
-            transaction.status = "FAILED"
-            transactionRepository.save(transaction)
             throw IllegalStateException("Failed to create Cashfree order: ${error.message}", error)
         }
     }
 
     private fun responseForExisting(transaction: Transaction): CashfreeOrderResponse {
-        val transactionId = transaction.transactionId
-            ?: throw IllegalStateException("Existing transaction did not have an ID")
-        val orderId = transaction.gatewayTransactionId
-            ?: throw IllegalStateException("Existing Cashfree transaction did not have an order ID")
+        val transactionId = transaction.transactionId ?: throw IllegalStateException("Existing transaction did not have an ID")
+        val orderId = transaction.gatewayTransactionId ?: throw IllegalStateException("Existing Cashfree transaction did not have an order ID")
         return CashfreeOrderResponse(
             orderId = orderId,
             paymentSessionId = fetchPaymentSession(orderId, transactionId),
@@ -272,9 +252,7 @@ class CashfreeGatewayService(
     }
 
     private fun fetchOrder(orderId: String, requestId: UUID = UUID.randomUUID()): Map<*, *> {
-        if (!credentialsConfigured()) {
-            throw IllegalStateException("Cashfree credentials are not configured")
-        }
+        if (!credentialsConfigured()) throw IllegalStateException("Cashfree credentials are not configured")
         val response = restTemplate.exchange(
             "$baseUrl/orders/$orderId",
             HttpMethod.GET,
@@ -284,6 +262,7 @@ class CashfreeGatewayService(
         return response.body ?: throw IllegalStateException("Cashfree returned an empty order response")
     }
 
+    /** Server/admin recovery hook only. Customer clients observe status and never invoke reconciliation. */
     @Transactional
     fun reconcile(referenceId: UUID): PaymentResultEvent {
         val transaction = transactionRepository.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(
@@ -293,19 +272,18 @@ class CashfreeGatewayService(
             ?: throw IllegalArgumentException("Transaction not found for reference ID $referenceId")
 
         if (transaction.status == "SUCCESS") return event(transaction, "PaymentCaptured")
-        if (transaction.gateway != "CASHFREE") {
-            throw IllegalStateException("The pending transaction is not a Cashfree transaction")
-        }
-        val orderId = transaction.gatewayTransactionId
-            ?: throw IllegalStateException("Cashfree order ID is missing")
-
+        if (transaction.gateway != "CASHFREE") throw IllegalStateException("The pending transaction is not a Cashfree transaction")
+        val orderId = transaction.gatewayTransactionId ?: throw IllegalStateException("Cashfree order ID is missing")
         if (sandboxMode && !credentialsConfigured()) return event(transaction, "PaymentPending")
 
         val order = fetchOrder(orderId, transaction.transactionId ?: UUID.randomUUID())
         validateCashfreeOrder(transaction, order)
         if ((order["order_status"] as? String)?.uppercase() == "PAID") {
-            transaction.status = "SUCCESS"
-            return event(transactionRepository.save(transaction), "PaymentCaptured")
+            val captured = orderPaymentLifecycleService?.capture(transaction) ?: run {
+                transaction.status = "SUCCESS"
+                transactionRepository.saveAndFlush(transaction)
+            }
+            return event(captured, "PaymentCaptured")
         }
         return event(transaction, "PaymentPending")
     }
@@ -314,15 +292,9 @@ class CashfreeGatewayService(
         val returnedOrderId = order["order_id"] as? String
         val amount = decimal(order["order_amount"])
         val currency = order["order_currency"] as? String
-        if (returnedOrderId != transaction.gatewayTransactionId) {
-            throw IllegalArgumentException("Cashfree order ID does not match the initiated transaction")
-        }
-        if (amount == null || amount.compareTo(transaction.amount) != 0) {
-            throw IllegalArgumentException("Cashfree order amount does not match the initiated transaction")
-        }
-        if (currency != transaction.currency) {
-            throw IllegalArgumentException("Cashfree order currency does not match the initiated transaction")
-        }
+        if (returnedOrderId != transaction.gatewayTransactionId) throw IllegalArgumentException("Cashfree order ID does not match the initiated transaction")
+        if (amount == null || amount.compareTo(transaction.amount) != 0) throw IllegalArgumentException("Cashfree order amount does not match the initiated transaction")
+        if (currency != transaction.currency) throw IllegalArgumentException("Cashfree order currency does not match the initiated transaction")
     }
 
     fun verifyWebhookSignature(rawBody: String, timestamp: String, signature: String): Boolean {
@@ -345,83 +317,14 @@ class CashfreeGatewayService(
     }
 
     @Transactional
-    fun processWebhook(
-        rawBody: String,
-        signature: String,
-        timestamp: String,
-        idempotencyKey: String?,
-    ): Boolean {
-        if (!verifyWebhookSignature(rawBody, timestamp, signature)) {
-            throw IllegalArgumentException("Invalid or expired Cashfree webhook signature")
-        }
-        val event: Map<String, Any> = try {
-            objectMapper.readValue(rawBody, object : TypeReference<Map<String, Any>>() {})
-        } catch (error: Exception) {
-            throw IllegalArgumentException("Invalid Cashfree webhook payload", error)
-        }
-        val data = event["data"] as? Map<*, *>
-            ?: throw IllegalArgumentException("Cashfree webhook data is missing")
-        val order = data["order"] as? Map<*, *>
-            ?: throw IllegalArgumentException("Cashfree webhook order is missing")
-        val payment = data["payment"] as? Map<*, *>
-        val orderId = order["order_id"] as? String
-            ?: throw IllegalArgumentException("Cashfree order_id is missing")
-        val paymentId = payment?.get("cf_payment_id")?.toString()
-        val type = event["type"]?.toString()?.uppercase() ?: "UNKNOWN"
-        val eventKey = idempotencyKey?.trim()?.takeIf { it.isNotBlank() }
-            ?: "$type|$orderId|${paymentId.orEmpty()}|${event["event_time"]?.toString().orEmpty()}"
-        val eventUuid = runCatching { UUID.fromString(eventKey) }
-            .getOrElse { UUID.nameUUIDFromBytes(eventKey.toByteArray(StandardCharsets.UTF_8)) }
-
-        val transaction = transactionRepository.findByGatewayTransactionId(orderId)
-            ?: throw IllegalArgumentException("Cashfree order is not associated with a MyPet transaction")
-        if (transaction.gateway != "CASHFREE") {
-            throw IllegalArgumentException("Webhook order is not a Cashfree transaction")
-        }
-        validateWebhookAmount(transaction, order, payment)
-        if (!idempotencyService.checkAndRecord(eventUuid)) return false
-
-        val paymentStatus = payment?.get("payment_status")?.toString()?.uppercase()
-        if (type == "PAYMENT_SUCCESS_WEBHOOK" && paymentStatus == "SUCCESS") {
-            transaction.status = "SUCCESS"
-            transactionRepository.save(transaction)
-        } else if (type == "PAYMENT_FAILED_WEBHOOK" || type == "PAYMENT_USER_DROPPED_WEBHOOK") {
-            logger.info("Cashfree payment attempt {} for order {} ended with {}", paymentId, orderId, paymentStatus)
-        }
-        return true
-    }
-
-    private fun validateWebhookAmount(transaction: Transaction, order: Map<*, *>, payment: Map<*, *>?) {
-        val orderAmount = decimal(order["order_amount"])
-        val orderCurrency = order["order_currency"]?.toString()
-        val paymentAmount = payment?.get("payment_amount")?.let(::decimal)
-        val paymentCurrency = payment?.get("payment_currency")?.toString()
-        if (orderAmount == null || orderAmount.compareTo(transaction.amount) != 0) {
-            throw IllegalArgumentException("Cashfree webhook order amount does not match")
-        }
-        if (orderCurrency != transaction.currency) {
-            throw IllegalArgumentException("Cashfree webhook order currency does not match")
-        }
-        if (paymentAmount != null && paymentAmount.compareTo(transaction.amount) != 0) {
-            throw IllegalArgumentException("Cashfree webhook payment amount does not match")
-        }
-        if (paymentCurrency != null && paymentCurrency != transaction.currency) {
-            throw IllegalArgumentException("Cashfree webhook payment currency does not match")
-        }
-    }
-
-    @Transactional
     fun refundOrder(referenceId: UUID): Transaction {
         val transaction = transactionRepository.findFirstByReferenceIdAndStatusInOrderByCreatedAtDesc(
             referenceId,
             listOf("SUCCESS", "REFUND_PENDING"),
         ) ?: throw IllegalArgumentException("Successful Cashfree transaction not found for order $referenceId")
-        if (transaction.gateway != "CASHFREE") {
-            throw IllegalStateException("The transaction was not paid through Cashfree")
-        }
+        if (transaction.gateway != "CASHFREE") throw IllegalStateException("The transaction was not paid through Cashfree")
         if (transaction.status == "REFUND_PENDING") return transaction
-        val orderId = transaction.gatewayTransactionId
-            ?: throw IllegalStateException("Cashfree order ID is missing")
+        val orderId = transaction.gatewayTransactionId ?: throw IllegalStateException("Cashfree order ID is missing")
 
         if (sandboxMode && !credentialsConfigured()) {
             transaction.status = "REFUNDED"
@@ -449,8 +352,7 @@ class CashfreeGatewayService(
 
     private fun event(transaction: Transaction, type: String): PaymentResultEvent = PaymentResultEvent(
         eventType = type,
-        transactionId = transaction.transactionId
-            ?: throw IllegalStateException("Transaction ID is missing"),
+        transactionId = transaction.transactionId ?: throw IllegalStateException("Transaction ID is missing"),
         referenceId = transaction.referenceId,
         actorId = transaction.userId,
         amount = transaction.amount,

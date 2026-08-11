@@ -2,6 +2,7 @@ import { apiClient } from './api-client';
 
 export type MerchantAppointmentStatus =
   | 'SLOT_HELD'
+  | 'PAID'
   | 'CONFIRMED'
   | 'COMPLETED'
   | 'CANCELLED'

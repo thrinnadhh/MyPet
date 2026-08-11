@@ -1,35 +1,36 @@
-import assert from 'node:assert';
-import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import { describe, test } from 'node:test';
 
-describe('Merchant & Captain End-to-End Operational Flow Test', () => {
-  test('E2E: Order creation -> Merchant fulfillment -> Captain pickup & delivery', () => {
-    const orderId = 'ord-999';
-    const merchantId = 'merchant-888';
-    const captainId = 'captain-777';
+import { canOrderTransition, type OrderStatus } from '../contracts/order-contract.generated';
 
-    // 1. Merchant receives placed order
-    const orderState = {
-      orderId,
-      merchantId,
-      captainId: null as string | null,
-      status: 'PLACED',
-      fulfillmentType: 'DELIVERY',
-    };
+describe('Merchant & Captain canonical order flow', () => {
+  test('E2E contract: merchant fulfillment -> dispatch assignment -> captain delivery -> system completion', () => {
+    let status: OrderStatus = 'PLACED';
 
-    assert.strictEqual(orderState.status, 'PLACED');
+    assert.equal(canOrderTransition(status, 'ACCEPTED', 'MERCHANT'), true);
+    status = 'ACCEPTED';
 
-    // 2. Merchant accepts and prepares order
-    orderState.status = 'READY_FOR_PICKUP';
-    assert.strictEqual(orderState.status, 'READY_FOR_PICKUP');
+    assert.equal(canOrderTransition(status, 'PREPARING', 'MERCHANT'), true);
+    assert.equal(canOrderTransition(status, 'READY_FOR_PICKUP', 'MERCHANT'), false);
+    status = 'PREPARING';
 
-    // 3. Dispatch assigns captain
-    orderState.captainId = captainId;
-    orderState.status = 'OUT_FOR_DELIVERY';
-    assert.strictEqual(orderState.captainId, captainId);
-    assert.strictEqual(orderState.status, 'OUT_FOR_DELIVERY');
+    assert.equal(canOrderTransition(status, 'READY_FOR_PICKUP', 'MERCHANT'), true);
+    status = 'READY_FOR_PICKUP';
 
-    // 4. Captain completes delivery
-    orderState.status = 'DELIVERED';
-    assert.strictEqual(orderState.status, 'DELIVERED');
+    assert.equal(canOrderTransition(status, 'ASSIGNED', 'DISPATCH'), true);
+    assert.equal(canOrderTransition(status, 'ASSIGNED', 'MERCHANT'), false);
+    status = 'ASSIGNED';
+
+    assert.equal(canOrderTransition(status, 'DELIVERED', 'CAPTAIN'), false);
+    assert.equal(canOrderTransition(status, 'PICKED_UP', 'CAPTAIN'), true);
+    status = 'PICKED_UP';
+
+    assert.equal(canOrderTransition(status, 'DELIVERED', 'CAPTAIN'), true);
+    status = 'DELIVERED';
+
+    assert.equal(canOrderTransition(status, 'COMPLETED', 'SYSTEM'), true);
+    status = 'COMPLETED';
+
+    assert.equal(status, 'COMPLETED');
   });
 });

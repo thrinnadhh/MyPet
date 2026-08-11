@@ -2,12 +2,17 @@ package com.pawsnearme.paymentservice.module
 
 import com.pawsnearme.common.module.CodEligibilityDecision
 import com.pawsnearme.common.module.CouponReservationCommand
+import com.pawsnearme.common.module.LoyaltyRewardTerms
 import com.pawsnearme.common.module.PaymentModuleApi
 import com.pawsnearme.common.module.PaymentTransactionSnapshot
+import com.pawsnearme.common.module.PrepareOrderPaymentCommand
 import com.pawsnearme.common.module.PromotionTerms
+import com.pawsnearme.paymentservice.service.CashfreeGatewayService
+import com.pawsnearme.paymentservice.service.CheckoutLoyaltyService
 import com.pawsnearme.paymentservice.service.CodCheckRequest
 import com.pawsnearme.paymentservice.service.CouponReservationRequest
 import com.pawsnearme.paymentservice.service.LoyaltyLifecycleService
+import com.pawsnearme.paymentservice.service.OrderPaymentLifecycleService
 import com.pawsnearme.paymentservice.service.PaymentService
 import org.springframework.stereotype.Service
 import java.math.BigDecimal
@@ -16,7 +21,10 @@ import java.util.UUID
 @Service
 class PaymentModuleFacade(
     private val paymentService: PaymentService,
-    private val loyaltyLifecycleService: LoyaltyLifecycleService
+    private val loyaltyLifecycleService: LoyaltyLifecycleService,
+    private val orderPaymentLifecycleService: OrderPaymentLifecycleService,
+    private val checkoutLoyaltyService: CheckoutLoyaltyService,
+    private val cashfreeGatewayService: CashfreeGatewayService,
 ) : PaymentModuleApi {
 
     override fun transaction(transactionId: UUID): PaymentTransactionSnapshot? =
@@ -24,9 +32,7 @@ class PaymentModuleFacade(
             .getOrNull()
             ?.let { transaction ->
                 PaymentTransactionSnapshot(
-                    transactionId = requireNotNull(transaction.transactionId) {
-                        "Payment transaction is missing its identifier"
-                    },
+                    transactionId = requireNotNull(transaction.transactionId) { "Payment transaction is missing its identifier" },
                     userId = transaction.userId,
                     referenceId = transaction.referenceId,
                     transactionType = transaction.transactionType,
@@ -35,18 +41,16 @@ class PaymentModuleFacade(
                 )
             }
 
-    override fun promotionTerms(
-        code: String,
-        orderValue: BigDecimal,
-        providerId: UUID,
-        category: String?
-    ): PromotionTerms = paymentService.validateCoupon(code, orderValue, providerId, category).let { promo ->
-        PromotionTerms(
-            discountType = promo.discountType,
-            discountValue = promo.discountValue,
-            maxDiscountAmount = promo.maxDiscountAmount
-        )
-    }
+    override fun prepareOrderPayment(command: PrepareOrderPaymentCommand): PaymentTransactionSnapshot =
+        orderPaymentLifecycleService.prepare(command)
+
+    override fun expireOrderPayment(orderId: UUID, reason: String): PaymentTransactionSnapshot? =
+        orderPaymentLifecycleService.expireOrderPayment(orderId, reason)
+
+    override fun promotionTerms(code: String, orderValue: BigDecimal, providerId: UUID, category: String?): PromotionTerms =
+        paymentService.validateCoupon(code, orderValue, providerId, category).let { promo ->
+            PromotionTerms(promo.discountType, promo.discountValue, promo.maxDiscountAmount)
+        }
 
     override fun reserveCoupon(command: CouponReservationCommand): BigDecimal =
         paymentService.reserveCoupon(
@@ -68,34 +72,46 @@ class PaymentModuleFacade(
         paymentService.redeemCouponReservation(code, userId, orderId)
     }
 
-    override fun codEligibility(
-        amount: BigDecimal,
-        city: String?,
-        providerId: UUID?
-    ): CodEligibilityDecision = paymentService.checkCodEligibility(
-        CodCheckRequest(amount = amount, city = city, providerId = providerId)
-    ).let { decision ->
-        CodEligibilityDecision(
-            eligible = decision.isEligible,
-            maxAllowedAmount = decision.maxAllowedAmount,
-            reason = decision.reason
-        )
+    override fun loyaltyRewardTerms(rewardId: UUID, customerId: UUID, providerId: UUID): LoyaltyRewardTerms =
+        checkoutLoyaltyService.terms(rewardId, customerId, providerId)
+
+    override fun reserveLoyaltyReward(rewardId: UUID, customerId: UUID, providerId: UUID, orderId: UUID) {
+        checkoutLoyaltyService.reserve(rewardId, customerId, providerId, orderId)
     }
+
+    override fun releaseLoyaltyReward(rewardId: UUID, customerId: UUID, orderId: UUID) {
+        checkoutLoyaltyService.release(rewardId, customerId, orderId)
+    }
+
+    override fun redeemLoyaltyReward(rewardId: UUID, customerId: UUID, orderId: UUID) {
+        checkoutLoyaltyService.redeem(rewardId, customerId, orderId)
+    }
+
+    override fun codEligibility(amount: BigDecimal, city: String?, providerId: UUID?): CodEligibilityDecision =
+        paymentService.checkCodEligibility(CodCheckRequest(amount = amount, city = city, providerId = providerId)).let { decision ->
+            CodEligibilityDecision(decision.isEligible, decision.maxAllowedAmount, decision.reason)
+        }
 
     override fun refundOrder(orderId: UUID) {
-        paymentService.refundPayment(orderId)
+        val transaction = cashfreeGatewayService.refundOrder(orderId)
+        orderPaymentLifecycleService.publishRefundState(transaction)
     }
 
-    override fun recordOrderDelivered(
-        orderId: UUID,
-        customerId: UUID,
-        providerId: UUID,
-        netAmount: BigDecimal
-    ) {
+    override fun recordOrderDelivered(orderId: UUID, customerId: UUID, providerId: UUID, netAmount: BigDecimal) {
         loyaltyLifecycleService.recordDelivered(orderId, customerId, providerId, netAmount)
     }
 
     override fun recordOrderRefunded(orderId: UUID, customerId: UUID, providerId: UUID) {
         loyaltyLifecycleService.recordRefunded(orderId, customerId, providerId)
+    }
+
+    override fun recordServiceCompleted(
+        referenceId: UUID,
+        customerId: UUID,
+        providerId: UUID,
+        netAmount: BigDecimal,
+        serviceType: String,
+    ) {
+        loyaltyLifecycleService.recordServiceCompleted(referenceId, customerId, providerId, netAmount, serviceType)
     }
 }

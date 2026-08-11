@@ -6,9 +6,12 @@ import com.pawsnearme.common.module.CatalogSlotSnapshot
 import com.pawsnearme.common.module.CodEligibilityDecision
 import com.pawsnearme.common.module.CouponReservationCommand
 import com.pawsnearme.common.module.DiscoveryModuleApi
+import com.pawsnearme.common.module.LoyaltyRewardTerms
 import com.pawsnearme.common.module.PaymentModuleApi
 import com.pawsnearme.common.module.PaymentTransactionSnapshot
+import com.pawsnearme.common.module.PrepareOrderPaymentCommand
 import com.pawsnearme.common.module.PromotionTerms
+import com.pawsnearme.common.module.ProviderLocationSnapshot
 import com.pawsnearme.common.module.ProviderModuleApi
 import com.pawsnearme.common.module.ServiceabilityDecision
 import com.pawsnearme.common.module.StockMutationCommand
@@ -75,11 +78,9 @@ class RemoteCatalogModuleApi(
         return response.toOffering(offeringId)
     }
 
-    override fun reserveStock(command: StockMutationCommand): CatalogOfferingSnapshot =
-        mutate(command, "decrement-stock")
+    override fun reserveStock(command: StockMutationCommand): CatalogOfferingSnapshot = mutate(command, "decrement-stock")
 
-    override fun restoreStock(command: StockMutationCommand): CatalogOfferingSnapshot =
-        mutate(command, "restore-stock")
+    override fun restoreStock(command: StockMutationCommand): CatalogOfferingSnapshot = mutate(command, "restore-stock")
 
     override fun slot(slotId: UUID): CatalogSlotSnapshot? = runCatching {
         val response = restOperations.exchange(
@@ -112,9 +113,7 @@ class RemoteCatalogModuleApi(
     }
 
     private fun mutate(command: StockMutationCommand, operation: String): CatalogOfferingSnapshot {
-        val headers = internalHeaders().apply {
-            set("X-Idempotency-Key", command.idempotencyKey.toString())
-        }
+        val headers = internalHeaders().apply { set("X-Idempotency-Key", command.idempotencyKey.toString()) }
         val response = restOperations.exchange(
             "$baseUrl/api/v1/internal/catalog/offerings/${command.offeringId}/$operation?quantity=${command.quantity}",
             HttpMethod.PUT,
@@ -131,7 +130,8 @@ class RemoteCatalogModuleApi(
         price = decimal(this["price"]),
         status = this["status"]?.toString()?.uppercase() ?: "ACTIVE",
         stockQuantity = (this["stockQuantity"] as? Number)?.toInt(),
-        gstRate = decimal(this["gstRate"]) ?: BigDecimal("18.00")
+        gstRate = this["gstRate"]?.let(::decimal) ?: BigDecimal("18.00"),
+        listPrice = this["listPrice"]?.let(::decimal),
     )
 
     private fun internalHeaders() = HttpHeaders().apply {
@@ -154,15 +154,25 @@ class RemotePaymentModuleApi(
             HttpEntity<Any>(headers("ADMIN")),
             Map::class.java
         ).body ?: return@runCatching null
-        PaymentTransactionSnapshot(
-            transactionId = response["transactionId"]?.toString()?.let(UUID::fromString) ?: transactionId,
-            userId = response["userId"]?.toString()?.let(UUID::fromString) ?: UUID(0L, 0L),
-            referenceId = response["referenceId"]?.toString()?.let(UUID::fromString) ?: UUID(0L, 0L),
-            transactionType = response["transactionType"]?.toString() ?: "ORDER_PAYMENT",
-            amount = decimal(response["amount"]),
-            status = response["status"].toString()
-        )
+        response.toPaymentSnapshot(transactionId)
     }.getOrNull()
+
+    override fun prepareOrderPayment(command: PrepareOrderPaymentCommand): PaymentTransactionSnapshot {
+        val response = restOperations.postForEntity(
+            "$baseUrl/api/v1/internal/payments/orders/prepare",
+            HttpEntity(command, headers()),
+            Map::class.java
+        ).body ?: throw IllegalStateException("Payment service returned an empty payment preparation response")
+        return response.toPaymentSnapshot(null)
+    }
+
+    override fun expireOrderPayment(orderId: UUID, reason: String): PaymentTransactionSnapshot? {
+        val url = UriComponentsBuilder.fromUriString("$baseUrl/api/v1/internal/payments/orders/$orderId/expire")
+            .queryParam("reason", reason)
+            .build().encode().toUriString()
+        val response = restOperations.postForEntity(url, HttpEntity<Any>(headers()), Map::class.java).body ?: return null
+        return response.toPaymentSnapshot(null)
+    }
 
     override fun promotionTerms(
         code: String,
@@ -176,12 +186,8 @@ class RemotePaymentModuleApi(
             .queryParam("providerId", providerId)
             .apply { if (!category.isNullOrBlank()) queryParam("category", category) }
             .build().encode().toUriString()
-        val response = restOperations.exchange(
-            url,
-            HttpMethod.GET,
-            HttpEntity<Any>(headers()),
-            Map::class.java
-        ).body ?: throw IllegalArgumentException("Coupon validation returned no result")
+        val response = restOperations.exchange(url, HttpMethod.GET, HttpEntity<Any>(headers()), Map::class.java).body
+            ?: throw IllegalArgumentException("Coupon validation returned no result")
         return PromotionTerms(
             discountType = response["discountType"].toString(),
             discountValue = decimal(response["discountValue"]),
@@ -216,11 +222,34 @@ class RemotePaymentModuleApi(
         postQuery("promotions/redeem", code, userId, orderId, "ADMIN")
     }
 
-    override fun codEligibility(
-        amount: BigDecimal,
-        city: String?,
-        providerId: UUID?
-    ): CodEligibilityDecision {
+    override fun loyaltyRewardTerms(rewardId: UUID, customerId: UUID, providerId: UUID): LoyaltyRewardTerms {
+        val url = UriComponentsBuilder.fromUriString("$baseUrl/api/v1/internal/payments/loyalty/$rewardId")
+            .queryParam("customerId", customerId)
+            .queryParam("providerId", providerId)
+            .build().encode().toUriString()
+        val response = restOperations.exchange(url, HttpMethod.GET, HttpEntity<Any>(headers()), Map::class.java).body
+            ?: throw IllegalStateException("Payment service returned an empty loyalty reward response")
+        return LoyaltyRewardTerms(
+            rewardId = UUID.fromString(response["rewardId"].toString()),
+            code = response["code"].toString(),
+            amount = decimal(response["amount"]),
+            stackableWithCoupon = response["stackableWithCoupon"] as? Boolean ?: false,
+        )
+    }
+
+    override fun reserveLoyaltyReward(rewardId: UUID, customerId: UUID, providerId: UUID, orderId: UUID) {
+        loyaltyPost(rewardId, "reserve", customerId, orderId, providerId)
+    }
+
+    override fun releaseLoyaltyReward(rewardId: UUID, customerId: UUID, orderId: UUID) {
+        loyaltyPost(rewardId, "release", customerId, orderId, null)
+    }
+
+    override fun redeemLoyaltyReward(rewardId: UUID, customerId: UUID, orderId: UUID) {
+        loyaltyPost(rewardId, "redeem", customerId, orderId, null)
+    }
+
+    override fun codEligibility(amount: BigDecimal, city: String?, providerId: UUID?): CodEligibilityDecision {
         val response = restOperations.postForEntity(
             "$baseUrl/api/v1/payments/cod/check",
             HttpEntity(mapOf("amount" to amount, "city" to city, "providerId" to providerId), headers()),
@@ -241,21 +270,11 @@ class RemotePaymentModuleApi(
         )
     }
 
-    override fun recordOrderDelivered(
-        orderId: UUID,
-        customerId: UUID,
-        providerId: UUID,
-        netAmount: BigDecimal
-    ) {
+    override fun recordOrderDelivered(orderId: UUID, customerId: UUID, providerId: UUID, netAmount: BigDecimal) {
         restOperations.postForEntity(
             "$baseUrl/api/v1/loyalty/events/order-delivered",
             HttpEntity(
-                mapOf(
-                    "orderId" to orderId,
-                    "customerId" to customerId,
-                    "providerId" to providerId,
-                    "netAmount" to netAmount
-                ),
+                mapOf("orderId" to orderId, "customerId" to customerId, "providerId" to providerId, "netAmount" to netAmount),
                 headers()
             ),
             Map::class.java
@@ -265,10 +284,7 @@ class RemotePaymentModuleApi(
     override fun recordOrderRefunded(orderId: UUID, customerId: UUID, providerId: UUID) {
         restOperations.postForEntity(
             "$baseUrl/api/v1/loyalty/events/order-refunded",
-            HttpEntity(
-                mapOf("orderId" to orderId, "customerId" to customerId, "providerId" to providerId),
-                headers()
-            ),
+            HttpEntity(mapOf("orderId" to orderId, "customerId" to customerId, "providerId" to providerId), headers()),
             Map::class.java
         )
     }
@@ -281,6 +297,25 @@ class RemotePaymentModuleApi(
             .build().encode().toUriString()
         restOperations.postForEntity(url, HttpEntity<Any>(headers(role, userId)), Map::class.java)
     }
+
+    private fun loyaltyPost(rewardId: UUID, action: String, customerId: UUID, orderId: UUID, providerId: UUID?) {
+        val url = UriComponentsBuilder.fromUriString("$baseUrl/api/v1/internal/payments/loyalty/$rewardId/$action")
+            .queryParam("customerId", customerId)
+            .queryParam("orderId", orderId)
+            .apply { if (providerId != null) queryParam("providerId", providerId) }
+            .build().encode().toUriString()
+        restOperations.postForEntity(url, HttpEntity<Any>(headers()), Map::class.java)
+    }
+
+    private fun Map<*, *>.toPaymentSnapshot(fallbackId: UUID?): PaymentTransactionSnapshot = PaymentTransactionSnapshot(
+        transactionId = this["transactionId"]?.toString()?.let(UUID::fromString)
+            ?: fallbackId ?: throw IllegalStateException("Payment transaction ID missing"),
+        userId = UUID.fromString(this["userId"].toString()),
+        referenceId = UUID.fromString(this["referenceId"].toString()),
+        transactionType = this["transactionType"]?.toString() ?: "ORDER_PAYMENT",
+        amount = decimal(this["amount"]),
+        status = this["status"].toString(),
+    )
 
     private fun headers(role: String? = null, userId: UUID? = null) = HttpHeaders().apply {
         if (internalSecret.isNotBlank()) {
@@ -306,6 +341,22 @@ class RemoteProviderModuleApi(
         ).body
         response?.get("ownerUserId")?.toString()?.let(UUID::fromString)
     }.getOrNull()
+
+    override fun location(providerId: UUID): ProviderLocationSnapshot {
+        val response = restOperations.exchange(
+            "$baseUrl/api/v1/internal/providers/$providerId/location",
+            HttpMethod.GET,
+            HttpEntity<Any>(headers()),
+            Map::class.java
+        ).body ?: throw IllegalStateException("Provider service returned an empty location response")
+        return ProviderLocationSnapshot(
+            providerId = UUID.fromString(response["providerId"].toString()),
+            city = response["city"].toString(),
+            pincode = response["pincode"].toString(),
+            latitude = (response["latitude"] as Number).toDouble(),
+            longitude = (response["longitude"] as Number).toDouble(),
+        )
+    }
 
     override fun enabledVaccinationReminders(): List<VaccinationReminderSnapshot> = emptyList()
 
@@ -349,9 +400,7 @@ class RemoteDiscoveryModuleApi(
     }
 
     private fun headers() = HttpHeaders().apply {
-        if (gatewayTrustSecret.isNotBlank()) {
-            set("X-Internal-Gateway-Secret", gatewayTrustSecret)
-        }
+        if (gatewayTrustSecret.isNotBlank()) set("X-Internal-Gateway-Secret", gatewayTrustSecret)
     }
 }
 

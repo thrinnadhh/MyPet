@@ -2,12 +2,15 @@ package com.pawsnearme.orderservice.service
 
 import com.pawsnearme.orderservice.model.AdminAuditLog
 import com.pawsnearme.orderservice.model.OrderStatus
+import com.pawsnearme.orderservice.model.PaymentStatus
 import com.pawsnearme.orderservice.model.ServiceAreaConfig
 import com.pawsnearme.orderservice.repository.AdminAuditLogRepository
 import com.pawsnearme.orderservice.repository.DisputeRepository
 import com.pawsnearme.orderservice.repository.OrderRepository
 import com.pawsnearme.orderservice.repository.ServiceAreaConfigRepository
 import com.pawsnearme.orderservice.repository.SupportCaseRepository
+import jakarta.persistence.EntityManager
+import jakarta.persistence.PersistenceContext
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -22,6 +25,21 @@ data class AdminOperationsSnapshot(
     val failedPayments: Int,
     val openDisputes: Int,
     val openSupportCases: Int,
+    val ordersPlaced: Int,
+    val merchantPending: Int,
+    val accepted: Int,
+    val preparing: Int,
+    val readyForPickup: Int,
+    val assigned: Int,
+    val dispatchFailures: Int,
+    val pickedUp: Int,
+    val delivered: Int,
+    val completed: Int,
+    val cancelled: Int,
+    val rejected: Int,
+    val paymentFailures: Int,
+    val refunds: Int,
+    val refundPending: Int,
     val generatedAt: Instant
 )
 
@@ -66,13 +84,15 @@ class AdminOperationsService(
     private val auditRepository: AdminAuditLogRepository,
     private val serviceAreaRepository: ServiceAreaConfigRepository
 ) {
+    @PersistenceContext
+    private lateinit var entityManager: EntityManager
+
     private val activeOrderStatuses = setOf(
         OrderStatus.PLACED,
         OrderStatus.ACCEPTED,
         OrderStatus.PREPARING,
         OrderStatus.READY_FOR_PICKUP,
         OrderStatus.ASSIGNED,
-        OrderStatus.REASSIGNED,
         OrderStatus.PICKED_UP
     )
 
@@ -81,15 +101,41 @@ class AdminOperationsService(
         val orders = orderRepository.findAll()
         val active = orders.filter { it.status in activeOrderStatuses }
         val delayBoundary = now.minus(2, ChronoUnit.HOURS)
+        val paymentFailures = orders.count { it.paymentStatus == PaymentStatus.FAILED }
         return AdminOperationsSnapshot(
             activeOrders = active.size,
             delayedOrders = active.count { it.placedAt.isBefore(delayBoundary) },
-            failedPayments = orders.count { it.paymentStatus.equals("FAILED", ignoreCase = true) },
+            failedPayments = paymentFailures,
             openDisputes = disputeRepository.findAll().count { it.status.equals("OPEN", ignoreCase = true) },
             openSupportCases = supportCaseRepository.findAllByOrderByCreatedAtDesc()
                 .count { it.status.equals("OPEN", ignoreCase = true) },
+            ordersPlaced = orders.count { it.status == OrderStatus.PLACED },
+            merchantPending = orders.count {
+                it.status == OrderStatus.PLACED && it.paymentStatus in setOf(PaymentStatus.COD_PENDING, PaymentStatus.SUCCESS)
+            },
+            accepted = orders.count { it.status == OrderStatus.ACCEPTED },
+            preparing = orders.count { it.status == OrderStatus.PREPARING },
+            readyForPickup = orders.count { it.status == OrderStatus.READY_FOR_PICKUP },
+            assigned = orders.count { it.status == OrderStatus.ASSIGNED },
+            dispatchFailures = dispatchFailureCount(),
+            pickedUp = orders.count { it.status == OrderStatus.PICKED_UP },
+            delivered = orders.count { it.status == OrderStatus.DELIVERED },
+            completed = orders.count { it.status == OrderStatus.COMPLETED },
+            cancelled = orders.count { it.status == OrderStatus.CANCELLED },
+            rejected = orders.count { it.status == OrderStatus.REJECTED },
+            paymentFailures = paymentFailures,
+            refunds = orders.count { it.paymentStatus == PaymentStatus.REFUNDED },
+            refundPending = orders.count { it.paymentStatus == PaymentStatus.REFUND_PENDING },
             generatedAt = now
         )
+    }
+
+    private fun dispatchFailureCount(): Int {
+        if (!::entityManager.isInitialized) return 0
+        val value = entityManager.createNativeQuery(
+            "SELECT COUNT(*) FROM dispatch.dispatch_jobs WHERE status = 'FAILED'"
+        ).singleResult as Number
+        return value.toInt()
     }
 
     @Transactional(readOnly = true)

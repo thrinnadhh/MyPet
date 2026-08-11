@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { appConfig } from '@/utils/app-config';
 
-export type HistoryAppointmentStatus = 'SLOT_HELD' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW' | 'EXPIRED';
+export type HistoryAppointmentStatus = 'SLOT_HELD' | 'PAID' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW' | 'EXPIRED';
 export type AppointmentTabCategory = 'upcoming' | 'past' | 'cancelled';
 
 export interface CustomerAppointmentRecord {

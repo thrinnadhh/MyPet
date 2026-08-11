@@ -23,6 +23,10 @@ interface CatalogModuleApi {
 interface ProviderModuleApi {
     fun ownerUserId(providerId: UUID): UUID?
     fun enabledVaccinationReminders(): List<VaccinationReminderSnapshot>
+
+    /** Provider-origin details needed by checkout delivery quotation. */
+    fun location(providerId: UUID): ProviderLocationSnapshot =
+        throw UnsupportedOperationException("Provider location lookup is not implemented by this adapter")
 }
 
 interface PaymentModuleApi {
@@ -41,6 +45,40 @@ interface PaymentModuleApi {
     fun refundOrder(orderId: UUID)
     fun recordOrderDelivered(orderId: UUID, customerId: UUID, providerId: UUID, netAmount: BigDecimal)
     fun recordOrderRefunded(orderId: UUID, customerId: UUID, providerId: UUID)
+
+    /** Trusted service completion earns the same provider-scoped loyalty star as a delivered product order. */
+    fun recordServiceCompleted(
+        referenceId: UUID,
+        customerId: UUID,
+        providerId: UUID,
+        netAmount: BigDecimal,
+        serviceType: String,
+    ) {
+        throw UnsupportedOperationException("Service completion loyalty is not implemented by this adapter")
+    }
+
+    /** Creates/reuses the durable server-owned PENDING transaction for online checkout. */
+    fun prepareOrderPayment(command: PrepareOrderPaymentCommand): PaymentTransactionSnapshot =
+        throw UnsupportedOperationException("Order payment preparation is not implemented by this adapter")
+
+    /** Marks an outstanding order payment EXPIRED and publishes a lifecycle event. */
+    fun expireOrderPayment(orderId: UUID, reason: String): PaymentTransactionSnapshot? =
+        throw UnsupportedOperationException("Order payment expiry is not implemented by this adapter")
+
+    fun loyaltyRewardTerms(rewardId: UUID, customerId: UUID, providerId: UUID): LoyaltyRewardTerms =
+        throw UnsupportedOperationException("Loyalty reward lookup is not implemented by this adapter")
+
+    fun reserveLoyaltyReward(rewardId: UUID, customerId: UUID, providerId: UUID, orderId: UUID) {
+        throw UnsupportedOperationException("Loyalty reward reservation is not implemented by this adapter")
+    }
+
+    fun releaseLoyaltyReward(rewardId: UUID, customerId: UUID, orderId: UUID) {
+        throw UnsupportedOperationException("Loyalty reward release is not implemented by this adapter")
+    }
+
+    fun redeemLoyaltyReward(rewardId: UUID, customerId: UUID, orderId: UUID) {
+        throw UnsupportedOperationException("Loyalty reward redemption is not implemented by this adapter")
+    }
 }
 
 interface DiscoveryModuleApi {
@@ -63,7 +101,9 @@ data class CatalogOfferingSnapshot(
     val price: BigDecimal,
     val status: String,
     val stockQuantity: Int?,
-    val gstRate: BigDecimal = BigDecimal("18.00")
+    val gstRate: BigDecimal = BigDecimal("18.00"),
+    /** Optional list/MRP price used only to derive server-side item discounts. */
+    val listPrice: BigDecimal? = null
 )
 
 data class StockMutationCommand(
@@ -88,6 +128,14 @@ data class VaccinationReminderSnapshot(
     val enabled: Boolean
 )
 
+data class ProviderLocationSnapshot(
+    val providerId: UUID,
+    val city: String,
+    val pincode: String,
+    val latitude: Double,
+    val longitude: Double
+)
+
 data class PaymentTransactionSnapshot(
     val transactionId: UUID,
     val userId: UUID,
@@ -95,6 +143,12 @@ data class PaymentTransactionSnapshot(
     val transactionType: String,
     val amount: BigDecimal,
     val status: String
+)
+
+data class PrepareOrderPaymentCommand(
+    val orderId: UUID,
+    val customerId: UUID,
+    val amount: BigDecimal
 )
 
 data class PromotionTerms(
@@ -110,6 +164,13 @@ data class CouponReservationCommand(
     val userId: UUID,
     val orderId: UUID,
     val category: String? = null
+)
+
+data class LoyaltyRewardTerms(
+    val rewardId: UUID,
+    val code: String,
+    val amount: BigDecimal,
+    val stackableWithCoupon: Boolean
 )
 
 data class CodEligibilityDecision(

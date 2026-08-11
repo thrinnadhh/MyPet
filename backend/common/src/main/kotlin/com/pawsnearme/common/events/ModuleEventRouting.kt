@@ -26,12 +26,8 @@ class WorkflowCatalog(routes: Collection<WorkflowRoute>) {
 
     init {
         require(this.routes.isNotEmpty()) { "At least one workflow route is required" }
-        require(this.routes.map(WorkflowRoute::id).distinct().size == this.routes.size) {
-            "Workflow route ids must be unique"
-        }
-        require(this.routes.all { it.id.matches(Regex("[a-z][a-z0-9.-]*")) }) {
-            "Workflow route ids must be stable lowercase identifiers"
-        }
+        require(this.routes.map(WorkflowRoute::id).distinct().size == this.routes.size) { "Workflow route ids must be unique" }
+        require(this.routes.all { it.id.matches(Regex("[a-z][a-z0-9.-]*")) }) { "Workflow route ids must be stable lowercase identifiers" }
         require(this.routes.filter { it.executionKind != WorkflowExecutionKind.DIRECT_CALL }.all { !it.topic.isNullOrBlank() }) {
             "Event and durable-job routes require a topic"
         }
@@ -41,10 +37,7 @@ class WorkflowCatalog(routes: Collection<WorkflowRoute>) {
     }
 
     fun routesForTopic(topic: String): List<WorkflowRoute> = routes.filter { it.topic == topic }
-
-    fun hasInProcessReplacement(topic: String): Boolean =
-        routesForTopic(topic).any(WorkflowRoute::inProcessReplacementReady)
-
+    fun hasInProcessReplacement(topic: String): Boolean = routesForTopic(topic).any(WorkflowRoute::inProcessReplacementReady)
     fun count(kind: WorkflowExecutionKind): Int = routes.count { it.executionKind == kind }
 }
 
@@ -141,7 +134,8 @@ object MyPetWorkflowCatalog {
                 consumerModules = setOf("order", "notification"),
                 executionKind = WorkflowExecutionKind.DURABLE_OUTBOX_JOB,
                 topic = "payments.events",
-                inProcessReplacementReady = false
+                eventTypes = setOf("PaymentCaptured", "PaymentFailed", "PaymentExpired"),
+                inProcessReplacementReady = true
             ),
             WorkflowRoute(
                 id = "catalog.projection-fanout",

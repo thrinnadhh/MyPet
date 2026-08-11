@@ -95,6 +95,163 @@
         return authenticated;
     };
 
+    function normalizeAdminBranding() {
+        document.title = 'PawsNearMe — Admin Console';
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode);
+        nodes.forEach((node) => {
+            if (!node.nodeValue) return;
+            node.nodeValue = node.nodeValue
+                .replace(/PNM SUPER ADMIN/g, 'PNM ADMIN')
+                .replace(/Super Admin/g, 'Admin')
+                .replace(/SUPER ADMIN/g, 'ADMIN');
+        });
+        document.querySelectorAll('[placeholder]').forEach((element) => {
+            const current = element.getAttribute('placeholder');
+            if (current) element.setAttribute('placeholder', current.replace(/Super Admin/gi, 'Admin'));
+        });
+
+        // Remove hard-coded infrastructure statistics. The Admin console renders only
+        // server-authoritative operational data for this stabilization sprint.
+        Array.from(document.querySelectorAll('.card-title')).forEach((title) => {
+            if (title.textContent?.includes('System Statistics')) {
+                const card = title.closest('.card');
+                if (card) card.style.display = 'none';
+            }
+        });
+    }
+
+    function createMetric(label, value, danger = false) {
+        const card = document.createElement('div');
+        card.className = 'metric-card';
+        const labelNode = document.createElement('div');
+        const heading = document.createElement('h4');
+        heading.style.cssText = 'font-size: 0.82rem; color: var(--text-secondary);';
+        heading.textContent = label;
+        labelNode.appendChild(heading);
+        const valueNode = document.createElement('span');
+        valueNode.className = 'metric-value';
+        if (danger && Number(value) > 0) valueNode.style.color = 'var(--accent-rose)';
+        valueNode.textContent = String(value ?? 0);
+        card.append(labelNode, valueNode);
+        return card;
+    }
+
+    function renderOperationsSnapshot(snapshot) {
+        const container = document.getElementById('admin-operations-metrics');
+        const generated = document.getElementById('admin-operations-generated');
+        if (!container) return;
+        container.replaceChildren();
+        const metrics = [
+            ['Orders placed', snapshot.ordersPlaced],
+            ['Merchant pending', snapshot.merchantPending],
+            ['Accepted', snapshot.accepted],
+            ['Preparing', snapshot.preparing],
+            ['Ready for pickup', snapshot.readyForPickup],
+            ['Captain assigned', snapshot.assigned],
+            ['Dispatch failures', snapshot.dispatchFailures, true],
+            ['Picked up', snapshot.pickedUp],
+            ['Delivered', snapshot.delivered],
+            ['Completed', snapshot.completed],
+            ['Cancelled', snapshot.cancelled],
+            ['Rejected', snapshot.rejected],
+            ['Payment failures', snapshot.paymentFailures, true],
+            ['Refund pending', snapshot.refundPending, true],
+            ['Refunded', snapshot.refunds],
+            ['Open support', snapshot.openSupportCases, true],
+            ['Open disputes', snapshot.openDisputes, true],
+        ];
+        metrics.forEach(([label, value, danger]) => container.appendChild(createMetric(label, value, danger)));
+        if (generated) {
+            const parsed = snapshot.generatedAt ? new Date(snapshot.generatedAt) : null;
+            generated.textContent = parsed && !Number.isNaN(parsed.getTime())
+                ? `Server snapshot generated ${parsed.toLocaleString()}`
+                : 'Server-authoritative lifecycle snapshot';
+        }
+    }
+
+    async function fetchOperationsSnapshot() {
+        const container = document.getElementById('admin-operations-metrics');
+        if (container) {
+            container.replaceChildren();
+            const loading = document.createElement('p');
+            loading.textContent = 'Loading canonical order lifecycle snapshot...';
+            container.appendChild(loading);
+        }
+        try {
+            const response = await fetch(`${configuredApiBaseUrl}/api/v1/orders/admin/operations/snapshot`);
+            if (!response.ok) throw new Error(`Request failed (${response.status})`);
+            const snapshot = await response.json();
+            renderOperationsSnapshot(snapshot);
+        } catch (error) {
+            if (container) {
+                container.replaceChildren();
+                const message = document.createElement('p');
+                message.textContent = `Admin operations unavailable: ${error.message || 'Unknown error'}`;
+                container.appendChild(message);
+            }
+        }
+    }
+    window.fetchOperationsSnapshot = fetchOperationsSnapshot;
+
+    function installOperationsDashboard() {
+        if (document.getElementById('operations-panel')) return;
+        const tabs = document.querySelector('.tabs');
+        const section = document.querySelector('.grid-panels > section');
+        if (!tabs || !section) return;
+
+        const button = document.createElement('button');
+        button.className = 'tab-btn';
+        button.type = 'button';
+        button.textContent = 'Operations';
+        button.addEventListener('click', () => {
+            window.switchTab?.('operations');
+            void fetchOperationsSnapshot();
+        });
+        tabs.prepend(button);
+
+        const panel = document.createElement('div');
+        panel.id = 'operations-panel';
+        panel.className = 'tab-panel';
+        panel.style.display = 'none';
+
+        const card = document.createElement('div');
+        card.className = 'card';
+        const header = document.createElement('div');
+        header.className = 'card-header';
+        const title = document.createElement('h2');
+        title.className = 'card-title';
+        title.textContent = 'Canonical Order Operations';
+        const refresh = document.createElement('button');
+        refresh.type = 'button';
+        refresh.className = 'btn btn-emerald';
+        refresh.textContent = 'Refresh';
+        refresh.addEventListener('click', () => void fetchOperationsSnapshot());
+        header.append(title, refresh);
+
+        const explanation = document.createElement('p');
+        explanation.style.cssText = 'color: var(--text-secondary); margin-bottom: 1rem;';
+        explanation.textContent = 'This dashboard reads the same canonical order and payment lifecycle used by Customer, Merchant, Dispatch and Captain flows. No alternate Admin order states are defined.';
+
+        const generated = document.createElement('p');
+        generated.id = 'admin-operations-generated';
+        generated.style.cssText = 'font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 1rem;';
+
+        const metrics = document.createElement('div');
+        metrics.id = 'admin-operations-metrics';
+        metrics.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 0.75rem;';
+        card.append(header, explanation, generated, metrics);
+        panel.appendChild(card);
+        section.prepend(panel);
+    }
+
+    function showOperationsDashboard() {
+        if (!isAdminSession(adminSession)) return;
+        window.switchTab?.('operations');
+        void fetchOperationsSnapshot();
+    }
+
     window.handleAdminLogin = async (event) => {
         event?.preventDefault();
         setLoginError('');
@@ -125,7 +282,9 @@
         await Promise.allSettled([
             window.fetchRefundModeConfig?.(),
             window.fetchPendingProviders?.(),
+            fetchOperationsSnapshot(),
         ]);
+        showOperationsDashboard();
     };
 
     window.handleAdminSignOut = async () => {
@@ -234,6 +393,8 @@
     }
 
     async function initialize() {
+        normalizeAdminBranding();
+        installOperationsDashboard();
         configureLoginForm();
         if (!requireConfiguration()) return;
         authClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
@@ -249,10 +410,14 @@
             await Promise.allSettled([
                 window.fetchRefundModeConfig?.(),
                 window.fetchPendingProviders?.(),
+                fetchOperationsSnapshot(),
             ]);
+            showOperationsDashboard();
         }
     }
 
+    normalizeAdminBranding();
+    installOperationsDashboard();
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => void initialize());
     } else {

@@ -9,7 +9,10 @@ class AppointmentLifecyclePolicyTests {
     private val policy = AppointmentLifecyclePolicy()
 
     @Test
-    fun `merchant can complete cancel or mark confirmed appointment no show`() {
+    fun `merchant can confirm paid appointment and finish confirmed appointment`() {
+        assertDoesNotThrow {
+            policy.requireAllowed(AppointmentStatus.PAID, AppointmentStatus.CONFIRMED, "MERCHANT", false)
+        }
         listOf(
             AppointmentStatus.COMPLETED,
             AppointmentStatus.CANCELLED,
@@ -18,6 +21,18 @@ class AppointmentLifecyclePolicyTests {
             assertDoesNotThrow {
                 policy.requireAllowed(AppointmentStatus.CONFIRMED, target, "MERCHANT", false)
             }
+        }
+    }
+
+    @Test
+    fun `merchant cannot skip payment state for a held online appointment`() {
+        assertThrows<AppointmentAccessDeniedException> {
+            policy.requireAllowed(
+                AppointmentStatus.SLOT_HELD,
+                AppointmentStatus.CONFIRMED,
+                "MERCHANT",
+                false
+            )
         }
     }
 
@@ -42,14 +57,11 @@ class AppointmentLifecyclePolicyTests {
     }
 
     @Test
-    fun `customer can only cancel active appointments`() {
-        assertDoesNotThrow {
-            policy.requireAllowed(
-                AppointmentStatus.CONFIRMED,
-                AppointmentStatus.CANCELLED,
-                "CUSTOMER",
-                true
-            )
+    fun `customer can cancel held paid or confirmed appointments but cannot complete them`() {
+        listOf(AppointmentStatus.SLOT_HELD, AppointmentStatus.PAID, AppointmentStatus.CONFIRMED).forEach { current ->
+            assertDoesNotThrow {
+                policy.requireAllowed(current, AppointmentStatus.CANCELLED, "CUSTOMER", true)
+            }
         }
         assertThrows<AppointmentAccessDeniedException> {
             policy.requireAllowed(

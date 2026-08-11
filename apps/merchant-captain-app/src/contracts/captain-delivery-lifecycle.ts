@@ -18,6 +18,17 @@ export interface CaptainDeliveryJob {
   assignedAt?: string | null;
   customerPhone?: string | null;
   customerPhoneVerified?: boolean;
+  merchantName?: string | null;
+  pickupAddress?: string | null;
+  pickupLatitude?: number | null;
+  pickupLongitude?: number | null;
+  dropAddress?: string | null;
+  dropLatitude?: number | null;
+  dropLongitude?: number | null;
+  pickupDistanceKm?: number | null;
+  pickupEtaMinutes?: number | null;
+  deliveryDistanceKm?: number | null;
+  deliveryEtaMinutes?: number | null;
 }
 
 export function isActiveCaptainJob(job: CaptainDeliveryJob): boolean {

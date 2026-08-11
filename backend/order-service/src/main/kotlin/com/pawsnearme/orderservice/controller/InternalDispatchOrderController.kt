@@ -1,8 +1,10 @@
 package com.pawsnearme.orderservice.controller
 
+import com.pawsnearme.orderservice.model.OrderActor
 import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
 import com.pawsnearme.orderservice.service.OrderService
+import com.pawsnearme.orderservice.service.OrderTransitionConflictException
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -22,7 +24,8 @@ import java.util.UUID
  * Gateway trust proves that the request came through an approved internal
  * transport. The separate internal API secret proves that the caller is an
  * authorized backend service rather than a public client reusing identity
- * headers. Only delivery transitions owned by dispatch are accepted here.
+ * headers. Delivery state changes are still validated by the canonical order
+ * transition policy in OrderService.
  */
 @RestController
 @RequestMapping("/internal/api/v1/orders")
@@ -55,29 +58,32 @@ class InternalDispatchOrderController(
             ?: return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(mapOf("error" to "Order with ID $id not found"))
 
-        val transitionAllowed = when (status) {
-            OrderStatus.ASSIGNED ->
-                order.status == OrderStatus.READY_FOR_PICKUP &&
-                    (order.captainId == null || order.captainId == captainId)
-
-            OrderStatus.PICKED_UP ->
-                order.status == OrderStatus.ASSIGNED && order.captainId == captainId
-
-            OrderStatus.DELIVERED ->
-                order.status == OrderStatus.PICKED_UP && order.captainId == captainId
-
-            else -> false
+        val actor = when (status) {
+            OrderStatus.ASSIGNED -> {
+                if (order.captainId != null && order.captainId != captainId) {
+                    throw OrderTransitionConflictException("Order is already assigned to another captain.")
+                }
+                OrderActor.DISPATCH
+            }
+            OrderStatus.PICKED_UP, OrderStatus.DELIVERED -> {
+                if (order.captainId != captainId) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(mapOf("error" to "Authenticated captain is not assigned to this order."))
+                }
+                OrderActor.CAPTAIN
+            }
+            else -> throw OrderTransitionConflictException("Dispatch cannot request order status $status.")
         }
 
-        if (!transitionAllowed) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(
-                mapOf(
-                    "error" to "Dispatch cannot transition order from ${order.status} to $status for captain $captainId."
-                )
+        return ResponseEntity.ok(
+            orderService.updateOrderStatus(
+                orderId = id,
+                newStatus = status,
+                changedBy = captainId,
+                actorRole = actor,
+                note = note
             )
-        }
-
-        return ResponseEntity.ok(orderService.updateOrderStatus(id, status, captainId, note))
+        )
     }
 
     private fun hasValidInternalSecret(providedSecret: String?): Boolean {

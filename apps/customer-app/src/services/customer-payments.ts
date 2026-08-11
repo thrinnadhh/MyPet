@@ -13,9 +13,6 @@ export interface CashfreeOrderInitialization {
   environment: 'SANDBOX' | 'PRODUCTION';
 }
 
-/** Compatibility alias while downstream consumers migrate their type imports. */
-export type RazorpayOrderInitialization = CashfreeOrderInitialization;
-
 export interface HostedCheckoutSession {
   checkoutPath: string;
   expiresAt: string;
@@ -76,7 +73,6 @@ export async function initiateOrderPayment(
     );
     paymentCustomer = { ...customer, phone: order.deliveryContactPhone ?? '' };
   }
-
   return apiClient.post<CashfreeOrderInitialization>(
     '/api/v1/payments/orders',
     paymentPayload(userId, orderId, amount, 'ORDER_PAYMENT', paymentCustomer),
@@ -99,16 +95,14 @@ export async function createHostedCheckoutSession(transactionId: string): Promis
   return apiClient.post<HostedCheckoutSession>('/api/v1/payments/checkout-sessions', { transactionId });
 }
 
-export async function fetchOrderPaymentStatus(orderId: string): Promise<CustomerPaymentStatusView> {
+export async function fetchReferencePaymentStatus(referenceId: string): Promise<CustomerPaymentStatusView> {
   return apiClient.get<CustomerPaymentStatusView>(
-    `/api/v1/payments/transactions/reference/${encodeURIComponent(orderId)}`,
+    `/api/v1/payments/transactions/reference/${encodeURIComponent(referenceId)}`,
   );
 }
 
-export async function confirmPaidOrder(orderId: string, transactionId: string): Promise<void> {
-  await apiClient.post(
-    `/api/v1/orders/${encodeURIComponent(orderId)}/confirm?paymentId=${encodeURIComponent(transactionId)}`,
-  );
+export async function fetchOrderPaymentStatus(orderId: string): Promise<CustomerPaymentStatusView> {
+  return fetchReferencePaymentStatus(orderId);
 }
 
 export async function openCashfreeOrder(initialization: CashfreeOrderInitialization): Promise<void> {
@@ -126,32 +120,19 @@ export async function openCashfreeOrder(initialization: CashfreeOrderInitializat
   });
 }
 
-/** Compatibility alias. New code should use openCashfreeOrder. */
-export const openRazorpayOrder = openCashfreeOrder;
-
-export async function reconcileReferencePayment(referenceId: string): Promise<CustomerPaymentStatusView> {
-  return apiClient.post<CustomerPaymentStatusView>(
-    `/api/v1/payments/transactions/reference/${encodeURIComponent(referenceId)}/reconcile`,
-  );
-}
-
-export async function reconcilePaidOrder(orderId: string): Promise<CustomerPaymentStatusView> {
-  const payment = await reconcileReferencePayment(orderId);
-  if (payment.status === 'SUCCESS') {
-    await confirmPaidOrder(orderId, payment.transactionId);
-  }
-  return payment;
-}
-
+/**
+ * Payment reconciliation is server-owned. The customer app only observes the
+ * status produced by Cashfree webhook -> PaymentService -> owning domain.
+ */
 export async function waitForReferencePaymentOutcome(
   referenceId: string,
   attempts = 15,
   delayMs = 2_000,
 ): Promise<CustomerPaymentStatusView> {
-  let latest = await reconcileReferencePayment(referenceId);
+  let latest = await fetchReferencePaymentStatus(referenceId);
   for (let attempt = 1; attempt < attempts && latest.status === 'PENDING'; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
-    latest = await reconcileReferencePayment(referenceId);
+    latest = await fetchReferencePaymentStatus(referenceId);
   }
   return latest;
 }
@@ -161,10 +142,5 @@ export async function waitForPaymentOutcome(
   attempts = 15,
   delayMs = 2_000,
 ): Promise<CustomerPaymentStatusView> {
-  let latest = await reconcilePaidOrder(orderId);
-  for (let attempt = 1; attempt < attempts && latest.status === 'PENDING'; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-    latest = await reconcilePaidOrder(orderId);
-  }
-  return latest;
+  return waitForReferencePaymentOutcome(orderId, attempts, delayMs);
 }

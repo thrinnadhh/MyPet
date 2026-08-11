@@ -99,6 +99,7 @@ class AppointmentConfirmAuthTests {
     fun `confirmAppointment - missing payment for prepaid appointment - throws IllegalArgumentException`() {
         whenever(appointmentRepository.findById(appointmentId))
             .thenReturn(java.util.Optional.of(heldAppointment(payAtClinic = false)))
+        whenever(redisTemplate.hasKey("hold:slots:$slotId")).thenReturn(true)
 
         val ex = assertThrows<IllegalArgumentException> {
             service.confirmAppointment(appointmentId, null, customerId, "CUSTOMER")
@@ -110,6 +111,7 @@ class AppointmentConfirmAuthTests {
     fun `confirmAppointment - failed payment transaction - throws IllegalStateException`() {
         whenever(appointmentRepository.findById(appointmentId))
             .thenReturn(java.util.Optional.of(heldAppointment()))
+        whenever(redisTemplate.hasKey("hold:slots:$slotId")).thenReturn(true)
         whenever(restOperations.exchange(
             eq("http://localhost:8090/api/v1/payments/transactions/$paymentId"),
             eq(org.springframework.http.HttpMethod.GET),
@@ -146,5 +148,13 @@ class AppointmentConfirmAuthTests {
 
         assertEquals(AppointmentStatus.CONFIRMED, saved.status)
         assertEquals(paymentId, saved.paymentId)
+        verify(statusHistoryRepository).save(check<AppointmentStatusHistory> {
+            assertEquals(AppointmentStatus.SLOT_HELD, it.fromStatus)
+            assertEquals(AppointmentStatus.PAID, it.toStatus)
+        })
+        verify(statusHistoryRepository).save(check<AppointmentStatusHistory> {
+            assertEquals(AppointmentStatus.PAID, it.fromStatus)
+            assertEquals(AppointmentStatus.CONFIRMED, it.toStatus)
+        })
     }
 }
