@@ -17,10 +17,12 @@ import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
+import org.springframework.data.geo.Distance
 import org.springframework.data.geo.GeoResults
 import org.springframework.data.redis.connection.RedisGeoCommands
 import org.springframework.data.redis.core.GeoOperations
 import org.springframework.data.redis.core.StringRedisTemplate
+import org.springframework.data.redis.domain.geo.GeoReference
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.web.client.RestOperations
 import java.util.UUID
@@ -65,9 +67,9 @@ class DispatchNoCaptainTests {
         whenever(
             geoOperations.search(
                 eq("captains:locations"),
-                any(),
-                any(),
-                any(),
+                any<GeoReference<String>>(),
+                any<Distance>(),
+                any<RedisGeoCommands.GeoSearchCommandArgs>(),
             )
         ).thenReturn(GeoResults<RedisGeoCommands.GeoLocation<String>>(emptyList()))
         whenever(offerRepository.findByJobId(jobId)).thenReturn(emptyList())
