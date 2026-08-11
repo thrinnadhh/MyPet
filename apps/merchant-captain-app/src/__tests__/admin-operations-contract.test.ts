@@ -9,17 +9,31 @@ function source(path: string): string {
   return readFileSync(join(process.cwd(), path), 'utf8');
 }
 
-test('admin portal is server backed and contains no production demo queues', () => {
-  const screen = source('src/app/admin.tsx');
-  const service = source('src/services/admin-operations.ts');
-  assert.match(screen, /fetchAdminOperationsSnapshot/);
-  assert.match(screen, /fetchAdminServiceAreas/);
-  assert.match(screen, /fetchAdminAuditLogs/);
-  assert.match(screen, /role !== 'ADMIN'/);
-  assert.doesNotMatch(screen, /DEMO_PROVIDERS|DEMO_CAPTAINS|DEMO_DISPUTES|Demo approval/);
-  assert.match(service, /\/api\/v1\/orders\/admin\/operations\/snapshot/);
-  assert.match(service, /\/service-areas/);
-  assert.match(service, /\/audit-logs/);
+test('admin authority is consolidated into the server-backed web control plane', () => {
+  const mobileScreen = source('src/app/admin.tsx');
+  const legacyService = source('src/services/admin-operations.ts');
+  const webConsole = source('../super-admin-web/secure-admin.js');
+
+  assert.match(mobileScreen, /compatibility route/i);
+  assert.match(mobileScreen, /Use the Admin web console/);
+  assert.match(mobileScreen, /role !== 'ADMIN'/);
+  assert.doesNotMatch(mobileScreen, /fetchAdminOperationsSnapshot|fetchAdminServiceAreas|fetchAdminAuditLogs/);
+  assert.doesNotMatch(mobileScreen, /DEMO_PROVIDERS|DEMO_CAPTAINS|DEMO_DISPUTES|Demo approval/);
+
+  assert.match(webConsole, /\/api\/v1\/orders\/admin\/operations\/snapshot/);
+  assert.match(webConsole, /ordersPlaced/);
+  assert.match(webConsole, /merchantPending/);
+  assert.match(webConsole, /dispatchFailures/);
+  assert.match(webConsole, /paymentFailures/);
+  assert.match(webConsole, /openSupportCases/);
+  assert.match(webConsole, /getRole\(session\.user\) === 'ADMIN'/);
+  assert.doesNotMatch(webConsole, /SUPER_ADMIN/);
+
+  // Legacy service wrappers may remain for compatibility, but they target the
+  // same canonical backend Admin API rather than defining another lifecycle.
+  assert.match(legacyService, /\/api\/v1\/orders\/admin\/operations\/snapshot/);
+  assert.match(legacyService, /\/service-areas/);
+  assert.match(legacyService, /\/audit-logs/);
 });
 
 test('service area changes require valid pincode radius and administrative reason', () => {
