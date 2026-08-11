@@ -29,7 +29,7 @@ describe('recurring order contract', () => {
     const backend = source('../../backend/order-service/src/main/kotlin/com/pawsnearme/orderservice/service/RecurringOrderService.kt');
     const creator = source('../../backend/order-service/src/main/kotlin/com/pawsnearme/orderservice/service/RecurringOccurrenceOrderCreator.kt');
     const scheduler = source('../../backend/order-service/src/main/kotlin/com/pawsnearme/orderservice/service/RecurringOrderScheduler.kt');
-    const migration = source('../../backend/order-service/src/main/resources/db/migration/V1003__recurring_order_execution.sql');
+    const migration = source('../../backend/order-service/src/main/resources/db/migration/V1006__recurring_order_execution.sql');
     expect(backend).toMatch(/RecurringOrderGenerated/);
     expect(backend).toMatch(/occurrenceOrderCreator\.createOrGet/);
     expect(backend).toMatch(/deterministicOccurrenceId/);
