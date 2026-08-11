@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
@@ -20,30 +21,35 @@ import { radii, shadows, spacing, touchTarget, typography } from '@/design/token
 import { useTheme } from '@/hooks/use-theme';
 import {
   fetchMerchantOrdersPage,
-  isMerchantOrderActive,
+  isMerchantOrderInQueue,
   merchantOrderActions,
   transitionMerchantOrder,
   type MerchantOrder,
   type MerchantOrderActionDefinition,
+  type MerchantOrderQueue,
 } from '@/services/merchant-orders';
 import { formatCurrency, formatDateTime, formatOrderStatus } from '@/utils/formatters';
 
-type OrderFilter = 'NEW' | 'ACTIVE' | 'READY' | 'PAST';
-
 const ORDER_PAGE_SIZE = 40;
+const FILTERS: MerchantOrderQueue[] = ['NEW', 'ACCEPTED', 'PREPARING', 'READY', 'DELIVERY', 'PAST'];
+const FILTER_LABELS: Record<MerchantOrderQueue, string> = {
+  NEW: 'New',
+  ACCEPTED: 'Accepted',
+  PREPARING: 'Preparing',
+  READY: 'Ready',
+  DELIVERY: 'Delivery',
+  PAST: 'Past',
+};
 
-function filterOrder(order: MerchantOrder, filter: OrderFilter): boolean {
-  if (filter === 'NEW') return order.status === 'PLACED';
-  if (filter === 'READY') return order.status === 'READY_FOR_PICKUP';
-  if (filter === 'PAST') return !isMerchantOrderActive(order.status);
-  return isMerchantOrderActive(order.status) && order.status !== 'PLACED';
+function filterOrder(order: MerchantOrder, filter: MerchantOrderQueue): boolean {
+  return isMerchantOrderInQueue(order.status, order.paymentStatus, filter);
 }
 
 function tone(status: MerchantOrder['status']): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
   if (['DELIVERED', 'COMPLETED'].includes(status)) return 'success';
   if (['REJECTED', 'CANCELLED'].includes(status)) return 'danger';
   if (['PLACED', 'ACCEPTED', 'PREPARING', 'READY_FOR_PICKUP'].includes(status)) return 'warning';
-  if (['ASSIGNED', 'REASSIGNED', 'PICKED_UP'].includes(status)) return 'info';
+  if (['ASSIGNED', 'PICKED_UP'].includes(status)) return 'info';
   return 'neutral';
 }
 
@@ -61,9 +67,10 @@ function mergeNewestPage(current: MerchantOrder[], newest: MerchantOrder[]): Mer
 
 export default function MerchantOrdersScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const { providerId } = useAuth();
   const [orders, setOrders] = useState<MerchantOrder[]>([]);
-  const [filter, setFilter] = useState<OrderFilter>('NEW');
+  const [filter, setFilter] = useState<MerchantOrderQueue>('NEW');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -141,20 +148,17 @@ export default function MerchantOrdersScreen() {
   useEffect(() => {
     void loadLatest();
     if (!providerId) return undefined;
-    // Poll only the bounded newest page; older history is fetched on demand.
     const interval = setInterval(() => void loadLatest(true), 10_000);
     return () => clearInterval(interval);
   }, [loadLatest, providerId]);
 
-  const counts = useMemo(
-    () => ({
-      NEW: orders.filter((order) => filterOrder(order, 'NEW')).length,
-      ACTIVE: orders.filter((order) => filterOrder(order, 'ACTIVE')).length,
-      READY: orders.filter((order) => filterOrder(order, 'READY')).length,
-      PAST: orders.filter((order) => filterOrder(order, 'PAST')).length,
-    }),
-    [orders],
-  );
+  const counts = useMemo(() => {
+    const result = {} as Record<MerchantOrderQueue, number>;
+    FILTERS.forEach((queue) => {
+      result[queue] = orders.filter((order) => filterOrder(order, queue)).length;
+    });
+    return result;
+  }, [orders]);
 
   const visibleOrders = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -200,7 +204,7 @@ export default function MerchantOrdersScreen() {
         <AppBar
           eyebrow="MERCHANT WORKSPACE"
           title="Orders"
-          subtitle="Server-authoritative items, payment, pricing and fulfilment state"
+          subtitle="Server-authoritative items, payment, pricing and canonical fulfilment state"
           action={<RoleBadge role="merchant" />}
         />
       }
@@ -226,10 +230,10 @@ export default function MerchantOrdersScreen() {
       {providerId ? (
         <>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-            {(['NEW', 'ACTIVE', 'READY', 'PAST'] as const).map((value) => (
+            {FILTERS.map((value) => (
               <FilterChip
                 key={value}
-                label={`${value === 'NEW' ? 'New' : value === 'ACTIVE' ? 'In progress' : value === 'READY' ? 'Ready' : 'Past'} (${counts[value]})`}
+                label={`${FILTER_LABELS[value]} (${counts[value] ?? 0})`}
                 selected={filter === value}
                 onPress={() => setFilter(value)}
               />
@@ -276,8 +280,10 @@ export default function MerchantOrdersScreen() {
               message={query
                 ? 'Try another order, customer, coupon or product, or load older history.'
                 : hasMore
-                  ? 'Load older history to continue checking this queue.'
-                  : 'New orders will appear here after server confirmation.'}
+                  ? 'Load older history to continue checking this canonical queue.'
+                  : filter === 'NEW'
+                    ? 'COD orders and paid online orders waiting for your decision will appear here.'
+                    : 'Orders will move here only through the canonical lifecycle.'}
               actionLabel={query ? 'Clear search' : hasMore ? 'Load older orders' : 'Refresh'}
               onAction={query ? () => setQuery('') : hasMore ? () => void loadMore() : () => void loadLatest()}
             />
@@ -356,29 +362,33 @@ export default function MerchantOrdersScreen() {
                       <FeedbackBanner tone="warning" title="Cancellation note" message={order.cancellationReason} />
                     ) : null}
 
-                    {actions.length > 0 ? (
-                      <View style={styles.actions}>
-                        {actions.map((action) => (
-                          <ActionButton
-                            key={action.status}
-                            label={action.label}
-                            icon={action.destructive ? 'xmark' : 'check'}
-                            variant={action.destructive ? 'destructive' : 'primary'}
-                            loading={refreshingOrderId === order.orderId}
-                            onPress={() => {
-                              setError(null);
-                              setPending({ order, action });
-                              setNote('');
-                            }}
-                            style={styles.action}
-                          />
-                        ))}
-                      </View>
-                    ) : (
-                      <ThemedText type="small" themeColor="textSecondary">
-                        No merchant action is available in this server state.
-                      </ThemedText>
-                    )}
+                    <View style={styles.actions}>
+                      <ActionButton
+                        label="View operational detail"
+                        icon="document"
+                        variant="ghost"
+                        onPress={() => router.push(`/orders/${order.orderId}` as never)}
+                        style={styles.action}
+                      />
+                      {actions.map((action) => (
+                        <ActionButton
+                          key={action.status}
+                          label={action.label}
+                          icon={action.destructive ? 'xmark' : 'check'}
+                          variant={action.destructive ? 'destructive' : 'primary'}
+                          loading={refreshingOrderId === order.orderId}
+                          onPress={() => {
+                            setError(null);
+                            setPending({ order, action });
+                            setNote('');
+                          }}
+                          style={styles.action}
+                        />
+                      ))}
+                    </View>
+                    {actions.length === 0 ? (
+                      <ThemedText type="small" themeColor="textSecondary">No merchant action is available in this server state.</ThemedText>
+                    ) : null}
                   </AppCard>
                 );
               })}
@@ -398,20 +408,12 @@ export default function MerchantOrdersScreen() {
         </>
       ) : null}
 
-      <Modal
-        visible={pending !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPending(null)}
-      >
+      <Modal visible={pending !== null} transparent animationType="fade" onRequestClose={() => setPending(null)}>
         <View style={styles.modalBackdrop}>
-          <View
-            style={[styles.modal, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
-            accessibilityViewIsModal
-          >
+          <View style={[styles.modal, shadows.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]} accessibilityViewIsModal>
             <ThemedText type="title">{pending?.action.label}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              Order #{pending ? compact(pending.order.orderId) : ''}. The server validates whether this transition is still allowed.
+              Order #{pending ? compact(pending.order.orderId) : ''}. The server validates this exact transition and actor.
             </ThemedText>
             <TextInput
               value={note}
@@ -443,15 +445,7 @@ export default function MerchantOrdersScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   filters: { gap: spacing.x2, paddingRight: spacing.x4 },
-  search: {
-    minHeight: touchTarget,
-    borderWidth: 1,
-    borderRadius: radii.compact,
-    paddingLeft: spacing.x3,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.x2,
-  },
+  search: { minHeight: touchTarget, borderWidth: 1, borderRadius: radii.compact, paddingLeft: spacing.x3, flexDirection: 'row', alignItems: 'center', gap: spacing.x2 },
   searchInput: { flex: 1, minHeight: touchTarget, ...typography.body, paddingVertical: 0 },
   clear: { width: touchTarget, height: touchTarget, alignItems: 'center', justifyContent: 'center' },
   list: { gap: spacing.x3 },
