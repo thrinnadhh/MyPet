@@ -42,7 +42,10 @@ data class OfferingRequest(
     val durationMinutes: Int?,
 
     @field:Size(max = 50, message = "Barcode cannot exceed 50 characters")
-    val barcode: String? = null
+    val barcode: String? = null,
+
+    @field:DecimalMin(value = "0.0", inclusive = true, message = "GST rate must be non-negative")
+    val gstRate: BigDecimal? = null
 )
 
 data class SlotRequest(

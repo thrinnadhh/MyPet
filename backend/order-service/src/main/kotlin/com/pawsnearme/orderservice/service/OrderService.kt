@@ -246,6 +246,7 @@ class OrderService @Autowired constructor(
         validateServiceability(request.city, request.latitude, request.longitude)
 
         var subtotal = BigDecimal.ZERO
+        var totalGst = BigDecimal.ZERO
         for (item in request.items) {
             val offering = fetchOfferingSnapshot(item.offeringId)
             if (offering.providerId != request.providerId) {
@@ -259,7 +260,10 @@ class OrderService @Autowired constructor(
             if (availableStock < item.quantity) {
                 throw IllegalArgumentException("Insufficient stock for offering ${item.offeringId}")
             }
-            subtotal = subtotal.add(offering.price.multiply(BigDecimal(item.quantity)))
+            val lineSubtotal = offering.price.multiply(BigDecimal(item.quantity))
+            subtotal = subtotal.add(lineSubtotal)
+            val lineGst = lineSubtotal.multiply(offering.gstRate).divide(BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP)
+            totalGst = totalGst.add(lineGst)
         }
 
         val couponDiscount = if (!request.couponCode.isNullOrBlank()) {
@@ -270,8 +274,7 @@ class OrderService @Autowired constructor(
         val itemDiscount = BigDecimal.ZERO
         val loyaltyDiscount = BigDecimal.ZERO
         val deliveryFee = if (subtotal >= BigDecimal("500.00")) BigDecimal.ZERO else BigDecimal("49.00")
-        val taxableBase = subtotal.subtract(couponDiscount).max(BigDecimal.ZERO)
-        val tax = taxableBase.multiply(BigDecimal("0.05")).setScale(2, java.math.RoundingMode.HALF_UP)
+        val tax = totalGst
         val roundOff = BigDecimal.ZERO
         val payableTotal = subtotal
             .subtract(couponDiscount)
@@ -640,13 +643,16 @@ class OrderService @Autowired constructor(
                 idempotencyKey = UUID.nameUUIDFromBytes("reserve:$offeringId:$quantity".toByteArray())
             )
         )
+        val lineSubtotal = snapshot.price.multiply(BigDecimal(quantity))
+        val lineGst = lineSubtotal.multiply(snapshot.gstRate).divide(BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP)
         return OrderItem(
             orderId = UUID.randomUUID(),
             offeringId = offeringId,
             offeringNameSnapshot = snapshot.name,
             unitPriceSnapshot = snapshot.price,
             quantity = quantity,
-            lineTotal = snapshot.price.multiply(BigDecimal(quantity))
+            lineTotal = lineSubtotal,
+            gstAmount = lineGst
         )
     }
 

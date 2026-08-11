@@ -42,7 +42,8 @@ class CatalogController(
             stockQuantity = request.stockQuantity,
             sku = request.sku,
             durationMinutes = request.durationMinutes,
-            barcode = request.barcode
+            barcode = request.barcode,
+            gstRate = request.gstRate ?: java.math.BigDecimal("18.00")
         )
         return ResponseEntity.status(HttpStatus.CREATED).body(catalogService.createOffering(offering))
     }
@@ -75,7 +76,8 @@ class CatalogController(
             stockQuantity = request.stockQuantity,
             sku = request.sku,
             durationMinutes = request.durationMinutes,
-            barcode = request.barcode
+            barcode = request.barcode,
+            gstRate = request.gstRate ?: existing.gstRate
         )
         return ResponseEntity.ok(catalogService.updateOffering(offeringId, offering))
     }

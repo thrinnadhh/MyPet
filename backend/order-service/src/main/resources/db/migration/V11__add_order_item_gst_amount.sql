@@ -1,0 +1,2 @@
+ALTER TABLE orders.order_items
+ADD COLUMN IF NOT EXISTS gst_amount NUMERIC(12,2) NOT NULL DEFAULT 0.00;

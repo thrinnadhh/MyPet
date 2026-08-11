@@ -137,7 +137,10 @@ class OrderItem(
     var quantity: Int,
 
     @Column(name = "line_total", nullable = false)
-    var lineTotal: BigDecimal
+    var lineTotal: BigDecimal,
+
+    @Column(name = "gst_amount", nullable = false)
+    var gstAmount: BigDecimal = BigDecimal.ZERO
 )
 
 @Entity

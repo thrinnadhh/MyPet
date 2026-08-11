@@ -130,6 +130,7 @@ class RemoteCatalogModuleApi(
         price = decimal(this["price"]),
         status = this["status"]?.toString()?.uppercase() ?: "ACTIVE",
         stockQuantity = (this["stockQuantity"] as? Number)?.toInt(),
+        gstRate = this["gstRate"]?.let(::decimal) ?: BigDecimal("18.00"),
         listPrice = this["listPrice"]?.let(::decimal),
     )
 

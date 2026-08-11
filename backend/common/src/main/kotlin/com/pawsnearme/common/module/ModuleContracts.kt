@@ -101,6 +101,7 @@ data class CatalogOfferingSnapshot(
     val price: BigDecimal,
     val status: String,
     val stockQuantity: Int?,
+    val gstRate: BigDecimal = BigDecimal("18.00"),
     /** Optional list/MRP price used only to derive server-side item discounts. */
     val listPrice: BigDecimal? = null
 )

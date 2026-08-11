@@ -50,6 +50,7 @@ class CatalogModuleFacade(
         price = price,
         status = status.name,
         stockQuantity = stockQuantity,
+        gstRate = gstRate,
         listPrice = listPrice,
     )
 

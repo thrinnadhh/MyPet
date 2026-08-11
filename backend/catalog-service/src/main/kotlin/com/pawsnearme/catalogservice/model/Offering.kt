@@ -50,6 +50,18 @@ class Offering(
     @Column(name = "barcode")
     var barcode: String? = null,
 
+    @Column(name = "gst_rate", nullable = false, precision = 4, scale = 2)
+    var gstRate: BigDecimal = BigDecimal("18.00"),
+
+    @Column(name = "is_featured", nullable = false)
+    var isFeatured: Boolean = false,
+
+    @Column(name = "life_stage")
+    var lifeStage: String? = null,
+
+    @Column(name = "product_type")
+    var productType: String? = null,
+
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now(),
 
