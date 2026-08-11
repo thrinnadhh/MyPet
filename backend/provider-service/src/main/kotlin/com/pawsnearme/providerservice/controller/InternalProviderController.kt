@@ -19,6 +19,14 @@ data class InternalProviderOwnerResponse(
     val ownerUserId: UUID
 )
 
+data class InternalProviderLocationResponse(
+    val providerId: UUID,
+    val city: String,
+    val pincode: String,
+    val latitude: Double,
+    val longitude: Double
+)
+
 data class InternalProviderOperationalResponse(
     val providerId: UUID,
     val status: String,
@@ -55,7 +63,7 @@ class InternalProviderController(
         @PathVariable id: UUID,
         @RequestHeader("X-Internal-Secret", required = false) providedSecret: String?
     ): ResponseEntity<InternalProviderOwnerResponse> {
-        requireInternalSecret(providedSecret)
+        authorize(providedSecret)
         val provider = providerRepository.findById(id)
             .orElseThrow { NoSuchElementException("Provider with ID $id not found") }
         return ResponseEntity.ok(
@@ -66,12 +74,31 @@ class InternalProviderController(
         )
     }
 
+    @GetMapping("/{id}/location")
+    fun getProviderLocation(
+        @PathVariable id: UUID,
+        @RequestHeader("X-Internal-Secret", required = false) providedSecret: String?
+    ): ResponseEntity<InternalProviderLocationResponse> {
+        authorize(providedSecret)
+        val provider = providerRepository.findById(id)
+            .orElseThrow { NoSuchElementException("Provider with ID $id not found") }
+        return ResponseEntity.ok(
+            InternalProviderLocationResponse(
+                providerId = requireNotNull(provider.providerId),
+                city = provider.city,
+                pincode = provider.pincode,
+                latitude = provider.geoLocation.y,
+                longitude = provider.geoLocation.x
+            )
+        )
+    }
+
     @GetMapping("/{id}/operational")
     fun getProviderOperationalState(
         @PathVariable id: UUID,
         @RequestHeader("X-Internal-Secret", required = false) providedSecret: String?
     ): ResponseEntity<InternalProviderOperationalResponse> {
-        requireInternalSecret(providedSecret)
+        authorize(providedSecret)
         val provider = providerRepository.findById(id)
             .orElseThrow { NoSuchElementException("Provider with ID $id not found") }
         return ResponseEntity.ok(
@@ -89,7 +116,7 @@ class InternalProviderController(
         @PathVariable addressId: UUID,
         @RequestHeader("X-Internal-Secret", required = false) providedSecret: String?
     ): ResponseEntity<InternalDeliveryAddressResponse> {
-        requireInternalSecret(providedSecret)
+        authorize(providedSecret)
         val address = addressRepository.findById(addressId)
             .orElseThrow { NoSuchElementException("Delivery address not found") }
         if (address.userId != customerId) {
@@ -113,7 +140,7 @@ class InternalProviderController(
         @PathVariable petId: UUID,
         @RequestHeader("X-Internal-Secret", required = false) providedSecret: String?
     ): ResponseEntity<InternalCustomerPetIdentityResponse> {
-        requireInternalSecret(providedSecret)
+        authorize(providedSecret)
         val profile = profileRepository.findById(customerId)
             .orElseThrow { NoSuchElementException("Customer profile not found") }
         val pet = petRepository.findById(petId)
@@ -131,9 +158,8 @@ class InternalProviderController(
         )
     }
 
-    private fun requireInternalSecret(providedSecret: String?) {
-        if (
-            internalSecret.isBlank() || providedSecret.isNullOrBlank() ||
+    private fun authorize(providedSecret: String?) {
+        if (internalSecret.isBlank() || providedSecret.isNullOrBlank() ||
             !MessageDigest.isEqual(providedSecret.toByteArray(), internalSecret.toByteArray())
         ) {
             throw ProviderAccessDeniedException("Forbidden")
