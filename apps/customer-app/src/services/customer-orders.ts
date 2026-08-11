@@ -12,6 +12,7 @@ export interface CustomerOrderRecord {
   id: string;
   providerId: string;
   providerName: string;
+  providerType?: string | null;
   items: string[];
   total: string;
   rawTotal: number;
@@ -23,9 +24,23 @@ export interface CustomerOrderRecord {
   paymentStatus?: CustomerOrderPaymentStatus | null;
   isSubscription?: boolean;
   deliveryAddressId?: string;
+  deliveryAddress?: {
+    label?: string | null;
+    line1: string;
+    line2?: string | null;
+    city: string;
+    state: string;
+    pincode: string;
+    latitude: number;
+    longitude: number;
+  };
   deliveryContactPhone?: string | null;
   deliveryContactVerified?: boolean;
   captainId?: string;
+  captainAssignedAt?: string | null;
+  etaMinutes?: number | null;
+  deliveryStatus?: string | null;
+  invoiceNumber?: string | null;
   statusHistory?: Array<{
     fromStatus: OrderStatus | null;
     toStatus: OrderStatus;
@@ -51,20 +66,100 @@ export interface ReorderValidationResult {
   canReorder: boolean;
 }
 
+type CanonicalCaptainDto = {
+  captainId: string;
+  assignedAt?: string | null;
+};
+
 interface OrderTrackingDto {
   orderId: string;
   providerId: string;
+  providerName: string;
   status: OrderStatus;
   flowStep: OrderFlowStepId;
   totalAmount: number | string;
   placedAt: string;
   items: string[];
-  paymentMethod?: string | null;
-  paymentStatus?: CustomerOrderPaymentStatus | null;
-  statusHistory?: CustomerOrderRecord['statusHistory'];
+  paymentMethod: string;
+  paymentStatus: CustomerOrderPaymentStatus;
+  captain?: CanonicalCaptainDto | null;
+  etaMinutes?: number | null;
+  deliveryStatus?: string | null;
+  statusHistory: CustomerOrderRecord['statusHistory'];
 }
 
-interface OrderDetailsDto {
+interface CustomerOrderDetailResponse {
+  orderId: string;
+  provider: {
+    providerId: string;
+    name: string;
+    providerType: string;
+  };
+  items: Array<{
+    orderItemId: string;
+    offeringId: string;
+    name: string;
+    unitPrice: number | string;
+    quantity: number;
+    lineTotal: number | string;
+  }>;
+  pricing: {
+    subtotal: number | string;
+    discount: number | string;
+    loyaltyDiscount: number | string;
+    delivery: number | string;
+    tax: number | string;
+    total: number | string;
+  };
+  payment: {
+    method: string;
+    status: CustomerOrderPaymentStatus;
+    paymentId?: string | null;
+  };
+  status: OrderStatus;
+  flowStep: OrderFlowStepId;
+  statusHistory: CustomerOrderRecord['statusHistory'];
+  deliveryAddress: {
+    addressId: string;
+    label?: string | null;
+    line1: string;
+    line2?: string | null;
+    city: string;
+    state: string;
+    pincode: string;
+    latitude: number;
+    longitude: number;
+  };
+  deliveryContact: {
+    phone?: string | null;
+    verified: boolean;
+  };
+  captain?: CanonicalCaptainDto | null;
+  timestamps: {
+    placedAt: string;
+    acceptedAt?: string | null;
+    preparingAt?: string | null;
+    readyAt?: string | null;
+    pickedUpAt?: string | null;
+    deliveredAt?: string | null;
+    cancelledAt?: string | null;
+  };
+  cancellation: {
+    cancelled: boolean;
+    reason?: string | null;
+    cancelledAt?: string | null;
+  };
+  invoice?: {
+    invoiceId: string;
+    invoiceNumber: string;
+    subtotal: number | string;
+    tax: number | string;
+    total: number | string;
+    generatedAt: string;
+  } | null;
+}
+
+interface LegacyOrderDetailsDto {
   orderId?: string;
   id?: string;
   providerId: string;
@@ -83,9 +178,7 @@ interface OrderDetailsDto {
   statusHistory?: CustomerOrderRecord['statusHistory'];
 }
 
-interface CreatedOrderDto extends OrderDetailsDto {
-  providerId: string;
-}
+type CreatedOrderDto = CustomerOrderDetailResponse | LegacyOrderDetailsDto;
 
 class OrderHttpError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -113,7 +206,48 @@ function isOfflineFailure(error: unknown): boolean {
   return message.includes('network') || message.includes('fetch') || message.includes('offline');
 }
 
+function isCanonicalOrder(value: CreatedOrderDto): value is CustomerOrderDetailResponse {
+  return 'provider' in value && 'pricing' in value && 'payment' in value && 'timestamps' in value;
+}
+
+function canonicalToRecord(order: CustomerOrderDetailResponse): CustomerOrderRecord {
+  const rawTotal = Number(order.pricing.total) || 0;
+  return {
+    id: order.orderId,
+    providerId: order.provider.providerId,
+    providerName: order.provider.name,
+    providerType: order.provider.providerType,
+    items: order.items.map((item) => item.name),
+    total: `₹${rawTotal.toFixed(0)}`,
+    rawTotal,
+    status: order.status,
+    orderedAt: order.timestamps.placedAt,
+    hasReview: false,
+    flowStep: order.flowStep,
+    paymentMethod: order.payment.method,
+    paymentStatus: order.payment.status,
+    deliveryAddressId: order.deliveryAddress.addressId,
+    deliveryAddress: {
+      label: order.deliveryAddress.label,
+      line1: order.deliveryAddress.line1,
+      line2: order.deliveryAddress.line2,
+      city: order.deliveryAddress.city,
+      state: order.deliveryAddress.state,
+      pincode: order.deliveryAddress.pincode,
+      latitude: order.deliveryAddress.latitude,
+      longitude: order.deliveryAddress.longitude,
+    },
+    deliveryContactPhone: order.deliveryContact.phone,
+    deliveryContactVerified: order.deliveryContact.verified,
+    captainId: order.captain?.captainId,
+    captainAssignedAt: order.captain?.assignedAt,
+    invoiceNumber: order.invoice?.invoiceNumber,
+    statusHistory: order.statusHistory || [],
+  };
+}
+
 async function providerName(providerId: string, accessToken?: string | null): Promise<string> {
+  // Backward-compatible fallback for older mocked/legacy create responses only.
   try {
     const response = await fetch(
       `${appConfig.apiBaseUrl}/api/v1/providers/${encodeURIComponent(providerId)}`,
@@ -136,24 +270,28 @@ export async function fetchCustomerOrders(customerId: string, accessToken?: stri
     );
     if (!response.ok) throw await responseError(response, 'Could not load order history');
     const rawOrders = (await response.json()) as OrderTrackingDto[];
-    const orders: CustomerOrderRecord[] = await Promise.all(rawOrders.map(async (order) => {
+    const orders: CustomerOrderRecord[] = rawOrders.map((order) => {
       const rawTotal = Number(order.totalAmount) || 0;
       return {
         id: order.orderId,
         providerId: order.providerId,
-        providerName: await providerName(order.providerId, accessToken),
-        items: order.items || [],
+        providerName: order.providerName,
+        items: order.items,
         total: `₹${rawTotal.toFixed(0)}`,
         rawTotal,
         status: order.status,
         orderedAt: order.placedAt,
         hasReview: false,
-        flowStep: order.flowStep || 'placed',
+        flowStep: order.flowStep,
         paymentMethod: order.paymentMethod,
         paymentStatus: order.paymentStatus,
+        captainId: order.captain?.captainId,
+        captainAssignedAt: order.captain?.assignedAt,
+        etaMinutes: order.etaMinutes,
+        deliveryStatus: order.deliveryStatus,
         statusHistory: order.statusHistory || [],
       };
-    }));
+    });
     await AsyncStorage.setItem(cacheKey, JSON.stringify(orders)).catch(() => null);
     return orders;
   } catch (error) {
@@ -174,7 +312,9 @@ export async function fetchCustomerOrders(customerId: string, accessToken?: stri
 export async function fetchOrderDetails(orderId: string, accessToken?: string | null): Promise<CustomerOrderRecord> {
   const response = await fetch(`${appConfig.apiBaseUrl}/api/v1/orders/${encodeURIComponent(orderId)}`, { headers: headers(accessToken) });
   if (!response.ok) throw await responseError(response, 'Could not load order details');
-  const order = (await response.json()) as OrderDetailsDto;
+  const order = (await response.json()) as CreatedOrderDto;
+  if (isCanonicalOrder(order)) return canonicalToRecord(order);
+
   const rawTotal = Number(order.totalAmount) || 0;
   const resolvedOrderId = order.orderId || order.id;
   if (!resolvedOrderId) throw new Error('Order service returned an invalid order ID');
@@ -278,6 +418,8 @@ export async function createCustomerOrder(input: CreateOrderInput, accessToken?:
   if (!response.ok) throw await responseError(response, 'Could not place order');
 
   const order = (await response.json()) as CreatedOrderDto;
+  if (isCanonicalOrder(order)) return canonicalToRecord(order);
+
   const orderId = typeof order.orderId === 'string' ? order.orderId : order.id;
   if (typeof orderId !== 'string' || typeof order.providerId !== 'string') throw new Error('Order service returned an invalid response');
   const rawTotal = Number(order.totalAmount) || 0;
@@ -291,7 +433,7 @@ export async function createCustomerOrder(input: CreateOrderInput, accessToken?:
     status: order.status,
     orderedAt: order.placedAt || new Date().toISOString(),
     hasReview: false,
-    flowStep: 'placed',
+    flowStep: order.flowStep || 'placed',
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
     deliveryAddressId: order.deliveryAddressId,
