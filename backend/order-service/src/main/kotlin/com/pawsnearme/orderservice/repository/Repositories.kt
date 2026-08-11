@@ -8,14 +8,11 @@ import com.pawsnearme.orderservice.model.OrderStatus
 import com.pawsnearme.orderservice.model.OrderStatusHistory
 import com.pawsnearme.orderservice.model.SupportCase
 import com.pawsnearme.orderservice.model.SystemConfig
-import jakarta.persistence.LockModeType
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
-import org.springframework.data.jpa.repository.Lock
-import org.springframework.data.jpa.repository.Query
-import org.springframework.data.repository.query.Param
 import org.springframework.stereotype.Repository
+import java.time.Instant
 import java.util.Optional
 import java.util.UUID
 
@@ -25,16 +22,8 @@ interface OrderRepository : JpaRepository<Order, UUID> {
     fun findByProviderId(providerId: UUID): List<Order>
     fun findByProviderIdOrderByPlacedAtDesc(providerId: UUID, pageable: Pageable): Page<Order>
     fun findByRecurringOccurrenceId(recurringOccurrenceId: UUID): Optional<Order>
-    fun findByStatusAndDeliveredAtBefore(status: OrderStatus, deliveredBefore: java.time.Instant): List<Order>
-
-    /**
-     * All order lifecycle mutations must serialize through this row lock so that
-     * competing customer, merchant, payment and dispatch actions cannot both
-     * commit from the same stale state.
-     */
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select o from Order o where o.orderId = :orderId")
-    fun findByIdForUpdate(@Param("orderId") orderId: UUID): Optional<Order>
+    fun findByStatusAndDeliveredAtBefore(status: OrderStatus, deliveredBefore: Instant): List<Order>
+    fun findByCheckoutRequestId(checkoutRequestId: UUID): Order?
 }
 
 @Repository
