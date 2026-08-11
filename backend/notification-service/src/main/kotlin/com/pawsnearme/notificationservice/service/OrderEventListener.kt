@@ -2,6 +2,7 @@ package com.pawsnearme.notificationservice.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.common.idempotency.IdempotencyService
+import com.pawsnearme.notificationservice.event.MerchantOrderActionableEvent
 import com.pawsnearme.notificationservice.event.OrderPlacedEvent
 import com.pawsnearme.notificationservice.event.OrderStatusChangedEvent
 import com.pawsnearme.notificationservice.model.InAppNotification
@@ -58,6 +59,9 @@ class OrderEventListener(
                         "provider_id" to event.providerId.toString(),
                     ),
                 )
+            }
+            "MerchantOrderActionable" -> {
+                val event = objectMapper.readValue(message, MerchantOrderActionableEvent::class.java)
                 notifyMerchantNewOrder(event.merchantOwnerUserId, event.orderId, event.totalAmount.toPlainString())
             }
             "OrderStatusChanged", "OrderCancelled" -> {
@@ -91,6 +95,7 @@ class OrderEventListener(
             "ACCEPTED" -> Triple("Order accepted", "Your order #${event.orderId.toString().take(8)} was accepted by the store.", "ORDER_ACCEPTED")
             "PREPARING" -> Triple("Order is being packed", "The store is preparing order #${event.orderId.toString().take(8)}.", "ORDER_PREPARING")
             "READY_FOR_PICKUP" -> Triple("Order ready for pickup", "Order #${event.orderId.toString().take(8)} is packed and ready for delivery pickup.", "ORDER_READY")
+            "ASSIGNED" -> Triple("Delivery captain assigned", "A captain has been assigned to order #${event.orderId.toString().take(8)}.", "ORDER_ASSIGNED")
             "REJECTED" -> Triple("Order rejected", "The store could not accept order #${event.orderId.toString().take(8)}. Any eligible refund will be processed.", "ORDER_REJECTED")
             "CANCELLED" -> Triple("Order cancelled", "Order #${event.orderId.toString().take(8)} was cancelled.", "ORDER_CANCELLED")
             "PICKED_UP" -> Triple("Order picked up", "Your order #${event.orderId.toString().take(8)} is on the way.", "ORDER_PICKED_UP")
@@ -104,7 +109,7 @@ class OrderEventListener(
                 title = copy.first,
                 body = copy.second,
                 referenceId = event.orderId,
-                priority = if (event.toStatus in setOf("REJECTED", "CANCELLED")) "HIGH" else "NORMAL",
+                priority = if (event.toStatus in setOf("REJECTED", "CANCELLED", "DELIVERED")) "HIGH" else "NORMAL",
             )
         )
         pushNotificationService.sendToUser(
