@@ -6,11 +6,19 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "MYPET_APP_VARIANT": "operations",
+        "EXPO_PUBLIC_APP_VARIANT": "operations"
+      }
     },
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" }
+      "android": { "buildType": "apk" },
+      "env": {
+        "MYPET_APP_VARIANT": "operations",
+        "EXPO_PUBLIC_APP_VARIANT": "operations"
+      }
     },
     "internal-beta": {
       "distribution": "internal",
@@ -18,12 +26,39 @@
       "environment": "preview",
       "android": { "buildType": "apk" },
       "env": {
+        "MYPET_APP_VARIANT": "operations",
+        "EXPO_PUBLIC_APP_VARIANT": "operations",
         "EXPO_PUBLIC_ALLOW_DEMO_MODE": "false",
         "EXPO_PUBLIC_RELEASE_CHANNEL": "internal-beta",
         "EXPO_PUBLIC_RELEASE_VERSION": "v0.9.0-beta.1"
       }
     },
-    "production": {}
+    "merchant-preview": {
+      "distribution": "internal",
+      "channel": "merchant-preview",
+      "environment": "preview",
+      "android": { "buildType": "apk" },
+      "env": {
+        "MYPET_APP_VARIANT": "merchant",
+        "EXPO_PUBLIC_APP_VARIANT": "merchant",
+        "EXPO_PUBLIC_ALLOW_DEMO_MODE": "false",
+        "EXPO_PUBLIC_RELEASE_CHANNEL": "merchant-preview",
+        "EXPO_PUBLIC_RELEASE_VERSION": "v1.0.0-rc.1"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "channel": "production",
+      "environment": "production",
+      "android": { "buildType": "app-bundle" },
+      "env": {
+        "MYPET_APP_VARIANT": "merchant",
+        "EXPO_PUBLIC_APP_VARIANT": "merchant",
+        "EXPO_PUBLIC_ALLOW_DEMO_MODE": "false",
+        "EXPO_PUBLIC_RELEASE_CHANNEL": "production",
+        "EXPO_PUBLIC_RELEASE_VERSION": "v1.0.0"
+      }
+    }
   },
   "submit": {
     "production": {}

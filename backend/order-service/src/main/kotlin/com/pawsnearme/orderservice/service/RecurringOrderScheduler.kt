@@ -12,11 +12,11 @@ class RecurringOrderScheduler(
 ) {
     @Scheduled(cron = "${'$'}{order.recurring-reminder-cron:0 0 * * * *}")
     @SchedulerLock(
-        name = "recurringOrderConfirmationReminder",
+        name = "recurringOrderGeneration",
         lockAtMostFor = "${'$'}{order.recurring-reminder-lock-at-most-for:PT55M}",
         lockAtLeastFor = "${'$'}{order.recurring-reminder-lock-at-least-for:PT1M}"
     )
-    fun requestDueConfirmations() {
-        recurringOrderService.markDueForConfirmation()
+    fun generateDueOrders() {
+        recurringOrderService.processDueOrders()
     }
 }

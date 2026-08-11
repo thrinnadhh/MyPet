@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.pawsnearme.catalogservice.dto.OfferingRequest
 import com.pawsnearme.catalogservice.model.Offering
 import com.pawsnearme.catalogservice.model.OfferingStatus
+import com.pawsnearme.catalogservice.repository.OfferingRepository
+import com.pawsnearme.catalogservice.repository.ProviderRepository
+import com.pawsnearme.catalogservice.service.CatalogMediaService
 import com.pawsnearme.catalogservice.service.CatalogService
 import com.pawsnearme.catalogservice.service.InternalStockMutationService
 import org.junit.jupiter.api.Test
@@ -39,6 +42,17 @@ class CatalogAuthorizationWebMvcTest {
 
     @MockBean
     private lateinit var internalStockMutationService: InternalStockMutationService
+
+    // Keep this focused authorization slice isolated from the additional
+    // Merchant catalog/media controllers introduced for Play Store readiness.
+    @MockBean
+    private lateinit var catalogMediaService: CatalogMediaService
+
+    @MockBean
+    private lateinit var offeringRepository: OfferingRepository
+
+    @MockBean
+    private lateinit var providerRepository: ProviderRepository
 
     private val providerId = UUID.randomUUID()
     private val ownerId = UUID.randomUUID()

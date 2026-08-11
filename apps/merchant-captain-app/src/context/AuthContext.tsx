@@ -4,6 +4,12 @@ import { Session, User } from '@supabase/supabase-js';
 import { ApiError, apiClient } from '../services/api-client';
 import { stopCaptainLocationTracking } from '../services/captain-location';
 import { appConfig } from '../utils/app-config';
+import {
+  claimRequestedOperationalRole,
+  requestedSelfServiceRole,
+  trustedOperationalRole,
+  type TrustedOperationalRole,
+} from '../utils/operational-role';
 import { syncAuthenticatedProfile } from '../utils/profile-sync';
 import { supabase } from '../utils/supabase';
 
@@ -85,7 +91,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         app_metadata: { role: demoRole },
         user_metadata: {
           full_name: demoName,
-          role: demoRole,
+          requested_operational_role: demoRole,
         },
         aud: 'authenticated',
         created_at: new Date().toISOString(),
@@ -118,12 +124,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return;
     }
 
-    const normalizeBackendRole = (rawRole: string | undefined) => {
-      const roleValue = rawRole?.toUpperCase();
-      return roleValue === 'PROVIDER' ? 'MERCHANT' : roleValue || 'MERCHANT';
-    };
-
-    const resolveActiveRole = (backendRole: string) => {
+    const resolveActiveRole = (backendRole: TrustedOperationalRole) => {
       if (backendRole === 'ADMIN') return 'ADMIN';
       if (backendRole === 'CAPTAIN') return 'CAPTAIN';
       return 'PROVIDER';
@@ -132,7 +133,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const isMissingIdentity = (error: unknown) =>
       error instanceof ApiError && (error.status === 400 || error.status === 404);
 
-    const resolveOperationalIdentity = async (backendRole: string) => {
+    const resolveOperationalIdentity = async (backendRole: TrustedOperationalRole) => {
       let nextProviderId: string | null = null;
       let nextCaptainId: string | null = null;
 
@@ -165,12 +166,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     let lastHydrationKey: string | null = null;
 
-    const applySession = async (nextSession: Session | null) => {
-      setSession(nextSession);
-      setUser(nextSession?.user ?? null);
-      apiClient.setSessionToken(nextSession?.access_token ?? null);
+    const applySession = async (incomingSession: Session | null) => {
+      setSession(incomingSession);
+      setUser(incomingSession?.user ?? null);
+      apiClient.setSessionToken(incomingSession?.access_token ?? null);
 
-      if (!nextSession) {
+      if (!incomingSession) {
         await stopCaptainLocationTracking();
         setRole(null);
         setActiveRole(null);
@@ -181,15 +182,45 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         return;
       }
 
-      const backendRole = normalizeBackendRole(
-        (nextSession.user.app_metadata?.role as string | undefined) ??
-          (nextSession.user.user_metadata?.role as string | undefined),
-      );
+      let nextSession = incomingSession;
+      let backendRole = trustedOperationalRole(nextSession.user);
+
+      // Legacy/self-service signup metadata is only an intent. It must be promoted
+      // server-side into app_metadata before the operational UI trusts it.
+      if (!backendRole) {
+        const requestedRole = requestedSelfServiceRole(nextSession.user);
+        if (requestedRole) {
+          try {
+            nextSession = await Promise.race([
+              claimRequestedOperationalRole(nextSession, requestedRole),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Operational role provisioning timed out')), 8000),
+              ),
+            ]);
+            setSession(nextSession);
+            setUser(nextSession.user);
+            apiClient.setSessionToken(nextSession.access_token);
+            backendRole = trustedOperationalRole(nextSession.user);
+          } catch (error) {
+            console.warn('Operational role provisioning failed closed', error);
+          }
+        }
+      }
+
+      if (!backendRole) {
+        setRole(null);
+        setActiveRole(null);
+        setProviderId(null);
+        setCaptainId(null);
+        setLoading(false);
+        return;
+      }
+
       setRole(backendRole);
       setActiveRole(resolveActiveRole(backendRole));
 
-      // Supabase authentication is complete. Release the UI immediately;
-      // backend profile/provider hydration continues without blocking login.
+      // Authentication + trusted role resolution are complete. Release the UI;
+      // backend profile/provider hydration continues without blocking navigation.
       setLoading(false);
 
       const hydrationKey = `${nextSession.user.id}:${nextSession.access_token}`;
@@ -199,10 +230,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       void (async () => {
         try {
           await Promise.race([
-            syncAuthenticatedProfile(
-              nextSession,
-              backendRole as 'MERCHANT' | 'CAPTAIN' | 'ADMIN',
-            ),
+            syncAuthenticatedProfile(nextSession, backendRole),
             new Promise<never>((_, reject) =>
               setTimeout(() => reject(new Error('Profile sync timed out')), 5000),
             ),

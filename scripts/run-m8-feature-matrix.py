@@ -176,9 +176,6 @@ def verify_monolith_loyalty_handoff(path: str, payload: Any) -> Any:
         )
         _verified_in_process_loyalty_events.add(key)
 
-    # The scenario intentionally replays the event to prove idempotency. In monolith
-    # mode the production handoff already occurred during delivery, so the equivalent
-    # replay result is processed=false; progress/ledger assertions verify the award.
     return {"processed": False, "verifiedInProcess": True}
 
 
@@ -189,7 +186,6 @@ def internal_loyalty_request(
     payload: Any = None,
     expected: tuple[int, ...] = (200,),
 ) -> Any:
-    """Exercise loyalty events on the same internal boundary used in production."""
     if MONOLITH_MODE:
         return verify_monolith_loyalty_handoff(path, payload)
 
@@ -244,6 +240,9 @@ def contract_request(
         _original_request(method, path, actor, payload, expected=(400,))
         return {"status": "CONFIRMED", "unsupportedStatusRejected": True}
 
+    # The shared M8 scenario was originally authored around COD. The connected
+    # payment certification intentionally exercises the prepaid CARD path instead,
+    # but the order must still remain PLACED until the merchant explicitly accepts.
     if (
         method == "POST"
         and path == "/api/v1/orders"
@@ -295,12 +294,21 @@ def contract_request(
         order_id = path.removeprefix("/api/v1/orders/").split("/", 1)[0]
         payment_id = _payment_transactions.get(order_id)
         if payment_id is not None:
-            return _original_request(
+            payment_confirmed = _original_request(
                 "POST",
                 f"/api/v1/orders/{order_id}/confirm?paymentId={payment_id}",
                 actor,
                 expected=(200,),
             )
+            if payment_confirmed.get("status") != "PLACED" or payment_confirmed.get("paymentStatus") != "SUCCESS":
+                raise AssertionError(
+                    "Verified prepaid payment must leave the order PLACED until merchant acceptance: "
+                    f"{payment_confirmed}"
+                )
+            accepted = _original_request(method, path, actor, payload, expected)
+            if accepted.get("status") != "ACCEPTED":
+                raise AssertionError(f"Merchant acceptance did not produce ACCEPTED: {accepted}")
+            return accepted
 
     if method == "GET" and path.startswith("/api/v1/dispatch/jobs/by-order/"):
         order_id = path.rsplit("/", 1)[-1]
@@ -332,19 +340,6 @@ def contract_request(
 
 
 def contract_require(condition: bool, message: str, details: Any = None) -> None:
-    if message == "order was not placed" and isinstance(details, dict):
-        is_valid_cod_order = (
-            details.get("status") == "ACCEPTED"
-            and details.get("paymentMethod") == "COD"
-            and details.get("paymentStatus") == "COD_PENDING"
-            and details.get("acceptedAt") is not None
-        )
-        _original_require(
-            condition or is_valid_cod_order,
-            "COD order did not enter the accepted placement state",
-            details,
-        )
-        return
     if message == "first loyalty event not processed" and not condition:
         matrix.append_report(
             "- ✅ **loyalty delivery integration** — the delivered-order award "

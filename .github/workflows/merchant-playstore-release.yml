@@ -1,0 +1,101 @@
+name: Merchant Play Store Release Gate
+
+on:
+  pull_request:
+    paths:
+      - "apps/merchant-captain-app/**"
+      - "backend/catalog-service/**"
+      - "backend/payment-service/**"
+      - "backend/provider-service/**"
+      - "release/merchant-playstore-v1.0.0.json"
+      - "scripts/validate-merchant-playstore-release.py"
+      - "scripts/verify-mobile-npm-audit.py"
+      - ".github/workflows/merchant-playstore-release.yml"
+  workflow_dispatch:
+    inputs:
+      authorize_release:
+        description: Enforce exact-SHA signed AAB, device, legal and Play Console evidence
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: merchant-playstore-release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate fail-closed Merchant Play Store manifest
+        run: python scripts/validate-merchant-playstore-release.py
+
+  merchant-build-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19
+          cache: npm
+          cache-dependency-path: apps/merchant-captain-app/package-lock.json
+      - name: Install and validate Merchant mobile project
+        working-directory: apps/merchant-captain-app
+        run: |
+          npm ci
+          python3 ../../scripts/verify-mobile-npm-audit.py .
+          npm run typecheck
+          npm run lint
+          npm test
+          npx --yes expo-doctor@1.20.1
+      - name: Validate production AAB profile and Merchant rendered config
+        working-directory: apps/merchant-captain-app
+        run: |
+          MYPET_APP_VARIANT=merchant EXPO_PUBLIC_APP_VARIANT=merchant npx expo config --type public --json >/tmp/merchant-play-config.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const config = JSON.parse(fs.readFileSync('/tmp/merchant-play-config.json', 'utf8'));
+          const eas = JSON.parse(fs.readFileSync('eas.json', 'utf8'));
+          const production = eas.build?.production;
+          if (!production) throw new Error('Missing EAS production profile');
+          if (production.distribution !== 'store') throw new Error('Production Merchant build must use store distribution');
+          if (production.android?.buildType !== 'app-bundle') throw new Error('Production Merchant Android artifact must be an app-bundle');
+          if (production.env?.MYPET_APP_VARIANT !== 'merchant') throw new Error('Production profile must build Merchant variant');
+          if (production.env?.EXPO_PUBLIC_APP_VARIANT !== 'merchant') throw new Error('Production public app variant must be merchant');
+          if (production.env?.EXPO_PUBLIC_ALLOW_DEMO_MODE !== 'false') throw new Error('Demo mode must be disabled in production');
+          if (config.name !== 'MyPet Merchant') throw new Error(`Unexpected Merchant app name: ${config.name}`);
+          if (config.android?.package !== 'com.mypet.merchant') throw new Error(`Unexpected Merchant package: ${config.android?.package}`);
+          if (config.android?.versionCode !== 1) throw new Error(`Unexpected Merchant versionCode: ${config.android?.versionCode}`);
+          if (config.version !== '1.0.0') throw new Error(`Unexpected Merchant version: ${config.version}`);
+          if (config.extra?.appVariant !== 'merchant') throw new Error(`Unexpected Merchant appVariant: ${config.extra?.appVariant}`);
+          const blocked = new Set(config.android?.blockedPermissions ?? []);
+          for (const permission of ['android.permission.ACCESS_BACKGROUND_LOCATION', 'android.permission.FOREGROUND_SERVICE_LOCATION']) {
+            if (!blocked.has(permission)) throw new Error(`Merchant build must block ${permission}`);
+          }
+          NODE
+
+  release-authorization:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_release }}
+    needs: [release-contract, merchant-build-config]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Enforce exact signed-build and Play Store evidence
+        run: python scripts/validate-merchant-playstore-release.py --release --sha "$GITHUB_SHA"
+
+  release-intentionally-blocked:
+    if: ${{ github.event_name == 'pull_request' }}
+    needs: [release-contract, merchant-build-config]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Merchant Play Store promotion remains blocked until the signed AAB, physical-device, legal, closed-test and Play Console evidence manifest is complete for the exact final SHA."

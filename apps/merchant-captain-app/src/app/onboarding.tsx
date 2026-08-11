@@ -1,6 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Location from 'expo-location';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
@@ -30,8 +31,9 @@ export default function OnboardingScreen() {
   const [licenseDocUrl, setLicenseDocUrl] = useState('');
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [longitude, setLongitude] = useState('77.5946');
-  const [latitude, setLatitude] = useState('12.9716');
+  const [locating, setLocating] = useState(false);
+  const [longitude, setLongitude] = useState('');
+  const [latitude, setLatitude] = useState('');
 
   const handleDocUpload = useCallback(async () => {
     if (!session?.access_token) {
@@ -49,13 +51,31 @@ export default function OnboardingScreen() {
       const fileUrl = await uploadFileFromUri(asset.uri, asset.name, session.access_token);
       setLicenseDocUrl(fileUrl);
       setDocUploaded(true);
-      Alert.alert('Success', 'Document proof uploaded successfully!');
+      Alert.alert('Success', 'Business verification document uploaded successfully.');
     } catch (error) {
       Alert.alert('Upload Error', error instanceof Error ? error.message : 'Failed to upload document.');
     } finally {
       setUploadingDoc(false);
     }
   }, [session]);
+
+  const handleUseCurrentLocation = useCallback(async () => {
+    setLocating(true);
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Alert.alert('Location permission required', 'Allow location access or enter your business coordinates manually.');
+        return;
+      }
+      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      setLatitude(current.coords.latitude.toFixed(6));
+      setLongitude(current.coords.longitude.toFixed(6));
+    } catch (error) {
+      Alert.alert('Location unavailable', error instanceof Error ? error.message : 'Could not read the current location.');
+    } finally {
+      setLocating(false);
+    }
+  }, []);
 
   const handleSubmit = useCallback(async () => {
     if (!user || !session?.access_token) {
@@ -68,20 +88,32 @@ export default function OnboardingScreen() {
       return;
     }
 
+    if (!/^[1-9]\d{5}$/.test(pincode.trim())) {
+      Alert.alert('Error', 'Enter a valid 6-digit Indian pincode.');
+      return;
+    }
+
     if (providerType === 'VET_HOSPITAL' && !licenseNumber.trim()) {
       Alert.alert('Error', 'Veterinary Council License number is required.');
       return;
     }
 
-    if (!docUploaded) {
-      Alert.alert('Error', 'Please upload required verification documents.');
+    if (!docUploaded || !licenseDocUrl) {
+      Alert.alert('Error', 'Please upload the required business verification document.');
       return;
     }
 
-    const parsedLng = parseFloat(longitude);
-    const parsedLat = parseFloat(latitude);
-    if (isNaN(parsedLng) || isNaN(parsedLat)) {
-      Alert.alert('Error', 'Please enter valid coordinate numbers.');
+    const parsedLng = Number(longitude);
+    const parsedLat = Number(latitude);
+    if (
+      !Number.isFinite(parsedLng) ||
+      !Number.isFinite(parsedLat) ||
+      parsedLng < -180 ||
+      parsedLng > 180 ||
+      parsedLat < -90 ||
+      parsedLat > 90
+    ) {
+      Alert.alert('Error', 'Capture or enter valid business coordinates before submitting.');
       return;
     }
 
@@ -95,7 +127,7 @@ export default function OnboardingScreen() {
           fulfillmentType: providerType === 'PET_STORE' ? 'DELIVERY' : 'APPOINTMENT',
           name: name.trim(),
           description: description.trim() || null,
-          licenseNumber: providerType === 'VET_HOSPITAL' ? licenseNumber : null,
+          licenseNumber: providerType === 'VET_HOSPITAL' ? licenseNumber.trim() : null,
           licenseDocUrl,
           addressLine: addressLine.trim(),
           city: city.trim(),
@@ -106,7 +138,7 @@ export default function OnboardingScreen() {
         session.access_token,
         appConfig.apiBaseUrl,
       );
-      Alert.alert('Success', 'Provider application submitted successfully and is PENDING APPROVAL.');
+      Alert.alert('Success', 'Provider application submitted successfully and is pending approval.');
       setName('');
       setDescription('');
       setAddressLine('');
@@ -114,6 +146,8 @@ export default function OnboardingScreen() {
       setPincode('');
       setLicenseNumber('');
       setLicenseDocUrl('');
+      setLongitude('');
+      setLatitude('');
       setDocUploaded(false);
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Could not submit merchant application.');
@@ -129,37 +163,31 @@ export default function OnboardingScreen() {
           <View style={styles.header}>
             <ThemedText type="title">Merchant Onboarding</ThemedText>
             <ThemedText type="small" style={{ color: colors.textSecondary }}>
-              Register your business on PawsNearMe
+              Register your business on MyPet. Only fields shown here are submitted in this step.
             </ThemedText>
           </View>
 
-          {/* Provider Type Selector */}
-          <ThemedText style={styles.sectionLabel}>
-            Business Type
-          </ThemedText>
+          <ThemedText style={styles.sectionLabel}>Business Type</ThemedText>
           <View style={styles.typeSelectorRow}>
-            {(['PET_STORE', 'VET_HOSPITAL', 'GROOMING_CENTER'] as ProviderType[]).map((t) => (
+            {(['PET_STORE', 'VET_HOSPITAL', 'GROOMING_CENTER'] as ProviderType[]).map((type) => (
               <TouchableOpacity
-                key={t}
+                key={type}
                 style={[
                   styles.typeCard,
                   { backgroundColor: colors.backgroundElement },
-                  providerType === t && { borderColor: colors.text, borderWidth: 1 }
+                  providerType === type && { borderColor: colors.text, borderWidth: 1 },
                 ]}
-                onPress={() => setProviderType(t)}
+                onPress={() => setProviderType(type)}
                 activeOpacity={0.7}
               >
                 <ThemedText type="small" style={styles.typeCardText}>
-                  {t.replace('_', ' ')}
+                  {type.replaceAll('_', ' ')}
                 </ThemedText>
               </TouchableOpacity>
             ))}
           </View>
 
-          {/* Form Fields */}
-          <ThemedText style={styles.sectionLabel}>
-            General Information
-          </ThemedText>
+          <ThemedText style={styles.sectionLabel}>General Information</ThemedText>
           <TextInput
             placeholder="Business Name *"
             placeholderTextColor="#888"
@@ -176,9 +204,7 @@ export default function OnboardingScreen() {
             multiline
           />
 
-          <ThemedText style={styles.sectionLabel}>
-            Address Details
-          </ThemedText>
+          <ThemedText style={styles.sectionLabel}>Address Details</ThemedText>
           <TextInput
             placeholder="Street Address *"
             placeholderTextColor="#888"
@@ -198,15 +224,25 @@ export default function OnboardingScreen() {
               placeholder="Pincode *"
               placeholderTextColor="#888"
               keyboardType="number-pad"
+              maxLength={6}
               style={[styles.input, { width: 120, backgroundColor: colors.backgroundElement, color: colors.text }]}
               value={pincode}
               onChangeText={setPincode}
             />
           </View>
 
-          <ThemedText style={styles.sectionLabel}>
-            Location Coordinates (GPS)
-          </ThemedText>
+          <View style={styles.locationHeading}>
+            <ThemedText style={styles.sectionLabel}>Business Location</ThemedText>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Use current business location"
+              onPress={() => void handleUseCurrentLocation()}
+              disabled={locating}
+              style={[styles.locationButton, { backgroundColor: colors.backgroundElement }]}
+            >
+              <ThemedText type="small">{locating ? 'Locating…' : 'Use current location'}</ThemedText>
+            </TouchableOpacity>
+          </View>
           <View style={styles.row}>
             <TextInput
               placeholder="Longitude *"
@@ -225,13 +261,13 @@ export default function OnboardingScreen() {
               onChangeText={setLatitude}
             />
           </View>
+          <ThemedText type="small" style={{ color: colors.textSecondary }}>
+            MyPet does not prefill another city. Capture the actual storefront/clinic location or enter verified coordinates.
+          </ThemedText>
 
-          {/* Adapted Onboarding Fields */}
-          {providerType === 'VET_HOSPITAL' && (
+          {providerType === 'VET_HOSPITAL' ? (
             <>
-              <ThemedText style={styles.sectionLabel}>
-                Medical License Details
-              </ThemedText>
+              <ThemedText style={styles.sectionLabel}>Medical License Details</ThemedText>
               <TextInput
                 placeholder="Veterinary Council Reg No. *"
                 placeholderTextColor="#888"
@@ -240,51 +276,11 @@ export default function OnboardingScreen() {
                 onChangeText={setLicenseNumber}
               />
             </>
-          )}
+          ) : null}
 
-          {providerType === 'PET_STORE' && (
-            <>
-              <ThemedText style={styles.sectionLabel}>
-                Tax & shop proof
-              </ThemedText>
-              <TextInput
-                placeholder="GSTIN Number (Optional)"
-                placeholderTextColor="#888"
-                style={[styles.input, { backgroundColor: colors.backgroundElement, color: colors.text }]}
-              />
-              <TouchableOpacity
-                style={[styles.uploadButton, { backgroundColor: colors.backgroundElement }]}
-                onPress={handleDocUpload}
-                activeOpacity={0.7}
-              >
-                <ThemedText type="small">Upload electricity bill or rental agreement</ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.uploadButton, { backgroundColor: colors.backgroundElement }]}
-                onPress={handleDocUpload}
-                activeOpacity={0.7}
-              >
-                <ThemedText type="small">Upload shopfront photo</ThemedText>
-              </TouchableOpacity>
-              <ThemedText style={styles.sectionLabel}>Banking details</ThemedText>
-              <TextInput
-                placeholder="Account number"
-                placeholderTextColor="#888"
-                keyboardType="number-pad"
-                style={[styles.input, { backgroundColor: colors.backgroundElement, color: colors.text }]}
-              />
-              <TextInput
-                placeholder="IFSC"
-                placeholderTextColor="#888"
-                autoCapitalize="characters"
-                style={[styles.input, { backgroundColor: colors.backgroundElement, color: colors.text }]}
-              />
-            </>
-          )}
-
-          {/* Document Upload */}
-          <ThemedText style={styles.sectionLabel}>
-            Verification Document
+          <ThemedText style={styles.sectionLabel}>Verification Document</ThemedText>
+          <ThemedText type="small" style={{ color: colors.textSecondary, marginBottom: Spacing.two }}>
+            Upload the business proof used for this application. Additional KYC, GST and settlement details are collected only in flows that persist them server-side.
           </ThemedText>
           <TouchableOpacity
             style={[styles.uploadButton, { backgroundColor: colors.backgroundElement }]}
@@ -293,15 +289,14 @@ export default function OnboardingScreen() {
             activeOpacity={0.7}
           >
             <ThemedText type="small">
-              {uploadingDoc ? '⏳ Uploading...' : docUploaded ? '✅ Document Uploaded' : '📤 Upload Document Proof *'}
+              {uploadingDoc ? '⏳ Uploading...' : docUploaded ? '✅ Verification document uploaded' : '📤 Upload business proof *'}
             </ThemedText>
           </TouchableOpacity>
 
-          {/* Submit Button */}
           <TouchableOpacity
             style={[styles.submitButton, { backgroundColor: colors.text }]}
-            onPress={handleSubmit}
-            disabled={submitting}
+            onPress={() => void handleSubmit()}
+            disabled={submitting || locating || uploadingDoc}
             activeOpacity={0.8}
           >
             <ThemedText style={{ color: colors.background, fontWeight: '700' }}>
@@ -315,28 +310,19 @@ export default function OnboardingScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  safeArea: { flex: 1 },
   scrollContent: {
     padding: Spacing.four,
     paddingBottom: Spacing.six,
   },
-  header: {
-    marginBottom: Spacing.four,
-  },
+  header: { marginBottom: Spacing.four },
   sectionLabel: {
     marginTop: Spacing.four,
     marginBottom: Spacing.two,
     fontWeight: '700',
   },
-  typeSelectorRow: {
-    flexDirection: 'row',
-    gap: Spacing.two,
-  },
+  typeSelectorRow: { flexDirection: 'row', gap: Spacing.two },
   typeCard: {
     flex: 1,
     height: 50,
@@ -344,22 +330,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  typeCardText: {
-    fontSize: 12,
-    textAlign: 'center',
-  },
+  typeCardText: { fontSize: 12, textAlign: 'center' },
   input: {
     padding: Spacing.three,
     borderRadius: Spacing.two,
     marginBottom: Spacing.two,
     fontSize: 14,
   },
-  row: {
+  row: { flexDirection: 'row', gap: Spacing.two },
+  locationHeading: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
     gap: Spacing.two,
   },
+  locationButton: {
+    minHeight: 44,
+    borderRadius: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   uploadButton: {
-    height: 55,
+    minHeight: 55,
     borderRadius: Spacing.two,
     alignItems: 'center',
     justifyContent: 'center',
@@ -367,6 +361,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#666',
     marginBottom: Spacing.four,
+    paddingHorizontal: Spacing.three,
   },
   submitButton: {
     height: 55,

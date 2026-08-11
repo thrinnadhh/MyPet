@@ -22,6 +22,9 @@ type WebTab = {
     | '/orders'
     | '/explore'
     | '/inventory'
+    | '/catalog-media'
+    | '/store'
+    | '/subscriptions'
     | '/finance'
     | '/delivery';
   label: string;
@@ -39,115 +42,40 @@ export default function AppTabs() {
   const isCaptain = activeRole === 'CAPTAIN';
 
   const tabs: WebTab[] = [
-    {
-      name: 'home',
-      href: '/',
-      label: 'Home',
-      visible: !isCaptain,
-    },
-    {
-      name: 'admin',
-      href: '/admin',
-      label: 'Admin',
-      visible: isAdmin || (isProvider && appConfig.allowDemoMode),
-    },
-    {
-      name: 'orders',
-      href: '/orders',
-      label: 'Orders',
-      visible: isProvider,
-    },
-    {
-      name: 'bookings',
-      href: '/explore',
-      label: 'Bookings',
-      visible: isProvider,
-    },
-    {
-      name: 'inventory',
-      href: '/inventory',
-      label: 'Inventory',
-      visible: isProvider,
-    },
-    {
-      name: 'pos',
-      href: '/billing',
-      label: 'POS',
-      visible: isAdmin || isProvider,
-    },
-    {
-      name: 'finance',
-      href: '/finance',
-      label: 'Finance',
-      visible: isProvider,
-    },
-    {
-      name: 'delivery',
-      href: '/delivery',
-      label: 'Delivery',
-      visible: isCaptain,
-    },
-    {
-      name: 'earnings',
-      href: '/earnings',
-      label: isAdmin ? 'Payouts' : 'Earnings',
-      visible: isAdmin || isCaptain,
-    },
+    { name: 'home', href: '/', label: 'Home', visible: !isCaptain },
+    { name: 'admin', href: '/admin', label: 'Admin', visible: isAdmin || (isProvider && appConfig.allowDemoMode) },
+    { name: 'store', href: '/store', label: 'Store', visible: isProvider },
+    { name: 'orders', href: '/orders', label: 'Orders', visible: isProvider },
+    { name: 'bookings', href: '/explore', label: 'Bookings', visible: isProvider },
+    { name: 'inventory', href: '/inventory', label: 'Inventory', visible: isProvider },
+    { name: 'media', href: '/catalog-media', label: 'Media', visible: isProvider },
+    { name: 'subscriptions', href: '/subscriptions', label: 'Subscriptions', visible: isProvider },
+    { name: 'pos', href: '/billing', label: 'POS', visible: isAdmin || isProvider },
+    { name: 'finance', href: '/finance', label: 'Finance', visible: isProvider },
+    { name: 'delivery', href: '/delivery', label: 'Delivery', visible: isCaptain },
+    { name: 'earnings', href: '/earnings', label: isAdmin ? 'Payouts' : 'Earnings', visible: isAdmin || isCaptain },
   ];
 
   return (
-    <View
-      style={[
-        styles.root,
-        {
-          backgroundColor: colors.background,
-        },
-      ]}
-    >
-      <View style={styles.content}>
-        <Slot />
-      </View>
-
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      <View style={styles.content}><Slot /></View>
       <View
         accessibilityRole="tablist"
-        style={[
-          styles.tabBar,
-          {
-            backgroundColor: colors.background,
-            borderTopColor: colors.backgroundElement,
-          },
-        ]}
+        style={[styles.tabBar, { backgroundColor: colors.background, borderTopColor: colors.backgroundElement }]}
       >
         {tabs.map((tab) => {
           if (!tab.visible) return null;
-
-          const selected =
-            tab.href === '/'
-              ? pathname === '/'
-              : pathname === tab.href || pathname.startsWith(`${tab.href}/`);
-
+          const selected = tab.href === '/'
+            ? pathname === '/'
+            : pathname === tab.href || pathname.startsWith(`${tab.href}/`);
           return (
             <Link key={tab.name} href={tab.href} asChild>
               <Pressable
                 accessibilityRole="tab"
                 accessibilityState={{ selected }}
-                style={[
-                  styles.tab,
-                  selected && {
-                    backgroundColor: colors.backgroundElement,
-                  },
-                ]}
+                style={[styles.tab, selected && { backgroundColor: colors.backgroundElement }]}
               >
-                <Text
-                  style={[
-                    styles.label,
-                    {
-                      color: colors.text,
-                    },
-                  ]}
-                >
-                  {tab.label}
-                </Text>
+                <Text style={[styles.label, { color: colors.text }]}>{tab.label}</Text>
               </Pressable>
             </Link>
           );
@@ -158,13 +86,8 @@ export default function AppTabs() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    minHeight: 0,
-  },
+  root: { flex: 1 },
+  content: { flex: 1, minHeight: 0 },
   tabBar: {
     minHeight: 58,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -185,8 +108,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  label: { fontSize: 14, fontWeight: '600' },
 });

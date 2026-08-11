@@ -5,6 +5,7 @@ import com.pawsnearme.common.module.CatalogOfferingSnapshot
 import com.pawsnearme.common.module.CatalogSlotSnapshot
 import com.pawsnearme.common.module.CodEligibilityDecision
 import com.pawsnearme.common.module.CouponReservationCommand
+import com.pawsnearme.common.module.CustomerPetIdentitySnapshot
 import com.pawsnearme.common.module.PaymentModuleApi
 import com.pawsnearme.common.module.PaymentTransactionSnapshot
 import com.pawsnearme.common.module.PromotionTerms
@@ -127,16 +128,35 @@ class RemoteProviderModuleApi(
         val response = restOperations.exchange(
             "$baseUrl/api/v1/internal/providers/$providerId/owner",
             HttpMethod.GET,
-            HttpEntity<Any>(HttpHeaders().apply {
-                if (internalSecret.isNotBlank()) set("X-Internal-Secret", internalSecret)
-                if (gatewayTrustSecret.isNotBlank()) set("X-Internal-Gateway-Secret", gatewayTrustSecret)
-            }),
+            HttpEntity<Any>(internalHeaders()),
             Map::class.java
         ).body
         response?.get("ownerUserId")?.toString()?.let(UUID::fromString)
     }.getOrNull()
 
+    override fun customerPetIdentity(customerId: UUID, petId: UUID): CustomerPetIdentitySnapshot? = runCatching {
+        val response = restOperations.exchange(
+            "$baseUrl/api/v1/internal/providers/customers/$customerId/pets/$petId/identity",
+            HttpMethod.GET,
+            HttpEntity<Any>(internalHeaders()),
+            Map::class.java
+        ).body ?: return@runCatching null
+        CustomerPetIdentitySnapshot(
+            customerId = response["customerId"]?.toString()?.let(UUID::fromString) ?: customerId,
+            customerName = response["customerName"]?.toString()?.takeIf(String::isNotBlank)
+                ?: return@runCatching null,
+            petId = response["petId"]?.toString()?.let(UUID::fromString) ?: petId,
+            petName = response["petName"]?.toString()?.takeIf(String::isNotBlank)
+                ?: return@runCatching null,
+        )
+    }.getOrNull()
+
     override fun enabledVaccinationReminders(): List<VaccinationReminderSnapshot> = emptyList()
+
+    private fun internalHeaders() = HttpHeaders().apply {
+        if (internalSecret.isNotBlank()) set("X-Internal-Secret", internalSecret)
+        if (gatewayTrustSecret.isNotBlank()) set("X-Internal-Gateway-Secret", gatewayTrustSecret)
+    }
 }
 
 class RemotePaymentModuleApi(

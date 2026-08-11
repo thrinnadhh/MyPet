@@ -28,77 +28,62 @@ export default function AppTabs() {
     >
       <NativeTabs.Trigger name="index" hidden={isCaptain}>
         <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
-          renderingMode="template"
-        />
+        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} renderingMode="template" />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger
-        name="admin"
-        hidden={!isAdmin && !(isProvider && appConfig.allowDemoMode)}
-      >
+      <NativeTabs.Trigger name="admin" hidden={!isAdmin && !(isProvider && appConfig.allowDemoMode)}>
         <NativeTabs.Trigger.Label>Admin</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
+        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="store" hidden={!isProvider}>
+        <NativeTabs.Trigger.Label>Store</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} renderingMode="template" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="orders" hidden={!isProvider}>
         <NativeTabs.Trigger.Label>Orders</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
+        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="explore" hidden={!isProvider}>
         <NativeTabs.Trigger.Label>Bookings</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
+        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="inventory" hidden={!isProvider}>
         <NativeTabs.Trigger.Label>Inventory</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
+        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="catalog-media" hidden={!isProvider}>
+        <NativeTabs.Trigger.Label>Media</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="subscriptions" hidden={!isProvider}>
+        <NativeTabs.Trigger.Label>Subscriptions</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="billing" hidden={!isAdmin && !isProvider}>
         <NativeTabs.Trigger.Label>POS</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
+        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="finance" hidden={!isProvider}>
         <NativeTabs.Trigger.Label>Finance</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
+        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="delivery" hidden={!isCaptain}>
         <NativeTabs.Trigger.Label>Delivery</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
-          renderingMode="template"
-        />
+        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} renderingMode="template" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="earnings" hidden={!isAdmin && !isCaptain}>
         <NativeTabs.Trigger.Label>{isAdmin ? 'Payouts' : 'Earnings'}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
+        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} renderingMode="template" />
       </NativeTabs.Trigger>
     </NativeTabs>
   );

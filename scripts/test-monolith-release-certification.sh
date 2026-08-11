@@ -66,8 +66,10 @@ EOF_REPORT
 
 bash "$ROOT/scripts/test-barcode-e2e.sh"
 python3 "$ROOT/scripts/run-m8-feature-matrix.py"
+python3 "$ROOT/scripts/test-order-cancel-accept-race-e2e.py"
 python3 "$ROOT/scripts/run-p2b-connected-e2e-entry.py"
 python3 "$ROOT/scripts/test-recurring-order-scheduler-e2e.py"
+python3 "$ROOT/scripts/test-recurring-occurrence-link-e2e.py"
 bash "$ROOT/scripts/test-database-backup-restore.sh"
 
 cat >> "$REPORT" <<'EOF_REPORT'
@@ -75,12 +77,15 @@ cat >> "$REPORT" <<'EOF_REPORT'
 ## Release-certification result
 
 **PASS** — the primary modular-monolith topology completed the barcode inventory
-flow, the connected fourteen-domain M8 matrix, all ten P2B customer → merchant
-→ captain → admin journeys, deterministic recurring-order due processing, and
-an isolated PostgreSQL dump/restore comparison. The evidence covers public HTTP
-contracts, authorization, database persistence, Kafka/outbox behavior,
-notifications/UI contracts, concurrency, idempotency, private-document access,
-confirmation-only recurring orders, and disaster recovery.
+flow, the connected fourteen-domain M8 matrix, Customer cancel ↔ Merchant accept
+serialization/concurrency certification, all ten P2B customer → merchant →
+captain → admin journeys, due subscription → exactly-one operational recurring
+order generation with Customer/Merchant synchronization, and an isolated
+PostgreSQL dump/restore comparison. The recurring occurrence ledger and order
+also retained the same durable occurrence identity for crash reconciliation.
+The evidence covers public HTTP contracts, authorization, database persistence,
+Kafka/outbox behavior, notifications/UI contracts, concurrency, idempotency,
+private-document access, recurring-order scheduling, and disaster recovery.
 EOF_REPORT
 
 echo "Monolith release certification report: $REPORT"

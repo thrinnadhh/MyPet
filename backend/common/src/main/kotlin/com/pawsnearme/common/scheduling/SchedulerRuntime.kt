@@ -44,11 +44,6 @@ class WorkerSchedulerCondition : Condition {
         ).executesWorkers
 }
 
-/**
- * Removes Spring's scheduled-method processor before singleton creation when
- * this process is API-only or scheduling is disabled. Business services remain
- * available; only periodic execution ownership moves to worker processes.
- */
 class SchedulerRoleBeanDefinitionPostProcessor(
     private val role: SchedulerRuntimeRole
 ) : BeanDefinitionRegistryPostProcessor {
@@ -158,14 +153,14 @@ object MyPetSchedulerCatalog {
                 lockName = "orderCompensationWorker"
             ),
             SchedulerJobDescriptor(
-                id = "order.recurring-confirmation-reminders",
+                id = "order.recurring-order-generation",
                 ownerModule = "order",
                 component = "RecurringOrderScheduler",
-                method = "requestDueConfirmations",
+                method = "generateDueOrders",
                 cadenceKind = SchedulerCadenceKind.CRON,
                 cadence = "${'$'}{order.recurring-reminder-cron:0 0 * * * *}",
                 lockTable = "orders.shedlock",
-                lockName = "recurringOrderConfirmationReminder"
+                lockName = "recurringOrderGeneration"
             ),
             SchedulerJobDescriptor(
                 id = "appointment.expire-holds",

@@ -9,6 +9,10 @@ interface RequestOptions {
   headers?: Record<string, string>;
 }
 
+function isFormData(value: unknown): value is FormData {
+  return typeof FormData !== 'undefined' && value instanceof FormData;
+}
+
 class ApiClient {
   private sessionToken: string | null = null;
 
@@ -20,9 +24,9 @@ class ApiClient {
     return appConfig.apiBaseUrl || 'http://localhost:8080';
   }
 
-  private buildHeaders(customHeaders?: Record<string, string>): Record<string, string> {
+  private buildHeaders(body: unknown, customHeaders?: Record<string, string>): Record<string, string> {
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      ...(isFormData(body) ? {} : { 'Content-Type': 'application/json' }),
       ...(customHeaders || {}),
     };
 
@@ -42,11 +46,15 @@ class ApiClient {
 
     const config: RequestInit = {
       method,
-      headers: this.buildHeaders(customHeaders),
+      headers: this.buildHeaders(body, customHeaders),
     };
 
     if (body !== undefined && method !== 'GET' && method !== 'HEAD') {
-      config.body = typeof body === 'string' ? body : JSON.stringify(body);
+      config.body = isFormData(body)
+        ? body
+        : typeof body === 'string'
+          ? body
+          : JSON.stringify(body);
     }
 
     const response = await fetch(url, config);

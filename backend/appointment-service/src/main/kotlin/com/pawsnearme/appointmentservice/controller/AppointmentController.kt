@@ -6,6 +6,7 @@ import com.pawsnearme.appointmentservice.repository.AppointmentStatusHistoryRepo
 import com.pawsnearme.appointmentservice.service.AppointmentLifecyclePolicy
 import com.pawsnearme.appointmentservice.service.AppointmentService
 import com.pawsnearme.appointmentservice.service.BookAppointmentRequest
+import com.pawsnearme.appointmentservice.service.MerchantAppointmentQueryService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -25,14 +26,15 @@ import java.util.UUID
 class AppointmentController(
     private val appointmentService: AppointmentService,
     private val appointmentStatusHistoryRepository: AppointmentStatusHistoryRepository,
-    private val lifecyclePolicy: AppointmentLifecyclePolicy
+    private val lifecyclePolicy: AppointmentLifecyclePolicy,
+    private val merchantAppointmentQueryService: MerchantAppointmentQueryService,
 ) {
     private fun parseAuthenticatedUserId(value: String?): UUID? =
-        value?.takeIf(String::isNotBlank)?.let(UUID::fromString)
+        value?.takeIf(String::isNotBlank)?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
     private fun unauthorized(): ResponseEntity<Any> = ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(mapOf("error" to "Missing authenticated user context."))
+        .body(mapOf("error" to "Missing or invalid authenticated user context."))
 
     @PostMapping
     fun bookAppointment(
@@ -117,13 +119,31 @@ class AppointmentController(
     @GetMapping("/provider/{providerId}")
     fun getAppointmentsByProvider(
         @PathVariable providerId: UUID,
+        @RequestParam(required = false) page: Int?,
+        @RequestParam(defaultValue = "50") size: Int,
         @RequestHeader("X-User-Id", required = false) authenticatedUserId: String?,
         @RequestHeader("X-User-Role", required = false) authenticatedUserRole: String?
     ): ResponseEntity<Any> {
         val callerId = parseAuthenticatedUserId(authenticatedUserId) ?: return unauthorized()
-        return ResponseEntity.ok(
-            appointmentService.getAppointmentsByProvider(providerId, callerId, authenticatedUserRole)
-        )
+        return if (page == null) {
+            ResponseEntity.ok(
+                merchantAppointmentQueryService.listProviderAppointments(
+                    providerId,
+                    callerId,
+                    authenticatedUserRole,
+                )
+            )
+        } else {
+            ResponseEntity.ok(
+                merchantAppointmentQueryService.listProviderAppointmentsPage(
+                    providerId = providerId,
+                    callerId = callerId,
+                    callerRole = authenticatedUserRole,
+                    page = page,
+                    size = size,
+                )
+            )
+        }
     }
 
     @PutMapping("/{id}/status")

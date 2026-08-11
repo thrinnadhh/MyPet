@@ -12,6 +12,7 @@ import { Radius, Spacing } from '@/constants/theme';
 import { palette } from '@/design/tokens';
 import { useTheme } from '@/hooks/use-theme';
 import { useTranslation } from '@/i18n';
+import { appConfig } from '@/utils/app-config';
 import { supabase } from '@/utils/supabase';
 
 type SignupRole = 'MERCHANT' | 'CAPTAIN';
@@ -43,7 +44,7 @@ function friendlyAuthError(error: unknown, fallback: string): string {
     return 'Your email is not verified. Open the Supabase verification email, verify the account, then log in again.';
   }
   if (/invalid login credentials/i.test(message)) {
-    return 'Incorrect email or password. Confirm that this merchant account belongs to the same Supabase project.';
+    return 'Incorrect email or password. Confirm that this operational account belongs to the same Supabase project.';
   }
   if (/network request failed|failed to fetch/i.test(message)) {
     return 'The phone could not reach Supabase. Check Wi-Fi/mobile data, VPN, and EXPO_PUBLIC_SUPABASE_URL.';
@@ -72,17 +73,25 @@ export default function LoginScreen() {
       return;
     }
 
+    if (appConfig.isMerchantBuild && signupRole !== 'MERCHANT') {
+      Alert.alert(t('common.error'), 'This Play Store build can create merchant accounts only.');
+      return;
+    }
+
     setLoading(true);
 
     try {
       if (isSignUp) {
         const { data, error } = await withAuthTimeout(supabase.auth.signUp({
-          email: email.trim(),
+          email: email.trim().toLowerCase(),
           password,
           options: {
             data: {
               full_name: fullName.trim(),
-              role: signupRole,
+              // This is intentionally only an onboarding request. AuthContext will
+              // trust the role only after the protected server function writes it
+              // to app_metadata and the Supabase session is refreshed.
+              requested_operational_role: signupRole,
             },
           },
         }));
@@ -90,8 +99,8 @@ export default function LoginScreen() {
         Alert.alert(
           t('common.success'),
           data.session
-            ? 'Account created and signed in.'
-            : 'Account created. Verify the email sent by Supabase, then log in.',
+            ? 'Account created. MyPet is securely provisioning your operational role.'
+            : 'Account created. Verify the email sent by Supabase, then log in to finish secure role provisioning.',
         );
       } else {
         const { error } = await withAuthTimeout(
@@ -118,7 +127,7 @@ export default function LoginScreen() {
           <View style={[styles.logoWrap, { backgroundColor: theme.primary }]}>
             <AppIcon name={signupRole === 'CAPTAIN' ? 'truck' : 'store'} color={palette.white} size={30} />
           </View>
-          <ThemedText style={styles.brand}>{t('login.brand')}</ThemedText>
+          <ThemedText style={styles.brand}>{appConfig.isMerchantBuild ? 'MyPet Merchant' : t('login.brand')}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary" style={styles.tagline}>
             {isSignUp ? t('login.taglineSignUp') : t('login.taglineSignIn')}
           </ThemedText>
@@ -129,7 +138,7 @@ export default function LoginScreen() {
             {isSignUp ? (
               <>
                 <ThemedText type="smallBold" themeColor="textSecondary">
-                  {t('login.accountType')}
+                  {appConfig.isMerchantBuild ? 'Merchant account' : t('login.accountType')}
                 </ThemedText>
                 <View style={styles.roleRow}>
                   <FilterChip
@@ -138,16 +147,20 @@ export default function LoginScreen() {
                     icon="store"
                     onPress={() => setSignupRole('MERCHANT')}
                   />
-                  <FilterChip
-                    label={t('login.captain')}
-                    selected={signupRole === 'CAPTAIN'}
-                    icon="truck"
-                    onPress={() => setSignupRole('CAPTAIN')}
-                  />
+                  {!appConfig.isMerchantBuild ? (
+                    <FilterChip
+                      label={t('login.captain')}
+                      selected={signupRole === 'CAPTAIN'}
+                      icon="truck"
+                      onPress={() => setSignupRole('CAPTAIN')}
+                    />
+                  ) : null}
                 </View>
                 <FeedbackBanner
                   title={signupRole === 'MERCHANT' ? t('login.merchant') : t('login.captain')}
-                  message={selectedRoleHint}
+                  message={appConfig.isMerchantBuild
+                    ? 'Create or sign in to the verified business account that owns your MyPet store, clinic, or grooming center.'
+                    : selectedRoleHint}
                   tone="info"
                   icon={signupRole === 'MERCHANT' ? 'store' : 'truck'}
                 />
@@ -201,7 +214,10 @@ export default function LoginScreen() {
 
         <PrimaryButton
           label={isSignUp ? t('login.toggleToSignIn') : t('login.toggleToSignUp')}
-          onPress={() => setIsSignUp((previous) => !previous)}
+          onPress={() => {
+            setSignupRole('MERCHANT');
+            setIsSignUp((previous) => !previous);
+          }}
           variant="ghost"
         />
       </View>

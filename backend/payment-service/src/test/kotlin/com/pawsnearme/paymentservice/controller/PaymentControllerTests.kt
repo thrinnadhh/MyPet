@@ -3,6 +3,7 @@ package com.pawsnearme.paymentservice.controller
 import com.pawsnearme.paymentservice.model.Transaction
 import com.pawsnearme.paymentservice.service.CashfreeGatewayService
 import com.pawsnearme.paymentservice.service.CashfreeOrderResponse
+import com.pawsnearme.paymentservice.service.CouponReservationLifecycleService
 import com.pawsnearme.paymentservice.service.CreateCashfreeOrderRequest
 import com.pawsnearme.paymentservice.service.PaymentService
 import com.pawsnearme.paymentservice.service.RegisterLinkedAccountRequest
@@ -19,7 +20,12 @@ class PaymentControllerTests {
 
     private val paymentService: PaymentService = mock()
     private val cashfreeGatewayService: CashfreeGatewayService = mock()
-    private val controller = PaymentController(paymentService, cashfreeGatewayService)
+    private val couponReservationLifecycleService: CouponReservationLifecycleService = mock()
+    private val controller = PaymentController(
+        paymentService,
+        cashfreeGatewayService,
+        couponReservationLifecycleService,
+    )
 
     private val userId = UUID.randomUUID()
     private val referenceId = UUID.randomUUID()

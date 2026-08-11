@@ -118,6 +118,36 @@ export function StatusBadge({ label, tone = 'neutral' }: { label: string; tone?:
   return <View style={[styles.badge, { backgroundColor: colors[0] }]}><ThemedText type="small" style={{ color: colors[1], fontWeight: '700' }}>{label}</ThemedText></View>;
 }
 
+export function FeedbackBanner({
+  tone = 'info',
+  title,
+  message,
+}: {
+  tone?: 'success' | 'warning' | 'error' | 'info';
+  title: string;
+  message: string;
+}) {
+  const theme = useTheme();
+  const colors = tone === 'success'
+    ? [theme.successSoft, theme.success]
+    : tone === 'warning'
+      ? [theme.primarySoft, theme.warning]
+      : tone === 'error'
+        ? [theme.errorSoft, theme.danger]
+        : [theme.primarySoft, theme.primary];
+  return (
+    <View
+      accessible
+      accessibilityLiveRegion="polite"
+      accessibilityLabel={`${title}. ${message}`}
+      style={[styles.feedbackBanner, { backgroundColor: colors[0], borderColor: colors[1] }]}
+    >
+      <ThemedText type="small" style={{ color: colors[1], fontWeight: '700' }}>{title}</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary">{message}</ThemedText>
+    </View>
+  );
+}
+
 export function TenStarProgress({ earned, label }: { earned: number; label: string }) {
   const theme = useTheme();
   const count = Math.max(0, Math.min(10, Math.round(earned)));
@@ -201,6 +231,7 @@ const styles = StyleSheet.create({
   cardIcon: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
   cardTitle: { ...typography.label, flexShrink: 1 },
   badge: { borderRadius: radii.pill, paddingHorizontal: spacing.x2, paddingVertical: spacing.x1 },
+  feedbackBanner: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.compact, padding: spacing.x3, gap: spacing.x1 },
   starRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.x1, marginBottom: spacing.x2 },
   state: { flex: 1, minHeight: 280, alignItems: 'center', justifyContent: 'center', gap: spacing.x3, padding: spacing.x6 },
   stateIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
