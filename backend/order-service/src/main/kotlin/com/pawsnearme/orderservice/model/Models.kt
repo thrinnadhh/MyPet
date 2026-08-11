@@ -5,12 +5,6 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
 
-enum class OrderStatus {
-    PLACED, ACCEPTED, PREPARING, READY_FOR_PICKUP,
-    ASSIGNED, REASSIGNED, PICKED_UP, DELIVERED, COMPLETED,
-    REJECTED, CANCELLED
-}
-
 @Entity
 @Table(name = "orders", schema = "orders")
 class Order(
@@ -41,6 +35,13 @@ class Order(
     @Column(name = "status", nullable = false)
     var status: OrderStatus = OrderStatus.PLACED,
 
+    @Version
+    @Column(name = "version", nullable = false)
+    var version: Long = 0,
+
+    @Column(name = "checkout_request_id", unique = true)
+    var checkoutRequestId: UUID? = null,
+
     @Column(name = "subtotal_amount", nullable = false)
     var subtotalAmount: BigDecimal,
 
@@ -49,6 +50,12 @@ class Order(
 
     @Column(name = "discount_amount", nullable = false)
     var discountAmount: BigDecimal = BigDecimal.ZERO,
+
+    @Column(name = "loyalty_reward_id")
+    var loyaltyRewardId: UUID? = null,
+
+    @Column(name = "loyalty_discount_amount", nullable = false)
+    var loyaltyDiscountAmount: BigDecimal = BigDecimal.ZERO,
 
     @Column(name = "total_amount", nullable = false)
     var totalAmount: BigDecimal,
@@ -61,6 +68,9 @@ class Order(
 
     @Column(name = "accepted_at")
     var acceptedAt: Instant? = null,
+
+    @Column(name = "preparing_at")
+    var preparingAt: Instant? = null,
 
     @Column(name = "ready_at")
     var readyAt: Instant? = null,
@@ -86,16 +96,22 @@ class Order(
     @Column(name = "payment_method", nullable = false)
     var paymentMethod: String = "CARD",
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "payment_status", nullable = false)
-    var paymentStatus: String = "PENDING",
+    var paymentStatus: PaymentStatus = PaymentStatus.PENDING,
 
     @Column(name = "recurring_occurrence_id")
     var recurringOccurrenceId: UUID? = null
 ) {
-    @PrePersist
-    fun alignLifecycleTimestamps() {
-        if (status == OrderStatus.ACCEPTED && acceptedAt == null) {
-            acceptedAt = placedAt
+    /**
+     * Keep the merchant SLA timestamp server-owned even when the transition is
+     * invoked through a module adapter. The status history remains the source of
+     * actor identity and note; this timestamp is the denormalized SLA marker.
+     */
+    @PreUpdate
+    fun capturePreparingTimestamp() {
+        if (status == OrderStatus.PREPARING && preparingAt == null) {
+            preparingAt = Instant.now()
         }
     }
 }
