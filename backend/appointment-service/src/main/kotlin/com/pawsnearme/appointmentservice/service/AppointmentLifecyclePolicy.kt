@@ -33,6 +33,7 @@ class AppointmentLifecyclePolicy {
 
     private fun merchantTransitions(current: AppointmentStatus): Set<AppointmentStatus> = when (current) {
         AppointmentStatus.SLOT_HELD -> setOf(AppointmentStatus.CANCELLED)
+        AppointmentStatus.PAID -> setOf(AppointmentStatus.CONFIRMED, AppointmentStatus.CANCELLED)
         AppointmentStatus.CONFIRMED -> setOf(
             AppointmentStatus.COMPLETED,
             AppointmentStatus.NO_SHOW,
@@ -43,6 +44,7 @@ class AppointmentLifecyclePolicy {
 
     private fun customerTransitions(current: AppointmentStatus): Set<AppointmentStatus> = when (current) {
         AppointmentStatus.SLOT_HELD,
+        AppointmentStatus.PAID,
         AppointmentStatus.CONFIRMED -> setOf(AppointmentStatus.CANCELLED)
         else -> emptySet()
     }
