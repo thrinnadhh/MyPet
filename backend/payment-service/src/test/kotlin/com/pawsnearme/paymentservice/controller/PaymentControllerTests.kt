@@ -3,7 +3,7 @@ package com.pawsnearme.paymentservice.controller
 import com.pawsnearme.paymentservice.model.Transaction
 import com.pawsnearme.paymentservice.service.CashfreeGatewayService
 import com.pawsnearme.paymentservice.service.CashfreeOrderResponse
-import com.pawsnearme.paymentservice.service.CouponReservationLifecycleService
+import com.pawsnearme.paymentservice.service.CashfreeWebhookLifecycleService
 import com.pawsnearme.paymentservice.service.CreateCashfreeOrderRequest
 import com.pawsnearme.paymentservice.service.PaymentService
 import com.pawsnearme.paymentservice.service.RegisterLinkedAccountRequest
@@ -20,12 +20,8 @@ class PaymentControllerTests {
 
     private val paymentService: PaymentService = mock()
     private val cashfreeGatewayService: CashfreeGatewayService = mock()
-    private val couponReservationLifecycleService: CouponReservationLifecycleService = mock()
-    private val controller = PaymentController(
-        paymentService,
-        cashfreeGatewayService,
-        couponReservationLifecycleService,
-    )
+    private val cashfreeWebhookLifecycleService: CashfreeWebhookLifecycleService = mock()
+    private val controller = PaymentController(paymentService, cashfreeGatewayService, cashfreeWebhookLifecycleService)
 
     private val userId = UUID.randomUUID()
     private val referenceId = UUID.randomUUID()
@@ -76,6 +72,17 @@ class PaymentControllerTests {
         assertThrows<IllegalArgumentException> {
             controller.handleWebhook("payload", "signature", null)
         }
+    }
+
+    @Test
+    fun `handleWebhook delegates Cashfree lifecycle processing`() {
+        whenever(cashfreeWebhookLifecycleService.process("payload", "signature", "1720000000000", "event-1"))
+            .thenReturn(true)
+
+        val response = controller.handleWebhook("payload", "signature", "1720000000000", "event-1")
+
+        assertEquals(HttpStatus.OK, response.statusCode)
+        assertEquals("processed", (response.body as Map<*, *>)["status"])
     }
 
     @Test

@@ -2,9 +2,10 @@ package com.pawsnearme.orderservice.controller
 
 import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderStatus
+import com.pawsnearme.orderservice.model.PaymentStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
+import com.pawsnearme.orderservice.service.CheckoutIntegrityService
 import com.pawsnearme.orderservice.service.DeliveryContactLookup
-import com.pawsnearme.orderservice.service.MerchantOrderQueryService
 import com.pawsnearme.orderservice.service.OrderService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
@@ -19,18 +20,18 @@ import java.util.UUID
 class OrderControllerTests {
 
     private val orderService: OrderService = mock()
+    private val checkoutIntegrityService: CheckoutIntegrityService = mock()
     private val orderRepository: OrderRepository = mock()
     private val deliveryContactLookup: DeliveryContactLookup = mock()
-    private val merchantOrderQueryService: MerchantOrderQueryService = mock()
     private val controller = OrderController(
         orderService,
+        checkoutIntegrityService,
         orderRepository,
         deliveryContactLookup,
-        merchantOrderQueryService,
     )
 
     @Test
-    fun `confirmOrder - success returns 200 and accepted order`() {
+    fun `confirmOrder compatibility endpoint keeps paid order placed`() {
         val orderId = UUID.randomUUID()
         val paymentId = UUID.randomUUID()
         val order = Order(
@@ -38,10 +39,11 @@ class OrderControllerTests {
             customerId = UUID.randomUUID(),
             providerId = UUID.randomUUID(),
             deliveryAddressId = UUID.randomUUID(),
-            status = OrderStatus.ACCEPTED,
+            status = OrderStatus.PLACED,
             subtotalAmount = BigDecimal("500.00"),
             totalAmount = BigDecimal("500.00"),
-            paymentId = paymentId
+            paymentId = paymentId,
+            paymentStatus = PaymentStatus.SUCCESS,
         )
         val callerId = UUID.randomUUID()
         whenever(orderService.confirmOrderWithAuth(eq(orderId), eq(paymentId), eq(callerId), eq("CUSTOMER"))).thenReturn(order)
@@ -49,7 +51,8 @@ class OrderControllerTests {
         val response = controller.confirmOrder(orderId, paymentId, callerId.toString(), "CUSTOMER")
 
         assertEquals(HttpStatus.OK, response.statusCode)
-        assertEquals(order, response.body)
+        assertEquals(OrderStatus.PLACED, (response.body as Order).status)
+        assertEquals(PaymentStatus.SUCCESS, (response.body as Order).paymentStatus)
     }
 
     @Test
@@ -74,18 +77,6 @@ class OrderControllerTests {
     @Test
     fun `getOrdersByCustomer - missing auth header returns 401`() {
         val response = controller.getOrdersByCustomer(UUID.randomUUID(), null, null)
-        assertEquals(HttpStatus.UNAUTHORIZED, response.statusCode)
-    }
-
-    @Test
-    fun `getOrdersByProvider - invalid auth header returns 401`() {
-        val response = controller.getOrdersByProvider(
-            providerId = UUID.randomUUID(),
-            page = null,
-            size = 50,
-            authenticatedUserId = "not-a-uuid",
-            authenticatedUserRole = "MERCHANT",
-        )
         assertEquals(HttpStatus.UNAUTHORIZED, response.statusCode)
     }
 
