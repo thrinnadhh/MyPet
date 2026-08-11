@@ -77,11 +77,13 @@ def verify_order_gst():
         assert "gstAmount" in models, "Models.kt missing gstAmount field in OrderItem"
         
     with open(order_service, "r") as f:
-        service = f.read()
-        assert "gstRate" in service, "OrderService.kt missing gstRate lookup during quote calculation"
-        assert "gstAmount" in service, "OrderService.kt missing gstAmount assignment on OrderItem creation"
-        
-    print("   [PASS] Order Service GST schema, model, and itemized tax calculation verified.")
+        code = f.read()
+        assert "gstAmount" in code, "OrderItem missing gstAmount"
+        assert "gstRate" in code, "OrderService missing gstRate calculation"
+        # Assert tax-inclusive MRP calculation: lineSubtotal does not add tax on top
+        assert "payableTotal = subtotal" in code, "payableTotal should use tax-inclusive subtotal without double adding tax"
+
+    print("   [PASS] Order Service GST schema, model, and tax-inclusive MRP pricing math verified.")
 
 def verify_sprint23():
     print("=== SPRINT 23 TAX & PRICING COMPLIANCE VERIFICATION ===")

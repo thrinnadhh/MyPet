@@ -57,7 +57,8 @@ data class OrderItemRequest(
     val offeringId: UUID,
     @field:Min(1)
     @field:Max(99)
-    val quantity: Int
+    val quantity: Int,
+    val variantId: UUID? = null
 )
 
 data class CheckoutQuoteRequest(
@@ -262,7 +263,9 @@ class OrderService @Autowired constructor(
             }
             val lineSubtotal = offering.price.multiply(BigDecimal(item.quantity))
             subtotal = subtotal.add(lineSubtotal)
-            val lineGst = lineSubtotal.multiply(offering.gstRate).divide(BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP)
+            val gstFactor = BigDecimal.ONE.add(offering.gstRate.divide(BigDecimal("100"), 4, java.math.RoundingMode.HALF_UP))
+            val lineBase = lineSubtotal.divide(gstFactor, 2, java.math.RoundingMode.HALF_UP)
+            val lineGst = lineSubtotal.subtract(lineBase)
             totalGst = totalGst.add(lineGst)
         }
 
@@ -279,7 +282,6 @@ class OrderService @Autowired constructor(
         val payableTotal = subtotal
             .subtract(couponDiscount)
             .add(deliveryFee)
-            .add(tax)
             .setScale(2, java.math.RoundingMode.HALF_UP)
 
         if (payableTotal < BigDecimal.ZERO) {
@@ -644,7 +646,9 @@ class OrderService @Autowired constructor(
             )
         )
         val lineSubtotal = snapshot.price.multiply(BigDecimal(quantity))
-        val lineGst = lineSubtotal.multiply(snapshot.gstRate).divide(BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP)
+        val gstFactor = BigDecimal.ONE.add(snapshot.gstRate.divide(BigDecimal("100"), 4, java.math.RoundingMode.HALF_UP))
+        val lineBase = lineSubtotal.divide(gstFactor, 2, java.math.RoundingMode.HALF_UP)
+        val lineGst = lineSubtotal.subtract(lineBase)
         return OrderItem(
             orderId = UUID.randomUUID(),
             offeringId = offeringId,

@@ -103,13 +103,16 @@ data class CatalogOfferingSnapshot(
     val stockQuantity: Int?,
     val gstRate: BigDecimal = BigDecimal("18.00"),
     /** Optional list/MRP price used only to derive server-side item discounts. */
-    val listPrice: BigDecimal? = null
+    val listPrice: BigDecimal? = null,
+    val variantId: UUID? = null,
+    val variantName: String? = null
 )
 
 data class StockMutationCommand(
     val offeringId: UUID,
     val quantity: Int,
-    val idempotencyKey: UUID
+    val idempotencyKey: UUID,
+    val variantId: UUID? = null
 )
 
 data class CatalogSlotSnapshot(

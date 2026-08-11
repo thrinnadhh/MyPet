@@ -69,6 +69,27 @@ interface CategoryRepository : JpaRepository<Category, UUID> {
 @Repository
 interface OfferingVariantRepository : JpaRepository<OfferingVariant, UUID> {
     fun findByOfferingIdOrderBySortOrderAsc(offeringId: UUID): List<OfferingVariant>
+
+    @Modifying
+    @Query(
+        """
+        UPDATE OfferingVariant v
+           SET v.stockQuantity = v.stockQuantity - :quantity
+         WHERE v.variantId = :variantId
+           AND v.stockQuantity >= :quantity
+        """
+    )
+    fun decrementVariantStockIfAvailable(variantId: UUID, quantity: Int): Int
+
+    @Modifying
+    @Query(
+        """
+        UPDATE OfferingVariant v
+           SET v.stockQuantity = v.stockQuantity + :quantity
+         WHERE v.variantId = :variantId
+        """
+    )
+    fun incrementVariantStock(variantId: UUID, quantity: Int): Int
 }
 
 @Repository

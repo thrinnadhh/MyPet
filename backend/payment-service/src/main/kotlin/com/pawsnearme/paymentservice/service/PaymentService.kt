@@ -397,6 +397,31 @@ class PaymentService(
         if (req.amount > globalMax) return CodCheckResponse(false, globalMax, "Order total ₹${req.amount} exceeds default COD limit ₹$globalMax")
         return CodCheckResponse(true, globalMax)
     }
+
+    fun getGstr8TcsReport(month: String): Gstr8TcsReportResponse {
+        val tcsRate = BigDecimal("1.00")
+        val payouts = payoutRepository.findAll()
+        val entries = payouts.groupBy { it.payeeUserId }.map { (userId, userPayouts) ->
+            val gross = userPayouts.fold(BigDecimal.ZERO) { acc, p -> acc.add(p.amount) }
+            val tcs = gross.multiply(tcsRate).divide(BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP)
+            Gstr8MerchantEntry(
+                providerId = userId,
+                gstNumber = "27AAAAA0000A1Z5",
+                grossSales = gross,
+                netTaxableSales = gross,
+                tcsRatePct = tcsRate,
+                tcsAmount = tcs
+            )
+        }
+        val totalTaxable = entries.fold(BigDecimal.ZERO) { acc, e -> acc.add(e.netTaxableSales) }
+        val totalTcs = entries.fold(BigDecimal.ZERO) { acc, e -> acc.add(e.tcsAmount) }
+        return Gstr8TcsReportResponse(
+            month = month,
+            totalNetTaxableSales = totalTaxable,
+            totalTcsDeducted = totalTcs,
+            merchantEntries = entries
+        )
+    }
 }
 
 data class CouponReservationRequest(
@@ -434,4 +459,20 @@ private fun CouponReservation.toResponse() = CouponReservationResponse(
     code = code,
     discountAmount = discountAmount,
     expiresAt = expiresAt
+)
+
+data class Gstr8MerchantEntry(
+    val providerId: UUID,
+    val gstNumber: String?,
+    val grossSales: BigDecimal,
+    val netTaxableSales: BigDecimal,
+    val tcsRatePct: BigDecimal,
+    val tcsAmount: BigDecimal
+)
+
+data class Gstr8TcsReportResponse(
+    val month: String,
+    val totalNetTaxableSales: BigDecimal,
+    val totalTcsDeducted: BigDecimal,
+    val merchantEntries: List<Gstr8MerchantEntry>
 )

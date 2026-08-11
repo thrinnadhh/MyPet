@@ -237,6 +237,15 @@ class PaymentController(
         @Valid @RequestBody req: com.pawsnearme.paymentservice.service.CodCheckRequest,
     ): ResponseEntity<Any> = ResponseEntity.ok(paymentService.checkCodEligibility(req))
 
+    @GetMapping("/admin/reports/tcs-gstr8")
+    fun getGstr8TcsReport(
+        @RequestParam(required = false) month: String?,
+        @RequestHeader("X-User-Role", required = false) role: String?
+    ): ResponseEntity<Any> {
+        if (role != "ADMIN") throw PaymentAccessDeniedException("Access denied: GSTR-8 report requires ADMIN role")
+        return ResponseEntity.ok(paymentService.getGstr8TcsReport(month ?: LocalDate.now().toString().substring(0, 7)))
+    }
+
     @ExceptionHandler(PaymentAccessDeniedException::class)
     fun handleAccessDenied(ex: PaymentAccessDeniedException): ResponseEntity<Any> =
         ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to ex.message))

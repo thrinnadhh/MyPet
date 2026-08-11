@@ -140,7 +140,10 @@ class OrderItem(
     var lineTotal: BigDecimal,
 
     @Column(name = "gst_amount", nullable = false)
-    var gstAmount: BigDecimal = BigDecimal.ZERO
+    var gstAmount: BigDecimal = BigDecimal.ZERO,
+
+    @Column(name = "variant_id")
+    var variantId: UUID? = null
 )
 
 @Entity
