@@ -39,6 +39,12 @@ data class Review(
     @Column(name = "captain_rating")
     val captainRating: Int? = null,
 
+    @Column(name = "offering_id")
+    val offeringId: UUID? = null,
+
+    @Column(name = "is_verified_purchase", nullable = false)
+    val isVerifiedPurchase: Boolean = false,
+
     @Column(name = "created_at", updatable = false, nullable = false)
     val createdAt: Instant? = Instant.now()
 )

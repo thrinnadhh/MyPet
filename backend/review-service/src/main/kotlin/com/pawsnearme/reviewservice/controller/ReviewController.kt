@@ -48,4 +48,9 @@ class ReviewController(private val reviewService: ReviewService) {
     @GetMapping("/customer/{customerId}")
     fun getByCustomer(@PathVariable customerId: UUID): ResponseEntity<List<Review>> =
         ResponseEntity.ok(reviewService.getReviewsByCustomer(customerId))
+
+    /** Get all reviews for a specific product offering. */
+    @GetMapping("/offering/{offeringId}")
+    fun getByOffering(@PathVariable offeringId: UUID): ResponseEntity<List<Review>> =
+        ResponseEntity.ok(reviewService.getReviewsByOffering(offeringId))
 }

@@ -13,6 +13,8 @@ interface ReviewRepository : JpaRepository<Review, UUID> {
 
     fun findByCustomerId(customerId: UUID): List<Review>
 
+    fun findByOfferingId(offeringId: UUID): List<Review>
+
     /** Guard: one review per target (unique index idx_reviews_target on target_type, target_id). */
     fun existsByTargetTypeAndTargetId(targetType: String, targetId: UUID): Boolean
 

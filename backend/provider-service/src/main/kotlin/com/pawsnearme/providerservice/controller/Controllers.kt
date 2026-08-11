@@ -70,6 +70,7 @@ data class CreateProviderRequest(
     val description: String?,
     val licenseNumber: String?,
     val licenseDocUrl: String?,
+    val gstNumber: String? = null,
     @field:NotBlank val addressLine: String,
     @field:NotBlank val city: String,
     @field:NotBlank val pincode: String,
@@ -86,6 +87,7 @@ data class ProviderResponse(
     val description: String?,
     val licenseNumber: String?,
     val licenseDocUrl: String?,
+    val gstNumber: String?,
     val addressLine: String,
     val city: String,
     val pincode: String,
@@ -374,6 +376,7 @@ class ProviderController(
             description = request.description,
             licenseNumber = request.licenseNumber,
             licenseDocUrl = request.licenseDocUrl,
+            gstNumber = request.gstNumber,
             addressLine = request.addressLine,
             city = request.city,
             pincode = request.pincode,
@@ -431,9 +434,21 @@ class ProviderController(
         @RequestHeader("X-User-Role", required = false) userRole: String?
     ): ResponseEntity<Any> {
         if (userRole != "ADMIN") {
-            throw ProviderAccessDeniedException("Access Denied: Only administrators can approve providers.")
+            throw ProviderAccessDeniedException("Access denied: approval requires ADMIN role")
         }
         val provider = providerService.approveProvider(id)
+        return ResponseEntity.ok(mapToResponse(provider))
+    }
+
+    @PostMapping("/{id}/reject")
+    fun rejectProvider(
+        @PathVariable id: UUID,
+        @RequestHeader("X-User-Role", required = false) userRole: String?
+    ): ResponseEntity<Any> {
+        if (userRole != "ADMIN") {
+            throw ProviderAccessDeniedException("Access denied: rejection requires ADMIN role")
+        }
+        val provider = providerService.rejectProvider(id)
         return ResponseEntity.ok(mapToResponse(provider))
     }
 
@@ -496,6 +511,7 @@ class ProviderController(
             description = p.description,
             licenseNumber = p.licenseNumber,
             licenseDocUrl = p.licenseDocUrl,
+            gstNumber = p.gstNumber,
             addressLine = p.addressLine,
             city = p.city,
             pincode = p.pincode,

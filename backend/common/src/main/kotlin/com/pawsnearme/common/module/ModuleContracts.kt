@@ -62,7 +62,8 @@ data class CatalogOfferingSnapshot(
     val name: String,
     val price: BigDecimal,
     val status: String,
-    val stockQuantity: Int?
+    val stockQuantity: Int?,
+    val gstRate: BigDecimal = BigDecimal("18.00")
 )
 
 data class StockMutationCommand(

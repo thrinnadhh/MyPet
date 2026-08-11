@@ -70,6 +70,9 @@ class Provider(
     @Column(name = "commission_pct", precision = 5, scale = 2, nullable = false)
     var commissionPct: BigDecimal = BigDecimal("15.00"),
 
+    @Column(name = "gst_number")
+    var gstNumber: String? = null,
+
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant = Instant.now(),
 

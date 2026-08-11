@@ -61,6 +61,9 @@ class ReviewService(
     fun getReviewsByCustomer(customerId: UUID): List<Review> =
         reviewRepo.findByCustomerId(customerId)
 
+    fun getReviewsByOffering(offeringId: UUID): List<Review> =
+        reviewRepo.findByOfferingId(offeringId)
+
     fun getProviderAverageRating(providerId: UUID): Double =
         reviewRepo.averageRatingByProvider(providerId) ?: 0.0
 }

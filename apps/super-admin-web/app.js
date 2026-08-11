@@ -41,6 +41,9 @@ function switchTab(tabId) {
         fetchBannerAuctionOutcomes();
     } else if (tabId === 'users') {
         fetchUsers();
+    } else if (tabId === 'analytics') {
+        fetchAdminAnalytics();
+        fetchAllProvidersDirectory();
     }
 }
 
@@ -525,3 +528,144 @@ async function restoreUserAccess(userId) {
         showToast("Error restoring user access", true);
     }
 }
+
+// ─── Analytics & Shop Directory Methods ──────────────────────────────────────
+
+let allProvidersCache = [];
+
+async function fetchAdminAnalytics() {
+    const container = document.getElementById('analytics-summary-content');
+    container.innerHTML = `
+        <div class="empty-state">
+            <span class="empty-icon">⏳</span>
+            <p>Loading analytics summary...</p>
+        </div>
+    `;
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/orders/admin/analytics/summary`, {
+            headers: getAuthHeaders()
+        });
+        if (!res.ok) throw new Error(`Analytics request failed (${res.status})`);
+
+        const data = await res.json();
+        const gmv = Number(data.totalGmv || 0).toFixed(2);
+        const aov = Number(data.averageOrderValue || 0).toFixed(2);
+
+        container.innerHTML = `
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                <div class="metric-card" style="flex-direction: column; align-items: flex-start; gap: 0.25rem;">
+                    <span style="font-size: 0.8rem; color: var(--text-secondary);">Total GMV</span>
+                    <span class="metric-value">₹${gmv}</span>
+                </div>
+                <div class="metric-card" style="flex-direction: column; align-items: flex-start; gap: 0.25rem;">
+                    <span style="font-size: 0.8rem; color: var(--text-secondary);">Total Orders</span>
+                    <span class="metric-value">${data.totalOrders}</span>
+                </div>
+                <div class="metric-card" style="flex-direction: column; align-items: flex-start; gap: 0.25rem;">
+                    <span style="font-size: 0.8rem; color: var(--text-secondary);">Completed</span>
+                    <span class="metric-value" style="color: var(--accent-emerald);">${data.completedOrders}</span>
+                </div>
+                <div class="metric-card" style="flex-direction: column; align-items: flex-start; gap: 0.25rem;">
+                    <span style="font-size: 0.8rem; color: var(--text-secondary);">Avg Order Value</span>
+                    <span class="metric-value">₹${aov}</span>
+                </div>
+            </div>
+            <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 0.75rem;">Daily Revenue Breakdown</h4>
+            <div class="list-container">
+                ${(data.dailyRevenue || []).map(day => `
+                    <div class="list-item" style="padding: 0.75rem 1rem; flex-direction: row; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong>${escapeHtml(day.date)}</strong>
+                            <span style="font-size: 0.8rem; color: var(--text-secondary); margin-left: 0.5rem;">(${day.orderCount} orders)</span>
+                        </div>
+                        <div style="font-weight: 700; color: var(--accent-emerald);">₹${Number(day.gmv).toFixed(2)}</div>
+                    </div>
+                `).join('') || '<p style="color: var(--text-secondary); font-size: 0.85rem;">No historical orders yet.</p>'}
+            </div>
+        `;
+    } catch (e) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <span class="empty-icon">❌</span>
+                <p>Failed to load analytics: ${escapeHtml(e.message)}</p>
+            </div>
+        `;
+    }
+}
+
+async function fetchAllProvidersDirectory() {
+    const container = document.getElementById('shops-directory-list');
+    container.innerHTML = `
+        <div class="empty-state">
+            <span class="empty-icon">⏳</span>
+            <p>Loading shop directory...</p>
+        </div>
+    `;
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/providers/pending`, {
+            headers: getAuthHeaders()
+        });
+        if (!res.ok) throw new Error("Failed to fetch shop directory");
+        const providers = await res.json();
+        allProvidersCache = providers;
+        renderShopDirectory(providers);
+    } catch (e) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <span class="empty-icon">❌</span>
+                <p>Failed to load shop directory: ${escapeHtml(e.message)}</p>
+            </div>
+        `;
+    }
+}
+
+function filterShopDirectory() {
+    const query = (document.getElementById('shop-search-input')?.value || '').toLowerCase().trim();
+    if (!query) {
+        renderShopDirectory(allProvidersCache);
+        return;
+    }
+    const filtered = allProvidersCache.filter(p => 
+        (p.name && p.name.toLowerCase().includes(query)) ||
+        (p.city && p.city.toLowerCase().includes(query)) ||
+        (p.providerType && p.providerType.toLowerCase().includes(query))
+    );
+    renderShopDirectory(filtered);
+}
+
+function renderShopDirectory(providers) {
+    const container = document.getElementById('shops-directory-list');
+    if (!providers || providers.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <span class="empty-icon">🏪</span>
+                <p>No matching shops or providers found.</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = '';
+    providers.forEach(p => {
+        const item = document.createElement('div');
+        item.className = 'list-item';
+        item.innerHTML = `
+            <div class="item-header">
+                <div>
+                    <h3 class="item-title">${escapeHtml(p.name)}</h3>
+                    <p class="item-subtitle">${escapeHtml(p.providerType)} — ${escapeHtml(p.fulfillmentType)} (${escapeHtml(p.city)})</p>
+                </div>
+                <span class="badge ${p.status === 'ACTIVE' ? 'badge-success' : 'badge-pending'}">${escapeHtml(p.status)}</span>
+            </div>
+            <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; gap: 1rem;">
+                <div>Rating: ${p.ratingAvg ?? '0.00'} ⭐ (${p.ratingCount ?? 0})</div>
+                <div>Commission: ${p.commissionPct ?? 15}%</div>
+                <div>GST: ${escapeHtml(p.gstNumber || 'N/A')}</div>
+            </div>
+        `;
+        container.appendChild(item);
+    });
+}
+

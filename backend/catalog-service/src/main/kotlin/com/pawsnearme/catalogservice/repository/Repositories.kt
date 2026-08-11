@@ -58,3 +58,20 @@ interface BillRepository : JpaRepository<Bill, UUID> {
 interface BillItemRepository : JpaRepository<BillItem, UUID> {
     fun findByBillId(billId: UUID): List<BillItem>
 }
+
+@Repository
+interface CategoryRepository : JpaRepository<Category, UUID> {
+    fun findBySlug(slug: String): Category?
+    fun findByPetType(petType: String): List<Category>
+    fun findByParentId(parentId: UUID): List<Category>
+}
+
+@Repository
+interface OfferingVariantRepository : JpaRepository<OfferingVariant, UUID> {
+    fun findByOfferingIdOrderBySortOrderAsc(offeringId: UUID): List<OfferingVariant>
+}
+
+@Repository
+interface FeaturedCollectionRepository : JpaRepository<FeaturedCollection, UUID> {
+    fun findBySlug(slug: String): FeaturedCollection?
+}

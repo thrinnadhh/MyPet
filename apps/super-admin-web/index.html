@@ -484,6 +484,7 @@
             <button class="tab-btn" onclick="switchTab('disputes')">Support Disputes</button>
             <button class="tab-btn" onclick="switchTab('banner-auction')">Banner Auction</button>
             <button class="tab-btn" onclick="switchTab('users')">User Management</button>
+            <button class="tab-btn" onclick="switchTab('analytics')">📊 Analytics & Shops</button>
         </div>
 
         <div class="grid-panels">
@@ -548,6 +549,37 @@
                             <div class="empty-state">
                                 <span class="empty-icon">⏳</span>
                                 <p>Loading users...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analytics & Shop Directory Panel -->
+                <div id="analytics-panel" class="tab-panel" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title">📈 Revenue Analytics & GMV Summary</h2>
+                            <button class="btn btn-emerald" onclick="fetchAdminAnalytics()">🔄 Refresh</button>
+                        </div>
+                        <div id="analytics-summary-content" class="list-container">
+                            <div class="empty-state">
+                                <span class="empty-icon">⏳</span>
+                                <p>Loading revenue analytics...</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title">🏪 Shop & Provider Directory</h2>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <input type="text" id="shop-search-input" placeholder="Search by name/city..." oninput="filterShopDirectory()" style="padding: 0.4rem 0.8rem; background: var(--bg-primary); border: 1px solid var(--border-glass); border-radius: 6px; color: var(--text-primary); font-size: 0.85rem;">
+                                <button class="btn btn-emerald" onclick="fetchAllProvidersDirectory()">🔄 Refresh</button>
+                            </div>
+                        </div>
+                        <div id="shops-directory-list" class="list-container">
+                            <div class="empty-state">
+                                <span class="empty-icon">⏳</span>
+                                <p>Loading shop directory...</p>
                             </div>
                         </div>
                     </div>
