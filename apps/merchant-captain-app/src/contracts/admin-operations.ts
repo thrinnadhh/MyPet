@@ -1,11 +1,27 @@
 export type AdminSection = 'overview' | 'approvals' | 'service-areas' | 'disputes' | 'audit';
 
 export interface AdminOperationsSnapshot {
+  /** Compatibility aggregate; canonical counters below remain authoritative. */
   activeOrders: number;
   delayedOrders: number;
   failedPayments: number;
   openDisputes: number;
   openSupportCases: number;
+  ordersPlaced: number;
+  merchantPending: number;
+  accepted: number;
+  preparing: number;
+  readyForPickup: number;
+  assigned: number;
+  dispatchFailures: number;
+  pickedUp: number;
+  delivered: number;
+  completed: number;
+  cancelled: number;
+  rejected: number;
+  paymentFailures: number;
+  refunds: number;
+  refundPending: number;
   generatedAt: string;
 }
 

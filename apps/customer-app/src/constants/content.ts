@@ -106,6 +106,7 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
   },
 ];
 
+/** Legacy visual steps retained for older surfaces. New order reads expose the canonical lifecycle step. */
 export const ORDER_FLOW_STEPS = [
   { id: 'placed', label: 'Order placed' },
   { id: 'assigned', label: 'Partner assigned' },
@@ -115,7 +116,14 @@ export const ORDER_FLOW_STEPS = [
   { id: 'completed', label: 'Completed' },
 ] as const;
 
-export type OrderFlowStepId = (typeof ORDER_FLOW_STEPS)[number]['id'];
+export type OrderFlowStepId =
+  | (typeof ORDER_FLOW_STEPS)[number]['id']
+  | 'accepted'
+  | 'preparing'
+  | 'ready_for_pickup'
+  | 'picked_up'
+  | 'rejected'
+  | 'cancelled';
 
 export const LANGUAGES = [
   { id: 'en', label: 'English', region: 'Default' },

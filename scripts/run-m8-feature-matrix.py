@@ -220,6 +220,24 @@ def internal_loyalty_request(
     return decoded
 
 
+def canonical_order_evidence(order: Any) -> Any:
+    """Expose legacy scenario aliases only inside the M8 verifier; the public API stays canonical."""
+    if not isinstance(order, dict):
+        return order
+    payment = order.get("payment")
+    pricing = order.get("pricing")
+    timestamps = order.get("timestamps")
+    if not isinstance(payment, dict) or not isinstance(pricing, dict):
+        return order
+    return {
+        **order,
+        "paymentStatus": payment.get("status"),
+        "paymentMethod": payment.get("method"),
+        "totalAmount": pricing.get("total"),
+        "acceptedAt": timestamps.get("acceptedAt") if isinstance(timestamps, dict) else None,
+    }
+
+
 def observe_webhook_reconciled_order(actor: Any, order_id: str) -> dict[str, Any]:
     """Prove the server reconciles payment without a client order-confirm mutation."""
     reconciled = _original_poll(
@@ -230,7 +248,8 @@ def observe_webhook_reconciled_order(actor: Any, order_id: str) -> dict[str, Any
             actor,
             expected=(200,),
         ),
-        lambda value: value.get("paymentStatus") == "SUCCESS",
+        lambda value: isinstance(value.get("payment"), dict)
+        and value["payment"].get("status") == "SUCCESS",
         timeout=30,
     )
     _original_require(
@@ -239,12 +258,14 @@ def observe_webhook_reconciled_order(actor: Any, order_id: str) -> dict[str, Any
         reconciled,
     )
     _original_require(
-        reconciled.get("paymentStatus") == "SUCCESS",
+        isinstance(reconciled.get("payment"), dict)
+        and reconciled["payment"].get("status") == "SUCCESS",
         "payment webhook did not persist SUCCESS",
         reconciled,
     )
     _original_require(
-        reconciled.get("acceptedAt") is None,
+        isinstance(reconciled.get("timestamps"), dict)
+        and reconciled["timestamps"].get("acceptedAt") is None,
         "payment webhook incorrectly populated merchant acceptance time",
         reconciled,
     )
@@ -323,8 +344,13 @@ def contract_request(
         online_payload["quoteToken"] = online_quote["quoteToken"]
         created = _original_request(method, path, actor, online_payload, expected)
         _original_require(created.get("status") == "PLACED", "online order was not PLACED", created)
-        _original_require(created.get("paymentStatus") == "PENDING", "online order was not payment PENDING", created)
-        return created
+        _original_require(
+            isinstance(created.get("payment"), dict)
+            and created["payment"].get("status") == "PENDING",
+            "online order was not payment PENDING",
+            created,
+        )
+        return canonical_order_evidence(created)
 
     # The historical scenario still names the removed client result endpoint. Translate
     # that call into the production path: initiate Cashfree, deliver its signed webhook,

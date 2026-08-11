@@ -47,8 +47,9 @@ class AppointmentRemoteModuleConfiguration {
     fun remotePaymentModuleApi(
         restOperations: RestOperations,
         @Value("\${PAYMENT_SERVICE_URL:http://localhost:8090}") baseUrl: String,
-        @Value("\${gateway.trust.secret:}") gatewayTrustSecret: String
-    ): PaymentModuleApi = RemotePaymentModuleApi(restOperations, baseUrl, gatewayTrustSecret)
+        @Value("\${gateway.trust.secret:}") gatewayTrustSecret: String,
+        @Value("\${internal.api.secret:}") internalSecret: String,
+    ): PaymentModuleApi = RemotePaymentModuleApi(restOperations, baseUrl, gatewayTrustSecret, internalSecret)
 }
 
 class RemoteCatalogModuleApi(
@@ -86,7 +87,6 @@ class RemoteCatalogModuleApi(
             HttpEntity<Any>(headers()),
             Map::class.java
         ).body ?: return@runCatching null
-
         CatalogSlotSnapshot(
             slotId = response["slotId"]?.toString()?.let(UUID::fromString) ?: slotId,
             slotStart = response["slotStart"]?.toString()?.let(::parseInstant),
@@ -103,12 +103,7 @@ class RemoteCatalogModuleApi(
             HttpEntity<Any>(headers()),
             Void::class.java
         )
-        return CatalogSlotSnapshot(
-            slotId = slotId,
-            slotStart = null,
-            slotEnd = null,
-            status = normalizedStatus
-        )
+        return CatalogSlotSnapshot(slotId = slotId, slotStart = null, slotEnd = null, status = normalizedStatus)
     }
 
     private fun headers() = HttpHeaders().apply {
@@ -142,7 +137,8 @@ class RemoteProviderModuleApi(
 class RemotePaymentModuleApi(
     private val restOperations: RestOperations,
     private val baseUrl: String,
-    private val gatewayTrustSecret: String
+    private val gatewayTrustSecret: String,
+    private val internalSecret: String = gatewayTrustSecret,
 ) : PaymentModuleApi {
     override fun transaction(transactionId: UUID): PaymentTransactionSnapshot? = runCatching {
         val response = restOperations.exchange(
@@ -178,6 +174,33 @@ class RemotePaymentModuleApi(
     override fun refundOrder(orderId: UUID) = Unit
     override fun recordOrderDelivered(orderId: UUID, customerId: UUID, providerId: UUID, netAmount: BigDecimal) = Unit
     override fun recordOrderRefunded(orderId: UUID, customerId: UUID, providerId: UUID) = Unit
+
+    override fun recordServiceCompleted(
+        referenceId: UUID,
+        customerId: UUID,
+        providerId: UUID,
+        netAmount: BigDecimal,
+        serviceType: String,
+    ) {
+        restOperations.exchange(
+            "$baseUrl/api/v1/loyalty/events/service-completed",
+            HttpMethod.POST,
+            HttpEntity(
+                mapOf(
+                    "referenceId" to referenceId,
+                    "customerId" to customerId,
+                    "providerId" to providerId,
+                    "netAmount" to netAmount,
+                    "serviceType" to serviceType,
+                ),
+                HttpHeaders().apply {
+                    if (internalSecret.isNotBlank()) set("X-Internal-Secret", internalSecret)
+                    if (gatewayTrustSecret.isNotBlank()) set("X-Internal-Gateway-Secret", gatewayTrustSecret)
+                },
+            ),
+            Map::class.java,
+        )
+    }
 }
 
 private fun parseInstant(value: String): Instant = runCatching { Instant.parse(value) }

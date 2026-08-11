@@ -6,7 +6,7 @@ import java.time.Instant
 import java.util.UUID
 
 enum class AppointmentStatus {
-    SLOT_HELD, CONFIRMED, COMPLETED, CANCELLED, NO_SHOW, EXPIRED
+    SLOT_HELD, PAID, CONFIRMED, COMPLETED, CANCELLED, NO_SHOW, EXPIRED
 }
 
 @Entity
