@@ -20,10 +20,9 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * Handles order-driven loyalty state changes. This service is deliberately
- * separate from customer wallet operations because delivered/refunded events
- * are internal lifecycle events and must preserve idempotency, rollover and
- * post-refund debt invariants.
+ * Handles trusted lifecycle-driven loyalty state changes. Stars are never
+ * created from PLACED/ACCEPTED/CANCELLED/REJECTED states; only a delivered
+ * product order or a completed service reaches this boundary.
  */
 @Service
 class LoyaltyLifecycleService(
@@ -36,9 +35,42 @@ class LoyaltyLifecycleService(
     private val outboxService: OutboxService,
 ) {
     @Transactional
-    fun recordDelivered(orderId: UUID, customerId: UUID, providerId: UUID, netAmount: BigDecimal): Boolean {
-        if (processedEventRepository.existsByEventTypeAndReferenceId(ORDER_DELIVERED, orderId)) return false
-        processedEventRepository.save(LoyaltyProcessedEvent(eventType = ORDER_DELIVERED, referenceId = orderId))
+    fun recordDelivered(orderId: UUID, customerId: UUID, providerId: UUID, netAmount: BigDecimal): Boolean =
+        recordCompletionStar(
+            eventType = ORDER_DELIVERED,
+            referenceId = orderId,
+            customerId = customerId,
+            providerId = providerId,
+            netAmount = netAmount,
+            sourceLabel = "order",
+        )
+
+    @Transactional
+    fun recordServiceCompleted(
+        referenceId: UUID,
+        customerId: UUID,
+        providerId: UUID,
+        netAmount: BigDecimal,
+        serviceType: String,
+    ): Boolean = recordCompletionStar(
+        eventType = "SERVICE_COMPLETED:${serviceType.trim().uppercase()}",
+        referenceId = referenceId,
+        customerId = customerId,
+        providerId = providerId,
+        netAmount = netAmount,
+        sourceLabel = "${serviceType.trim().lowercase()} appointment",
+    )
+
+    private fun recordCompletionStar(
+        eventType: String,
+        referenceId: UUID,
+        customerId: UUID,
+        providerId: UUID,
+        netAmount: BigDecimal,
+        sourceLabel: String,
+    ): Boolean {
+        if (processedEventRepository.existsByEventTypeAndReferenceId(eventType, referenceId)) return false
+        processedEventRepository.save(LoyaltyProcessedEvent(eventType = eventType, referenceId = referenceId))
 
         val program = loyaltyService.getProgramForProvider(providerId)
         if (!program.isActive || netAmount < program.minOrderValue) return false
@@ -50,9 +82,9 @@ class LoyaltyLifecycleService(
                 providerId = providerId,
                 deltaStars = 1,
                 entryType = LedgerEntryType.PURCHASE_STAR,
-                referenceId = orderId,
+                referenceId = referenceId,
                 actorId = customerId,
-                note = "Purchase star earned for order $orderId",
+                note = "Completion star earned for $sourceLabel $referenceId",
             )
         )
         account.totalStarsEarned += 1
@@ -68,14 +100,14 @@ class LoyaltyLifecycleService(
                     providerId = providerId,
                     deltaStars = -1,
                     entryType = LedgerEntryType.ADMIN_ADJUSTMENT,
-                    referenceId = orderId,
+                    referenceId = referenceId,
                     actorId = customerId,
-                    note = "Applied purchase star ${purchaseEntry.entryId ?: orderId} to outstanding refund debt",
+                    note = "Applied completion star ${purchaseEntry.entryId ?: referenceId} to outstanding refund debt",
                 )
             )
             account.updatedAt = Instant.now()
             accountRepository.save(account)
-            publish("PurchaseStarAppliedToDebt", customerId, providerId, mapOf("orderId" to orderId, "remainingDebt" to debt.debtStars))
+            publish("CompletionStarAppliedToDebt", customerId, providerId, mapOf("referenceId" to referenceId, "remainingDebt" to debt.debtStars))
             return true
         }
 
@@ -83,7 +115,12 @@ class LoyaltyLifecycleService(
         account.updatedAt = Instant.now()
         accountRepository.save(account)
         applyRolloverIfEligible(account, program.targetStars, program.rewardAmount, program.expiryDays)
-        publish("PurchaseStarEarned", customerId, providerId, mapOf("orderId" to orderId, "starBalance" to account.starBalance))
+        publish(
+            if (eventType == ORDER_DELIVERED) "PurchaseStarEarned" else "ServiceStarEarned",
+            customerId,
+            providerId,
+            mapOf("referenceId" to referenceId, "starBalance" to account.starBalance, "source" to sourceLabel),
+        )
         return true
     }
 
@@ -117,15 +154,13 @@ class LoyaltyLifecycleService(
                 entryType = LedgerEntryType.STAR_REVERSAL,
                 referenceId = orderId,
                 actorId = customerId,
-                note = "Reversed purchase star due to refund for order $orderId",
+                note = "Reversed completion star due to refund for reference $orderId",
             )
         )
         account.totalStarsEarned = (account.totalStarsEarned - purchaseStar.deltaStars).coerceAtLeast(0)
 
         when {
-            account.starBalance >= purchaseStar.deltaStars -> {
-                account.starBalance -= purchaseStar.deltaStars
-            }
+            account.starBalance >= purchaseStar.deltaStars -> account.starBalance -= purchaseStar.deltaStars
             else -> {
                 val activeReward = rewardRepository.findByCustomerIdAndProviderIdAndStatusIn(
                     customerId,
@@ -148,10 +183,10 @@ class LoyaltyLifecycleService(
                             entryType = LedgerEntryType.ADMIN_ADJUSTMENT,
                             referenceId = activeReward.rewardId,
                             actorId = customerId,
-                            note = "Restored rollover stars after revoking reward ${activeReward.code} for refunded order $orderId",
+                            note = "Restored rollover stars after revoking reward ${activeReward.code} for refunded reference $orderId",
                         )
                     )
-                    publish("RewardRevoked", customerId, providerId, mapOf("rewardId" to activeReward.rewardId, "orderId" to orderId))
+                    publish("RewardRevoked", customerId, providerId, mapOf("rewardId" to activeReward.rewardId, "referenceId" to orderId))
                 } else {
                     val debt = debtRepository.findByCustomerIdAndProviderId(customerId, providerId).orElseGet {
                         LoyaltyStarDebt(customerId = customerId, providerId = providerId)
@@ -159,14 +194,14 @@ class LoyaltyLifecycleService(
                     debt.debtStars += purchaseStar.deltaStars
                     debt.updatedAt = Instant.now()
                     debtRepository.save(debt)
-                    publish("StarDebtCreated", customerId, providerId, mapOf("orderId" to orderId, "debtStars" to debt.debtStars))
+                    publish("StarDebtCreated", customerId, providerId, mapOf("referenceId" to orderId, "debtStars" to debt.debtStars))
                 }
             }
         }
 
         account.updatedAt = Instant.now()
         accountRepository.save(account)
-        publish("StarReversed", customerId, providerId, mapOf("orderId" to orderId, "starBalance" to account.starBalance))
+        publish("StarReversed", customerId, providerId, mapOf("referenceId" to orderId, "starBalance" to account.starBalance))
         return true
     }
 
