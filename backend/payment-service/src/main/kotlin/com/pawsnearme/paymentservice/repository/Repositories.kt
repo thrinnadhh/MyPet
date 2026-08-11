@@ -10,14 +10,11 @@ import com.pawsnearme.paymentservice.model.Promotion
 import com.pawsnearme.paymentservice.model.ProviderRef
 import com.pawsnearme.paymentservice.model.Transaction
 import jakarta.persistence.LockModeType
-import org.springframework.data.domain.Page
-import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import org.springframework.stereotype.Repository
-import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
@@ -37,14 +34,6 @@ interface TransactionRepository : JpaRepository<Transaction, UUID> {
 @Repository
 interface PayoutRepository : JpaRepository<Payout, UUID> {
     fun findByPayeeUserId(payeeUserId: UUID): List<Payout>
-    fun findByPayeeUserIdOrderByCreatedAtDesc(payeeUserId: UUID, pageable: Pageable): Page<Payout>
-
-    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payout p WHERE p.payeeUserId = :payeeUserId AND p.status = 'PAID'")
-    fun sumPaidAmountByPayeeUserId(@Param("payeeUserId") payeeUserId: UUID): BigDecimal
-
-    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payout p WHERE p.payeeUserId = :payeeUserId AND p.status IN ('PENDING', 'PROCESSING')")
-    fun sumInFlightAmountByPayeeUserId(@Param("payeeUserId") payeeUserId: UUID): BigDecimal
-
     fun findByRazorpayTransferId(razorpayTransferId: String): Payout?
     fun findByPayeeUserIdAndPayeeRoleAndPeriodStartAndPeriodEnd(
         payeeUserId: UUID,
