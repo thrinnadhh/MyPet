@@ -29,14 +29,14 @@ class LoyaltyControllerAuthorizationTests {
     )
 
     @Test
-    fun `provider may update only an owned store program`() {
+    fun `merchant may update only an owned store program`() {
         val actorId = UUID.randomUUID()
         val providerId = UUID.randomUUID()
         val program = program(providerId, BigDecimal("150"))
         whenever(providerModule.ownerUserId(providerId)).thenReturn(actorId)
         whenever(loyaltyService.updateProgram(any(), any())).thenAnswer { it.getArgument(0) }
 
-        val response = controller.updateProgram(program, "PROVIDER", actorId.toString())
+        val response = controller.updateProgram(program, "MERCHANT", actorId.toString())
 
         assertEquals(BigDecimal("150"), response.body!!.rewardAmount)
         assertEquals(true, response.body!!.isStackable)
@@ -44,10 +44,21 @@ class LoyaltyControllerAuthorizationTests {
     }
 
     @Test
-    fun `provider cannot update another merchants program`() {
+    fun `merchant cannot update another merchants program`() {
         val actorId = UUID.randomUUID()
         val providerId = UUID.randomUUID()
         whenever(providerModule.ownerUserId(providerId)).thenReturn(UUID.randomUUID())
+
+        assertThrows<PaymentAccessDeniedException> {
+            controller.updateProgram(program(providerId, BigDecimal("50")), "MERCHANT", actorId.toString())
+        }
+    }
+
+    @Test
+    fun `legacy provider role alias is rejected`() {
+        val actorId = UUID.randomUUID()
+        val providerId = UUID.randomUUID()
+        whenever(providerModule.ownerUserId(providerId)).thenReturn(actorId)
 
         assertThrows<PaymentAccessDeniedException> {
             controller.updateProgram(program(providerId, BigDecimal("50")), "PROVIDER", actorId.toString())
@@ -61,10 +72,10 @@ class LoyaltyControllerAuthorizationTests {
         whenever(providerModule.ownerUserId(providerId)).thenReturn(actorId)
 
         assertThrows<IllegalArgumentException> {
-            controller.updateProgram(program(providerId, BigDecimal("75")), "PROVIDER", actorId.toString())
+            controller.updateProgram(program(providerId, BigDecimal("75")), "MERCHANT", actorId.toString())
         }
         assertThrows<PaymentAccessDeniedException> {
-            controller.updateProgram(program(providerId, BigDecimal("50")), "PROVIDER", null)
+            controller.updateProgram(program(providerId, BigDecimal("50")), "MERCHANT", null)
         }
     }
 
