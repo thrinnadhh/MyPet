@@ -26,6 +26,7 @@ import jakarta.validation.constraints.Size
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.client.RestTemplate
@@ -141,7 +142,6 @@ data class OrderStatusChangedEvent(
     val eventType: String,
     val orderId: UUID,
     val actorId: UUID,
-    val customerId: UUID,
     val fromStatus: String,
     val toStatus: String,
     val totalAmount: BigDecimal,
@@ -159,6 +159,8 @@ data class CustomerOrderSummary(
     val flowStep: String,
     val totalAmount: BigDecimal,
     val placedAt: Instant,
+    val paymentMethod: String,
+    val paymentStatus: PaymentStatus,
     val items: List<String>,
     val statusHistory: List<OrderStatusHistoryEntry>,
 )
@@ -333,7 +335,6 @@ class OrderService @Autowired constructor(
         if (request.quoteToken.isNullOrBlank()) {
             throw IllegalArgumentException("Quote token is mandatory for order creation")
         }
-        val stockReservationScope = request.quoteToken
 
         val activeCustomerId = requireNotNull(request.customerId) { "Missing required customerId context" }
         val snapshot = quoteStore?.consume(request.quoteToken)
@@ -375,7 +376,8 @@ class OrderService @Autowired constructor(
             }
         }
 
-        if (paymentMethod == "COD" && !quote.isCodAvailable) {
+        val isCod = paymentMethod == "COD"
+        if (isCod && !quote.isCodAvailable) {
             throw IllegalArgumentException("COD_NOT_ELIGIBLE: ${quote.codRejectionReason ?: "Order total exceeds COD limit"}")
         }
 
@@ -385,14 +387,10 @@ class OrderService @Autowired constructor(
 
         try {
             val orderItemsToSave = request.items.map { item ->
-                decrementCatalogStock(
-                    item.offeringId,
-                    item.quantity,
-                    stockReservationScope
-                ).also { reservedItems.add(item) }
+                decrementCatalogStock(item.offeringId, item.quantity).also { reservedItems.add(item) }
             }
             val initialStatus = OrderStatus.PLACED
-            val paymentStatus = if (paymentMethod == "COD") "COD_PENDING" else "PENDING"
+            val paymentStatus = if (isCod) PaymentStatus.COD_PENDING else PaymentStatus.PENDING
             val savedOrder = orderRepository.save(
                 Order(
                     customerId = activeCustomerId,
@@ -445,6 +443,9 @@ class OrderService @Autowired constructor(
                 eventType = "OrderPlaced",
                 eventPayload = event
             )
+            if (isCod) {
+                publishMerchantOrderActionable(savedOrder, savedOrder.customerId)
+            }
             return savedOrder
         } catch (error: Exception) {
             try {
@@ -467,140 +468,128 @@ class OrderService @Autowired constructor(
 
     @Transactional
     fun confirmOrder(orderId: UUID, paymentId: UUID?): Order {
-        val order = orderRepository.findByIdForUpdate(orderId)
+        val order = orderRepository.findById(orderId)
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
-        return confirmPaymentLocked(order, paymentId)
-    }
-
-    private fun confirmPaymentLocked(order: Order, paymentId: UUID?): Order {
         if (order.paymentMethod == "COD") {
-            throw IllegalStateException("COD orders do not require prepaid payment confirmation")
+            throw IllegalStateException("COD orders do not use online payment confirmation")
         }
-        if (order.paymentStatus == "SUCCESS") {
-            if (paymentId == null || order.paymentId == paymentId) return order
-            throw IllegalStateException("Order is already linked to a different successful payment")
+        val paymentIdToUse = paymentId ?: throw IllegalArgumentException("Payment ID is required to confirm order")
+        if (order.paymentStatus == PaymentStatus.SUCCESS) {
+            if (order.paymentId == paymentIdToUse) return order
+            throw OrderTransitionConflictException("Order payment is already confirmed by a different transaction.")
         }
         if (order.status != OrderStatus.PLACED) {
-            throw IllegalStateException("Payment can only be confirmed while order is PLACED. Current state: ${order.status}")
-        }
-
-        val paymentIdToUse = paymentId ?: throw IllegalArgumentException("Payment ID is required to confirm order")
-        val transaction = try {
-            paymentModule.transaction(paymentIdToUse)
-                ?: throw IllegalStateException("Payment transaction $paymentIdToUse not found")
-        } catch (error: Exception) {
-            throw IllegalStateException("Payment verification failed: ${error.message}", error)
-        }
-        if (transaction.status != "SUCCESS") {
-            throw IllegalStateException("Payment status is ${transaction.status}, but expected SUCCESS to confirm order")
-        }
-        if (transaction.referenceId != order.orderId) {
-            throw IllegalStateException("Payment transaction does not belong to this order")
-        }
-        if (transaction.userId != order.customerId) {
-            throw IllegalStateException("Payment transaction belongs to a different customer")
-        }
-        if (transaction.amount.compareTo(order.totalAmount) != 0) {
-            throw IllegalStateException(
-                "Payment amount ₹${transaction.amount} does not match order total ₹${order.totalAmount}"
+            throw OrderTransitionConflictException(
+                "Payment confirmation cannot change order lifecycle from ${order.status}; payment and order status are independent."
             )
         }
 
+        try {
+            val transaction = paymentModule.transaction(paymentIdToUse)
+                ?: throw IllegalStateException("Payment transaction $paymentIdToUse not found")
+            if (transaction.status != "SUCCESS") {
+                throw IllegalStateException("Payment status is ${transaction.status}, but expected SUCCESS to confirm order")
+            }
+            if (transaction.amount.compareTo(order.totalAmount) != 0) {
+                throw IllegalStateException(
+                    "Payment amount ₹${transaction.amount} does not match order total ₹${order.totalAmount}"
+                )
+            }
+            if (transaction.referenceId != orderId || transaction.userId != order.customerId) {
+                throw IllegalStateException("Payment transaction does not belong to this order and customer")
+            }
+        } catch (error: Exception) {
+            throw IllegalStateException("Payment verification failed: ${error.message}", error)
+        }
+
         order.paymentId = paymentIdToUse
-        order.paymentStatus = "SUCCESS"
-        return orderRepository.save(order)
+        order.paymentStatus = PaymentStatus.SUCCESS
+        val saved = try {
+            orderRepository.saveAndFlush(order)
+        } catch (error: ObjectOptimisticLockingFailureException) {
+            throw OrderTransitionConflictException("Order changed while confirming payment. Reload and retry.")
+        }
+        order.couponCode?.let { redeemCouponReservation(it, order.customerId, order.orderId!!) }
+        publishMerchantOrderActionable(saved, saved.customerId)
+        return saved
     }
 
     @Transactional
-    fun updateOrderStatus(orderId: UUID, newStatus: OrderStatus, changedBy: UUID, note: String? = null): Order {
-        val order = orderRepository.findByIdForUpdate(orderId)
-            .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
-        return applyOrderStatusTransitionLocked(order, newStatus, changedBy, note)
-    }
-
-    private fun applyOrderStatusTransitionLocked(
-        order: Order,
+    fun updateOrderStatus(
+        orderId: UUID,
         newStatus: OrderStatus,
         changedBy: UUID,
-        note: String?,
+        actorRole: OrderActor,
+        note: String? = null
     ): Order {
-        val orderId = requireNotNull(order.orderId)
+        val order = orderRepository.findById(orderId)
+            .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
         val oldStatus = order.status
-        if (oldStatus == newStatus) return order
-        requireValidTransition(oldStatus, newStatus)
-
-        if (newStatus == OrderStatus.ACCEPTED) {
-            requirePaymentReadyForMerchantAcceptance(order)
-            order.couponCode?.let { redeemCouponReservation(it, order.customerId, orderId) }
-        }
-
-        if (newStatus in setOf(OrderStatus.CANCELLED, OrderStatus.REJECTED)) {
-            order.couponCode?.let { releaseCouponReservation(it, order.customerId, orderId) }
-            if (order.paymentStatus == "SUCCESS") {
-                paymentModule.refundOrder(orderId)
-                order.paymentStatus = "REFUNDED"
-            }
-            restoreOrderCatalogStock(orderId)
-        }
-
+        OrderTransitionPolicy.validateOrderTransition(oldStatus, newStatus, actorRole, order.paymentStatus)
+        val restoreReservedStock = shouldRestoreReservedStock(oldStatus, newStatus)
         order.status = newStatus
+
         when (newStatus) {
             OrderStatus.ACCEPTED -> order.acceptedAt = Instant.now()
-            OrderStatus.ASSIGNED, OrderStatus.REASSIGNED -> order.captainId = changedBy
+            OrderStatus.ASSIGNED -> order.captainId = changedBy
             OrderStatus.READY_FOR_PICKUP -> order.readyAt = Instant.now()
             OrderStatus.PICKED_UP -> order.picked_upAt = Instant.now()
             OrderStatus.DELIVERED -> {
-                if (order.paymentMethod == "COD") {
-                    order.paymentStatus = "COD_COLLECTED"
-                }
+                if (order.paymentMethod == "COD") order.paymentStatus = PaymentStatus.COD_COLLECTED
                 order.deliveredAt = Instant.now()
-                generateInvoiceForOrder(order)
-                notifyLoyaltyOrderDelivered(order)
             }
-            OrderStatus.CANCELLED, OrderStatus.REJECTED -> {
+            OrderStatus.CANCELLED -> {
                 order.cancelledAt = Instant.now()
                 order.cancellationReason = note
             }
             else -> Unit
         }
 
-        val updatedOrder = orderRepository.save(order)
+        val updatedOrder = try {
+            orderRepository.saveAndFlush(order)
+        } catch (error: ObjectOptimisticLockingFailureException) {
+            throw OrderTransitionConflictException(
+                "Order changed concurrently while transitioning $oldStatus to $newStatus. Reload and retry."
+            )
+        }
+
+        if (restoreReservedStock) restoreOrderCatalogStock(orderId)
+        if (newStatus in setOf(OrderStatus.CANCELLED, OrderStatus.REJECTED)) {
+            order.couponCode?.let { releaseCouponReservation(it, order.customerId, order.orderId!!) }
+        }
+        if (newStatus == OrderStatus.DELIVERED) {
+            if (order.paymentMethod == "COD") {
+                order.couponCode?.let { redeemCouponReservation(it, order.customerId, order.orderId!!) }
+            }
+            generateInvoiceForOrder(updatedOrder)
+            notifyLoyaltyOrderDelivered(updatedOrder)
+        }
+
         logStatusChange(orderId, oldStatus, newStatus, changedBy, note)
         publishOrderStatusEvent(updatedOrder, oldStatus, newStatus, changedBy)
         return updatedOrder
     }
 
-    private fun requirePaymentReadyForMerchantAcceptance(order: Order) {
-        if (order.paymentMethod == "COD") {
-            if (order.paymentStatus != "COD_PENDING") {
-                throw IllegalStateException("COD order has invalid payment state ${order.paymentStatus}")
-            }
-            return
-        }
-        if (order.paymentStatus != "SUCCESS" || order.paymentId == null) {
-            throw IllegalStateException("Prepaid order cannot be accepted until server-verified payment succeeds")
-        }
-    }
-
-    private fun requireValidTransition(current: OrderStatus, target: OrderStatus) {
-        val allowed = when (current) {
-            OrderStatus.PLACED -> setOf(OrderStatus.ACCEPTED, OrderStatus.REJECTED, OrderStatus.CANCELLED)
-            OrderStatus.ACCEPTED -> setOf(OrderStatus.PREPARING, OrderStatus.CANCELLED)
-            OrderStatus.PREPARING -> setOf(OrderStatus.READY_FOR_PICKUP, OrderStatus.CANCELLED)
-            OrderStatus.READY_FOR_PICKUP -> setOf(OrderStatus.ASSIGNED)
-            OrderStatus.ASSIGNED -> setOf(OrderStatus.REASSIGNED, OrderStatus.PICKED_UP)
-            OrderStatus.REASSIGNED -> setOf(OrderStatus.PICKED_UP)
-            OrderStatus.PICKED_UP -> setOf(OrderStatus.DELIVERED)
-            OrderStatus.DELIVERED -> setOf(OrderStatus.COMPLETED)
-            OrderStatus.COMPLETED, OrderStatus.REJECTED, OrderStatus.CANCELLED -> emptySet()
-        }
-        if (target !in allowed) {
-            throw IllegalStateException("Invalid order transition: $current -> $target")
-        }
+    private fun publishMerchantOrderActionable(order: Order, actorId: UUID) {
+        val event = MerchantOrderActionableEvent(
+            orderId = order.orderId!!,
+            actorId = actorId,
+            customerId = order.customerId,
+            providerId = order.providerId,
+            merchantOwnerUserId = fetchProviderOwnerUserId(order.providerId),
+            totalAmount = order.totalAmount
+        )
+        outboxService.saveEvent(
+            eventId = event.eventId,
+            aggregateType = "ORDER",
+            aggregateId = order.orderId!!,
+            eventType = event.eventType,
+            eventPayload = event
+        )
     }
 
     private fun publishOrderStatusEvent(order: Order, oldStatus: OrderStatus, newStatus: OrderStatus, actorId: UUID) {
-        val event = OrderStatusChangedEvent(
+        val event = CanonicalOrderStatusChangedEvent(
             eventType = if (newStatus == OrderStatus.CANCELLED) "OrderCancelled" else "OrderStatusChanged",
             orderId = order.orderId!!,
             actorId = actorId,
@@ -642,19 +631,13 @@ class OrderService @Autowired constructor(
 
     @CircuitBreaker(name = "catalogService", fallbackMethod = "decrementCatalogStockFallback")
     @Retry(name = "catalogService")
-    private fun decrementCatalogStock(
-        offeringId: UUID,
-        quantity: Int,
-        reservationScope: String
-    ): OrderItem {
+    private fun decrementCatalogStock(offeringId: UUID, quantity: Int): OrderItem {
         require(quantity > 0) { "Quantity must be greater than zero" }
         val snapshot = catalogModule.reserveStock(
             StockMutationCommand(
                 offeringId = offeringId,
                 quantity = quantity,
-                idempotencyKey = UUID.nameUUIDFromBytes(
-                    "reserve:$reservationScope:$offeringId:$quantity".toByteArray()
-                )
+                idempotencyKey = UUID.nameUUIDFromBytes("reserve:$offeringId:$quantity".toByteArray())
             )
         )
         return OrderItem(
@@ -668,24 +651,12 @@ class OrderService @Autowired constructor(
     }
 
     @Suppress("unused")
-    fun decrementCatalogStockFallback(
-        offeringId: UUID,
-        quantity: Int,
-        reservationScope: String,
-        error: Throwable
-    ): OrderItem {
-        logger.error(
-            "Catalog module reservation failed for scope {} (circuit breaker fallback active): {}",
-            reservationScope,
-            error.message
-        )
+    fun decrementCatalogStockFallback(offeringId: UUID, quantity: Int, error: Throwable): OrderItem {
+        logger.error("Catalog module reservation failed (circuit breaker fallback active): {}", error.message)
         throw IllegalStateException("Catalog service is currently unavailable (circuit open). Please try again later.", error)
     }
 
-    private fun restoreReservedCatalogStock(
-        items: List<OrderItemRequest>,
-        restorationScope: String
-    ) {
+    private fun restoreReservedCatalogStock(items: List<OrderItemRequest>) {
         items.asReversed().forEach { item ->
             try {
                 catalogModule.restoreStock(
@@ -693,7 +664,7 @@ class OrderService @Autowired constructor(
                         offeringId = item.offeringId,
                         quantity = item.quantity,
                         idempotencyKey = UUID.nameUUIDFromBytes(
-                            "restore:$restorationScope:${item.offeringId}:${item.quantity}".toByteArray()
+                            "restore:${item.offeringId}:${item.quantity}".toByteArray()
                         )
                     )
                 )
@@ -705,10 +676,13 @@ class OrderService @Autowired constructor(
 
     private fun restoreOrderCatalogStock(orderId: UUID) {
         restoreReservedCatalogStock(
-            items = orderItemRepository.findByOrderId(orderId)
-                .map { OrderItemRequest(it.offeringId, it.quantity) },
-            restorationScope = "order:$orderId"
+            orderItemRepository.findByOrderId(orderId).map { OrderItemRequest(it.offeringId, it.quantity) }
         )
+    }
+
+    private fun shouldRestoreReservedStock(oldStatus: OrderStatus, newStatus: OrderStatus): Boolean {
+        val releasingStatuses = setOf(OrderStatus.CANCELLED, OrderStatus.REJECTED)
+        return newStatus in releasingStatuses && oldStatus !in releasingStatuses
     }
 
     fun getDisputeRefundMode(): String = systemConfigRepository.findById("dispute_refund_mode")
@@ -893,7 +867,6 @@ class OrderService @Autowired constructor(
         return getCustomerOrderSummaries(customerId)
     }
 
-    @Transactional
     fun updateOrderStatusWithAuth(
         orderId: UUID,
         newStatus: OrderStatus,
@@ -901,50 +874,42 @@ class OrderService @Autowired constructor(
         callerRole: String?,
         note: String?
     ): Order {
-        val order = orderRepository.findByIdForUpdate(orderId)
+        val order = orderRepository.findById(orderId)
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
-        val allowed = when (callerRole?.uppercase()) {
-            "ADMIN" -> true
-            "MERCHANT" -> fetchProviderOwnerUserId(order.providerId) == callerId &&
-                newStatus in setOf(
-                    OrderStatus.ACCEPTED,
-                    OrderStatus.PREPARING,
-                    OrderStatus.READY_FOR_PICKUP,
-                    OrderStatus.CANCELLED,
-                    OrderStatus.REJECTED
-                )
-            "CAPTAIN" -> order.captainId == callerId &&
-                newStatus in setOf(OrderStatus.PICKED_UP, OrderStatus.DELIVERED)
-            else -> false
-        }
-        if (!allowed) throw OrderAccessDeniedException("Access denied for this order status transition.")
-        return applyOrderStatusTransitionLocked(order, newStatus, callerId, note)
+        val actorRole = when (callerRole?.uppercase()) {
+            "CUSTOMER" -> if (order.customerId == callerId) OrderActor.CUSTOMER else null
+            "MERCHANT" -> if (fetchProviderOwnerUserId(order.providerId) == callerId) OrderActor.MERCHANT else null
+            "CAPTAIN" -> if (order.captainId == callerId) OrderActor.CAPTAIN else null
+            else -> null
+        } ?: throw OrderAccessDeniedException("Access denied for this order status transition.")
+
+        return updateOrderStatus(orderId, newStatus, callerId, actorRole, note)
     }
 
-    @Transactional
     fun confirmOrderWithAuth(orderId: UUID, paymentId: UUID?, callerId: UUID, callerRole: String?): Order {
-        val order = orderRepository.findByIdForUpdate(orderId)
+        val order = orderRepository.findById(orderId)
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
-        assertCanAccessOrder(order, callerId, callerRole)
-        return confirmPaymentLocked(order, paymentId)
+        if (order.customerId != callerId || callerRole?.uppercase() in setOf("ADMIN", "MERCHANT", "CAPTAIN")) {
+            throw OrderAccessDeniedException("Only the order customer can confirm payment.")
+        }
+        return confirmOrder(orderId, paymentId)
     }
 
-    @Transactional
     fun cancelOrder(orderId: UUID, callerId: UUID, callerRole: String?, reason: String?): Order {
-        val order = orderRepository.findByIdForUpdate(orderId)
+        val order = orderRepository.findById(orderId)
             .orElseThrow { NoSuchElementException("Order with ID $orderId not found") }
-        assertCanAccessOrder(order, callerId, callerRole)
-        if (callerRole?.uppercase() != "ADMIN" && order.customerId != callerId) {
-            throw OrderAccessDeniedException("Only the customer or an administrator can use the customer cancellation endpoint.")
-        }
-        if (order.status !in setOf(OrderStatus.PLACED, OrderStatus.ACCEPTED)) {
-            throw IllegalStateException("Order in status ${order.status} cannot be cancelled by the customer.")
-        }
-        return applyOrderStatusTransitionLocked(
-            order,
+        val actorRole = when {
+            callerRole?.uppercase() == "MERCHANT" && fetchProviderOwnerUserId(order.providerId) == callerId -> OrderActor.MERCHANT
+            order.customerId == callerId && callerRole?.uppercase() !in setOf("ADMIN", "MERCHANT", "CAPTAIN") -> OrderActor.CUSTOMER
+            else -> null
+        } ?: throw OrderAccessDeniedException("Access denied for this order cancellation.")
+
+        return updateOrderStatus(
+            orderId,
             OrderStatus.CANCELLED,
             callerId,
-            reason ?: "Cancelled by customer"
+            actorRole,
+            reason ?: if (actorRole == OrderActor.CUSTOMER) "Cancelled by customer" else "Cancelled by merchant"
         )
     }
 
@@ -1021,6 +986,8 @@ class OrderService @Autowired constructor(
                 flowStep = mapFlowStep(order.status),
                 totalAmount = order.totalAmount,
                 placedAt = order.placedAt,
+                paymentMethod = order.paymentMethod,
+                paymentStatus = order.paymentStatus,
                 items = orderItemRepository.findByOrderId(order.orderId!!).map { it.offeringNameSnapshot },
                 statusHistory = orderStatusHistoryRepository.findByOrderId(order.orderId!!).map {
                     OrderStatusHistoryEntry(it.fromStatus, it.toStatus, it.changedAt, it.note)
@@ -1037,7 +1004,7 @@ class OrderService @Autowired constructor(
 
     private fun mapFlowStep(status: OrderStatus): String = when (status) {
         OrderStatus.PLACED, OrderStatus.ACCEPTED -> "placed"
-        OrderStatus.ASSIGNED, OrderStatus.REASSIGNED -> "assigned"
+        OrderStatus.ASSIGNED -> "assigned"
         OrderStatus.PREPARING, OrderStatus.READY_FOR_PICKUP -> "packed"
         OrderStatus.PICKED_UP -> "picked"
         OrderStatus.DELIVERED -> "delivered"
@@ -1092,7 +1059,11 @@ class OrderService @Autowired constructor(
     }
 
     private fun releaseCouponReservation(code: String, userId: UUID, orderId: UUID) {
-        paymentModule.releaseCoupon(code, userId, orderId)
+        try {
+            paymentModule.releaseCoupon(code, userId, orderId)
+        } catch (error: Exception) {
+            logger.error("Failed to release coupon reservation for order {}: {}", orderId, error.message)
+        }
     }
 
     private fun redeemCouponReservation(code: String, userId: UUID, orderId: UUID) {
