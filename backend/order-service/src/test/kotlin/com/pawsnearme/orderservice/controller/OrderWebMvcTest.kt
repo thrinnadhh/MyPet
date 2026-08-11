@@ -8,10 +8,20 @@ import com.pawsnearme.common.outbox.OutboxRepository
 import com.pawsnearme.common.outbox.OutboxService
 import com.pawsnearme.orderservice.model.Order
 import com.pawsnearme.orderservice.model.OrderStatus
+import com.pawsnearme.orderservice.model.PaymentStatus
 import com.pawsnearme.orderservice.repository.OrderRepository
 import com.pawsnearme.orderservice.service.CheckoutIntegrityService
 import com.pawsnearme.orderservice.service.CheckoutQuoteResponse
 import com.pawsnearme.orderservice.service.CustomerDeliveryContact
+import com.pawsnearme.orderservice.service.CustomerOrderCancellationView
+import com.pawsnearme.orderservice.service.CustomerOrderDeliveryAddressView
+import com.pawsnearme.orderservice.service.CustomerOrderDeliveryContactView
+import com.pawsnearme.orderservice.service.CustomerOrderDetailResponse
+import com.pawsnearme.orderservice.service.CustomerOrderPaymentView
+import com.pawsnearme.orderservice.service.CustomerOrderPricingView
+import com.pawsnearme.orderservice.service.CustomerOrderProjectionService
+import com.pawsnearme.orderservice.service.CustomerOrderTimestampsView
+import com.pawsnearme.orderservice.service.CustomerProviderView
 import com.pawsnearme.orderservice.service.DeliveryContactLookup
 import com.pawsnearme.orderservice.service.OrderService
 import com.pawsnearme.orderservice.service.QuoteStore
@@ -64,6 +74,9 @@ class OrderWebMvcTest {
 
     @MockBean
     private lateinit var deliveryContactLookup: DeliveryContactLookup
+
+    @MockBean
+    private lateinit var customerOrderProjectionService: CustomerOrderProjectionService
 
     @MockBean
     private lateinit var stringRedisTemplate: StringRedisTemplate
@@ -177,6 +190,8 @@ class OrderWebMvcTest {
             .thenReturn(CustomerDeliveryContact("+919876543210"))
         whenever(checkoutIntegrityService.createOrder(any(), eq(idempotencyKey))).thenReturn(createdOrder)
         whenever(orderRepository.save(any())).thenAnswer { it.arguments[0] as Order }
+        whenever(customerOrderProjectionService.detail(orderId, customerId, "CUSTOMER"))
+            .thenReturn(canonicalDetail(orderId, providerId, deliveryAddressId, OrderStatus.PLACED, "COD", PaymentStatus.COD_PENDING))
 
         val jsonRequest = """
             {
@@ -205,8 +220,8 @@ class OrderWebMvcTest {
             .andExpect(status().isCreated)
             .andExpect(jsonPath("$.orderId").value(orderId.toString()))
             .andExpect(jsonPath("$.status").value("PLACED"))
-            .andExpect(jsonPath("$.deliveryContactPhone").value("+919876543210"))
-            .andExpect(jsonPath("$.deliveryContactVerified").value(true))
+            .andExpect(jsonPath("$.deliveryContact.phone").value("+919876543210"))
+            .andExpect(jsonPath("$.deliveryContact.verified").value(true))
     }
 
     @Test
@@ -237,20 +252,13 @@ class OrderWebMvcTest {
     }
 
     @Test
-    fun `GET order by ID - authorized caller returns 200`() {
+    fun `GET order by ID - authorized caller returns canonical customer response`() {
         val orderId = UUID.randomUUID()
         val customerId = UUID.randomUUID()
-        val order = Order(
-            orderId = orderId,
-            customerId = customerId,
-            providerId = UUID.randomUUID(),
-            deliveryAddressId = UUID.randomUUID(),
-            status = OrderStatus.ACCEPTED,
-            subtotalAmount = BigDecimal("300.00"),
-            totalAmount = BigDecimal("300.00")
-        )
-
-        whenever(orderService.getOrderWithAuth(eq(orderId), eq(customerId), eq("CUSTOMER"))).thenReturn(order)
+        val providerId = UUID.randomUUID()
+        val deliveryAddressId = UUID.randomUUID()
+        whenever(customerOrderProjectionService.detail(orderId, customerId, "CUSTOMER"))
+            .thenReturn(canonicalDetail(orderId, providerId, deliveryAddressId, OrderStatus.ACCEPTED, "ONLINE", PaymentStatus.SUCCESS))
 
         mockMvc.perform(
             get("/api/v1/orders/$orderId")
@@ -259,5 +267,57 @@ class OrderWebMvcTest {
         )
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.orderId").value(orderId.toString()))
+            .andExpect(jsonPath("$.provider.providerId").value(providerId.toString()))
+            .andExpect(jsonPath("$.payment.status").value("SUCCESS"))
+            .andExpect(jsonPath("$.status").value("ACCEPTED"))
     }
+
+    private fun canonicalDetail(
+        orderId: UUID,
+        providerId: UUID,
+        deliveryAddressId: UUID,
+        status: OrderStatus,
+        paymentMethod: String,
+        paymentStatus: PaymentStatus,
+    ) = CustomerOrderDetailResponse(
+        orderId = orderId,
+        provider = CustomerProviderView(providerId, "Test Provider", "PET_STORE"),
+        items = emptyList(),
+        pricing = CustomerOrderPricingView(
+            subtotal = BigDecimal("500.00"),
+            discount = BigDecimal.ZERO,
+            loyaltyDiscount = BigDecimal.ZERO,
+            delivery = BigDecimal.ZERO,
+            tax = BigDecimal("25.00"),
+            total = BigDecimal("525.00"),
+        ),
+        payment = CustomerOrderPaymentView(paymentMethod, paymentStatus, null),
+        status = status,
+        flowStep = status.name.lowercase(),
+        statusHistory = emptyList(),
+        deliveryAddress = CustomerOrderDeliveryAddressView(
+            addressId = deliveryAddressId,
+            label = "Home",
+            line1 = "Test Street",
+            line2 = null,
+            city = "Tirupati",
+            state = "Andhra Pradesh",
+            pincode = "517501",
+            latitude = 13.6288,
+            longitude = 79.4192,
+        ),
+        deliveryContact = CustomerOrderDeliveryContactView("+919876543210", true),
+        captain = null,
+        timestamps = CustomerOrderTimestampsView(
+            placedAt = Instant.parse("2026-08-11T08:00:00Z"),
+            acceptedAt = null,
+            preparingAt = null,
+            readyAt = null,
+            pickedUpAt = null,
+            deliveredAt = null,
+            cancelledAt = null,
+        ),
+        cancellation = CustomerOrderCancellationView(false, null, null),
+        invoice = null,
+    )
 }
