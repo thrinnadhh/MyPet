@@ -267,9 +267,10 @@ export default function Index() {
           visible
           orderId={incomingOrder.id}
           amount={incomingOrder.amount}
-          onAccept={() => {
+          onView={() => {
+            const orderId = incomingOrder.id;
             setIncomingOrder(null);
-            router.push('/orders' as never);
+            router.push(`/orders/${encodeURIComponent(orderId)}` as never);
           }}
           onDismiss={() => setIncomingOrder(null)}
         />
