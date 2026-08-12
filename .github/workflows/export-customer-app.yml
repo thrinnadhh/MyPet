@@ -1,0 +1,25 @@
+name: export-customer-app
+
+on:
+  push:
+    branches:
+      - agent/export-customer-app
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package customer app only
+        run: |
+          tar -czf customer-app.tar.gz apps/customer-app
+      - name: Upload customer app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-app-export
+          path: customer-app.tar.gz
+          if-no-files-found: error
+          retention-days: 1
